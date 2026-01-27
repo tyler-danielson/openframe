@@ -7,11 +7,13 @@ import { LoginPage } from "./pages/LoginPage";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { CalendarPage } from "./pages/CalendarPage";
+import { TasksPage } from "./pages/TasksPage";
 import { PhotosPage } from "./pages/PhotosPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { IptvPage } from "./pages/IptvPage";
 import { CamerasPage } from "./pages/CamerasPage";
 import { HomeAssistantPage } from "./pages/HomeAssistantPage";
+import { SpotifyPage } from "./pages/SpotifyPage";
 import { Toaster } from "./components/ui/Toaster";
 import { Screensaver } from "./components/Screensaver";
 import { useIdleDetector } from "./hooks/useIdleDetector";
@@ -97,13 +99,15 @@ export default function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route index element={<Navigate to="/calendar" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="calendar" element={<CalendarPage />} />
+          <Route path="tasks" element={<TasksPage />} />
           <Route path="photos" element={<PhotosPage />} />
           <Route path="iptv" element={<IptvPage />} />
           <Route path="cameras" element={<CamerasPage />} />
           <Route path="homeassistant" element={<HomeAssistantPage />} />
+          <Route path="spotify" element={<SpotifyPage />} />
           <Route
             path="settings"
             element={

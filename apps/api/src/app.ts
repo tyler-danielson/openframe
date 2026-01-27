@@ -20,6 +20,7 @@ import { mapsRoutes } from "./routes/maps/index.js";
 import { iptvRoutes } from "./routes/iptv/index.js";
 import { cameraRoutes } from "./routes/cameras/index.js";
 import { homeAssistantRoutes } from "./routes/homeassistant/index.js";
+import { spotifyRoutes } from "./routes/spotify/index.js";
 import type { Config } from "./config.js";
 
 export async function buildApp(config: Config): Promise<FastifyInstance> {
@@ -118,6 +119,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(iptvRoutes, { prefix: "/api/v1/iptv" });
   await app.register(cameraRoutes, { prefix: "/api/v1/cameras" });
   await app.register(homeAssistantRoutes, { prefix: "/api/v1/homeassistant" });
+  await app.register(spotifyRoutes, { prefix: "/api/v1/spotify" });
 
   // Error handler
   app.setErrorHandler((error: FastifyError, _request, reply) => {

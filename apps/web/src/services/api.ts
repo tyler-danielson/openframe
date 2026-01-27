@@ -211,6 +211,29 @@ class ApiClient {
     return this.fetch<Task>(`/tasks/${id}/complete`, { method: "POST" });
   }
 
+  async updateTask(
+    id: string,
+    data: Partial<{
+      title: string;
+      notes: string;
+      status: "needsAction" | "completed";
+      dueDate: Date | null;
+    }>
+  ): Promise<Task> {
+    return this.fetch<Task>(`/tasks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteTask(id: string): Promise<void> {
+    await this.fetch(`/tasks/${id}`, { method: "DELETE" });
+  }
+
+  async syncTasks(): Promise<{ syncedLists: number; syncedTasks: number; totalLists: number }> {
+    return this.fetch("/tasks/sync", { method: "POST" });
+  }
+
   // Photos
   async getAlbums(): Promise<PhotoAlbum[]> {
     return this.fetch<PhotoAlbum[]>("/photos/albums");
@@ -613,6 +636,144 @@ class ApiClient {
       method: "POST",
       body: JSON.stringify({ entityIds }),
     });
+  }
+
+  // Spotify
+  async getSpotifyStatus(): Promise<{
+    connected: boolean;
+    user?: { id: string; name: string; image?: string };
+  }> {
+    return this.fetch("/spotify/status");
+  }
+
+  getSpotifyAuthUrl(): string {
+    return `${API_BASE}/spotify/auth`;
+  }
+
+  async disconnectSpotify(): Promise<void> {
+    await this.fetch("/spotify/disconnect", { method: "DELETE" });
+  }
+
+  async getSpotifyPlayback(): Promise<{
+    is_playing: boolean;
+    progress_ms: number;
+    device: { id: string; name: string; type: string; is_active: boolean; volume_percent: number } | null;
+    item: {
+      id: string;
+      name: string;
+      uri: string;
+      duration_ms: number;
+      artists: { id: string; name: string }[];
+      album: { id: string; name: string; images: { url: string }[] };
+    } | null;
+    shuffle_state: boolean;
+    repeat_state: "off" | "track" | "context";
+  } | null> {
+    return this.fetch("/spotify/playback");
+  }
+
+  async getSpotifyDevices(): Promise<
+    { id: string; name: string; type: string; is_active: boolean; volume_percent: number }[]
+  > {
+    return this.fetch("/spotify/devices");
+  }
+
+  async spotifyPlay(options?: {
+    deviceId?: string;
+    contextUri?: string;
+    uris?: string[];
+  }): Promise<void> {
+    await this.fetch("/spotify/play", {
+      method: "PUT",
+      body: JSON.stringify(options || {}),
+    });
+  }
+
+  async spotifyPause(): Promise<void> {
+    await this.fetch("/spotify/pause", { method: "PUT" });
+  }
+
+  async spotifyNext(): Promise<void> {
+    await this.fetch("/spotify/next", { method: "POST", body: JSON.stringify({}) });
+  }
+
+  async spotifyPrevious(): Promise<void> {
+    await this.fetch("/spotify/previous", { method: "POST", body: JSON.stringify({}) });
+  }
+
+  async spotifySeek(positionMs: number): Promise<void> {
+    await this.fetch("/spotify/seek", {
+      method: "PUT",
+      body: JSON.stringify({ positionMs }),
+    });
+  }
+
+  async spotifySetVolume(volumePercent: number): Promise<void> {
+    await this.fetch("/spotify/volume", {
+      method: "PUT",
+      body: JSON.stringify({ volumePercent }),
+    });
+  }
+
+  async spotifySetShuffle(state: boolean): Promise<void> {
+    await this.fetch("/spotify/shuffle", {
+      method: "PUT",
+      body: JSON.stringify({ state }),
+    });
+  }
+
+  async spotifySetRepeat(state: "off" | "track" | "context"): Promise<void> {
+    await this.fetch("/spotify/repeat", {
+      method: "PUT",
+      body: JSON.stringify({ state }),
+    });
+  }
+
+  async spotifyTransferPlayback(deviceId: string, play?: boolean): Promise<void> {
+    await this.fetch("/spotify/transfer", {
+      method: "PUT",
+      body: JSON.stringify({ deviceId, play }),
+    });
+  }
+
+  async getSpotifyPlaylists(limit = 20, offset = 0): Promise<{
+    items: {
+      id: string;
+      name: string;
+      description: string | null;
+      images: { url: string }[];
+      tracks: { total: number };
+      uri: string;
+    }[];
+    total: number;
+  }> {
+    return this.fetch(`/spotify/playlists?limit=${limit}&offset=${offset}`);
+  }
+
+  async getSpotifyRecentlyPlayed(limit = 20): Promise<{
+    items: {
+      track: {
+        id: string;
+        name: string;
+        uri: string;
+        artists: { name: string }[];
+        album: { name: string; images: { url: string }[] };
+      };
+      played_at: string;
+    }[];
+  }> {
+    return this.fetch(`/spotify/recently-played?limit=${limit}`);
+  }
+
+  async searchSpotify(
+    query: string,
+    types: string[] = ["track", "artist", "album", "playlist"],
+    limit = 10
+  ): Promise<{
+    tracks?: { items: { id: string; name: string; uri: string; artists: { name: string }[]; album: { name: string; images: { url: string }[] } }[] };
+    playlists?: { items: { id: string; name: string; uri: string; images: { url: string }[] }[] };
+  }> {
+    return this.fetch(`/spotify/search?q=${encodeURIComponent(query)}&types=${types.join(",")}&limit=${limit}`);
   }
 }
 

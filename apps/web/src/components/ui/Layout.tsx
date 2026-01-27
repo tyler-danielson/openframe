@@ -14,6 +14,8 @@ import {
   Home,
   Maximize,
   Minimize,
+  ListTodo,
+  Music,
 } from "lucide-react";
 import { api } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
@@ -75,9 +77,11 @@ export function Layout() {
 
   // Build nav items based on authentication status
   const navItems = [
-    { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { to: "/calendar", icon: Calendar, label: "Calendar" },
+    { to: "/tasks", icon: ListTodo, label: "Tasks" },
+    { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { to: "/photos", icon: Image, label: "Photos" },
+    { to: "/spotify", icon: Music, label: "Spotify" },
     { to: "/iptv", icon: Tv, label: "Live TV" },
     { to: "/cameras", icon: Camera, label: "Cameras" },
     { to: "/homeassistant", icon: Home, label: "Home Assistant" },

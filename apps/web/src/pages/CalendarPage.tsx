@@ -212,7 +212,7 @@ export function CalendarPage() {
         </div>
 
         {/* Calendar view */}
-        <div className="flex-1 p-4 relative">
+        <div className="flex-1 relative">
           <CalendarView
             events={events}
             onSelectEvent={handleSelectEvent}
@@ -222,10 +222,10 @@ export function CalendarPage() {
           {/* Add event button */}
           <button
             onClick={() => setIsCreateModalOpen(true)}
-            className="absolute bottom-8 right-8 w-16 h-16 rounded-full bg-primary text-primary-foreground shadow-md hover:shadow-lg hover:bg-primary/90 transition-all flex items-center justify-center"
+            className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-md hover:shadow-lg hover:bg-primary/90 transition-all flex items-center justify-center"
             title="Add new event"
           >
-            <Plus className="h-8 w-8" />
+            <Plus className="h-7 w-7" />
           </button>
         </div>
       </div>

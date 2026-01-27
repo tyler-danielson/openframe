@@ -1,10 +1,141 @@
 import type { FastifyPluginAsync } from "fastify";
 import { eq, and, gte, lte } from "drizzle-orm";
-import { taskLists, tasks } from "@openframe/database/schema";
+import { taskLists, tasks, oauthTokens } from "@openframe/database/schema";
 import { taskQuerySchema, createTaskSchema, updateTaskSchema } from "@openframe/shared/validators";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { GoogleTasksService } from "../../services/google-tasks.js";
 
 export const taskRoutes: FastifyPluginAsync = async (fastify) => {
+  // Sync tasks from Google
+  fastify.post(
+    "/sync",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Sync tasks from Google Tasks",
+        tags: ["Tasks"],
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+
+      // Get Google OAuth token
+      const [token] = await fastify.db
+        .select()
+        .from(oauthTokens)
+        .where(
+          and(
+            eq(oauthTokens.userId, user.id),
+            eq(oauthTokens.provider, "google")
+          )
+        )
+        .limit(1);
+
+      if (!token?.accessToken) {
+        return { success: false, error: "Google account not connected" };
+      }
+
+      const googleTasks = new GoogleTasksService(token.accessToken);
+
+      // Fetch all task lists from Google
+      const googleLists = await googleTasks.getTaskLists();
+
+      let syncedLists = 0;
+      let syncedTasks = 0;
+
+      for (const googleList of googleLists) {
+        // Upsert task list
+        const [existingList] = await fastify.db
+          .select()
+          .from(taskLists)
+          .where(
+            and(
+              eq(taskLists.userId, user.id),
+              eq(taskLists.externalId, googleList.id)
+            )
+          )
+          .limit(1);
+
+        let listId: string;
+
+        if (existingList) {
+          await fastify.db
+            .update(taskLists)
+            .set({
+              name: googleList.title,
+              lastSyncAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(taskLists.id, existingList.id));
+          listId = existingList.id;
+        } else {
+          const [newList] = await fastify.db
+            .insert(taskLists)
+            .values({
+              userId: user.id,
+              externalId: googleList.id,
+              name: googleList.title,
+              provider: "google",
+              isVisible: true,
+              lastSyncAt: new Date(),
+            })
+            .returning();
+          listId = newList!.id;
+          syncedLists++;
+        }
+
+        // Fetch tasks for this list
+        const googleTaskItems = await googleTasks.getTasks(googleList.id);
+
+        for (const googleTask of googleTaskItems) {
+          const [existingTask] = await fastify.db
+            .select()
+            .from(tasks)
+            .where(
+              and(
+                eq(tasks.taskListId, listId),
+                eq(tasks.externalId, googleTask.id)
+              )
+            )
+            .limit(1);
+
+          const taskData = {
+            title: googleTask.title,
+            notes: googleTask.notes || null,
+            status: googleTask.status,
+            dueDate: googleTask.due ? new Date(googleTask.due) : null,
+            completedAt: googleTask.completed ? new Date(googleTask.completed) : null,
+            updatedAt: new Date(),
+          };
+
+          if (existingTask) {
+            await fastify.db
+              .update(tasks)
+              .set(taskData)
+              .where(eq(tasks.id, existingTask.id));
+          } else {
+            await fastify.db.insert(tasks).values({
+              taskListId: listId,
+              externalId: googleTask.id,
+              ...taskData,
+            });
+            syncedTasks++;
+          }
+        }
+      }
+
+      return {
+        success: true,
+        data: {
+          syncedLists,
+          syncedTasks,
+          totalLists: googleLists.length,
+        },
+      };
+    }
+  );
+
   // List task lists
   fastify.get(
     "/lists",

@@ -1,27 +1,30 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search } from "lucide-react";
+import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music } from "lucide-react";
 import type { Camera } from "@openframe/shared";
 import { api } from "../services/api";
 import { useAuthStore } from "../stores/auth";
 import { useCalendarStore } from "../stores/calendar";
 import { useScreensaverStore, type ScreensaverLayout, type ScreensaverTransition } from "../stores/screensaver";
+import { useTasksStore, type TasksLayout } from "../stores/tasks";
 import { Button } from "../components/ui/Button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/Card";
 import { LocalPhotoAlbums } from "../components/photos/LocalPhotoAlbums";
 import { AlbumPhotoGrid } from "../components/photos/AlbumPhotoGrid";
 import { ManageAllPhotos } from "../components/photos/ManageAllPhotos";
 
-type SettingsTab = "account" | "calendars" | "display" | "screensaver" | "kiosk" | "iptv" | "cameras" | "homeassistant" | "api";
-const validTabs: SettingsTab[] = ["account", "calendars", "display", "screensaver", "kiosk", "iptv", "cameras", "homeassistant", "api"];
+type SettingsTab = "account" | "calendars" | "tasks" | "display" | "screensaver" | "kiosk" | "spotify" | "iptv" | "cameras" | "homeassistant" | "api";
+const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "display", "screensaver", "kiosk", "spotify", "iptv", "cameras", "homeassistant", "api"];
 
 const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "account", label: "Account", icon: <User className="h-4 w-4" /> },
   { id: "calendars", label: "Calendars", icon: <Calendar className="h-4 w-4" /> },
+  { id: "tasks", label: "Tasks", icon: <ListTodo className="h-4 w-4" /> },
   { id: "display", label: "Display", icon: <Monitor className="h-4 w-4" /> },
   { id: "screensaver", label: "Screensaver", icon: <ImageIcon className="h-4 w-4" /> },
   { id: "kiosk", label: "Kiosk", icon: <Tv className="h-4 w-4" /> },
+  { id: "spotify", label: "Spotify", icon: <Music className="h-4 w-4" /> },
   { id: "iptv", label: "IPTV", icon: <Tv className="h-4 w-4" /> },
   { id: "cameras", label: "Cameras", icon: <Video className="h-4 w-4" /> },
   { id: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" /> },
@@ -1124,6 +1127,110 @@ function HomeAssistantSettings() {
   );
 }
 
+function SpotifySettings() {
+  const queryClient = useQueryClient();
+
+  const { data: status, isLoading } = useQuery({
+    queryKey: ["spotify-status"],
+    queryFn: () => api.getSpotifyStatus(),
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: () => api.disconnectSpotify(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["spotify-status"] });
+    },
+  });
+
+  const handleDisconnect = () => {
+    if (confirm("Disconnect your Spotify account?")) {
+      disconnectMutation.mutate();
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Spotify Connection</CardTitle>
+        <CardDescription>
+          Connect your Spotify account to control music playback
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : status?.connected ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between rounded-lg border border-green-300 bg-green-50 p-4 dark:border-green-800 dark:bg-green-950">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-500">
+                  <Music className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <p className="font-medium text-green-900 dark:text-green-100">Connected</p>
+                  <p className="text-sm text-green-700 dark:text-green-300">
+                    {status.user?.name || "Spotify Account"}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDisconnect}
+                disabled={disconnectMutation.isPending}
+              >
+                {disconnectMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                )}
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              You can control Spotify playback from the Spotify page in the sidebar.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-dashed border-border p-6 text-center">
+              <Music className="mx-auto h-8 w-8 text-muted-foreground" />
+              <p className="mt-2 text-sm text-muted-foreground">
+                Not connected to Spotify
+              </p>
+            </div>
+            <a
+              href={api.getSpotifyAuthUrl()}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-500 px-4 py-2 font-medium text-white hover:bg-green-600 transition-colors"
+            >
+              <Music className="h-5 w-5" />
+              Connect Spotify
+            </a>
+            <div className="rounded-lg border border-border p-4">
+              <h4 className="font-medium">Requirements</h4>
+              <ul className="mt-2 space-y-2 text-sm text-muted-foreground">
+                <li className="flex items-start gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+                  Spotify Premium account required for playback control
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+                  Active Spotify device needed (phone, computer, or speaker)
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+                  Configure SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, and SPOTIFY_REDIRECT_URI in environment
+                </li>
+              </ul>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1136,11 +1243,19 @@ export function SettingsPage() {
     setIdleTimeout,
     slideInterval,
     setSlideInterval,
-    layout,
-    setLayout,
+    layout: screensaverLayout,
+    setLayout: setScreensaverLayout,
     transition,
     setTransition,
   } = useScreensaverStore();
+  const {
+    layout: tasksLayout,
+    setLayout: setTasksLayout,
+    showCompleted: tasksShowCompleted,
+    setShowCompleted: setTasksShowCompleted,
+    expandAllLists,
+    setExpandAllLists,
+  } = useTasksStore();
 
   // Read initial tab from URL, default to "account"
   const tabFromUrl = searchParams.get("tab") as SettingsTab | null;
@@ -1524,6 +1639,137 @@ export function SettingsPage() {
             </Card>
           )}
 
+          {/* Tasks Tab */}
+          {activeTab === "tasks" && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Tasks Display</CardTitle>
+                <CardDescription>
+                  Configure how tasks are displayed
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">Layout</p>
+                    <p className="text-sm text-muted-foreground">
+                      Choose how tasks are displayed
+                    </p>
+                  </div>
+                  <select
+                    className="rounded-md border border-border bg-background px-3 py-1"
+                    value={tasksLayout}
+                    onChange={(e) => setTasksLayout(e.target.value as TasksLayout)}
+                  >
+                    <option value="lists">Collapsible Lists</option>
+                    <option value="grid">Grid</option>
+                    <option value="columns">Columns (Side-by-Side)</option>
+                    <option value="kanban">Kanban (By Status)</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">Show completed tasks</p>
+                    <p className="text-sm text-muted-foreground">
+                      Display completed tasks by default
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={tasksShowCompleted}
+                    onChange={(e) => setTasksShowCompleted(e.target.checked)}
+                    className="rounded"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">Expand all lists</p>
+                    <p className="text-sm text-muted-foreground">
+                      Automatically expand all task lists (Lists layout only)
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={expandAllLists}
+                    onChange={(e) => setExpandAllLists(e.target.checked)}
+                    className="rounded"
+                    disabled={tasksLayout !== "lists"}
+                  />
+                </div>
+
+                {/* Layout preview */}
+                <div className="rounded-lg border border-border p-4 bg-muted/30">
+                  <p className="text-sm font-medium mb-2">Layout preview</p>
+                  <div className="grid grid-cols-4 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setTasksLayout("lists")}
+                      className={`aspect-video rounded border-2 flex flex-col items-start justify-center p-1.5 gap-0.5 ${
+                        tasksLayout === "lists" ? "border-primary bg-primary/10" : "border-border"
+                      }`}
+                      title="Collapsible Lists"
+                    >
+                      <div className="w-full h-1 bg-muted-foreground/30 rounded" />
+                      <div className="w-3/4 h-0.5 bg-muted-foreground/20 rounded ml-1" />
+                      <div className="w-full h-1 bg-muted-foreground/30 rounded" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTasksLayout("grid")}
+                      className={`aspect-video rounded border-2 grid grid-cols-3 gap-0.5 p-1 ${
+                        tasksLayout === "grid" ? "border-primary bg-primary/10" : "border-border"
+                      }`}
+                      title="Grid"
+                    >
+                      <div className="bg-muted-foreground/30 rounded" />
+                      <div className="bg-muted-foreground/30 rounded" />
+                      <div className="bg-muted-foreground/30 rounded" />
+                      <div className="bg-muted-foreground/30 rounded" />
+                      <div className="bg-muted-foreground/30 rounded" />
+                      <div className="bg-muted-foreground/30 rounded" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTasksLayout("columns")}
+                      className={`aspect-video rounded border-2 flex items-stretch gap-0.5 p-1 ${
+                        tasksLayout === "columns" ? "border-primary bg-primary/10" : "border-border"
+                      }`}
+                      title="Columns"
+                    >
+                      <div className="flex-1 bg-muted-foreground/30 rounded" />
+                      <div className="flex-1 bg-muted-foreground/30 rounded" />
+                      <div className="flex-1 bg-muted-foreground/30 rounded" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTasksLayout("kanban")}
+                      className={`aspect-video rounded border-2 flex items-stretch gap-0.5 p-1 ${
+                        tasksLayout === "kanban" ? "border-primary bg-primary/10" : "border-border"
+                      }`}
+                      title="Kanban"
+                    >
+                      <div className="flex-1 bg-muted-foreground/30 rounded flex flex-col gap-0.5 p-0.5">
+                        <div className="flex-1 bg-muted-foreground/20 rounded" />
+                        <div className="flex-1 bg-muted-foreground/20 rounded" />
+                      </div>
+                      <div className="flex-1 bg-green-500/30 rounded flex flex-col gap-0.5 p-0.5">
+                        <div className="flex-1 bg-green-500/20 rounded" />
+                      </div>
+                    </button>
+                  </div>
+                  <div className="flex justify-between mt-2 text-xs text-muted-foreground">
+                    <span>Lists</span>
+                    <span>Grid</span>
+                    <span>Columns</span>
+                    <span>Kanban</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Display Tab */}
           {activeTab === "display" && (
             <Card>
@@ -1777,8 +2023,8 @@ export function SettingsPage() {
                         </div>
                         <select
                           className="rounded-md border border-border bg-background px-3 py-1"
-                          value={layout}
-                          onChange={(e) => setLayout(e.target.value as ScreensaverLayout)}
+                          value={screensaverLayout}
+                          onChange={(e) => setScreensaverLayout(e.target.value as ScreensaverLayout)}
                         >
                           <option value="fullscreen">Full screen</option>
                           <option value="side-by-side">Side by side (2)</option>
@@ -1797,7 +2043,7 @@ export function SettingsPage() {
                           className="rounded-md border border-border bg-background px-3 py-1"
                           value={transition}
                           onChange={(e) => setTransition(e.target.value as ScreensaverTransition)}
-                          disabled={layout === "scatter"}
+                          disabled={screensaverLayout === "scatter"}
                         >
                           <option value="fade">Fade</option>
                           <option value="slide-left">Slide Left</option>
@@ -1812,18 +2058,18 @@ export function SettingsPage() {
                         <div className="grid grid-cols-4 gap-2">
                           <button
                             type="button"
-                            onClick={() => setLayout("fullscreen")}
+                            onClick={() => setScreensaverLayout("fullscreen")}
                             className={`aspect-video rounded border-2 flex items-center justify-center ${
-                              layout === "fullscreen" ? "border-primary bg-primary/10" : "border-border"
+                              screensaverLayout === "fullscreen" ? "border-primary bg-primary/10" : "border-border"
                             }`}
                           >
                             <div className="w-8 h-6 bg-muted-foreground/30 rounded" />
                           </button>
                           <button
                             type="button"
-                            onClick={() => setLayout("side-by-side")}
+                            onClick={() => setScreensaverLayout("side-by-side")}
                             className={`aspect-video rounded border-2 flex items-center justify-center gap-0.5 ${
-                              layout === "side-by-side" ? "border-primary bg-primary/10" : "border-border"
+                              screensaverLayout === "side-by-side" ? "border-primary bg-primary/10" : "border-border"
                             }`}
                           >
                             <div className="w-3 h-5 bg-muted-foreground/30 rounded" />
@@ -1831,9 +2077,9 @@ export function SettingsPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => setLayout("quad")}
+                            onClick={() => setScreensaverLayout("quad")}
                             className={`aspect-video rounded border-2 grid grid-cols-2 grid-rows-2 gap-0.5 p-1 ${
-                              layout === "quad" ? "border-primary bg-primary/10" : "border-border"
+                              screensaverLayout === "quad" ? "border-primary bg-primary/10" : "border-border"
                             }`}
                           >
                             <div className="bg-muted-foreground/30 rounded" />
@@ -1843,9 +2089,9 @@ export function SettingsPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => setLayout("scatter")}
+                            onClick={() => setScreensaverLayout("scatter")}
                             className={`aspect-video rounded border-2 relative overflow-hidden ${
-                              layout === "scatter" ? "border-primary bg-primary/10" : "border-border"
+                              screensaverLayout === "scatter" ? "border-primary bg-primary/10" : "border-border"
                             }`}
                           >
                             <div className="absolute w-3 h-2 bg-muted-foreground/30 rounded top-1 left-1 rotate-[-5deg]" />
@@ -1864,6 +2110,11 @@ export function SettingsPage() {
           {/* Kiosk Tab */}
           {activeTab === "kiosk" && (
             <KioskSettings />
+          )}
+
+          {/* Spotify Tab */}
+          {activeTab === "spotify" && (
+            <SpotifySettings />
           )}
 
           {/* IPTV Tab */}
