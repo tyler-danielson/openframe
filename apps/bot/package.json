@@ -1,0 +1,26 @@
+{
+  "name": "@openframe/bot",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@grammyjs/conversations": "^1.2.0",
+    "@openframe/shared": "workspace:*",
+    "dotenv": "^16.4.5",
+    "grammy": "^1.30.0"
+  },
+  "devDependencies": {
+    "@openframe/eslint-config": "workspace:*",
+    "@openframe/typescript-config": "workspace:*",
+    "@types/node": "^22.9.0",
+    "eslint": "^9.15.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

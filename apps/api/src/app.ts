@@ -1,0 +1,142 @@
+import Fastify, { type FastifyInstance, type FastifyError } from "fastify";
+import cors from "@fastify/cors";
+import sensible from "@fastify/sensible";
+import jwt from "@fastify/jwt";
+import cookie from "@fastify/cookie";
+import rateLimit from "@fastify/rate-limit";
+import multipart from "@fastify/multipart";
+import swagger from "@fastify/swagger";
+import swaggerUi from "@fastify/swagger-ui";
+import { databasePlugin } from "./plugins/database.js";
+import { authPlugin } from "./plugins/auth.js";
+import { healthRoutes } from "./routes/health.js";
+import { authRoutes } from "./routes/auth/index.js";
+import { calendarRoutes } from "./routes/calendars/index.js";
+import { eventRoutes } from "./routes/events/index.js";
+import { taskRoutes } from "./routes/tasks/index.js";
+import { photoRoutes } from "./routes/photos/index.js";
+import { botRoutes } from "./routes/bot/index.js";
+import { mapsRoutes } from "./routes/maps/index.js";
+import { iptvRoutes } from "./routes/iptv/index.js";
+import { cameraRoutes } from "./routes/cameras/index.js";
+import { homeAssistantRoutes } from "./routes/homeassistant/index.js";
+import type { Config } from "./config.js";
+
+export async function buildApp(config: Config): Promise<FastifyInstance> {
+  const app = Fastify({
+    logger: {
+      level: config.logLevel,
+      transport:
+        config.nodeEnv === "development"
+          ? {
+              target: "pino-pretty",
+              options: { colorize: true },
+            }
+          : undefined,
+    },
+  });
+
+  // Register core plugins
+  await app.register(sensible);
+
+  await app.register(cors, {
+    origin: config.corsOrigins,
+    credentials: true,
+  });
+
+  await app.register(cookie, {
+    secret: config.cookieSecret,
+  });
+
+  await app.register(jwt, {
+    secret: config.jwtSecret,
+    sign: {
+      expiresIn: "15m",
+    },
+  });
+
+  await app.register(rateLimit, {
+    max: 100,
+    timeWindow: "1 minute",
+  });
+
+  await app.register(multipart, {
+    limits: {
+      fileSize: 50 * 1024 * 1024, // 50MB
+    },
+  });
+
+  // Swagger documentation
+  await app.register(swagger, {
+    openapi: {
+      openapi: "3.0.0",
+      info: {
+        title: "OpenFrame API",
+        description: "Self-hosted calendar dashboard API",
+        version: "1.0.0",
+      },
+      servers: [
+        {
+          url: `http://localhost:${config.port}`,
+          description: "Development server",
+        },
+      ],
+      components: {
+        securitySchemes: {
+          bearerAuth: {
+            type: "http",
+            scheme: "bearer",
+            bearerFormat: "JWT",
+          },
+          apiKey: {
+            type: "apiKey",
+            in: "header",
+            name: "X-API-Key",
+          },
+        },
+      },
+    },
+  });
+
+  await app.register(swaggerUi, {
+    routePrefix: "/docs",
+  });
+
+  // Custom plugins
+  await app.register(databasePlugin, { connectionString: config.databaseUrl });
+  await app.register(authPlugin);
+
+  // Routes
+  await app.register(healthRoutes, { prefix: "/api/v1" });
+  await app.register(authRoutes, { prefix: "/api/v1/auth" });
+  await app.register(calendarRoutes, { prefix: "/api/v1/calendars" });
+  await app.register(eventRoutes, { prefix: "/api/v1/events" });
+  await app.register(taskRoutes, { prefix: "/api/v1/tasks" });
+  await app.register(photoRoutes, { prefix: "/api/v1/photos" });
+  await app.register(botRoutes, { prefix: "/api/v1/bot" });
+  await app.register(mapsRoutes, { prefix: "/api/v1/maps" });
+  await app.register(iptvRoutes, { prefix: "/api/v1/iptv" });
+  await app.register(cameraRoutes, { prefix: "/api/v1/cameras" });
+  await app.register(homeAssistantRoutes, { prefix: "/api/v1/homeassistant" });
+
+  // Error handler
+  app.setErrorHandler((error: FastifyError, _request, reply) => {
+    app.log.error(error);
+
+    const statusCode = error.statusCode ?? 500;
+    const response = {
+      success: false,
+      error: {
+        code: error.code ?? "INTERNAL_ERROR",
+        message:
+          config.nodeEnv === "production" && statusCode === 500
+            ? "Internal server error"
+            : error.message,
+      },
+    };
+
+    reply.status(statusCode).send(response);
+  });
+
+  return app;
+}

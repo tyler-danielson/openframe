@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1769300675124,
+      "tag": "0000_cool_machine_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1769400000000,
+      "tag": "0001_add_photo_source_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1769479565346,
+      "tag": "0002_neat_captain_stacy",
+      "breakpoints": true
+    }
+  ]
+}
