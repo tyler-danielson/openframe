@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Lightbulb,
   Power,
@@ -14,25 +14,80 @@ import {
   ToggleRight,
   Gauge,
   Loader2,
+  Clock,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import type { HomeAssistantEntityState } from "@openframe/shared";
+import { useLongPress } from "../../hooks/useLongPress";
+import { EntityTimerMenu, type EntityTimer } from "./EntityTimerMenu";
+import { api } from "../../services/api";
 
 interface EntityCardProps {
   state: HomeAssistantEntityState;
   displayName?: string | null;
   onCallService: (domain: string, service: string, data?: Record<string, unknown>) => Promise<void>;
   onRemove?: () => void;
+  activeTimer?: EntityTimer | null;
+  onTimerChange?: () => void;
 }
 
-export function EntityCard({ state, displayName, onCallService, onRemove }: EntityCardProps) {
+export function EntityCard({ state, displayName, onCallService, onRemove, activeTimer, onTimerChange }: EntityCardProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const [timerMenuOpen, setTimerMenuOpen] = useState(false);
+  const [remainingTime, setRemainingTime] = useState<string | null>(null);
 
   const domain = state.entity_id.split(".")[0];
   const friendlyName = state.attributes.friendly_name;
   const entityName = displayName || (typeof friendlyName === "string" ? friendlyName : null) || state.entity_id;
   const isOn = state.state === "on" || state.state === "playing" || state.state === "unlocked";
   const isUnavailable = state.state === "unavailable" || state.state === "unknown";
+
+  // Check if this entity supports timers (lights and switches only)
+  const supportsTimer = domain === "light" || domain === "switch";
+
+  // Update remaining time display
+  useEffect(() => {
+    if (!activeTimer) {
+      setRemainingTime(null);
+      return;
+    }
+
+    const updateRemaining = () => {
+      const target = new Date(activeTimer.triggerAt);
+      const now = new Date();
+      const diffMs = target.getTime() - now.getTime();
+
+      if (diffMs <= 0) {
+        setRemainingTime(null);
+        onTimerChange?.();
+        return;
+      }
+
+      const diffMins = Math.floor(diffMs / 60000);
+      if (diffMins < 60) {
+        setRemainingTime(`${diffMins}m`);
+      } else {
+        const hours = Math.floor(diffMins / 60);
+        const mins = diffMins % 60;
+        setRemainingTime(mins > 0 ? `${hours}h${mins}m` : `${hours}h`);
+      }
+    };
+
+    updateRemaining();
+    const interval = setInterval(updateRemaining, 30000);
+
+    return () => clearInterval(interval);
+  }, [activeTimer, onTimerChange]);
+
+  // Long press handler for timer menu
+  const longPressHandlers = useLongPress({
+    threshold: 500,
+    onLongPress: () => {
+      if (supportsTimer && !isUnavailable) {
+        setTimerMenuOpen(true);
+      }
+    },
+  });
 
   const handleServiceCall = async (service: string, data?: Record<string, unknown>) => {
     setIsLoading(true);
@@ -49,6 +104,22 @@ export function EntityCard({ state, displayName, onCallService, onRemove }: Enti
     } else {
       handleServiceCall("toggle");
     }
+  };
+
+  const handleCreateTimer = async (data: {
+    entityId: string;
+    action: "turn_on" | "turn_off";
+    triggerAt: string;
+    fadeEnabled: boolean;
+    fadeDuration: number;
+  }) => {
+    await api.createHomeAssistantTimer(data);
+    onTimerChange?.();
+  };
+
+  const handleCancelTimer = async (timerId: string) => {
+    await api.cancelHomeAssistantTimer(timerId);
+    onTimerChange?.();
   };
 
   const renderIcon = () => {
@@ -259,37 +330,63 @@ export function EntityCard({ state, displayName, onCallService, onRemove }: Enti
   };
 
   return (
-    <div
-      className={cn(
-        "rounded-lg border bg-card p-4 transition-all",
-        isOn && "border-primary/30 shadow-sm shadow-primary/10",
-        isUnavailable && "opacity-50"
-      )}
-    >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div
-            className={cn(
-              "flex h-10 w-10 items-center justify-center rounded-lg",
-              isOn ? "bg-primary/10" : "bg-muted"
-            )}
-          >
-            {isLoading ? (
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            ) : (
-              renderIcon()
-            )}
+    <>
+      <div
+        {...(supportsTimer ? longPressHandlers : {})}
+        className={cn(
+          "rounded-lg border bg-card p-4 transition-all relative",
+          isOn && "border-primary/30 shadow-sm shadow-primary/10",
+          isUnavailable && "opacity-50"
+        )}
+      >
+        {/* Timer Badge */}
+        {remainingTime && (
+          <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 bg-primary/20 text-primary rounded-full text-xs font-medium">
+            <Clock className="h-3 w-3" />
+            {remainingTime}
           </div>
-          <div>
-            <h3 className="font-medium">{entityName}</h3>
-            <p className="text-xs text-muted-foreground">{state.entity_id}</p>
+        )}
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div
+              className={cn(
+                "flex h-10 w-10 items-center justify-center rounded-lg",
+                isOn ? "bg-primary/10" : "bg-muted"
+              )}
+            >
+              {isLoading ? (
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              ) : (
+                renderIcon()
+              )}
+            </div>
+            <div>
+              <h3 className="font-medium">{entityName}</h3>
+              <p className="text-xs text-muted-foreground">{state.entity_id}</p>
+            </div>
           </div>
+
+          {renderControls()}
         </div>
 
-        {renderControls()}
+        {renderBrightnessSlider()}
       </div>
 
-      {renderBrightnessSlider()}
-    </div>
+      {/* Timer Menu */}
+      {supportsTimer && (
+        <EntityTimerMenu
+          isOpen={timerMenuOpen}
+          onClose={() => setTimerMenuOpen(false)}
+          entityId={state.entity_id}
+          entityName={entityName}
+          currentState={state.state}
+          domain={domain as "light" | "switch"}
+          existingTimer={activeTimer}
+          onCreateTimer={handleCreateTimer}
+          onCancelTimer={handleCancelTimer}
+        />
+      )}
+    </>
   );
 }

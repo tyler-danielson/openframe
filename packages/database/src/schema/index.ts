@@ -15,6 +15,18 @@ import { relations } from "drizzle-orm";
 export const oauthProviderEnum = pgEnum("oauth_provider", [
   "google",
   "microsoft",
+  "spotify",
+]);
+
+export const sportsProviderEnum = pgEnum("sports_provider", ["espn"]);
+
+export const gameStatusEnum = pgEnum("game_status", [
+  "scheduled",
+  "in_progress",
+  "halftime",
+  "final",
+  "postponed",
+  "cancelled",
 ]);
 
 export const calendarProviderEnum = pgEnum("calendar_provider", [
@@ -71,6 +83,14 @@ export const oauthTokens = pgTable(
     tokenType: text("token_type").default("Bearer"),
     scope: text("scope"),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
+    // Multi-account support fields
+    accountName: text("account_name"), // User-provided name like "Dad's Spotify"
+    externalAccountId: text("external_account_id"), // Provider's user ID (e.g., Spotify user ID)
+    isPrimary: boolean("is_primary").default(false).notNull(), // Default account for this provider
+    icon: text("icon"), // Emoji icon for the account (e.g., "👨", "👩", "🎸")
+    // Spotify device preferences
+    defaultDeviceId: text("default_device_id"), // ID of the default playback device
+    favoriteDeviceIds: text("favorite_device_ids").array(), // Array of favorite device IDs
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -80,6 +100,7 @@ export const oauthTokens = pgTable(
   },
   (table) => [
     index("oauth_tokens_user_provider_idx").on(table.userId, table.provider),
+    index("oauth_tokens_external_account_idx").on(table.userId, table.provider, table.externalAccountId),
   ]
 );
 
@@ -144,8 +165,11 @@ export const calendars = pgTable(
     icon: text("icon"), // emoji or icon identifier for the calendar
     isVisible: boolean("is_visible").default(true).notNull(),
     isPrimary: boolean("is_primary").default(false).notNull(),
+    isFavorite: boolean("is_favorite").default(false).notNull(),
     isReadOnly: boolean("is_read_only").default(false).notNull(),
     syncEnabled: boolean("sync_enabled").default(true).notNull(),
+    showOnDashboard: boolean("show_on_dashboard").default(true).notNull(),
+    visibility: jsonb("visibility").$type<{ week: boolean; month: boolean; day: boolean; popup: boolean }>().default({ week: false, month: false, day: false, popup: true }).notNull(),
     syncToken: text("sync_token"), // for incremental sync
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -338,6 +362,16 @@ export interface PhotoMetadata {
   gpsLongitude?: number;
 }
 
+// Color scheme enum
+export const colorSchemeEnum = pgEnum("color_scheme", [
+  "default",
+  "homio",
+  "ocean",
+  "forest",
+  "sunset",
+  "lavender",
+]);
+
 // Screensaver layout enum
 export const screensaverLayoutEnum = pgEnum("screensaver_layout", [
   "fullscreen",
@@ -364,6 +398,8 @@ export const kioskConfig = pgTable("kiosk_config", {
     .unique()
     .references(() => users.id, { onDelete: "cascade" }),
   enabled: boolean("enabled").default(false).notNull(),
+  // Color scheme
+  colorScheme: colorSchemeEnum("color_scheme").default("default").notNull(),
   // Screensaver settings
   screensaverEnabled: boolean("screensaver_enabled").default(true).notNull(),
   screensaverTimeout: integer("screensaver_timeout").default(300).notNull(), // seconds
@@ -751,6 +787,7 @@ export interface CameraSettings {
   refreshInterval?: number; // Snapshot refresh interval in seconds
   aspectRatio?: "16:9" | "4:3" | "1:1";
   showInDashboard?: boolean;
+  isFavorite?: boolean;
 }
 
 export const camerasRelations = relations(cameras, ({ one }) => ({
@@ -779,6 +816,28 @@ export const homeAssistantConfig = pgTable("home_assistant_config", {
     .notNull(),
 });
 
+// Home Assistant rooms for HOMIO-style organization
+export const homeAssistantRooms = pgTable(
+  "home_assistant_rooms",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    temperatureSensorId: text("temperature_sensor_id"), // entity_id of temp sensor
+    humiditySensorId: text("humidity_sensor_id"), // entity_id of humidity sensor
+    windowSensorId: text("window_sensor_id"), // entity_id of window sensor (binary_sensor)
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("ha_rooms_user_idx").on(table.userId),
+  ]
+);
+
 // Home Assistant selected entities
 export const homeAssistantEntities = pgTable(
   "home_assistant_entities",
@@ -789,6 +848,7 @@ export const homeAssistantEntities = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     entityId: text("entity_id").notNull(), // e.g., "light.living_room"
     displayName: text("display_name"), // Custom name override
+    roomId: uuid("room_id").references(() => homeAssistantRooms.id, { onDelete: "set null" }), // Optional room assignment
     sortOrder: integer("sort_order").default(0).notNull(),
     showInDashboard: boolean("show_in_dashboard").default(false).notNull(),
     settings: jsonb("settings").$type<HomeAssistantEntitySettings>().default({}),
@@ -799,13 +859,16 @@ export const homeAssistantEntities = pgTable(
   (table) => [
     index("ha_entities_user_idx").on(table.userId),
     index("ha_entities_entity_idx").on(table.userId, table.entityId),
+    index("ha_entities_room_idx").on(table.roomId),
   ]
 );
 
 export interface HomeAssistantEntitySettings {
   showIcon?: boolean;
   customIcon?: string;
-  groupId?: string;
+  // Camera-specific fields
+  refreshInterval?: number; // seconds (default 5)
+  aspectRatio?: "16:9" | "4:3" | "1:1";
 }
 
 export const homeAssistantConfigRelations = relations(
@@ -818,6 +881,17 @@ export const homeAssistantConfigRelations = relations(
   })
 );
 
+export const homeAssistantRoomsRelations = relations(
+  homeAssistantRooms,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [homeAssistantRooms.userId],
+      references: [users.id],
+    }),
+    entities: many(homeAssistantEntities),
+  })
+);
+
 export const homeAssistantEntitiesRelations = relations(
   homeAssistantEntities,
   ({ one }) => ({
@@ -825,8 +899,154 @@ export const homeAssistantEntitiesRelations = relations(
       fields: [homeAssistantEntities.userId],
       references: [users.id],
     }),
+    room: one(homeAssistantRooms, {
+      fields: [homeAssistantEntities.roomId],
+      references: [homeAssistantRooms.id],
+    }),
   })
 );
 
+// System Settings - stores global configuration (API keys, etc.)
+export const systemSettings = pgTable(
+  "system_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    category: text("category").notNull(), // e.g., "weather", "google", "spotify"
+    key: text("key").notNull(), // e.g., "api_key", "client_id", "latitude"
+    value: text("value"), // Stored as text, encrypted for sensitive values
+    isSecret: boolean("is_secret").default(false).notNull(), // If true, value is encrypted
+    description: text("description"), // Optional description for UI
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("system_settings_category_idx").on(table.category),
+    index("system_settings_key_idx").on(table.category, table.key),
+  ]
+);
+
+// Favorite Sports Teams
+export const favoriteSportsTeams = pgTable(
+  "favorite_sports_teams",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: sportsProviderEnum("provider").notNull().default("espn"),
+    sport: text("sport").notNull(), // e.g., "football", "basketball", "hockey", "baseball"
+    league: text("league").notNull(), // e.g., "nfl", "nba", "nhl", "mlb"
+    teamId: text("team_id").notNull(), // ESPN team ID
+    teamName: text("team_name").notNull(),
+    teamAbbreviation: text("team_abbreviation").notNull(),
+    teamLogo: text("team_logo"), // URL to team logo
+    teamColor: text("team_color"), // Primary team color (hex)
+    isVisible: boolean("is_visible").default(true).notNull(),
+    showOnDashboard: boolean("show_on_dashboard").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("favorite_sports_teams_user_idx").on(table.userId),
+    index("favorite_sports_teams_team_idx").on(table.userId, table.league, table.teamId),
+  ]
+);
+
+// Sports Games (cached from ESPN)
+export const sportsGames = pgTable(
+  "sports_games",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    externalId: text("external_id").notNull(), // ESPN game ID
+    provider: sportsProviderEnum("provider").notNull().default("espn"),
+    sport: text("sport").notNull(),
+    league: text("league").notNull(),
+    homeTeamId: text("home_team_id").notNull(),
+    homeTeamName: text("home_team_name").notNull(),
+    homeTeamAbbreviation: text("home_team_abbreviation").notNull(),
+    homeTeamLogo: text("home_team_logo"),
+    homeTeamColor: text("home_team_color"),
+    homeTeamScore: integer("home_team_score"),
+    awayTeamId: text("away_team_id").notNull(),
+    awayTeamName: text("away_team_name").notNull(),
+    awayTeamAbbreviation: text("away_team_abbreviation").notNull(),
+    awayTeamLogo: text("away_team_logo"),
+    awayTeamColor: text("away_team_color"),
+    awayTeamScore: integer("away_team_score"),
+    startTime: timestamp("start_time", { withTimezone: true }).notNull(),
+    status: gameStatusEnum("status").notNull().default("scheduled"),
+    statusDetail: text("status_detail"), // e.g., "Q4 2:34", "Final", "1st 5:00"
+    period: integer("period"), // Current period/quarter/inning
+    clock: text("clock"), // Game clock e.g., "2:34"
+    venue: text("venue"),
+    broadcast: text("broadcast"), // TV broadcast info
+    lastUpdated: timestamp("last_updated", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("sports_games_external_idx").on(table.provider, table.externalId),
+    index("sports_games_time_idx").on(table.startTime),
+    index("sports_games_status_idx").on(table.status),
+    index("sports_games_teams_idx").on(table.homeTeamId, table.awayTeamId),
+  ]
+);
+
+// Relations for sports tables
+export const favoriteSportsTeamsRelations = relations(
+  favoriteSportsTeams,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [favoriteSportsTeams.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+// Home Assistant Entity Timers - one-time timers for light/switch actions
+export const haTimerActionEnum = pgEnum("ha_timer_action", ["turn_on", "turn_off"]);
+
+export const haEntityTimers = pgTable(
+  "ha_entity_timers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    entityId: text("entity_id").notNull(), // e.g., "light.living_room"
+    action: haTimerActionEnum("action").notNull(), // "turn_on" or "turn_off"
+    triggerAt: timestamp("trigger_at", { withTimezone: true }).notNull(), // when to execute
+    fadeEnabled: boolean("fade_enabled").default(false).notNull(), // whether to fade (lights only)
+    fadeDuration: integer("fade_duration").default(0).notNull(), // fade duration in seconds
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("ha_entity_timers_user_idx").on(table.userId),
+    index("ha_entity_timers_trigger_idx").on(table.triggerAt),
+    index("ha_entity_timers_entity_idx").on(table.userId, table.entityId),
+  ]
+);
+
+export const haEntityTimersRelations = relations(haEntityTimers, ({ one }) => ({
+  user: one(users, {
+    fields: [haEntityTimers.userId],
+    references: [users.id],
+  }),
+}));
+
 // Type exports for use in services
 export type OAuthToken = typeof oauthTokens.$inferSelect;
+export type SystemSetting = typeof systemSettings.$inferSelect;
+export type FavoriteSportsTeam = typeof favoriteSportsTeams.$inferSelect;
+export type SportsGame = typeof sportsGames.$inferSelect;
+export type HAEntityTimer = typeof haEntityTimers.$inferSelect;
