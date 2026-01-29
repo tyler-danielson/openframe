@@ -456,13 +456,13 @@ export function CalendarPage() {
   return (
     <div className="flex h-full">
       <div className="flex-1 flex flex-col">
-        {/* Navigation header - 75% larger */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-2">
-          <div className="flex items-center gap-5">
-            <h1 className="text-3xl font-bold">{familyName}</h1>
+        {/* Navigation header */}
+        <div className="flex items-center justify-between border-b border-border px-8 py-3">
+          <div className="flex items-center gap-8">
+            <h1 className="text-5xl font-bold">{familyName}</h1>
             <button
               onClick={handleTimeFormatChange}
-              className={`text-3xl font-semibold text-muted-foreground hover:text-foreground transition-opacity duration-300 ${
+              className={`text-5xl font-semibold text-muted-foreground hover:text-foreground transition-opacity duration-300 ${
                 timeFade ? "opacity-100" : "opacity-0"
               }`}
               title="Click to change time format"
@@ -472,31 +472,31 @@ export function CalendarPage() {
             {weather && (
               <button
                 onClick={() => handleWeatherClick(new Date())}
-                className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                className="flex items-center gap-3 text-muted-foreground hover:text-foreground transition-colors"
                 title={weather.description}
               >
-                <span className="text-4xl">{getWeatherIcon(weather.icon)}</span>
-                <span className="text-3xl font-semibold">{weather.temp}°</span>
+                <span className="text-6xl">{getWeatherIcon(weather.icon)}</span>
+                <span className="text-5xl font-semibold">{weather.temp}°</span>
               </button>
             )}
             {/* Today's Sports Games */}
             {todaysGames.length > 0 && (
-              <div className="flex items-center gap-3 border-l border-border pl-5">
+              <div className="flex items-center gap-4 border-l border-border pl-8">
                 {todaysGames.slice(0, 3).map((game) => (
                   <SportsScoreBadge key={game.externalId} game={game} compact />
                 ))}
                 {todaysGames.length > 3 && (
-                  <span className="text-base text-muted-foreground">
+                  <span className="text-xl text-muted-foreground">
                     +{todaysGames.length - 3} more
                   </span>
                 )}
               </div>
             )}
           </div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-xl font-semibold">{headerText}</h2>
+          <div className="flex items-center gap-4">
+            <h2 className="text-3xl font-semibold">{headerText}</h2>
             <select
-              className="rounded-md border border-border bg-background px-4 py-2.5 text-lg font-medium"
+              className="rounded-md border border-border bg-background px-6 py-3 text-2xl font-medium"
               value={view}
               onChange={(e) => setView(e.target.value as "month" | "week" | "day" | "agenda")}
             >
@@ -505,15 +505,15 @@ export function CalendarPage() {
               <option value="day">Day</option>
               <option value="agenda">Agenda</option>
             </select>
-            <div className="flex items-center gap-2 ml-3">
-              <Button variant="ghost" size="lg" onClick={navigatePrevious} title="Previous">
-                <ChevronLeft className="h-8 w-8" />
+            <div className="flex items-center gap-3 ml-4">
+              <Button variant="ghost" size="lg" onClick={navigatePrevious} title="Previous" className="p-3">
+                <ChevronLeft className="h-12 w-12" />
               </Button>
-              <Button variant="outline" size="lg" onClick={navigateToday} className="text-lg px-5">
+              <Button variant="outline" size="lg" onClick={navigateToday} className="text-2xl px-8 py-3">
                 TODAY
               </Button>
-              <Button variant="ghost" size="lg" onClick={navigateNext} title="Next">
-                <ChevronRight className="h-8 w-8" />
+              <Button variant="ghost" size="lg" onClick={navigateNext} title="Next" className="p-3">
+                <ChevronRight className="h-12 w-12" />
               </Button>
             </div>
           </div>

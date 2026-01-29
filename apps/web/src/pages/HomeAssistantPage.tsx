@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Home,
@@ -14,7 +14,33 @@ import { RoomHero } from "../components/homeassistant/RoomHero";
 import { HomioEntityCard } from "../components/homeassistant/HomioEntityCard";
 import { api, type HAEntityTimer } from "../services/api";
 import { cn } from "../lib/utils";
+import { useCalendarStore } from "../stores/calendar";
 import type { HomeAssistantEntityState } from "@openframe/shared";
+
+// Weather icon helper
+function getWeatherIcon(iconCode: string): string {
+  const iconMap: Record<string, string> = {
+    "01d": "\u2600\uFE0F", // sun
+    "01n": "\uD83C\uDF19", // moon
+    "02d": "\u26C5", // partly cloudy
+    "02n": "\u26C5",
+    "03d": "\u2601\uFE0F", // cloudy
+    "03n": "\u2601\uFE0F",
+    "04d": "\u2601\uFE0F", // broken clouds
+    "04n": "\u2601\uFE0F",
+    "09d": "\uD83C\uDF27\uFE0F", // rain
+    "09n": "\uD83C\uDF27\uFE0F",
+    "10d": "\uD83C\uDF26\uFE0F", // sun rain
+    "10n": "\uD83C\uDF27\uFE0F",
+    "11d": "\u26C8\uFE0F", // thunder
+    "11n": "\u26C8\uFE0F",
+    "13d": "\uD83C\uDF28\uFE0F", // snow
+    "13n": "\uD83C\uDF28\uFE0F",
+    "50d": "\uD83C\uDF2B\uFE0F", // mist
+    "50n": "\uD83C\uDF2B\uFE0F",
+  };
+  return iconMap[iconCode] || "\u2600\uFE0F";
+}
 
 // Domains to exclude from the smart home dashboard (cameras have their own page)
 const EXCLUDED_DOMAINS = ["camera"];
@@ -23,6 +49,10 @@ export function HomeAssistantPage() {
   const queryClient = useQueryClient();
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [timeFade, setTimeFade] = useState(true);
+
+  const { familyName, timeFormat, cycleTimeFormat } = useCalendarStore();
 
   // Fetch HA config
   const { data: config, isLoading: isLoadingConfig } = useQuery({
@@ -78,6 +108,58 @@ export function HomeAssistantPage() {
   const handleTimerChange = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["homeassistant", "timers"] });
   }, [queryClient]);
+
+  // Fetch weather data
+  const { data: weather } = useQuery({
+    queryKey: ["weather-current"],
+    queryFn: () => api.getCurrentWeather(),
+    refetchInterval: 10 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+
+  // Update current time every second
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Handle time format change with fade effect
+  const handleTimeFormatChange = () => {
+    setTimeFade(false);
+    setTimeout(() => {
+      cycleTimeFormat();
+      setTimeFade(true);
+    }, 300);
+  };
+
+  // Format the time based on user preference
+  const formattedTime = useMemo(() => {
+    const hours = currentTime.getHours();
+    const minutes = currentTime.getMinutes();
+    const seconds = currentTime.getSeconds();
+
+    switch (timeFormat) {
+      case "12h": {
+        const h12 = hours % 12 || 12;
+        const ampm = hours >= 12 ? "PM" : "AM";
+        return `${h12}:${minutes.toString().padStart(2, "0")} ${ampm}`;
+      }
+      case "12h-seconds": {
+        const h12 = hours % 12 || 12;
+        const ampm = hours >= 12 ? "PM" : "AM";
+        return `${h12}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")} ${ampm}`;
+      }
+      case "24h":
+        return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
+      case "24h-seconds":
+        return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+      default:
+        return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
+    }
+  }, [currentTime, timeFormat]);
 
   // Filter out excluded domains (cameras)
   const filteredEntities = useMemo(() => {
@@ -196,8 +278,38 @@ export function HomeAssistantPage() {
         />
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-y-auto p-6 lg:p-8 pt-16 lg:pt-8">
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Navigation header */}
+        <div className="flex items-center justify-between border-b border-border px-8 py-3 shrink-0">
+          <div className="flex items-center gap-8">
+            <h1 className="text-5xl font-bold">{familyName}</h1>
+            <button
+              onClick={handleTimeFormatChange}
+              className={`text-5xl font-semibold text-muted-foreground hover:text-foreground transition-opacity duration-300 ${
+                timeFade ? "opacity-100" : "opacity-0"
+              }`}
+              title="Click to change time format"
+            >
+              {formattedTime}
+            </button>
+            {weather && (
+              <div
+                className="flex items-center gap-3 text-muted-foreground"
+                title={weather.description}
+              >
+                <span className="text-6xl">{getWeatherIcon(weather.icon)}</span>
+                <span className="text-5xl font-semibold">{weather.temp}°</span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-4">
+            <h2 className="text-3xl font-semibold">Smart Home</h2>
+          </div>
+        </div>
+
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto p-6 lg:p-8 pt-6">
         {isLoading ? (
           <div className="flex h-full items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-[var(--homio-accent)]" />
@@ -279,6 +391,7 @@ export function HomeAssistantPage() {
             </div>
           </>
         )}
+        </div>
       </div>
     </div>
   );
