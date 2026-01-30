@@ -169,7 +169,7 @@ export const calendars = pgTable(
     isReadOnly: boolean("is_read_only").default(false).notNull(),
     syncEnabled: boolean("sync_enabled").default(true).notNull(),
     showOnDashboard: boolean("show_on_dashboard").default(true).notNull(),
-    visibility: jsonb("visibility").$type<{ week: boolean; month: boolean; day: boolean; popup: boolean }>().default({ week: false, month: false, day: false, popup: true }).notNull(),
+    visibility: jsonb("visibility").$type<{ week: boolean; month: boolean; day: boolean; popup: boolean; screensaver: boolean }>().default({ week: false, month: false, day: false, popup: true, screensaver: false }).notNull(),
     syncToken: text("sync_token"), // for incremental sync
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1044,9 +1044,164 @@ export const haEntityTimersRelations = relations(haEntityTimers, ({ one }) => ({
   }),
 }));
 
+// Automation enums
+export const automationTriggerTypeEnum = pgEnum("automation_trigger_type", [
+  "time",
+  "state",
+  "duration",
+]);
+
+export const automationActionTypeEnum = pgEnum("automation_action_type", [
+  "service_call",
+  "notification",
+]);
+
+// Home Assistant Automations - AI-powered smart home automations
+export const haAutomations = pgTable(
+  "ha_automations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"), // Original NL request
+    enabled: boolean("enabled").default(true).notNull(),
+    triggerType: automationTriggerTypeEnum("trigger_type").notNull(),
+    triggerConfig: jsonb("trigger_config").$type<AutomationTriggerConfig>().notNull(),
+    actionType: automationActionTypeEnum("action_type").notNull(),
+    actionConfig: jsonb("action_config").$type<AutomationActionConfig>().notNull(),
+    lastTriggeredAt: timestamp("last_triggered_at", { withTimezone: true }),
+    triggerCount: integer("trigger_count").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("ha_automations_user_idx").on(table.userId),
+    index("ha_automations_enabled_idx").on(table.userId, table.enabled),
+    index("ha_automations_trigger_type_idx").on(table.triggerType),
+  ]
+);
+
+// Trigger config types
+export interface TimeTriggerConfig {
+  time: string; // "07:00" or "sunset" or "sunrise"
+  sunOffset?: number; // minutes offset for sunset/sunrise
+  days?: number[]; // 0-6 (Sunday-Saturday), empty = every day
+}
+
+export interface StateTriggerConfig {
+  entityId: string;
+  fromState?: string; // Optional "from" state
+  toState: string; // Required "to" state
+}
+
+export interface DurationTriggerConfig {
+  entityId: string;
+  targetState: string; // State to monitor (e.g., "on", "open")
+  durationMinutes: number;
+}
+
+export type AutomationTriggerConfig =
+  | TimeTriggerConfig
+  | StateTriggerConfig
+  | DurationTriggerConfig;
+
+// Action config types
+export interface ServiceCallActionConfig {
+  domain: string;
+  service: string;
+  entityId: string;
+  serviceData?: Record<string, unknown>;
+}
+
+export interface NotificationActionConfig {
+  title: string;
+  message: string;
+}
+
+export type AutomationActionConfig =
+  | ServiceCallActionConfig
+  | NotificationActionConfig;
+
+export const haAutomationsRelations = relations(haAutomations, ({ one }) => ({
+  user: one(users, {
+    fields: [haAutomations.userId],
+    references: [users.id],
+  }),
+}));
+
+// News Feeds - RSS feed subscriptions
+export const newsFeeds = pgTable(
+  "news_feeds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    feedUrl: text("feed_url").notNull(),
+    category: text("category"),
+    isActive: boolean("is_active").default(true).notNull(),
+    lastFetchedAt: timestamp("last_fetched_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("news_feeds_user_idx").on(table.userId)]
+);
+
+// News Articles - Cached articles from feeds
+export const newsArticles = pgTable(
+  "news_articles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    feedId: uuid("feed_id")
+      .notNull()
+      .references(() => newsFeeds.id, { onDelete: "cascade" }),
+    guid: text("guid").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    link: text("link").notNull(),
+    imageUrl: text("image_url"),
+    author: text("author"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("news_articles_feed_idx").on(table.feedId),
+    index("news_articles_published_idx").on(table.publishedAt),
+  ]
+);
+
+// News Feed Relations
+export const newsFeedsRelations = relations(newsFeeds, ({ one, many }) => ({
+  user: one(users, {
+    fields: [newsFeeds.userId],
+    references: [users.id],
+  }),
+  articles: many(newsArticles),
+}));
+
+export const newsArticlesRelations = relations(newsArticles, ({ one }) => ({
+  feed: one(newsFeeds, {
+    fields: [newsArticles.feedId],
+    references: [newsFeeds.id],
+  }),
+}));
+
 // Type exports for use in services
 export type OAuthToken = typeof oauthTokens.$inferSelect;
 export type SystemSetting = typeof systemSettings.$inferSelect;
 export type FavoriteSportsTeam = typeof favoriteSportsTeams.$inferSelect;
 export type SportsGame = typeof sportsGames.$inferSelect;
 export type HAEntityTimer = typeof haEntityTimers.$inferSelect;
+export type HAAutomation = typeof haAutomations.$inferSelect;
+export type NewsFeed = typeof newsFeeds.$inferSelect;
+export type NewsArticle = typeof newsArticles.$inferSelect;

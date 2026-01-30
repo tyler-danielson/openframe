@@ -39,6 +39,14 @@ export type OAuthProvider = "google" | "microsoft";
 // Calendar types
 export type CalendarProvider = "google" | "microsoft" | "caldav";
 
+export interface CalendarVisibility {
+  week: boolean;
+  month: boolean;
+  day: boolean;
+  popup: boolean;
+  screensaver: boolean;
+}
+
 export interface Calendar {
   id: string;
   provider: CalendarProvider;
@@ -49,9 +57,12 @@ export interface Calendar {
   icon: string | null;
   isVisible: boolean;
   isPrimary: boolean;
+  isFavorite: boolean;
   isReadOnly: boolean;
   syncEnabled: boolean;
+  showOnDashboard: boolean;
   lastSyncAt: Date | null;
+  visibility: CalendarVisibility;
 }
 
 export interface CalendarEvent {
@@ -276,6 +287,7 @@ export interface CameraSettings {
   refreshInterval?: number;
   aspectRatio?: "16:9" | "4:3" | "1:1";
   showInDashboard?: boolean;
+  isFavorite?: boolean;
 }
 
 // Home Assistant types
@@ -289,11 +301,23 @@ export interface HomeAssistantConfig {
   updatedAt: Date;
 }
 
+export interface HomeAssistantRoom {
+  id: string;
+  userId: string;
+  name: string;
+  sortOrder: number;
+  temperatureSensorId: string | null;
+  humiditySensorId: string | null;
+  windowSensorId: string | null;
+  createdAt: Date;
+}
+
 export interface HomeAssistantEntity {
   id: string;
   userId: string;
   entityId: string;
   displayName: string | null;
+  roomId: string | null;
   sortOrder: number;
   showInDashboard: boolean;
   settings: HomeAssistantEntitySettings;
@@ -305,7 +329,15 @@ export interface HomeAssistantEntity {
 export interface HomeAssistantEntitySettings {
   showIcon?: boolean;
   customIcon?: string;
-  groupId?: string;
+  // Camera-specific fields
+  refreshInterval?: number; // seconds (default 5)
+  aspectRatio?: "16:9" | "4:3" | "1:1";
+  // Duration alert settings
+  durationAlert?: {
+    enabled: boolean;
+    thresholdMinutes: number;      // e.g., 30
+    repeatIntervalMinutes?: number; // How often to re-alert (default: 15)
+  };
 }
 
 export interface HomeAssistantEntityState {
@@ -334,3 +366,196 @@ export type HomeAssistantDomain =
   | "input_select"
   | "vacuum"
   | "camera";
+
+// Automation types
+export type AutomationTriggerType = "time" | "state" | "duration";
+export type AutomationActionType = "service_call" | "notification";
+
+export interface TimeTriggerConfig {
+  time: string; // "07:00" or "sunset" or "sunrise"
+  sunOffset?: number; // minutes offset for sunset/sunrise
+  days?: number[]; // 0-6 (Sunday-Saturday), empty = every day
+}
+
+export interface StateTriggerConfig {
+  entityId: string;
+  fromState?: string;
+  toState: string;
+}
+
+export interface DurationTriggerConfig {
+  entityId: string;
+  targetState: string;
+  durationMinutes: number;
+}
+
+export type AutomationTriggerConfig =
+  | TimeTriggerConfig
+  | StateTriggerConfig
+  | DurationTriggerConfig;
+
+export interface ServiceCallActionConfig {
+  domain: string;
+  service: string;
+  entityId: string;
+  serviceData?: Record<string, unknown>;
+}
+
+export interface NotificationActionConfig {
+  title: string;
+  message: string;
+}
+
+export type AutomationActionConfig =
+  | ServiceCallActionConfig
+  | NotificationActionConfig;
+
+export interface Automation {
+  id: string;
+  userId: string;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  triggerType: AutomationTriggerType;
+  triggerConfig: AutomationTriggerConfig;
+  actionType: AutomationActionType;
+  actionConfig: AutomationActionConfig;
+  lastTriggeredAt: Date | null;
+  triggerCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AutomationParseResult {
+  name: string;
+  trigger: {
+    type: AutomationTriggerType;
+    config: AutomationTriggerConfig;
+  };
+  action: {
+    type: AutomationActionType;
+    config: AutomationActionConfig;
+  };
+  confidence: number;
+}
+
+export interface AutomationNotification {
+  id: string;
+  automationId: string;
+  automationName: string;
+  title: string;
+  message: string;
+  triggeredAt: string;
+  dismissed: boolean;
+}
+
+// News types
+export interface NewsFeed {
+  id: string;
+  userId: string;
+  name: string;
+  feedUrl: string;
+  category: string | null;
+  isActive: boolean;
+  lastFetchedAt: Date | null;
+  createdAt: Date;
+  articleCount?: number;
+}
+
+export interface NewsArticle {
+  id: string;
+  feedId: string;
+  guid: string;
+  title: string;
+  description: string | null;
+  link: string;
+  imageUrl: string | null;
+  author: string | null;
+  publishedAt: Date | null;
+  createdAt: Date;
+  feedName?: string;
+  feedCategory?: string | null;
+}
+
+export interface NewsHeadline {
+  id: string;
+  title: string;
+  link: string;
+  imageUrl: string | null;
+  publishedAt: Date | null;
+  feedName: string;
+  feedCategory: string | null;
+}
+
+export interface PresetFeed {
+  name: string;
+  url: string;
+  category: string;
+}
+
+// Sports types
+export type SportsProvider = "espn";
+export type GameStatus = "scheduled" | "in_progress" | "halftime" | "final" | "postponed" | "cancelled";
+
+export interface SportsLeague {
+  sport: string; // e.g., "football", "basketball", "hockey", "baseball"
+  league: string; // e.g., "nfl", "nba", "nhl", "mlb"
+  displayName: string; // e.g., "NFL", "NBA", "NHL", "MLB"
+}
+
+export interface SportsTeam {
+  id: string;
+  name: string;
+  abbreviation: string;
+  logo: string | null;
+  color: string | null;
+  sport: string;
+  league: string;
+}
+
+export interface FavoriteSportsTeam {
+  id: string;
+  userId: string;
+  provider: SportsProvider;
+  sport: string;
+  league: string;
+  teamId: string;
+  teamName: string;
+  teamAbbreviation: string;
+  teamLogo: string | null;
+  teamColor: string | null;
+  isVisible: boolean;
+  showOnDashboard: boolean;
+  createdAt: Date;
+}
+
+export interface SportsGame {
+  id: string;
+  externalId: string;
+  provider: SportsProvider;
+  sport: string;
+  league: string;
+  homeTeam: {
+    id: string;
+    name: string;
+    abbreviation: string;
+    logo: string | null;
+    color: string | null;
+    score: number | null;
+  };
+  awayTeam: {
+    id: string;
+    name: string;
+    abbreviation: string;
+    logo: string | null;
+    color: string | null;
+    score: number | null;
+  };
+  startTime: Date;
+  status: GameStatus;
+  statusDetail: string | null;
+  period: number | null;
+  clock: string | null;
+  venue: string | null;
+  broadcast: string | null;
+}

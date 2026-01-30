@@ -8,6 +8,8 @@ import type { FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { getIptvCacheService } from "../services/iptv-cache.js";
+import { getAutomationEngine } from "../services/automation-engine.js";
+import { getNewsCacheService } from "../services/news-cache.js";
 import { favoriteSportsTeams, sportsGames, haEntityTimers, homeAssistantConfig } from "@openframe/database/schema";
 import {
   fetchGamesForTeams,
@@ -31,6 +33,12 @@ const STARTUP_DELAY_MS = 30 * 1000;
 
 // Entity timer polling interval (10 seconds)
 const ENTITY_TIMER_POLL_INTERVAL_MS = 10 * 1000;
+
+// Automation polling interval (30 seconds)
+const AUTOMATION_POLL_INTERVAL_MS = 30 * 1000;
+
+// News feed refresh interval (30 minutes)
+const NEWS_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 
 // Determine the appropriate polling interval based on game states
 function determineSportsPollingInterval(games: SportsGame[]): number {
@@ -80,6 +88,8 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
   let iptvCacheInterval: NodeJS.Timeout | null = null;
   let sportsInterval: NodeJS.Timeout | null = null;
   let entityTimerInterval: NodeJS.Timeout | null = null;
+  let automationInterval: NodeJS.Timeout | null = null;
+  let newsInterval: NodeJS.Timeout | null = null;
   let currentSportsPollingInterval = SPORTS_POLL_IDLE;
 
   // Start the IPTV cache refresh scheduler
@@ -291,11 +301,75 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     }, 5000);
   };
 
+  // Start automation scheduler
+  const startAutomationScheduler = () => {
+    const engine = getAutomationEngine(fastify);
+
+    const processAutomations = async () => {
+      try {
+        // Process time-based triggers
+        await engine.processTimeTriggers();
+
+        // Process duration-based triggers
+        await engine.processDurationTriggers();
+      } catch (error) {
+        fastify.log.error({ err: error }, "Automation scheduler error");
+      }
+    };
+
+    // Start polling after startup delay
+    setTimeout(async () => {
+      fastify.log.info("Starting automation scheduler (30s interval)...");
+      await processAutomations();
+
+      automationInterval = setInterval(processAutomations, AUTOMATION_POLL_INTERVAL_MS);
+    }, STARTUP_DELAY_MS + 10000); // Start 10 seconds after IPTV
+  };
+
+  // Start news feed refresh scheduler
+  const startNewsScheduler = () => {
+    const cacheService = getNewsCacheService(fastify);
+
+    // Initial refresh after startup delay
+    setTimeout(async () => {
+      fastify.log.info("Running initial news feed refresh...");
+      try {
+        await cacheService.refreshAllFeeds();
+        const stats = await cacheService.getCacheStats();
+        fastify.log.info(
+          `Initial news refresh complete: ${stats.feedCount} feeds, ${stats.articleCount} articles`
+        );
+      } catch (error) {
+        fastify.log.error({ err: error }, "Initial news feed refresh failed");
+      }
+    }, STARTUP_DELAY_MS + 15000); // Start 15 seconds after IPTV
+
+    // Schedule periodic refresh
+    newsInterval = setInterval(async () => {
+      fastify.log.info("Running scheduled news feed refresh...");
+      try {
+        await cacheService.refreshAllFeeds();
+        const stats = await cacheService.getCacheStats();
+        fastify.log.info(
+          `Scheduled news refresh complete: ${stats.feedCount} feeds, ${stats.articleCount} articles`
+        );
+      } catch (error) {
+        fastify.log.error({ err: error }, "Scheduled news feed refresh failed");
+      }
+    }, NEWS_REFRESH_INTERVAL_MS);
+
+    fastify.log.info(
+      `News feed scheduler started (refresh every ${NEWS_REFRESH_INTERVAL_MS / 1000 / 60} minutes)`
+    );
+  };
+
   // Start scheduler when server is ready
   fastify.addHook("onReady", async () => {
     startIptvCacheScheduler();
     startSportsScheduler();
     startEntityTimerScheduler();
+    startAutomationScheduler();
+    startNewsScheduler();
   });
 
   // Clean up on server close
@@ -314,6 +388,16 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
       clearInterval(entityTimerInterval);
       entityTimerInterval = null;
       fastify.log.info("Entity timer scheduler stopped");
+    }
+    if (automationInterval) {
+      clearInterval(automationInterval);
+      automationInterval = null;
+      fastify.log.info("Automation scheduler stopped");
+    }
+    if (newsInterval) {
+      clearInterval(newsInterval);
+      newsInterval = null;
+      fastify.log.info("News feed scheduler stopped");
     }
   });
 };

@@ -23,6 +23,17 @@ import type {
   SportsTeam,
   FavoriteSportsTeam,
   SportsGame,
+  Automation,
+  AutomationParseResult,
+  AutomationTriggerType,
+  AutomationTriggerConfig,
+  AutomationActionType,
+  AutomationActionConfig,
+  AutomationNotification,
+  NewsFeed,
+  NewsArticle,
+  NewsHeadline,
+  PresetFeed,
 } from "@openframe/shared";
 
 // API Key types
@@ -1312,6 +1323,146 @@ class ApiClient {
       params.set("teamIds", teamIds.join(","));
     }
     return this.fetch<CalendarEvent[]>(`/sports/events?${params}`);
+  }
+
+  // Automations
+
+  async parseAutomation(prompt: string): Promise<AutomationParseResult> {
+    return this.fetch<AutomationParseResult>("/automations/parse", {
+      method: "POST",
+      body: JSON.stringify({ prompt }),
+    });
+  }
+
+  async getAutomations(): Promise<Automation[]> {
+    return this.fetch<Automation[]>("/automations");
+  }
+
+  async createAutomation(data: {
+    name: string;
+    description?: string;
+    triggerType: AutomationTriggerType;
+    triggerConfig: AutomationTriggerConfig;
+    actionType: AutomationActionType;
+    actionConfig: AutomationActionConfig;
+  }): Promise<Automation> {
+    return this.fetch<Automation>("/automations", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateAutomation(
+    id: string,
+    data: Partial<{
+      name: string;
+      description: string;
+      enabled: boolean;
+      triggerType: AutomationTriggerType;
+      triggerConfig: AutomationTriggerConfig;
+      actionType: AutomationActionType;
+      actionConfig: AutomationActionConfig;
+    }>
+  ): Promise<Automation> {
+    return this.fetch<Automation>(`/automations/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteAutomation(id: string): Promise<void> {
+    await this.fetch(`/automations/${id}`, { method: "DELETE" });
+  }
+
+  async testAutomation(id: string): Promise<{ executed: boolean }> {
+    return this.fetch<{ executed: boolean }>(`/automations/${id}/test`, {
+      method: "POST",
+    });
+  }
+
+  async getAutomationNotifications(): Promise<AutomationNotification[]> {
+    return this.fetch<AutomationNotification[]>("/automations/notifications");
+  }
+
+  async dismissAutomationNotification(notificationId: string): Promise<void> {
+    await this.fetch(`/automations/notifications/${notificationId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async clearAutomationNotifications(): Promise<void> {
+    await this.fetch("/automations/notifications", { method: "DELETE" });
+  }
+
+  // News
+
+  async getNewsPresets(): Promise<PresetFeed[]> {
+    return this.fetch<PresetFeed[]>("/news/presets");
+  }
+
+  async getNewsFeeds(): Promise<NewsFeed[]> {
+    return this.fetch<NewsFeed[]>("/news/feeds");
+  }
+
+  async addNewsFeed(data: {
+    name: string;
+    feedUrl: string;
+    category?: string;
+  }): Promise<NewsFeed> {
+    return this.fetch<NewsFeed>("/news/feeds", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateNewsFeed(
+    id: string,
+    data: Partial<{
+      name: string;
+      category: string;
+      isActive: boolean;
+    }>
+  ): Promise<NewsFeed> {
+    return this.fetch<NewsFeed>(`/news/feeds/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteNewsFeed(id: string): Promise<void> {
+    await this.fetch(`/news/feeds/${id}`, { method: "DELETE" });
+  }
+
+  async getNewsArticles(params?: {
+    feedId?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<NewsArticle[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.feedId) searchParams.set("feedId", params.feedId);
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    if (params?.offset) searchParams.set("offset", String(params.offset));
+    return this.fetch<NewsArticle[]>(`/news/articles?${searchParams}`);
+  }
+
+  async getNewsHeadlines(limit?: number): Promise<NewsHeadline[]> {
+    const params = limit ? `?limit=${limit}` : "";
+    return this.fetch<NewsHeadline[]>(`/news/headlines${params}`);
+  }
+
+  async refreshNewsFeeds(): Promise<void> {
+    await this.fetch("/news/refresh", { method: "POST" });
+  }
+
+  async validateNewsFeedUrl(feedUrl: string): Promise<{
+    valid: boolean;
+    title?: string;
+    error?: string;
+  }> {
+    return this.fetch("/news/validate", {
+      method: "POST",
+      body: JSON.stringify({ feedUrl }),
+    });
   }
 }
 

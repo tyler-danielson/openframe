@@ -9,6 +9,7 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { databasePlugin } from "./plugins/database.js";
 import { authPlugin } from "./plugins/auth.js";
+import { schedulerPlugin } from "./plugins/scheduler.js";
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth/index.js";
 import { calendarRoutes } from "./routes/calendars/index.js";
@@ -21,6 +22,12 @@ import { iptvRoutes } from "./routes/iptv/index.js";
 import { cameraRoutes } from "./routes/cameras/index.js";
 import { homeAssistantRoutes } from "./routes/homeassistant/index.js";
 import { spotifyRoutes } from "./routes/spotify/index.js";
+import { weatherRoutes } from "./routes/weather/index.js";
+import { settingsRoutes } from "./routes/settings/index.js";
+import { handwritingRoutes } from "./routes/handwriting/index.js";
+import { sportsRoutes } from "./routes/sports/index.js";
+import { automationRoutes } from "./routes/automations/index.js";
+import { newsRoutes } from "./routes/news/index.js";
 import type { Config } from "./config.js";
 
 export async function buildApp(config: Config): Promise<FastifyInstance> {
@@ -106,6 +113,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   // Custom plugins
   await app.register(databasePlugin, { connectionString: config.databaseUrl });
   await app.register(authPlugin);
+  await app.register(schedulerPlugin);
 
   // Routes
   await app.register(healthRoutes, { prefix: "/api/v1" });
@@ -120,6 +128,12 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(cameraRoutes, { prefix: "/api/v1/cameras" });
   await app.register(homeAssistantRoutes, { prefix: "/api/v1/homeassistant" });
   await app.register(spotifyRoutes, { prefix: "/api/v1/spotify" });
+  await app.register(weatherRoutes, { prefix: "/api/v1/weather" });
+  await app.register(settingsRoutes, { prefix: "/api/v1/settings" });
+  await app.register(handwritingRoutes, { prefix: "/api/v1/handwriting" });
+  await app.register(sportsRoutes, { prefix: "/api/v1/sports" });
+  await app.register(automationRoutes, { prefix: "/api/v1/automations" });
+  await app.register(newsRoutes, { prefix: "/api/v1/news" });
 
   // Error handler
   app.setErrorHandler((error: FastifyError, _request, reply) => {
