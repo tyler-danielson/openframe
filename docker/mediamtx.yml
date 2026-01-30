@@ -1,0 +1,79 @@
+###############################################
+# MediaMTX Configuration for OpenFrame
+# RTSP to WebRTC/HLS transcoding
+###############################################
+
+# Global settings
+logLevel: info
+logDestinations: [stdout]
+
+# API for dynamic stream management
+api: yes
+apiAddress: :9997
+
+# Metrics (optional)
+metrics: no
+
+# RTSP server (for receiving camera streams)
+rtsp: yes
+rtspAddress: :8554
+protocols: [tcp]
+rtspDisableServerMediaChannel: yes
+
+# RTMP (disabled - not needed)
+rtmp: no
+
+# HLS server (for browser fallback)
+hls: yes
+hlsAddress: :8888
+hlsAlwaysRemux: no
+hlsVariant: lowLatency
+hlsSegmentCount: 3
+hlsSegmentDuration: 500ms
+hlsPartDuration: 100ms
+hlsSegmentMaxSize: 50M
+hlsAllowOrigin: '*'
+
+# WebRTC server (primary low-latency option)
+webrtc: yes
+webrtcAddress: :8889
+webrtcAllowOrigin: '*'
+webrtcICEServers2: []
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+
+# SRT (disabled - not needed)
+srt: no
+
+# Record (disabled - not needed for live viewing)
+record: no
+
+# Path defaults - apply to all streams
+pathDefaults:
+  # Source settings
+  source: publisher
+  sourceOnDemand: yes
+  sourceOnDemandStartTimeout: 10s
+  sourceOnDemandCloseAfter: 10s
+
+  # Disable authentication (handled by OpenFrame API)
+  publishUser: ""
+  publishPass: ""
+  publishIPs: []
+  readUser: ""
+  readPass: ""
+  readIPs: []
+
+  # Transcode settings (none - direct passthrough)
+  runOnDemand: ""
+  runOnDemandRestart: no
+  runOnDemandStartTimeout: 10s
+  runOnDemandCloseAfter: 10s
+
+# Named paths will be added dynamically via API
+# Example path that would be added:
+# paths:
+#   camera/abc123:
+#     source: rtsp://user:pass@192.168.1.100:554/h264Preview_01_main
+#     sourceOnDemand: yes
+paths: {}

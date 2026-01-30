@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Maximize2,
   Minimize2,
@@ -8,11 +8,17 @@ import {
   Video,
   VideoOff,
   AlertCircle,
+  Radio,
+  Tv,
+  Image,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { api } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
+import { WebRTCPlayer } from "./WebRTCPlayer";
 import type { Camera } from "@openframe/shared";
+
+type StreamMode = "webrtc" | "hls" | "mjpeg" | "snapshot";
 
 interface CameraFeedProps {
   camera: Camera;
@@ -32,7 +38,15 @@ export function CameraFeed({
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [showControls, setShowControls] = useState(false);
-  const [useMjpeg, setUseMjpeg] = useState(!!camera.mjpegUrl);
+  const [streamMode, setStreamMode] = useState<StreamMode>(() => {
+    // Default to WebRTC if RTSP available, otherwise MJPEG or snapshot
+    if (camera.rtspUrl) return "webrtc";
+    if (camera.mjpegUrl) return "mjpeg";
+    return "snapshot";
+  });
+  const [mediamtxAvailable, setMediamtxAvailable] = useState<boolean | null>(null);
+  const [streamUrls, setStreamUrls] = useState<{ webrtcUrl?: string; hlsUrl?: string } | null>(null);
+
   const imgRef = useRef<HTMLImageElement>(null);
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval>>();
   const { accessToken } = useAuthStore();
@@ -40,20 +54,66 @@ export function CameraFeed({
   const refreshInterval = camera.settings?.refreshInterval || 5;
   const aspectRatio = camera.settings?.aspectRatio || "16:9";
 
-  // Get the appropriate URL based on mode
-  const getImageUrl = () => {
-    if (useMjpeg && camera.mjpegUrl) {
+  // Check MediaMTX availability and start stream if RTSP available
+  useEffect(() => {
+    if (!camera.rtspUrl) {
+      setMediamtxAvailable(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const checkAndStartStream = async () => {
+      try {
+        // Check MediaMTX status
+        const status = await api.getMediaMTXStatus();
+        if (cancelled) return;
+
+        setMediamtxAvailable(status.available);
+
+        if (status.available) {
+          // Start the stream
+          const result = await api.startCameraStream(camera.id);
+          if (cancelled) return;
+
+          setStreamUrls({
+            webrtcUrl: result.webrtcUrl,
+            hlsUrl: result.hlsUrl,
+          });
+        } else {
+          // Fall back to MJPEG or snapshot
+          setStreamMode(camera.mjpegUrl ? "mjpeg" : "snapshot");
+        }
+      } catch (error) {
+        console.error("Failed to start camera stream:", error);
+        if (!cancelled) {
+          setMediamtxAvailable(false);
+          setStreamMode(camera.mjpegUrl ? "mjpeg" : "snapshot");
+        }
+      }
+    };
+
+    checkAndStartStream();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [camera.id, camera.rtspUrl, camera.mjpegUrl]);
+
+  // Get the appropriate URL for MJPEG/snapshot modes
+  const getImageUrl = useCallback(() => {
+    if (streamMode === "mjpeg" && camera.mjpegUrl) {
       return `${api.getCameraStreamUrl(camera.id)}?token=${accessToken}`;
     }
     if (camera.snapshotUrl) {
       return `${api.getCameraSnapshotUrl(camera.id)}?token=${accessToken}&t=${Date.now()}`;
     }
     return null;
-  };
+  }, [camera.id, camera.mjpegUrl, camera.snapshotUrl, streamMode, accessToken]);
 
   // Refresh snapshot periodically
   useEffect(() => {
-    if (useMjpeg || !camera.snapshotUrl) return;
+    if (streamMode !== "snapshot" || !camera.snapshotUrl) return;
 
     const refresh = () => {
       if (imgRef.current) {
@@ -69,7 +129,7 @@ export function CameraFeed({
         clearInterval(refreshIntervalRef.current);
       }
     };
-  }, [camera.id, camera.snapshotUrl, refreshInterval, useMjpeg, accessToken]);
+  }, [camera.id, camera.snapshotUrl, refreshInterval, streamMode, accessToken]);
 
   const handleLoad = () => {
     setIsLoading(false);
@@ -89,11 +149,54 @@ export function CameraFeed({
     }
   };
 
-  const toggleStreamMode = () => {
-    if (camera.mjpegUrl && camera.snapshotUrl) {
-      setUseMjpeg(!useMjpeg);
-      setIsLoading(true);
-      setHasError(false);
+  const cycleStreamMode = () => {
+    const availableModes: StreamMode[] = [];
+
+    // Add available modes based on camera configuration
+    if (camera.rtspUrl && mediamtxAvailable) {
+      availableModes.push("webrtc", "hls");
+    }
+    if (camera.mjpegUrl) {
+      availableModes.push("mjpeg");
+    }
+    if (camera.snapshotUrl) {
+      availableModes.push("snapshot");
+    }
+
+    if (availableModes.length <= 1) return;
+
+    const currentIndex = availableModes.indexOf(streamMode);
+    const nextIndex = (currentIndex + 1) % availableModes.length;
+    const nextMode = availableModes[nextIndex]!;
+
+    setStreamMode(nextMode);
+    setIsLoading(true);
+    setHasError(false);
+  };
+
+  const getStreamModeLabel = () => {
+    switch (streamMode) {
+      case "webrtc":
+        return "WebRTC";
+      case "hls":
+        return "HLS";
+      case "mjpeg":
+        return "LIVE";
+      case "snapshot":
+        return "SNAP";
+    }
+  };
+
+  const getStreamModeIcon = () => {
+    switch (streamMode) {
+      case "webrtc":
+        return <Radio className="h-3 w-3" />;
+      case "hls":
+        return <Tv className="h-3 w-3" />;
+      case "mjpeg":
+        return <Video className="h-3 w-3" />;
+      case "snapshot":
+        return <Image className="h-3 w-3" />;
     }
   };
 
@@ -104,6 +207,8 @@ export function CameraFeed({
   }[aspectRatio];
 
   const imageUrl = getImageUrl();
+  const isWebRTCMode = streamMode === "webrtc" || streamMode === "hls";
+  const canCycleMode = (camera.rtspUrl && mediamtxAvailable) || camera.mjpegUrl || camera.snapshotUrl;
 
   return (
     <div
@@ -116,7 +221,22 @@ export function CameraFeed({
     >
       {/* Video container */}
       <div className={cn(aspectRatioClass, isFullscreen && "h-full w-full aspect-auto")}>
-        {imageUrl ? (
+        {/* WebRTC/HLS mode */}
+        {isWebRTCMode && streamUrls && (
+          <WebRTCPlayer
+            webrtcUrl={streamUrls.webrtcUrl!}
+            hlsUrl={streamUrls.hlsUrl}
+            className="h-full w-full"
+            onLoad={handleLoad}
+            onError={() => {
+              setHasError(true);
+              setIsLoading(false);
+            }}
+          />
+        )}
+
+        {/* MJPEG/Snapshot mode */}
+        {!isWebRTCMode && imageUrl && (
           <img
             ref={imgRef}
             src={imageUrl}
@@ -128,21 +248,24 @@ export function CameraFeed({
             onLoad={handleLoad}
             onError={handleError}
           />
-        ) : (
+        )}
+
+        {/* No source available */}
+        {!isWebRTCMode && !imageUrl && (
           <div className="flex h-full items-center justify-center">
             <VideoOff className="h-12 w-12 text-muted-foreground" />
           </div>
         )}
 
-        {/* Loading overlay */}
-        {isLoading && !hasError && (
+        {/* Loading overlay (only for non-WebRTC modes, WebRTCPlayer handles its own) */}
+        {!isWebRTCMode && isLoading && !hasError && (
           <div className="absolute inset-0 flex items-center justify-center bg-black">
             <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         )}
 
-        {/* Error overlay */}
-        {hasError && (
+        {/* Error overlay (only for non-WebRTC modes) */}
+        {!isWebRTCMode && hasError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80">
             <AlertCircle className="h-10 w-10 text-destructive mb-2" />
             <p className="text-sm text-muted-foreground">Failed to load feed</p>
@@ -205,22 +328,26 @@ export function CameraFeed({
         <div className="flex items-center justify-between p-3">
           <div className="flex items-center gap-2">
             {/* Stream mode toggle */}
-            {camera.mjpegUrl && camera.snapshotUrl && (
+            {canCycleMode && (
               <button
-                onClick={toggleStreamMode}
+                onClick={cycleStreamMode}
                 className={cn(
                   "flex items-center gap-1 rounded px-2 py-1 text-xs text-white",
-                  useMjpeg ? "bg-green-500/50" : "bg-white/20"
+                  streamMode === "webrtc" || streamMode === "hls"
+                    ? "bg-blue-500/50"
+                    : streamMode === "mjpeg"
+                    ? "bg-green-500/50"
+                    : "bg-white/20"
                 )}
-                title={useMjpeg ? "Streaming live" : "Snapshot mode"}
+                title={`Current: ${getStreamModeLabel()}. Click to switch mode.`}
               >
-                <Video className="h-3 w-3" />
-                {useMjpeg ? "LIVE" : "SNAP"}
+                {getStreamModeIcon()}
+                {getStreamModeLabel()}
               </button>
             )}
 
             {/* Refresh button (snapshot mode only) */}
-            {!useMjpeg && camera.snapshotUrl && (
+            {streamMode === "snapshot" && camera.snapshotUrl && (
               <button
                 onClick={handleRefresh}
                 className="rounded p-1.5 text-white/80 hover:bg-white/20 hover:text-white"

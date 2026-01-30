@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { eq, and, asc } from "drizzle-orm";
 import { cameras } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { mediamtx } from "../../services/mediamtx.js";
 
 export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
   // List cameras
@@ -123,6 +124,7 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
                 refreshInterval: { type: "number" },
                 aspectRatio: { type: "string", enum: ["16:9", "4:3", "1:1"] },
                 showInDashboard: { type: "boolean" },
+                isFavorite: { type: "boolean" },
               },
             },
           },
@@ -143,6 +145,7 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
           refreshInterval?: number;
           aspectRatio?: "16:9" | "4:3" | "1:1";
           showInDashboard?: boolean;
+          isFavorite?: boolean;
         };
       };
 
@@ -222,6 +225,7 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
                 refreshInterval: { type: "number" },
                 aspectRatio: { type: "string", enum: ["16:9", "4:3", "1:1"] },
                 showInDashboard: { type: "boolean" },
+                isFavorite: { type: "boolean" },
               },
             },
           },
@@ -244,6 +248,7 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
           refreshInterval?: number;
           aspectRatio?: "16:9" | "4:3" | "1:1";
           showInDashboard?: boolean;
+          isFavorite?: boolean;
         };
       };
 
@@ -296,6 +301,112 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
           settings: camera!.settings,
           createdAt: camera!.createdAt,
           updatedAt: camera!.updatedAt,
+        },
+      };
+    }
+  );
+
+  // Reorder cameras (batch update sort orders)
+  fastify.post(
+    "/reorder",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Reorder cameras by updating sort orders",
+        tags: ["Cameras"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          properties: {
+            order: {
+              type: "array",
+              items: { type: "string", format: "uuid" },
+              description: "Array of camera IDs in the desired order",
+            },
+          },
+          required: ["order"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      const { order } = request.body as { order: string[] };
+
+      // Verify all cameras belong to user
+      const userCameras = await fastify.db
+        .select({ id: cameras.id })
+        .from(cameras)
+        .where(eq(cameras.userId, user.id));
+
+      const userCameraIds = new Set(userCameras.map((c) => c.id));
+      for (const id of order) {
+        if (!userCameraIds.has(id)) {
+          return reply.badRequest(`Camera ${id} not found or not owned by user`);
+        }
+      }
+
+      // Update sort orders
+      for (let i = 0; i < order.length; i++) {
+        const cameraId = order[i]!;
+        await fastify.db
+          .update(cameras)
+          .set({ sortOrder: i, updatedAt: new Date() })
+          .where(eq(cameras.id, cameraId));
+      }
+
+      return { success: true };
+    }
+  );
+
+  // Toggle camera favorite
+  fastify.post(
+    "/:id/favorite",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Toggle camera favorite status",
+        tags: ["Cameras"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      const { id } = request.params as { id: string };
+
+      const [existing] = await fastify.db
+        .select()
+        .from(cameras)
+        .where(and(eq(cameras.id, id), eq(cameras.userId, user.id)))
+        .limit(1);
+
+      if (!existing) {
+        return reply.notFound("Camera not found");
+      }
+
+      const currentSettings = existing.settings || {};
+      const newIsFavorite = !currentSettings.isFavorite;
+
+      const [camera] = await fastify.db
+        .update(cameras)
+        .set({
+          settings: { ...currentSettings, isFavorite: newIsFavorite },
+          updatedAt: new Date(),
+        })
+        .where(eq(cameras.id, id))
+        .returning();
+
+      return {
+        success: true,
+        data: {
+          id: camera!.id,
+          isFavorite: newIsFavorite,
         },
       };
     }
@@ -438,16 +549,49 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("Camera does not have an MJPEG URL configured");
       }
 
+      // Create abort controller for timeout and client disconnect
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => abortController.abort(), 10000); // 10 second connection timeout
+
+      // Abort on client disconnect
+      request.raw.on("close", () => {
+        abortController.abort();
+      });
+
       try {
-        const headers: Record<string, string> = {};
+        const headers: Record<string, string> = {
+          "User-Agent": "Mozilla/5.0",
+        };
+
+        // Build URL with auth if needed (some cameras like Reolink prefer URL auth)
+        let streamUrl = camera.mjpegUrl;
         if (camera.username && camera.password) {
+          // Try both header auth and URL auth
           const auth = Buffer.from(`${camera.username}:${camera.password}`).toString("base64");
           headers.Authorization = `Basic ${auth}`;
+
+          // Also embed auth in URL for cameras that need it
+          try {
+            const url = new URL(camera.mjpegUrl);
+            if (!url.username) {
+              url.username = camera.username;
+              url.password = camera.password;
+              streamUrl = url.toString();
+            }
+          } catch {
+            // Keep original URL if parsing fails
+          }
         }
 
-        const response = await fetch(camera.mjpegUrl, { headers });
+        const response = await fetch(streamUrl, {
+          headers,
+          signal: abortController.signal,
+        });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
+          console.error(`Camera stream failed: ${response.status} ${response.statusText}`);
           return reply.status(response.status).send("Failed to connect to camera stream");
         }
 
@@ -468,20 +612,321 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
               while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
-                reply.raw.write(value);
+                if (!reply.raw.writableEnded) {
+                  reply.raw.write(value);
+                }
               }
             } catch {
-              // Stream closed
+              // Stream closed or aborted
             } finally {
-              reply.raw.end();
+              if (!reply.raw.writableEnded) {
+                reply.raw.end();
+              }
             }
           };
           pump();
         }
       } catch (error) {
-        console.error("Failed to proxy camera stream:", error);
-        return reply.internalServerError("Failed to connect to camera stream");
+        clearTimeout(timeoutId);
+        if ((error as Error).name === "AbortError") {
+          console.error("Camera stream connection timed out or client disconnected");
+          if (!reply.sent) {
+            return reply.status(504).send("Camera connection timed out");
+          }
+        } else {
+          console.error("Failed to proxy camera stream:", error);
+          if (!reply.sent) {
+            return reply.internalServerError("Failed to connect to camera stream");
+          }
+        }
       }
+    }
+  );
+
+  // ============================================
+  // MediaMTX Stream Management Endpoints
+  // ============================================
+
+  // Check MediaMTX availability
+  fastify.get(
+    "/mediamtx/status",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Check if MediaMTX streaming server is available",
+        tags: ["Cameras"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
+    async () => {
+      const available = await mediamtx.isAvailable();
+      return {
+        success: true,
+        data: { available },
+      };
+    }
+  );
+
+  // Get WebRTC stream URL for a camera
+  fastify.get(
+    "/:id/webrtc-url",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Get WebRTC stream URL for a camera (requires MediaMTX)",
+        tags: ["Cameras"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      const { id } = request.params as { id: string };
+
+      const [camera] = await fastify.db
+        .select()
+        .from(cameras)
+        .where(and(eq(cameras.id, id), eq(cameras.userId, user.id)))
+        .limit(1);
+
+      if (!camera) {
+        return reply.notFound("Camera not found");
+      }
+
+      if (!camera.rtspUrl) {
+        return reply.badRequest("Camera does not have an RTSP URL configured");
+      }
+
+      const urls = mediamtx.getStreamUrls(camera.id);
+
+      return {
+        success: true,
+        data: {
+          webrtcUrl: urls.webrtcUrl,
+          pathName: mediamtx.getPathName(camera.id),
+        },
+      };
+    }
+  );
+
+  // Get HLS stream URL for a camera
+  fastify.get(
+    "/:id/hls-url",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Get HLS stream URL for a camera (requires MediaMTX)",
+        tags: ["Cameras"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      const { id } = request.params as { id: string };
+
+      const [camera] = await fastify.db
+        .select()
+        .from(cameras)
+        .where(and(eq(cameras.id, id), eq(cameras.userId, user.id)))
+        .limit(1);
+
+      if (!camera) {
+        return reply.notFound("Camera not found");
+      }
+
+      if (!camera.rtspUrl) {
+        return reply.badRequest("Camera does not have an RTSP URL configured");
+      }
+
+      const urls = mediamtx.getStreamUrls(camera.id);
+
+      return {
+        success: true,
+        data: {
+          hlsUrl: urls.hlsUrl,
+          pathName: mediamtx.getPathName(camera.id),
+        },
+      };
+    }
+  );
+
+  // Start/register a camera stream with MediaMTX
+  fastify.post(
+    "/:id/start-stream",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Register camera with MediaMTX for WebRTC/HLS streaming",
+        tags: ["Cameras"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      const { id } = request.params as { id: string };
+
+      const [camera] = await fastify.db
+        .select()
+        .from(cameras)
+        .where(and(eq(cameras.id, id), eq(cameras.userId, user.id)))
+        .limit(1);
+
+      if (!camera) {
+        return reply.notFound("Camera not found");
+      }
+
+      if (!camera.rtspUrl) {
+        return reply.badRequest("Camera does not have an RTSP URL configured");
+      }
+
+      // Check if MediaMTX is available
+      const available = await mediamtx.isAvailable();
+      if (!available) {
+        return reply.serviceUnavailable("MediaMTX streaming server is not available");
+      }
+
+      try {
+        const result = await mediamtx.registerCamera(
+          camera.id,
+          camera.rtspUrl,
+          camera.username,
+          camera.password
+        );
+
+        return {
+          success: true,
+          data: {
+            pathName: result.pathName,
+            webrtcUrl: result.webrtcUrl,
+            hlsUrl: result.hlsUrl,
+          },
+        };
+      } catch (error) {
+        console.error("Failed to register camera with MediaMTX:", error);
+        return reply.internalServerError("Failed to start stream");
+      }
+    }
+  );
+
+  // Stop/unregister a camera stream from MediaMTX
+  fastify.delete(
+    "/:id/stop-stream",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Unregister camera from MediaMTX streaming",
+        tags: ["Cameras"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      const { id } = request.params as { id: string };
+
+      const [camera] = await fastify.db
+        .select()
+        .from(cameras)
+        .where(and(eq(cameras.id, id), eq(cameras.userId, user.id)))
+        .limit(1);
+
+      if (!camera) {
+        return reply.notFound("Camera not found");
+      }
+
+      try {
+        await mediamtx.unregisterCamera(camera.id);
+        return { success: true };
+      } catch (error) {
+        console.error("Failed to unregister camera from MediaMTX:", error);
+        return reply.internalServerError("Failed to stop stream");
+      }
+    }
+  );
+
+  // Get stream status for a camera
+  fastify.get(
+    "/:id/stream-status",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Check if camera stream is active in MediaMTX",
+        tags: ["Cameras"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      const { id } = request.params as { id: string };
+
+      const [camera] = await fastify.db
+        .select()
+        .from(cameras)
+        .where(and(eq(cameras.id, id), eq(cameras.userId, user.id)))
+        .limit(1);
+
+      if (!camera) {
+        return reply.notFound("Camera not found");
+      }
+
+      const mediamtxAvailable = await mediamtx.isAvailable();
+      if (!mediamtxAvailable) {
+        return {
+          success: true,
+          data: {
+            mediamtxAvailable: false,
+            streamReady: false,
+            hasRtspUrl: !!camera.rtspUrl,
+          },
+        };
+      }
+
+      const streamReady = camera.rtspUrl ? await mediamtx.isStreamReady(camera.id) : false;
+      const urls = camera.rtspUrl ? mediamtx.getStreamUrls(camera.id) : null;
+
+      return {
+        success: true,
+        data: {
+          mediamtxAvailable: true,
+          streamReady,
+          hasRtspUrl: !!camera.rtspUrl,
+          webrtcUrl: urls?.webrtcUrl,
+          hlsUrl: urls?.hlsUrl,
+        },
+      };
     }
   );
 };

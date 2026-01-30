@@ -183,7 +183,7 @@ class ApiClient {
 
   async updateCalendar(
     id: string,
-    data: Partial<Pick<Calendar, "color" | "isVisible" | "syncEnabled" | "isPrimary" | "showOnDashboard">>
+    data: Partial<Pick<Calendar, "color" | "isVisible" | "syncEnabled" | "isPrimary" | "showOnDashboard">> & { visibility?: Partial<Calendar["visibility"]> }
   ): Promise<Calendar> {
     return this.fetch<Calendar>(`/calendars/${id}`, {
       method: "PATCH",
@@ -714,6 +714,43 @@ class ApiClient {
     return `${API_BASE}/cameras/${id}/stream`;
   }
 
+  // MediaMTX streaming endpoints
+  async getMediaMTXStatus(): Promise<{ available: boolean }> {
+    return this.fetch<{ available: boolean }>("/cameras/mediamtx/status");
+  }
+
+  async getCameraWebRTCUrl(id: string): Promise<{ webrtcUrl: string; pathName: string }> {
+    return this.fetch<{ webrtcUrl: string; pathName: string }>(`/cameras/${id}/webrtc-url`);
+  }
+
+  async getCameraHLSUrl(id: string): Promise<{ hlsUrl: string; pathName: string }> {
+    return this.fetch<{ hlsUrl: string; pathName: string }>(`/cameras/${id}/hls-url`);
+  }
+
+  async startCameraStream(id: string): Promise<{
+    pathName: string;
+    webrtcUrl: string;
+    hlsUrl: string;
+  }> {
+    return this.fetch(`/cameras/${id}/start-stream`, {
+      method: "POST",
+    });
+  }
+
+  async stopCameraStream(id: string): Promise<void> {
+    await this.fetch(`/cameras/${id}/stop-stream`, { method: "DELETE" });
+  }
+
+  async getCameraStreamStatus(id: string): Promise<{
+    mediamtxAvailable: boolean;
+    streamReady: boolean;
+    hasRtspUrl: boolean;
+    webrtcUrl?: string;
+    hlsUrl?: string;
+  }> {
+    return this.fetch(`/cameras/${id}/stream-status`);
+  }
+
   // Home Assistant
   async getHomeAssistantConfig(): Promise<HomeAssistantConfig | null> {
     return this.fetch<HomeAssistantConfig | null>("/homeassistant/config");
@@ -1088,6 +1125,27 @@ class ApiClient {
     });
     if (accountId) params.set('accountId', accountId);
     return this.fetch(`/spotify/search?${params}`);
+  }
+
+  async spotifyCheckSavedTracks(trackIds: string[], accountId?: string): Promise<boolean[]> {
+    const params = `ids=${trackIds.join(",")}${accountId ? `&accountId=${accountId}` : ""}`;
+    return this.fetch(`/spotify/tracks/saved?${params}`);
+  }
+
+  async spotifySaveTrack(trackId: string, accountId?: string): Promise<void> {
+    const params = accountId ? `?accountId=${accountId}` : "";
+    await this.fetch(`/spotify/tracks/save${params}`, {
+      method: "PUT",
+      body: JSON.stringify({ trackId }),
+    });
+  }
+
+  async spotifyUnsaveTrack(trackId: string, accountId?: string): Promise<void> {
+    const params = accountId ? `?accountId=${accountId}` : "";
+    await this.fetch(`/spotify/tracks/save${params}`, {
+      method: "DELETE",
+      body: JSON.stringify({ trackId }),
+    });
   }
 
   // Weather
