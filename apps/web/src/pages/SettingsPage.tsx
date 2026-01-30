@@ -4670,8 +4670,23 @@ export function SettingsPage() {
 
       {/* Tab Navigation */}
       <div className="border-b border-border bg-card">
-        <div className="mx-auto max-w-4xl px-6">
-          <nav className="flex justify-center gap-1 -mb-px">
+        <div className="mx-auto max-w-4xl px-4 sm:px-6">
+          {/* Mobile dropdown */}
+          <div className="md:hidden py-3">
+            <select
+              value={activeTab}
+              onChange={(e) => handleTabChange(e.target.value as SettingsTab)}
+              className="w-full min-h-[44px] px-4 py-2 text-sm font-medium bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              {tabs.map((tab) => (
+                <option key={tab.id} value={tab.id}>
+                  {tab.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {/* Desktop tabs */}
+          <nav className="hidden md:flex justify-center gap-1 -mb-px">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
@@ -4692,7 +4707,7 @@ export function SettingsPage() {
 
       {/* Tab Content */}
       <div ref={scrollContainerRef} className="flex-1 overflow-auto">
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {/* Account Tab */}
           {activeTab === "account" && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -5151,7 +5166,7 @@ export function SettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div>
                     <p className="font-medium">Layout</p>
                     <p className="text-sm text-muted-foreground">
@@ -5159,7 +5174,7 @@ export function SettingsPage() {
                     </p>
                   </div>
                   <select
-                    className="rounded-md border border-border bg-background px-3 py-1"
+                    className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
                     value={tasksLayout}
                     onChange={(e) => setTasksLayout(e.target.value as TasksLayout)}
                   >
@@ -5170,7 +5185,7 @@ export function SettingsPage() {
                   </select>
                 </div>
 
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="font-medium">Show completed tasks</p>
                     <p className="text-sm text-muted-foreground">
@@ -5181,11 +5196,11 @@ export function SettingsPage() {
                     type="checkbox"
                     checked={tasksShowCompleted}
                     onChange={(e) => setTasksShowCompleted(e.target.checked)}
-                    className="rounded"
+                    className="rounded min-h-[44px] min-w-[44px]"
                   />
                 </div>
 
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="font-medium">Expand all lists</p>
                     <p className="text-sm text-muted-foreground">
@@ -5196,7 +5211,7 @@ export function SettingsPage() {
                     type="checkbox"
                     checked={expandAllLists}
                     onChange={(e) => setExpandAllLists(e.target.checked)}
-                    className="rounded"
+                    className="rounded min-h-[44px] min-w-[44px]"
                     disabled={tasksLayout !== "lists"}
                   />
                 </div>
@@ -5275,22 +5290,24 @@ export function SettingsPage() {
           {/* Entertainment Tab */}
           {activeTab === "entertainment" && (
             <div className="space-y-6">
-              {/* Sub-tab navigation */}
-              <div className="flex gap-2 border-b border-border pb-4">
-                {entertainmentSubTabs.map((subtab) => (
-                  <button
-                    key={subtab.id}
-                    onClick={() => handleEntertainmentSubTabChange(subtab.id)}
-                    className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                      activeEntertainmentSubTab === subtab.id
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                    }`}
-                  >
-                    {subtab.icon}
-                    {subtab.label}
-                  </button>
-                ))}
+              {/* Sub-tab navigation - horizontally scrollable on mobile */}
+              <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 border-b border-border pb-4">
+                <div className="flex gap-2 whitespace-nowrap">
+                  {entertainmentSubTabs.map((subtab) => (
+                    <button
+                      key={subtab.id}
+                      onClick={() => handleEntertainmentSubTabChange(subtab.id)}
+                      className={`flex items-center gap-2 px-4 py-2 min-h-[44px] text-sm font-medium rounded-lg transition-colors ${
+                        activeEntertainmentSubTab === subtab.id
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {subtab.icon}
+                      {subtab.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Sub-tab content */}
@@ -5319,7 +5336,7 @@ export function SettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div>
                     <p className="font-medium">Calendar name</p>
                     <p className="text-sm text-muted-foreground">
@@ -5330,11 +5347,11 @@ export function SettingsPage() {
                     type="text"
                     value={familyName}
                     onChange={(e) => setFamilyName(e.target.value)}
-                    className="rounded-md border border-border bg-background px-3 py-1 w-48"
+                    className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-48"
                     placeholder="Family Calendar"
                   />
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div>
                     <p className="font-medium">Home address</p>
                     <p className="text-sm text-muted-foreground">
@@ -5345,11 +5362,11 @@ export function SettingsPage() {
                     type="text"
                     value={homeAddress}
                     onChange={(e) => setHomeAddress(e.target.value)}
-                    className="rounded-md border border-border bg-background px-3 py-1 w-64"
+                    className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-64"
                     placeholder="123 Main St, City, State"
                   />
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div>
                     <p className="font-medium">Default calendar</p>
                     <p className="text-sm text-muted-foreground">
@@ -5357,7 +5374,7 @@ export function SettingsPage() {
                     </p>
                   </div>
                   <select
-                    className="rounded-md border border-border bg-background px-3 py-1"
+                    className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
                     value={currentDefaultCalendar?.id ?? ""}
                     onChange={(e) => {
                       const newDefaultId = e.target.value;
@@ -5377,16 +5394,16 @@ export function SettingsPage() {
                     ))}
                   </select>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="font-medium">Show clock</p>
                     <p className="text-sm text-muted-foreground">
                       Display time on dashboard
                     </p>
                   </div>
-                  <input type="checkbox" defaultChecked className="rounded" />
+                  <input type="checkbox" defaultChecked className="rounded min-h-[44px] min-w-[44px]" />
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div>
                     <p className="font-medium">Week starts on</p>
                     <p className="text-sm text-muted-foreground">
@@ -5394,7 +5411,7 @@ export function SettingsPage() {
                     </p>
                   </div>
                   <select
-                    className="rounded-md border border-border bg-background px-3 py-1"
+                    className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
                     value={weekStartsOn}
                     onChange={(e) => setWeekStartsOn(Number(e.target.value) as 0 | 1 | 2 | 3 | 4 | 5 | 6)}
                   >
@@ -5403,7 +5420,7 @@ export function SettingsPage() {
                     <option value={6}>Saturday</option>
                   </select>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div>
                     <p className="font-medium">Day view hours</p>
                     <p className="text-sm text-muted-foreground">
@@ -5412,7 +5429,7 @@ export function SettingsPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <select
-                      className="rounded-md border border-border bg-background px-3 py-1"
+                      className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px]"
                       value={dayStartHour}
                       onChange={(e) => setDayStartHour(Number(e.target.value))}
                     >
@@ -5424,7 +5441,7 @@ export function SettingsPage() {
                     </select>
                     <span className="text-muted-foreground">to</span>
                     <select
-                      className="rounded-md border border-border bg-background px-3 py-1"
+                      className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px]"
                       value={dayEndHour}
                       onChange={(e) => setDayEndHour(Number(e.target.value))}
                     >
@@ -5436,7 +5453,7 @@ export function SettingsPage() {
                     </select>
                   </div>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div>
                     <p className="font-medium">Ticker speed</p>
                     <p className="text-sm text-muted-foreground">
@@ -5444,7 +5461,7 @@ export function SettingsPage() {
                     </p>
                   </div>
                   <select
-                    className="rounded-md border border-border bg-background px-3 py-1"
+                    className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
                     value={tickerSpeed}
                     onChange={(e) => setTickerSpeed(e.target.value as "slow" | "normal" | "fast")}
                   >
@@ -5547,7 +5564,7 @@ export function SettingsPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <div>
                       <p className="font-medium">Enable screensaver</p>
                       <p className="text-sm text-muted-foreground">
@@ -5558,12 +5575,12 @@ export function SettingsPage() {
                       type="checkbox"
                       checked={screensaverEnabled}
                       onChange={(e) => setScreensaverEnabled(e.target.checked)}
-                      className="rounded"
+                      className="rounded min-h-[44px] min-w-[44px]"
                     />
                   </div>
                   {screensaverEnabled && (
                     <>
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                         <div>
                           <p className="font-medium">Idle timeout</p>
                           <p className="text-sm text-muted-foreground">
@@ -5571,7 +5588,7 @@ export function SettingsPage() {
                           </p>
                         </div>
                         <select
-                          className="rounded-md border border-border bg-background px-3 py-1"
+                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
                           value={idleTimeout}
                           onChange={(e) => setIdleTimeout(Number(e.target.value))}
                         >
@@ -5583,7 +5600,7 @@ export function SettingsPage() {
                           <option value={1800}>30 minutes</option>
                         </select>
                       </div>
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                         <div>
                           <p className="font-medium">Slide interval</p>
                           <p className="text-sm text-muted-foreground">
@@ -5591,7 +5608,7 @@ export function SettingsPage() {
                           </p>
                         </div>
                         <select
-                          className="rounded-md border border-border bg-background px-3 py-1"
+                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
                           value={slideInterval}
                           onChange={(e) => setSlideInterval(Number(e.target.value))}
                         >
@@ -5603,7 +5620,7 @@ export function SettingsPage() {
                           <option value={300}>5 minutes</option>
                         </select>
                       </div>
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                         <div>
                           <p className="font-medium">Layout</p>
                           <p className="text-sm text-muted-foreground">
@@ -5611,7 +5628,7 @@ export function SettingsPage() {
                           </p>
                         </div>
                         <select
-                          className="rounded-md border border-border bg-background px-3 py-1"
+                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
                           value={screensaverLayout}
                           onChange={(e) => setScreensaverLayout(e.target.value as ScreensaverLayout)}
                         >
@@ -5621,7 +5638,7 @@ export function SettingsPage() {
                           <option value="scatter">Scatter collage</option>
                         </select>
                       </div>
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                         <div>
                           <p className="font-medium">Transition</p>
                           <p className="text-sm text-muted-foreground">
@@ -5629,7 +5646,7 @@ export function SettingsPage() {
                           </p>
                         </div>
                         <select
-                          className="rounded-md border border-border bg-background px-3 py-1"
+                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
                           value={transition}
                           onChange={(e) => setTransition(e.target.value as ScreensaverTransition)}
                           disabled={screensaverLayout === "scatter"}
@@ -5692,7 +5709,7 @@ export function SettingsPage() {
 
                       {/* Night Dim Settings */}
                       <div className="border-t border-border pt-4 mt-4">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-2">
                           <div>
                             <p className="font-medium">Night dimming</p>
                             <p className="text-sm text-muted-foreground">
@@ -5701,7 +5718,7 @@ export function SettingsPage() {
                           </div>
                           <input
                             type="checkbox"
-                            className="h-5 w-5"
+                            className="min-h-[44px] min-w-[44px]"
                             checked={nightDimEnabled}
                             onChange={(e) => setNightDimEnabled(e.target.checked)}
                           />
@@ -5709,7 +5726,7 @@ export function SettingsPage() {
 
                         {nightDimEnabled && (
                           <div className="mt-4 space-y-4 pl-4 border-l-2 border-primary/20">
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                               <div>
                                 <label className="text-sm font-medium block mb-1">
                                   Start time
@@ -5717,7 +5734,7 @@ export function SettingsPage() {
                                 <select
                                   value={nightDimStartHour}
                                   onChange={(e) => setNightDimStartHour(Number(e.target.value))}
-                                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                                  className="w-full rounded-md border border-border bg-background px-3 py-2 min-h-[44px] text-sm"
                                 >
                                   {Array.from({ length: 24 }, (_, i) => (
                                     <option key={i} value={i}>
@@ -5733,7 +5750,7 @@ export function SettingsPage() {
                                 <select
                                   value={nightDimEndHour}
                                   onChange={(e) => setNightDimEndHour(Number(e.target.value))}
-                                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                                  className="w-full rounded-md border border-border bg-background px-3 py-2 min-h-[44px] text-sm"
                                 >
                                   {Array.from({ length: 24 }, (_, i) => (
                                     <option key={i} value={i}>

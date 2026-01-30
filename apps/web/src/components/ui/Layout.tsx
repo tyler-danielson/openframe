@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Calendar,
   Image,
@@ -16,15 +16,26 @@ import {
   Minimize,
   ListTodo,
   Music,
+  MapPin,
+  Menu,
+  X,
 } from "lucide-react";
 import { api } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
+import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import { cn } from "../../lib/utils";
 
 export function Layout() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { logout, setUser, isAuthenticated, kioskEnabled } = useAuthStore();
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  // Home Assistant WebSocket
+  const haDisconnect = useHAWebSocket((state) => state.disconnect);
+  const haConnect = useHAWebSocket((state) => state.connect);
 
   // Track fullscreen state
   useEffect(() => {
@@ -71,8 +82,27 @@ export function Layout() {
     navigate("/login");
   };
 
-  const handleSync = async () => {
-    await api.syncAllCalendars();
+  const handleReconnectAll = async () => {
+    if (isReconnecting) return;
+
+    setIsReconnecting(true);
+    try {
+      // Reconnect Home Assistant WebSocket
+      haDisconnect();
+      await haConnect();
+
+      // Sync calendars
+      await api.syncAllCalendars();
+
+      // Invalidate and refetch all queries to refresh data
+      await queryClient.invalidateQueries();
+
+      console.log("All services reconnected");
+    } catch (error) {
+      console.error("Error reconnecting services:", error);
+    } finally {
+      setIsReconnecting(false);
+    }
   };
 
   // Build nav items based on authentication status
@@ -85,6 +115,7 @@ export function Layout() {
     { to: "/iptv", icon: Tv, label: "Live TV" },
     { to: "/cameras", icon: Camera, label: "Cameras" },
     { to: "/homeassistant", icon: Home, label: "Home Assistant" },
+    { to: "/map", icon: MapPin, label: "Map" },
     // Only show settings if authenticated
     ...(isAuthenticated
       ? [{ to: "/settings", icon: Settings, label: "Settings" }]
@@ -93,8 +124,39 @@ export function Layout() {
 
   return (
     <div className="flex h-screen bg-background">
+      {/* Mobile Menu Button */}
+      <button
+        onClick={() => setIsMobileSidebarOpen(true)}
+        className="lg:hidden fixed top-4 left-4 z-40 p-3 rounded-lg bg-card border border-border min-h-[44px] min-w-[44px] flex items-center justify-center"
+        aria-label="Open menu"
+      >
+        <Menu className="h-5 w-5 text-foreground" />
+      </button>
+
+      {/* Mobile Sidebar Overlay */}
+      {isMobileSidebarOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-40 bg-black/50"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="flex w-16 flex-col items-center border-r border-border bg-card py-4">
+      <aside
+        className={cn(
+          "fixed lg:relative z-50 lg:z-auto h-full flex w-16 flex-col items-center border-r border-border bg-card py-4 transform transition-transform lg:transform-none",
+          isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        )}
+      >
+        {/* Mobile Close Button */}
+        <button
+          onClick={() => setIsMobileSidebarOpen(false)}
+          className="lg:hidden absolute top-4 right-[-44px] p-3 rounded-lg bg-card border border-border min-h-[44px] min-w-[44px] flex items-center justify-center"
+          aria-label="Close menu"
+        >
+          <X className="h-5 w-5 text-foreground" />
+        </button>
+
         <div className="mb-8 flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
           <Calendar className="h-6 w-6" />
         </div>
@@ -104,6 +166,7 @@ export function Layout() {
             <NavLink
               key={item.to}
               to={item.to}
+              onClick={() => setIsMobileSidebarOpen(false)}
               className={({ isActive }) =>
                 cn(
                   "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
@@ -138,11 +201,15 @@ export function Layout() {
             {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
           </button>
           <button
-            onClick={handleSync}
-            className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-            title="Sync calendars"
+            onClick={handleReconnectAll}
+            disabled={isReconnecting}
+            className={cn(
+              "flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+              isReconnecting && "opacity-50 cursor-not-allowed"
+            )}
+            title="Reconnect all services"
           >
-            <RefreshCw className="h-5 w-5" />
+            <RefreshCw className={cn("h-5 w-5", isReconnecting && "animate-spin")} />
           </button>
           {isAuthenticated ? (
             <button
@@ -165,21 +232,10 @@ export function Layout() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
+      <main className="relative flex-1 overflow-auto pt-16 lg:pt-0">
         <Outlet />
       </main>
 
-      {/* Floating exit fullscreen button */}
-      {isFullscreen && (
-        <button
-          onClick={toggleFullscreen}
-          className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg bg-black/50 px-3 py-2 text-white/80 backdrop-blur-sm transition-opacity hover:bg-black/70 hover:text-white"
-          title="Exit fullscreen"
-        >
-          <Minimize className="h-4 w-4" />
-          <span className="text-sm">Exit Fullscreen</span>
-        </button>
-      )}
     </div>
   );
 }
