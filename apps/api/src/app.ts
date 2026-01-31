@@ -28,6 +28,9 @@ import { handwritingRoutes } from "./routes/handwriting/index.js";
 import { sportsRoutes } from "./routes/sports/index.js";
 import { automationRoutes } from "./routes/automations/index.js";
 import { newsRoutes } from "./routes/news/index.js";
+import { remarkableRoutes } from "./routes/remarkable/index.js";
+import { capacitiesRoutes } from "./routes/capacities/index.js";
+import { telegramRoutes } from "./routes/telegram/index.js";
 import type { Config } from "./config.js";
 
 export async function buildApp(config: Config): Promise<FastifyInstance> {
@@ -134,6 +137,9 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(sportsRoutes, { prefix: "/api/v1/sports" });
   await app.register(automationRoutes, { prefix: "/api/v1/automations" });
   await app.register(newsRoutes, { prefix: "/api/v1/news" });
+  await app.register(remarkableRoutes, { prefix: "/api/v1/remarkable" });
+  await app.register(capacitiesRoutes, { prefix: "/api/v1/capacities" });
+  await app.register(telegramRoutes, { prefix: "/api/v1/telegram" });
 
   // Error handler
   app.setErrorHandler((error: FastifyError, _request, reply) => {

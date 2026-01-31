@@ -37,7 +37,7 @@ export interface ApiKeyInfo {
 export type OAuthProvider = "google" | "microsoft";
 
 // Calendar types
-export type CalendarProvider = "google" | "microsoft" | "caldav";
+export type CalendarProvider = "google" | "microsoft" | "caldav" | "ics" | "sports" | "homeassistant";
 
 export interface CalendarVisibility {
   week: boolean;
@@ -63,6 +63,7 @@ export interface Calendar {
   showOnDashboard: boolean;
   lastSyncAt: Date | null;
   visibility: CalendarVisibility;
+  sourceUrl?: string | null; // URL for ICS subscriptions
 }
 
 export interface CalendarEvent {
@@ -558,4 +559,96 @@ export interface SportsGame {
   clock: string | null;
   venue: string | null;
   broadcast: string | null;
+}
+
+// Capacities types
+export interface CapacitiesSpace {
+  id: string;
+  title: string;
+  icon?: string | { name: string; color: string };
+  isDefault?: boolean;
+}
+
+export interface CapacitiesSpaceInfo {
+  id: string;
+  title: string;
+  structures: CapacitiesStructure[];
+}
+
+export interface CapacitiesStructure {
+  id: string;
+  pluralName: string;
+  icon?: string;
+}
+
+export interface CapacitiesLookupResult {
+  id: string;
+  structureId: string;
+  title: string;
+}
+
+export interface CapacitiesSavedObject {
+  id: string;
+  title: string;
+  structureId: string;
+}
+
+export interface CapacitiesConfig {
+  connected: boolean;
+  defaultSpaceId: string | null;
+  lastSyncAt: string | null;
+  spaces: CapacitiesSpace[];
+}
+
+export interface CapacitiesSaveToDailyNoteInput {
+  spaceId?: string;
+  mdText: string;
+  noTimeStamp?: boolean;
+}
+
+export interface CapacitiesSaveWeblinkInput {
+  spaceId?: string;
+  url: string;
+  title?: string;
+  mdText?: string;
+  tags?: string[];
+}
+
+// Telegram types
+export interface TelegramBotInfo {
+  username: string;
+  firstName: string;
+}
+
+export interface TelegramChat {
+  id: string;
+  chatId: string;
+  chatType: "private" | "group" | "supergroup" | "channel";
+  name: string;
+  username: string | null;
+  isActive: boolean;
+  linkedAt: string;
+  lastMessageAt: string | null;
+}
+
+export interface TelegramSettings {
+  dailyAgendaEnabled: boolean;
+  dailyAgendaTime: string;
+  eventRemindersEnabled: boolean;
+  eventReminderMinutes: number;
+}
+
+export interface TelegramConfig {
+  connected: boolean;
+  botUsername: string | null;
+  settings: TelegramSettings;
+  chats: TelegramChat[];
+}
+
+export interface TelegramWebhookInfo {
+  url: string;
+  has_custom_certificate: boolean;
+  pending_update_count: number;
+  last_error_date?: number;
+  last_error_message?: string;
 }

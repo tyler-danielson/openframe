@@ -202,6 +202,17 @@ class ApiClient {
     });
   }
 
+  async subscribeICS(url: string, name?: string): Promise<{ id: string; name: string }> {
+    return this.fetch<{ id: string; name: string }>("/calendars/ics/subscribe", {
+      method: "POST",
+      body: JSON.stringify({ url, name }),
+    });
+  }
+
+  async deleteCalendar(id: string): Promise<void> {
+    await this.fetch(`/calendars/${id}`, { method: "DELETE" });
+  }
+
   // Events
   async getEvents(start: Date, end: Date, calendarIds?: string[]): Promise<CalendarEvent[]> {
     const params = new URLSearchParams({
@@ -951,6 +962,22 @@ class ApiClient {
     await this.fetch(`/homeassistant/timers/${id}`, { method: "DELETE" });
   }
 
+  // Home Assistant Calendars
+  async getHomeAssistantCalendars(): Promise<Array<{ entityId: string; name: string; isSubscribed: boolean }>> {
+    return this.fetch("/homeassistant/calendars");
+  }
+
+  async subscribeHomeAssistantCalendar(entityId: string, name?: string): Promise<{ id: string; name: string }> {
+    return this.fetch("/homeassistant/calendars/subscribe", {
+      method: "POST",
+      body: JSON.stringify({ entityId, name }),
+    });
+  }
+
+  async syncHomeAssistantCalendar(id: string): Promise<void> {
+    await this.fetch(`/homeassistant/calendars/${id}/sync`, { method: "POST" });
+  }
+
   // Spotify
 
   // Account type for multi-user support
@@ -1464,6 +1491,105 @@ class ApiClient {
       body: JSON.stringify({ feedUrl }),
     });
   }
+
+  // reMarkable
+
+  async connectRemarkable(code: string): Promise<{ connected: boolean; message: string }> {
+    return this.fetch("/remarkable/connect", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    });
+  }
+
+  async getRemarkableStatus(): Promise<{
+    connected: boolean;
+    lastSyncAt: string | null;
+    agendaSettings: RemarkableAgendaSettings | null;
+  }> {
+    return this.fetch("/remarkable/status");
+  }
+
+  async disconnectRemarkable(): Promise<{ message: string }> {
+    return this.fetch("/remarkable/disconnect", { method: "POST" });
+  }
+
+  async testRemarkableConnection(): Promise<{ connected: boolean; message: string }> {
+    return this.fetch("/remarkable/test", { method: "POST" });
+  }
+
+  async pushRemarkableAgenda(date?: string): Promise<{
+    documentId: string;
+    filename: string;
+    eventCount: number;
+    message: string;
+  }> {
+    return this.fetch("/remarkable/push-agenda", {
+      method: "POST",
+      body: JSON.stringify({ date }),
+    });
+  }
+
+  getRemarkableAgendaPreviewUrl(date?: string): string {
+    const params = date ? `?date=${date}` : "";
+    return `${API_BASE}/remarkable/agenda/preview${params}`;
+  }
+
+  async updateRemarkableSettings(settings: Partial<RemarkableAgendaSettings>): Promise<RemarkableAgendaSettings> {
+    return this.fetch("/remarkable/settings", {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    });
+  }
+
+  async getRemarkableNotes(includeProcessed = false): Promise<RemarkableNote[]> {
+    const params = includeProcessed ? "?includeProcessed=true" : "";
+    return this.fetch(`/remarkable/notes${params}`);
+  }
+
+  async processRemarkableNote(
+    noteId: string,
+    options?: { calendarId?: string; targetDate?: string; autoCreate?: boolean }
+  ): Promise<{
+    documentId: string;
+    documentName: string;
+    recognizedText: string;
+    events: RemarkableParsedEvent[];
+    createdCount: number;
+  }> {
+    return this.fetch(`/remarkable/notes/${noteId}/process`, {
+      method: "POST",
+      body: JSON.stringify(options ?? {}),
+    });
+  }
+
+  async processAllRemarkableNotes(options?: {
+    calendarId?: string;
+    autoCreate?: boolean;
+  }): Promise<{
+    processedCount: number;
+    totalEventsCreated: number;
+    results: Array<{
+      documentId: string;
+      documentName: string;
+      createdCount: number;
+      success: boolean;
+      error?: string;
+    }>;
+  }> {
+    return this.fetch("/remarkable/notes/process-all", {
+      method: "POST",
+      body: JSON.stringify(options ?? {}),
+    });
+  }
+
+  async syncRemarkable(): Promise<{
+    added: number;
+    updated: number;
+    removed: number;
+    message: string;
+  }> {
+    return this.fetch("/remarkable/sync", { method: "POST" });
+  }
 }
 
 // Spotify account type
@@ -1598,6 +1724,251 @@ export interface SystemSetting {
   description: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// reMarkable types
+export interface RemarkableAgendaSettings {
+  enabled: boolean;
+  pushTime: string;
+  folderPath: string;
+  includeCalendarIds: string[] | null;
+  showLocation: boolean;
+  showDescription: boolean;
+  notesLines: number;
+  templateStyle: string;
+  lastPushAt: string | null;
+}
+
+export interface RemarkableNote {
+  id: string;
+  documentId: string;
+  name: string;
+  type: string;
+  folderPath: string | null;
+  isProcessed: boolean;
+  processedAt: string | null;
+  lastModifiedAt: string | null;
+  recognizedText: string | null;
+}
+
+export interface RemarkableParsedEvent {
+  title: string;
+  startTime: string | null;
+  endTime: string | null;
+  isAllDay: boolean;
+  created: boolean;
+  eventId?: string;
+  error?: string;
+}
+
+// Capacities
+
+  async connectCapacities(apiToken: string): Promise<{
+    connected: boolean;
+    message: string;
+    spaces: CapacitiesSpaceInfo[];
+  }> {
+    return this.fetch("/capacities/connect", {
+      method: "POST",
+      body: JSON.stringify({ apiToken }),
+    });
+  }
+
+  async disconnectCapacities(): Promise<{ message: string }> {
+    return this.fetch("/capacities/disconnect", { method: "DELETE" });
+  }
+
+  async getCapacitiesStatus(): Promise<CapacitiesStatus> {
+    return this.fetch("/capacities/status");
+  }
+
+  async testCapacitiesConnection(): Promise<{ connected: boolean; message: string }> {
+    return this.fetch("/capacities/test", { method: "POST" });
+  }
+
+  async getCapacitiesSpaces(): Promise<CapacitiesSpaceInfo[]> {
+    return this.fetch("/capacities/spaces");
+  }
+
+  async setCapacitiesDefaultSpace(spaceId: string): Promise<{ message: string }> {
+    return this.fetch(`/capacities/spaces/${spaceId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ isDefault: true }),
+    });
+  }
+
+  async getCapacitiesSpaceInfo(spaceId: string): Promise<{
+    id: string;
+    title: string;
+    structures: Array<{ id: string; pluralName: string; icon?: string }>;
+  }> {
+    return this.fetch(`/capacities/spaces/${spaceId}/info`);
+  }
+
+  async searchCapacities(
+    spaceId: string,
+    searchTerm: string,
+    structureId?: string
+  ): Promise<Array<{ id: string; structureId: string; title: string }>> {
+    return this.fetch("/capacities/search", {
+      method: "POST",
+      body: JSON.stringify({ spaceId, searchTerm, structureId }),
+    });
+  }
+
+  async saveToCapacitiesDailyNote(data: {
+    spaceId?: string;
+    mdText: string;
+    noTimeStamp?: boolean;
+  }): Promise<{ message: string }> {
+    return this.fetch("/capacities/daily-note", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async saveCapacitiesWeblink(data: {
+    spaceId?: string;
+    url: string;
+    title?: string;
+    mdText?: string;
+    tags?: string[];
+  }): Promise<{ id: string; title: string; structureId: string }> {
+    return this.fetch("/capacities/weblink", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Telegram
+
+  async connectTelegram(botToken: string): Promise<{
+    connected: boolean;
+    message: string;
+    bot: { username: string; firstName: string };
+  }> {
+    return this.fetch("/telegram/connect", {
+      method: "POST",
+      body: JSON.stringify({ botToken }),
+    });
+  }
+
+  async disconnectTelegram(): Promise<{ message: string }> {
+    return this.fetch("/telegram/disconnect", { method: "DELETE" });
+  }
+
+  async getTelegramStatus(): Promise<TelegramStatus> {
+    return this.fetch("/telegram/status");
+  }
+
+  async testTelegramConnection(): Promise<{ connected: boolean; message: string }> {
+    return this.fetch("/telegram/test", { method: "POST" });
+  }
+
+  async getTelegramChats(): Promise<TelegramChatInfo[]> {
+    return this.fetch("/telegram/chats");
+  }
+
+  async unlinkTelegramChat(chatId: string): Promise<{ message: string }> {
+    return this.fetch(`/telegram/chats/${chatId}`, { method: "DELETE" });
+  }
+
+  async updateTelegramSettings(settings: {
+    dailyAgendaEnabled?: boolean;
+    dailyAgendaTime?: string;
+    eventRemindersEnabled?: boolean;
+    eventReminderMinutes?: number;
+  }): Promise<{ message: string }> {
+    return this.fetch("/telegram/settings", {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    });
+  }
+
+  async sendTelegramMessage(
+    message: string,
+    chatId?: string
+  ): Promise<{ sent: number; failed: number }> {
+    return this.fetch("/telegram/send", {
+      method: "POST",
+      body: JSON.stringify({ message, chatId }),
+    });
+  }
+
+  async getTelegramLinkCode(): Promise<{
+    botUsername: string;
+    startLink: string;
+    message: string;
+  }> {
+    return this.fetch("/telegram/link-code");
+  }
+
+  async setupTelegramWebhook(webhookUrl: string): Promise<{
+    message: string;
+    webhookUrl: string;
+  }> {
+    return this.fetch("/telegram/webhook/setup", {
+      method: "POST",
+      body: JSON.stringify({ webhookUrl }),
+    });
+  }
+
+  async getTelegramWebhookInfo(): Promise<TelegramWebhookInfo> {
+    return this.fetch("/telegram/webhook/info");
+  }
+
+  async deleteTelegramWebhook(): Promise<{ message: string }> {
+    return this.fetch("/telegram/webhook", { method: "DELETE" });
+  }
+}
+
+// Capacities types
+export interface CapacitiesSpaceInfo {
+  id: string;
+  title: string;
+  icon?: string;
+  isDefault?: boolean;
+}
+
+export interface CapacitiesStatus {
+  connected: boolean;
+  defaultSpaceId: string | null;
+  lastSyncAt: string | null;
+  spaces: CapacitiesSpaceInfo[];
+}
+
+// Telegram types
+export interface TelegramChatInfo {
+  id: string;
+  chatId: string;
+  chatType: "private" | "group" | "supergroup" | "channel";
+  name: string;
+  username: string | null;
+  isActive: boolean;
+  linkedAt: string;
+  lastMessageAt: string | null;
+}
+
+export interface TelegramSettings {
+  dailyAgendaEnabled: boolean;
+  dailyAgendaTime: string;
+  eventRemindersEnabled: boolean;
+  eventReminderMinutes: number;
+}
+
+export interface TelegramStatus {
+  connected: boolean;
+  botUsername: string | null;
+  settings: TelegramSettings;
+  chats: TelegramChatInfo[];
+}
+
+export interface TelegramWebhookInfo {
+  url: string;
+  has_custom_certificate: boolean;
+  pending_update_count: number;
+  last_error_date?: number;
+  last_error_message?: string;
 }
 
 export const api = new ApiClient();

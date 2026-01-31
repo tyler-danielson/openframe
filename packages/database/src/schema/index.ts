@@ -33,6 +33,9 @@ export const calendarProviderEnum = pgEnum("calendar_provider", [
   "google",
   "microsoft",
   "caldav",
+  "ics",
+  "sports",
+  "homeassistant",
 ]);
 
 export const eventStatusEnum = pgEnum("event_status", [
@@ -171,6 +174,7 @@ export const calendars = pgTable(
     showOnDashboard: boolean("show_on_dashboard").default(true).notNull(),
     visibility: jsonb("visibility").$type<{ week: boolean; month: boolean; day: boolean; popup: boolean; screensaver: boolean }>().default({ week: false, month: false, day: false, popup: true, screensaver: false }).notNull(),
     syncToken: text("sync_token"), // for incremental sync
+    sourceUrl: text("source_url"), // for ICS subscriptions - the URL to fetch from
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -1196,6 +1200,288 @@ export const newsArticlesRelations = relations(newsArticles, ({ one }) => ({
   }),
 }));
 
+// reMarkable Configuration - stores device token and connection info
+export const remarkableConfig = pgTable("remarkable_config", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  deviceToken: text("device_token").notNull(), // Encrypted device token from registration
+  userToken: text("user_token"), // Short-lived user token (refreshed automatically)
+  userTokenExpiresAt: timestamp("user_token_expires_at", { withTimezone: true }),
+  isConnected: boolean("is_connected").default(true).notNull(),
+  lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+// reMarkable Agenda Settings - configures daily agenda push
+export const remarkableAgendaSettings = pgTable("remarkable_agenda_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").default(true).notNull(),
+  pushTime: text("push_time").default("06:00").notNull(), // HH:mm format
+  folderPath: text("folder_path").default("/Calendar/Daily Agenda").notNull(),
+  includeCalendarIds: text("include_calendar_ids").array(), // null = all visible calendars
+  templateStyle: text("template_style").default("default").notNull(), // template variant
+  showLocation: boolean("show_location").default(true).notNull(),
+  showDescription: boolean("show_description").default(false).notNull(),
+  notesLines: integer("notes_lines").default(20).notNull(), // number of lined note lines
+  lastPushAt: timestamp("last_push_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+// reMarkable Documents - tracks synced documents to avoid re-processing
+export const remarkableDocuments = pgTable(
+  "remarkable_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    documentId: text("document_id").notNull(), // reMarkable document ID
+    documentVersion: integer("document_version").notNull(),
+    documentName: text("document_name").notNull(),
+    documentType: text("document_type").notNull(), // "notebook", "pdf", "epub"
+    folderPath: text("folder_path"), // Path in reMarkable folder structure
+    contentHash: text("content_hash"), // Hash of content for change detection
+    isAgenda: boolean("is_agenda").default(false).notNull(), // True if this is a pushed agenda
+    isProcessed: boolean("is_processed").default(false).notNull(), // True if notes have been processed
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    recognizedText: text("recognized_text"), // Extracted handwritten text
+    lastModifiedAt: timestamp("last_modified_at", { withTimezone: true }), // From reMarkable
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("remarkable_documents_user_idx").on(table.userId),
+    index("remarkable_documents_document_idx").on(table.userId, table.documentId),
+    index("remarkable_documents_processed_idx").on(table.userId, table.isProcessed),
+  ]
+);
+
+// reMarkable Event Source - links calendar events to source documents
+export const remarkableEventSource = pgTable(
+  "remarkable_event_source",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => remarkableDocuments.id, { onDelete: "cascade" }),
+    extractedText: text("extracted_text").notNull(), // The text that was recognized
+    confidence: integer("confidence"), // OCR confidence score (0-100)
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("remarkable_event_source_event_idx").on(table.eventId),
+    index("remarkable_event_source_document_idx").on(table.documentId),
+  ]
+);
+
+// reMarkable Relations
+export const remarkableConfigRelations = relations(
+  remarkableConfig,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [remarkableConfig.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+export const remarkableAgendaSettingsRelations = relations(
+  remarkableAgendaSettings,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [remarkableAgendaSettings.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+export const remarkableDocumentsRelations = relations(
+  remarkableDocuments,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [remarkableDocuments.userId],
+      references: [users.id],
+    }),
+    eventSources: many(remarkableEventSource),
+  })
+);
+
+export const remarkableEventSourceRelations = relations(
+  remarkableEventSource,
+  ({ one }) => ({
+    event: one(events, {
+      fields: [remarkableEventSource.eventId],
+      references: [events.id],
+    }),
+    document: one(remarkableDocuments, {
+      fields: [remarkableEventSource.documentId],
+      references: [remarkableDocuments.id],
+    }),
+  })
+);
+
+// Capacities Configuration - stores API token for Capacities integration
+export const capacitiesConfig = pgTable("capacities_config", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  apiToken: text("api_token").notNull(), // Encrypted API token
+  defaultSpaceId: text("default_space_id"), // User's preferred space
+  isConnected: boolean("is_connected").default(true).notNull(),
+  lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+// Capacities Spaces - cached spaces for faster lookups
+export const capacitiesSpaces = pgTable(
+  "capacities_spaces",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    spaceId: text("space_id").notNull(), // Capacities space ID
+    title: text("title").notNull(),
+    icon: text("icon"), // Emoji or icon data (JSON string)
+    isDefault: boolean("is_default").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("capacities_spaces_user_idx").on(table.userId),
+    index("capacities_spaces_space_idx").on(table.userId, table.spaceId),
+  ]
+);
+
+// Capacities Relations
+export const capacitiesConfigRelations = relations(
+  capacitiesConfig,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [capacitiesConfig.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+export const capacitiesSpacesRelations = relations(
+  capacitiesSpaces,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [capacitiesSpaces.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+// Telegram Bot Configuration - stores bot token and settings
+export const telegramConfig = pgTable("telegram_config", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  botToken: text("bot_token").notNull(), // Encrypted bot token
+  botUsername: text("bot_username"), // Bot username (e.g., @mybot)
+  webhookSecret: text("webhook_secret"), // Secret for webhook validation
+  isConnected: boolean("is_connected").default(true).notNull(),
+  // Notification settings
+  dailyAgendaEnabled: boolean("daily_agenda_enabled").default(true).notNull(),
+  dailyAgendaTime: text("daily_agenda_time").default("07:00").notNull(), // HH:mm format
+  eventRemindersEnabled: boolean("event_reminders_enabled").default(true).notNull(),
+  eventReminderMinutes: integer("event_reminder_minutes").default(15).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+// Telegram Chat Links - links Telegram chats to users for notifications
+export const telegramChats = pgTable(
+  "telegram_chats",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    chatId: text("chat_id").notNull(), // Telegram chat ID (can be user or group)
+    chatType: text("chat_type").notNull().default("private"), // private, group, supergroup, channel
+    chatTitle: text("chat_title"), // For groups/channels
+    firstName: text("first_name"), // For private chats
+    lastName: text("last_name"), // For private chats
+    username: text("username"), // Telegram username
+    isActive: boolean("is_active").default(true).notNull(),
+    linkedAt: timestamp("linked_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("telegram_chats_user_idx").on(table.userId),
+    index("telegram_chats_chat_idx").on(table.chatId),
+  ]
+);
+
+// Telegram Relations
+export const telegramConfigRelations = relations(
+  telegramConfig,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [telegramConfig.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+export const telegramChatsRelations = relations(
+  telegramChats,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [telegramChats.userId],
+      references: [users.id],
+    }),
+  })
+);
+
 // Type exports for use in services
 export type OAuthToken = typeof oauthTokens.$inferSelect;
 export type SystemSetting = typeof systemSettings.$inferSelect;
@@ -1205,3 +1491,11 @@ export type HAEntityTimer = typeof haEntityTimers.$inferSelect;
 export type HAAutomation = typeof haAutomations.$inferSelect;
 export type NewsFeed = typeof newsFeeds.$inferSelect;
 export type NewsArticle = typeof newsArticles.$inferSelect;
+export type RemarkableConfig = typeof remarkableConfig.$inferSelect;
+export type RemarkableAgendaSettings = typeof remarkableAgendaSettings.$inferSelect;
+export type RemarkableDocument = typeof remarkableDocuments.$inferSelect;
+export type RemarkableEventSource = typeof remarkableEventSource.$inferSelect;
+export type CapacitiesConfig = typeof capacitiesConfig.$inferSelect;
+export type CapacitiesSpace = typeof capacitiesSpaces.$inferSelect;
+export type TelegramConfig = typeof telegramConfig.$inferSelect;
+export type TelegramChat = typeof telegramChats.$inferSelect;
