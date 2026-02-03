@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -8,6 +8,12 @@ import {
   Trash2,
   Settings,
   X,
+  CheckCircle,
+  LayoutDashboard,
+  Star,
+  Layers,
+  Clock,
+  Calendar,
 } from "lucide-react";
 import { api } from "../services/api";
 import { useIptvStore } from "../stores/iptv";
@@ -16,15 +22,25 @@ import { VideoPlayer } from "../components/iptv/VideoPlayer";
 import { ChannelGrid } from "../components/iptv/ChannelGrid";
 import { CategorySidebar } from "../components/iptv/CategorySidebar";
 import { EpgBar } from "../components/iptv/EpgBar";
+import { IptvDashboard } from "../components/iptv/IptvDashboard";
+import { ChannelGuide } from "../components/iptv/ChannelGuide";
 import { cn } from "../lib/utils";
 import type { IptvChannel } from "@openframe/shared";
 
-type SpecialView = "all" | "favorites" | "history";
+type TabView = "dashboard" | "guide" | "favorites" | "all" | "history";
+
+const TABS: { id: TabView; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "guide", label: "Guide", icon: Calendar },
+  { id: "favorites", label: "Favorites", icon: Star },
+  { id: "all", label: "All Channels", icon: Layers },
+  { id: "history", label: "Recently Watched", icon: Clock },
+];
 
 export function IptvPage() {
   const queryClient = useQueryClient();
   const [showServerSettings, setShowServerSettings] = useState(false);
-  const [activeSpecialView, setActiveSpecialView] = useState<SpecialView>("all");
+  const [activeTab, setActiveTab] = useState<TabView>("dashboard");
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
 
@@ -44,37 +60,128 @@ export function IptvPage() {
     queryFn: () => api.getIptvServers(),
   });
 
-  // Fetch categories
-  const { data: categories = [] } = useQuery({
-    queryKey: ["iptv-categories"],
-    queryFn: () => api.getIptvCategories(),
+  // Fetch cached guide data (channels, categories, EPG all at once)
+  const { data: guideData, isLoading: loadingGuide } = useQuery({
+    queryKey: ["iptv-guide"],
+    queryFn: () => api.getIptvGuide(),
+    enabled: servers.length > 0,
+    staleTime: 4 * 60 * 60 * 1000, // Consider fresh for 4 hours
+  });
+
+  // Extract categories from guide data
+  const categories = guideData?.categories || [];
+
+  // Filter channels from guide based on category and search
+  const guideChannels = useMemo(() => {
+    if (!guideData?.channels) return [];
+    let filtered = guideData.channels;
+    if (selectedCategoryId) {
+      filtered = filtered.filter((c) => c.categoryId === selectedCategoryId);
+    }
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter((c) => c.name.toLowerCase().includes(query));
+    }
+    return filtered;
+  }, [guideData?.channels, selectedCategoryId, searchQuery]);
+
+  // Fetch favorites
+  const { data: favorites = [], isLoading: loadingFavorites } = useQuery({
+    queryKey: ["iptv-favorites"],
+    queryFn: () => api.getIptvFavorites(),
     enabled: servers.length > 0,
   });
 
-  // Fetch channels based on view
-  const { data: channels = [], isLoading: loadingChannels } = useQuery({
-    queryKey: ["iptv-channels", selectedCategoryId, searchQuery, activeSpecialView],
-    queryFn: async () => {
-      if (activeSpecialView === "favorites") {
-        return api.getIptvFavorites();
-      }
-      if (activeSpecialView === "history") {
-        return api.getIptvHistory(50);
-      }
-      return api.getIptvChannels({
-        categoryId: selectedCategoryId || undefined,
-        search: searchQuery || undefined,
-      });
-    },
+  // Fetch history
+  const { data: history = [], isLoading: loadingHistory } = useQuery({
+    queryKey: ["iptv-history"],
+    queryFn: () => api.getIptvHistory(50),
     enabled: servers.length > 0,
   });
 
-  // Fetch EPG for current channel
-  const { data: epgEntries = [], isLoading: loadingEpg } = useQuery({
+  // Fetch favorite sports teams games for dashboard
+  const { data: favoriteTeams = [] } = useQuery({
+    queryKey: ["sports-favorites"],
+    queryFn: () => api.getFavoriteTeams(),
+  });
+
+  const { data: sportsGames = [] } = useQuery({
+    queryKey: ["sports-scores-today"],
+    queryFn: () => api.getTodaySportsScores(),
+    enabled: favoriteTeams.length > 0,
+    refetchInterval: 60000, // Refresh every minute for live scores
+  });
+
+  // Filter sports games to only those involving favorite teams
+  const relevantSportsGames = useMemo(() => {
+    if (favoriteTeams.length === 0) return [];
+    const favoriteTeamIds = new Set(favoriteTeams.map((t) => t.teamId));
+    return sportsGames.filter(
+      (game) =>
+        favoriteTeamIds.has(game.homeTeam.id) || favoriteTeamIds.has(game.awayTeam.id)
+    );
+  }, [favoriteTeams, sportsGames]);
+
+  // Determine which channels to display based on active tab
+  const displayedChannels = useMemo(() => {
+    switch (activeTab) {
+      case "favorites":
+        return favorites;
+      case "history":
+        return history;
+      case "all":
+        return guideChannels;
+      default:
+        return [];
+    }
+  }, [activeTab, favorites, history, guideChannels]);
+
+  const loadingChannels = useMemo(() => {
+    switch (activeTab) {
+      case "favorites":
+        return loadingFavorites;
+      case "history":
+        return loadingHistory;
+      case "all":
+        return loadingGuide;
+      default:
+        return false;
+    }
+  }, [activeTab, loadingFavorites, loadingHistory, loadingGuide]);
+
+  // Get EPG for current channel from cache
+  const cachedEpg = useMemo(() => {
+    if (!currentChannel || !guideData?.epg) return [];
+    const epg = guideData.epg[currentChannel.id];
+    if (!epg) return [];
+    return epg.map((e) => ({
+      id: e.id,
+      channelId: currentChannel.id,
+      title: e.title,
+      description: e.description,
+      startTime: new Date(e.startTime),
+      endTime: new Date(e.endTime),
+    }));
+  }, [currentChannel, guideData?.epg]);
+
+  // Fallback: Fetch EPG from API if not in cache
+  const { data: apiEpgEntries = [], isLoading: loadingApiEpg } = useQuery({
     queryKey: ["iptv-epg", currentChannel?.id],
     queryFn: () => api.getIptvChannelEpg(currentChannel!.id),
-    enabled: !!currentChannel,
+    enabled: !!currentChannel && cachedEpg.length === 0,
     refetchInterval: 60000, // Refresh every minute
+  });
+
+  // Use cached EPG if available, otherwise use API EPG
+  const epgEntries = cachedEpg.length > 0 ? cachedEpg : apiEpgEntries;
+  const loadingEpg = cachedEpg.length === 0 && loadingApiEpg;
+
+  // Refresh cache mutation
+  const refreshCacheMutation = useMutation({
+    mutationFn: () => api.refreshIptvCache(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["iptv-guide"] });
+    },
   });
 
   // Delete server mutation
@@ -90,10 +197,13 @@ export function IptvPage() {
   // Sync server mutation
   const syncServerMutation = useMutation({
     mutationFn: api.syncIptvServer.bind(api),
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["iptv-categories"] });
       queryClient.invalidateQueries({ queryKey: ["iptv-channels"] });
       queryClient.invalidateQueries({ queryKey: ["iptv-servers"] });
+      // Refresh cache after sync
+      await api.refreshIptvCache();
+      queryClient.invalidateQueries({ queryKey: ["iptv-guide"] });
     },
   });
 
@@ -109,6 +219,8 @@ export function IptvPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["iptv-channels"] });
       queryClient.invalidateQueries({ queryKey: ["iptv-favorites"] });
+      queryClient.invalidateQueries({ queryKey: ["iptv-guide"] });
+      queryClient.invalidateQueries({ queryKey: ["iptv-history"] });
     },
   });
 
@@ -122,25 +234,34 @@ export function IptvPage() {
       setStreamUrl(streamUrl);
       // Record watch history
       api.recordIptvWatch(channel.id).catch(() => {});
+      // Invalidate history so it updates
+      queryClient.invalidateQueries({ queryKey: ["iptv-history"] });
     } catch (error) {
       setStreamError("Failed to load stream");
       setStreamUrl(null);
     }
   };
 
-  // Handle special view selection
-  const handleSpecialViewSelect = (view: SpecialView) => {
-    setActiveSpecialView(view);
-    if (view !== "all") {
+  // Handle tab selection
+  const handleTabSelect = (tab: TabView) => {
+    setActiveTab(tab);
+    // Clear category selection when switching tabs
+    if (tab !== "all") {
       setSelectedCategoryId(null);
+    }
+    // Clear search when switching to dashboard
+    if (tab === "dashboard") {
+      setSearchQuery("");
     }
   };
 
-  // Handle category selection
+  // Handle category selection (from sidebar)
   const handleCategorySelect = (categoryId: string | null) => {
     setSelectedCategoryId(categoryId);
-    setActiveSpecialView("all");
   };
+
+  // Show sidebar only on All Channels tab
+  const showSidebar = activeTab === "all" && !isFullscreen;
 
   // No servers state
   if (servers.length === 0 && !loadingServers) {
@@ -167,28 +288,57 @@ export function IptvPage() {
     <div className="flex h-full flex-col">
       {/* Header */}
       <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
-        <h1 className="text-xl font-semibold">Live TV</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-xl font-semibold">Live TV</h1>
+          {/* Cache status indicator */}
+          {guideData?.cached && guideData.lastUpdated && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <CheckCircle className="h-3 w-3 text-green-500" />
+              <span>
+                Cached {new Date(guideData.lastUpdated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+          )}
+        </div>
 
         <div className="flex items-center gap-3">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search channels..."
-              className="h-9 w-64 rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          {/* Refresh cache button */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => refreshCacheMutation.mutate()}
+            disabled={refreshCacheMutation.isPending}
+            title="Refresh guide data"
+          >
+            <RefreshCw
+              className={cn(
+                "h-4 w-4",
+                refreshCacheMutation.isPending && "animate-spin"
+              )}
             />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-muted"
-              >
-                <X className="h-3 w-3 text-muted-foreground" />
-              </button>
-            )}
-          </div>
+          </Button>
+
+          {/* Search - hide on dashboard */}
+          {activeTab !== "dashboard" && (
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search channels..."
+                className="h-9 w-64 rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-muted"
+                >
+                  <X className="h-3 w-3 text-muted-foreground" />
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Server settings */}
           <Button
@@ -208,6 +358,40 @@ export function IptvPage() {
           </Link>
         </div>
       </header>
+
+      {/* Tab bar */}
+      {!isFullscreen && (
+        <div className="flex items-center gap-1 border-b border-border bg-card px-4">
+          {TABS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => handleTabSelect(tab.id)}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 -mb-px",
+                  isActive
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {tab.label}
+                {/* Show count badges */}
+                {tab.id === "favorites" && favorites.length > 0 && (
+                  <span className={cn(
+                    "text-xs px-1.5 py-0.5 rounded-full",
+                    isActive ? "bg-primary/20" : "bg-muted"
+                  )}>
+                    {favorites.length}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Server settings panel */}
       {showServerSettings && (
@@ -268,15 +452,15 @@ export function IptvPage() {
 
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Category sidebar */}
-        {!isFullscreen && (
+        {/* Category sidebar - only on All Channels tab */}
+        {showSidebar && (
           <CategorySidebar
             categories={categories}
             selectedCategoryId={selectedCategoryId}
             onSelectCategory={handleCategorySelect}
-            specialViews={{ favorites: true, history: true }}
-            onSelectSpecialView={handleSpecialViewSelect}
-            activeSpecialView={activeSpecialView}
+            specialViews={{ favorites: false, history: false }}
+            onSelectSpecialView={() => {}}
+            activeSpecialView={null}
           />
         )}
 
@@ -305,16 +489,38 @@ export function IptvPage() {
             <EpgBar epgEntries={epgEntries} isLoading={loadingEpg} />
           )}
 
-          {/* Channel grid */}
+          {/* Tab content */}
           {!isFullscreen && (
             <div className="flex-1 overflow-y-auto">
-              {loadingChannels ? (
+              {activeTab === "dashboard" ? (
+                <IptvDashboard
+                  favorites={favorites}
+                  history={history}
+                  channels={guideData?.channels || []}
+                  epg={guideData?.epg || {}}
+                  sportsGames={relevantSportsGames}
+                  onChannelSelect={handleChannelSelect}
+                  onToggleFavorite={(channelId, isFavorite) =>
+                    toggleFavoriteMutation.mutate({ channelId, isFavorite })
+                  }
+                  onViewAllFavorites={() => handleTabSelect("favorites")}
+                  onViewAllHistory={() => handleTabSelect("history")}
+                  onViewGuide={() => handleTabSelect("guide")}
+                />
+              ) : activeTab === "guide" ? (
+                <ChannelGuide
+                  channels={guideData?.channels || []}
+                  epg={guideData?.epg || {}}
+                  favorites={favorites}
+                  onChannelSelect={handleChannelSelect}
+                />
+              ) : loadingChannels ? (
                 <div className="flex h-full items-center justify-center">
                   <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
               ) : (
                 <ChannelGrid
-                  channels={channels}
+                  channels={displayedChannels}
                   currentChannelId={currentChannel?.id}
                   onChannelSelect={handleChannelSelect}
                   onToggleFavorite={(channelId, isFavorite) =>
@@ -326,7 +532,6 @@ export function IptvPage() {
           )}
         </div>
       </div>
-
     </div>
   );
 }

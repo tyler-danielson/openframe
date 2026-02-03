@@ -2,13 +2,18 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Calendar, CalendarEvent } from "@openframe/shared";
 
-type CalendarView = "month" | "week" | "day" | "agenda";
+type CalendarView = "month" | "week" | "day" | "agenda" | "schedule";
 type WeekStartDay = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0 = Sunday, 1 = Monday, etc.
 type TimeFormat = "12h" | "12h-seconds" | "24h" | "24h-seconds";
+type TickerSpeed = "slow" | "normal" | "fast";
+type WeekMode = "current" | "rolling";
+type MonthMode = "current" | "rolling";
+export type WeekCellWidget = "next-week" | "camera" | "map" | "spotify" | "home-control";
 
 interface CalendarState {
   calendars: Calendar[];
   selectedCalendarIds: string[];
+  dashboardCalendarIds: string[];
   currentDate: Date;
   view: CalendarView;
   selectedEvent: CalendarEvent | null;
@@ -18,6 +23,10 @@ interface CalendarState {
   timeFormat: TimeFormat;
   dayStartHour: number;
   dayEndHour: number;
+  tickerSpeed: TickerSpeed;
+  weekMode: WeekMode;
+  monthMode: MonthMode;
+  weekCellWidget: WeekCellWidget;
 
   setCalendars: (calendars: Calendar[]) => void;
   setCurrentDate: (date: Date) => void;
@@ -29,6 +38,10 @@ interface CalendarState {
   cycleTimeFormat: () => void;
   setDayStartHour: (hour: number) => void;
   setDayEndHour: (hour: number) => void;
+  setTickerSpeed: (speed: TickerSpeed) => void;
+  setWeekMode: (mode: WeekMode) => void;
+  setMonthMode: (mode: MonthMode) => void;
+  setWeekCellWidget: (widget: WeekCellWidget) => void;
   navigateToday: () => void;
   navigatePrevious: () => void;
   navigateNext: () => void;
@@ -39,6 +52,7 @@ export const useCalendarStore = create<CalendarState>()(
     (set, get) => ({
       calendars: [],
       selectedCalendarIds: [],
+      dashboardCalendarIds: [],
       currentDate: new Date(),
       view: "month",
       selectedEvent: null,
@@ -48,12 +62,19 @@ export const useCalendarStore = create<CalendarState>()(
       timeFormat: "12h" as TimeFormat,
       dayStartHour: 6, // 6 AM
       dayEndHour: 22, // 10 PM
+      tickerSpeed: "normal" as TickerSpeed,
+      weekMode: "current" as WeekMode,
+      monthMode: "current" as MonthMode,
+      weekCellWidget: "next-week" as WeekCellWidget,
 
   setCalendars: (calendars) => {
     const visibleIds = calendars
       .filter((c) => c.isVisible)
       .map((c) => c.id);
-    set({ calendars, selectedCalendarIds: visibleIds });
+    const dashboardIds = calendars
+      .filter((c) => c.showOnDashboard && c.syncEnabled)
+      .map((c) => c.id);
+    set({ calendars, selectedCalendarIds: visibleIds, dashboardCalendarIds: dashboardIds });
   },
 
   setCurrentDate: (date) => set({ currentDate: date }),
@@ -78,6 +99,10 @@ export const useCalendarStore = create<CalendarState>()(
 
   setDayStartHour: (hour) => set({ dayStartHour: hour }),
   setDayEndHour: (hour) => set({ dayEndHour: hour }),
+  setTickerSpeed: (speed) => set({ tickerSpeed: speed }),
+  setWeekMode: (mode) => set({ weekMode: mode }),
+  setMonthMode: (mode) => set({ monthMode: mode }),
+  setWeekCellWidget: (widget) => set({ weekCellWidget: widget }),
 
   navigateToday: () => set({ currentDate: new Date() }),
 
@@ -97,6 +122,9 @@ export const useCalendarStore = create<CalendarState>()(
         break;
       case "agenda":
         newDate.setDate(newDate.getDate() - 7);
+        break;
+      case "schedule":
+        newDate.setDate(newDate.getDate() - 1);
         break;
     }
 
@@ -120,6 +148,9 @@ export const useCalendarStore = create<CalendarState>()(
       case "agenda":
         newDate.setDate(newDate.getDate() + 7);
         break;
+      case "schedule":
+        newDate.setDate(newDate.getDate() + 1);
+        break;
     }
 
     set({ currentDate: newDate });
@@ -127,7 +158,7 @@ export const useCalendarStore = create<CalendarState>()(
     }),
     {
       name: "calendar-store",
-      partialize: (state) => ({ view: state.view, weekStartsOn: state.weekStartsOn, familyName: state.familyName, homeAddress: state.homeAddress, timeFormat: state.timeFormat, dayStartHour: state.dayStartHour, dayEndHour: state.dayEndHour }),
+      partialize: (state) => ({ view: state.view, weekStartsOn: state.weekStartsOn, familyName: state.familyName, homeAddress: state.homeAddress, timeFormat: state.timeFormat, dayStartHour: state.dayStartHour, dayEndHour: state.dayEndHour, tickerSpeed: state.tickerSpeed, weekMode: state.weekMode, monthMode: state.monthMode, weekCellWidget: state.weekCellWidget }),
     }
   )
 );

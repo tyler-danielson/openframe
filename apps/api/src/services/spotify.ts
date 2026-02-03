@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { oauthTokens } from "@openframe/database/schema";
 
 export interface SpotifyDevice {
@@ -54,16 +54,71 @@ export interface SpotifyPlaylist {
   uri: string;
 }
 
+export interface SpotifyAccount {
+  id: string;
+  accountName: string | null;
+  externalAccountId: string | null;
+  isPrimary: boolean;
+  icon: string | null;
+  defaultDeviceId: string | null;
+  favoriteDeviceIds: string[] | null;
+  spotifyUser?: {
+    id: string;
+    display_name: string;
+    images: { url: string }[];
+  };
+}
+
 export class SpotifyService {
   private db: FastifyInstance["db"];
   private userId: string;
+  private accountId?: string; // Specific account ID to use
 
-  constructor(db: FastifyInstance["db"], userId: string) {
+  constructor(db: FastifyInstance["db"], userId: string, accountId?: string) {
     this.db = db;
     this.userId = userId;
+    this.accountId = accountId;
   }
 
-  private async getAccessToken(): Promise<string> {
+  private async getToken(): Promise<typeof oauthTokens.$inferSelect> {
+    // If a specific account ID is provided, use that
+    if (this.accountId) {
+      const [token] = await this.db
+        .select()
+        .from(oauthTokens)
+        .where(
+          and(
+            eq(oauthTokens.id, this.accountId),
+            eq(oauthTokens.userId, this.userId),
+            eq(oauthTokens.provider, "spotify")
+          )
+        )
+        .limit(1);
+
+      if (!token) {
+        throw new Error("Spotify account not found");
+      }
+      return token;
+    }
+
+    // Otherwise, try to find the primary account first
+    const [primaryToken] = await this.db
+      .select()
+      .from(oauthTokens)
+      .where(
+        and(
+          eq(oauthTokens.userId, this.userId),
+          eq(oauthTokens.provider, "spotify"),
+          eq(oauthTokens.isPrimary, true)
+        )
+      )
+      .limit(1);
+
+    if (primaryToken) {
+      return primaryToken;
+    }
+
+    // Fall back to the first connected account
     const [token] = await this.db
       .select()
       .from(oauthTokens)
@@ -73,21 +128,28 @@ export class SpotifyService {
           eq(oauthTokens.provider, "spotify")
         )
       )
+      .orderBy(desc(oauthTokens.createdAt))
       .limit(1);
 
     if (!token) {
       throw new Error("Spotify not connected");
     }
 
+    return token;
+  }
+
+  private async getAccessToken(): Promise<string> {
+    const token = await this.getToken();
+
     // Check if token needs refresh
     if (token.expiresAt && token.expiresAt < new Date()) {
-      return this.refreshAccessToken(token.refreshToken!);
+      return this.refreshAccessToken(token.id, token.refreshToken!);
     }
 
     return token.accessToken;
   }
 
-  private async refreshAccessToken(refreshToken: string): Promise<string> {
+  private async refreshAccessToken(tokenId: string, refreshToken: string): Promise<string> {
     const response = await fetch("https://accounts.spotify.com/api/token", {
       method: "POST",
       headers: {
@@ -103,7 +165,9 @@ export class SpotifyService {
     });
 
     if (!response.ok) {
-      throw new Error("Failed to refresh Spotify token");
+      const errorBody = await response.text();
+      console.error("Spotify token refresh failed:", response.status, errorBody);
+      throw new Error(`Failed to refresh Spotify token: ${response.status} - ${errorBody}`);
     }
 
     const data = (await response.json()) as {
@@ -112,7 +176,7 @@ export class SpotifyService {
       refresh_token?: string;
     };
 
-    // Update stored token
+    // Update stored token by ID
     await this.db
       .update(oauthTokens)
       .set({
@@ -121,12 +185,7 @@ export class SpotifyService {
         expiresAt: new Date(Date.now() + data.expires_in * 1000),
         updatedAt: new Date(),
       })
-      .where(
-        and(
-          eq(oauthTokens.userId, this.userId),
-          eq(oauthTokens.provider, "spotify")
-        )
-      );
+      .where(eq(oauthTokens.id, tokenId));
 
     return data.access_token;
   }
@@ -168,10 +227,15 @@ export class SpotifyService {
   }
 
   async getDevices(): Promise<SpotifyDevice[]> {
-    const response = await this.spotifyFetch<{ devices: SpotifyDevice[] }>(
-      "/me/player/devices"
-    );
-    return response.devices || [];
+    try {
+      const response = await this.spotifyFetch<{ devices: SpotifyDevice[] }>(
+        "/me/player/devices"
+      );
+      return response.devices || [];
+    } catch (error) {
+      console.error("Failed to get Spotify devices:", error);
+      return [];
+    }
   }
 
   async play(options?: {
@@ -285,5 +349,119 @@ export class SpotifyService {
 
   async getCurrentUser(): Promise<{ id: string; display_name: string; images: { url: string }[] }> {
     return this.spotifyFetch("/me");
+  }
+
+  async saveTrack(trackId: string): Promise<void> {
+    await this.spotifyFetch(`/me/tracks?ids=${trackId}`, { method: "PUT" });
+  }
+
+  async unsaveTrack(trackId: string): Promise<void> {
+    await this.spotifyFetch(`/me/tracks?ids=${trackId}`, { method: "DELETE" });
+  }
+
+  async checkSavedTracks(trackIds: string[]): Promise<boolean[]> {
+    const response = await this.spotifyFetch<boolean[]>(
+      `/me/tracks/contains?ids=${trackIds.join(",")}`
+    );
+    return response;
+  }
+
+  // Static methods for account management (don't require specific account context)
+
+  static async getAllAccounts(
+    db: FastifyInstance["db"],
+    userId: string
+  ): Promise<SpotifyAccount[]> {
+    const tokens = await db
+      .select({
+        id: oauthTokens.id,
+        accountName: oauthTokens.accountName,
+        externalAccountId: oauthTokens.externalAccountId,
+        isPrimary: oauthTokens.isPrimary,
+        icon: oauthTokens.icon,
+        defaultDeviceId: oauthTokens.defaultDeviceId,
+        favoriteDeviceIds: oauthTokens.favoriteDeviceIds,
+      })
+      .from(oauthTokens)
+      .where(
+        and(
+          eq(oauthTokens.userId, userId),
+          eq(oauthTokens.provider, "spotify")
+        )
+      )
+      .orderBy(desc(oauthTokens.isPrimary), desc(oauthTokens.createdAt));
+
+    return tokens;
+  }
+
+  static async updateAccount(
+    db: FastifyInstance["db"],
+    userId: string,
+    accountId: string,
+    data: {
+      accountName?: string;
+      isPrimary?: boolean;
+      icon?: string | null;
+      defaultDeviceId?: string | null;
+      favoriteDeviceIds?: string[] | null;
+    }
+  ): Promise<void> {
+    // If setting as primary, unset other accounts first
+    if (data.isPrimary === true) {
+      await db
+        .update(oauthTokens)
+        .set({ isPrimary: false, updatedAt: new Date() })
+        .where(
+          and(
+            eq(oauthTokens.userId, userId),
+            eq(oauthTokens.provider, "spotify")
+          )
+        );
+    }
+
+    await db
+      .update(oauthTokens)
+      .set({
+        ...(data.accountName !== undefined && { accountName: data.accountName }),
+        ...(data.isPrimary !== undefined && { isPrimary: data.isPrimary }),
+        ...(data.icon !== undefined && { icon: data.icon }),
+        ...(data.defaultDeviceId !== undefined && { defaultDeviceId: data.defaultDeviceId }),
+        ...(data.favoriteDeviceIds !== undefined && { favoriteDeviceIds: data.favoriteDeviceIds }),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(oauthTokens.id, accountId),
+          eq(oauthTokens.userId, userId),
+          eq(oauthTokens.provider, "spotify")
+        )
+      );
+  }
+
+  static async deleteAccount(
+    db: FastifyInstance["db"],
+    userId: string,
+    accountId: string
+  ): Promise<void> {
+    await db
+      .delete(oauthTokens)
+      .where(
+        and(
+          eq(oauthTokens.id, accountId),
+          eq(oauthTokens.userId, userId),
+          eq(oauthTokens.provider, "spotify")
+        )
+      );
+  }
+
+  static async setExternalAccountId(
+    db: FastifyInstance["db"],
+    tokenId: string,
+    externalAccountId: string
+  ): Promise<void> {
+    await db
+      .update(oauthTokens)
+      .set({ externalAccountId, updatedAt: new Date() })
+      .where(eq(oauthTokens.id, tokenId));
   }
 }

@@ -1,1 +1,1 @@
-export { api } from "./api";
+export { api, type SpotifyAccount } from "./api";

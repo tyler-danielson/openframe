@@ -1,13 +1,17 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
-import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe } from "lucide-react";
+import { useSearchParams, Link } from "react-router-dom";
+import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette } from "lucide-react";
 import type { Camera } from "@openframe/shared";
-import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme } from "../services/api";
+import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk } from "../services/api";
 import { useAuthStore } from "../stores/auth";
-import { useCalendarStore } from "../stores/calendar";
-import { useScreensaverStore, type ScreensaverLayout, type ScreensaverTransition, type ClockPosition, type ClockSize } from "../stores/screensaver";
+import { useCalendarStore, type WeekCellWidget } from "../stores/calendar";
+import { useScreensaverStore, type ScreensaverLayout, type ScreensaverTransition, type ClockPosition, type ClockSize, type InfoPaneWidget, type InfoPaneWidgetConfig, type WidgetSize, type WidgetGridSize, LIST_WIDGETS, DEFAULT_WIDGET_CONFIGS, type CompositeWidgetId, type CompositeWidgetConfig, type SubItemConfig, DEFAULT_COMPOSITE_CONFIGS, DEFAULT_SUB_ITEMS } from "../stores/screensaver";
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical } from "lucide-react";
 import { ToggleGroup } from "../components/ui/Toggle";
 import { useTasksStore, type TasksLayout } from "../stores/tasks";
 import { Button } from "../components/ui/Button";
@@ -17,16 +21,25 @@ import { AlbumPhotoGrid } from "../components/photos/AlbumPhotoGrid";
 import { ManageAllPhotos } from "../components/photos/ManageAllPhotos";
 import { EntityPicker } from "../components/homeassistant/EntityPicker";
 import { TeamSelector, FavoriteTeamCard } from "../components/sports";
+import { CalendarAccountsList } from "../components/settings/CalendarAccountsList";
+import { CalendarListForAccount } from "../components/settings/CalendarListForAccount";
+import { AddAccountModal } from "../components/settings/AddAccountModal";
+import { HACalendarModal } from "../components/settings/HACalendarModal";
+import type { CalendarProvider } from "@openframe/shared";
 import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed } from "@openframe/shared";
 
 // Parent tabs for URL routing
-type SettingsTab = "account" | "calendars" | "tasks" | "entertainment" | "appearance" | "ai" | "automations" | "cameras" | "homeassistant" | "system";
+type SettingsTab = "account" | "calendars" | "tasks" | "entertainment" | "appearance" | "ai" | "automations" | "cameras" | "homeassistant" | "kiosks" | "system";
 
 // Entertainment sub-tabs
 type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "news";
 
-const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "entertainment", "appearance", "ai", "automations", "cameras", "homeassistant", "system"];
+// Appearance sub-tabs
+type AppearanceSubTab = "display" | "photos" | "screensaver";
+
+const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "entertainment", "appearance", "ai", "automations", "cameras", "homeassistant", "kiosks", "system"];
 const validEntertainmentSubTabs: EntertainmentSubTab[] = ["sports", "spotify", "iptv", "news"];
+const validAppearanceSubTabs: AppearanceSubTab[] = ["display", "photos", "screensaver"];
 
 const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "account", label: "Account", icon: <User className="h-4 w-4" /> },
@@ -38,6 +51,7 @@ const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "automations", label: "Automations", icon: <Zap className="h-4 w-4" /> },
   { id: "cameras", label: "Cameras", icon: <Video className="h-4 w-4" /> },
   { id: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" /> },
+  { id: "kiosks", label: "Kiosks", icon: <Monitor className="h-4 w-4" /> },
   { id: "system", label: "System", icon: <Settings className="h-4 w-4" /> },
 ];
 
@@ -48,6 +62,917 @@ const entertainmentSubTabs: { id: EntertainmentSubTab; label: string; icon: Reac
   { id: "iptv", label: "IPTV", icon: <Tv className="h-4 w-4" /> },
   { id: "news", label: "News", icon: <Newspaper className="h-4 w-4" /> },
 ];
+
+// Sub-tab config for appearance
+const appearanceSubTabs: { id: AppearanceSubTab; label: string; icon: React.ReactNode }[] = [
+  { id: "display", label: "Display", icon: <Monitor className="h-4 w-4" /> },
+  { id: "photos", label: "Photos", icon: <ImageIcon className="h-4 w-4" /> },
+  { id: "screensaver", label: "Screensaver", icon: <Tv className="h-4 w-4" /> },
+];
+
+// Widget labels and icons for the builder (legacy)
+const WIDGET_INFO: Record<InfoPaneWidget, { label: string; icon: string }> = {
+  clock: { label: "Clock", icon: "🕐" },
+  weather: { label: "Weather", icon: "🌤️" },
+  forecast: { label: "Forecast", icon: "📊" },
+  sports: { label: "Sports", icon: "🏈" },
+  events: { label: "Events", icon: "📅" },
+  spotify: { label: "Spotify", icon: "🎵" },
+  tasks: { label: "Tasks", icon: "✓" },
+  notes: { label: "Notes", icon: "📝" },
+};
+
+// Composite widget info (v2)
+const COMPOSITE_WIDGET_INFO: Record<CompositeWidgetId, {
+  label: string;
+  icon: string;
+  description: string;
+  subItems?: { id: string; label: string; hasMaxItems?: boolean }[];
+}> = {
+  clock: { label: "Clock", icon: "🕐", description: "Time and date" },
+  weather: {
+    label: "Weather", icon: "🌤️", description: "Conditions and forecast",
+    subItems: [
+      { id: "current", label: "Current Conditions" },
+      { id: "forecast", label: "Today's Forecast" },
+    ],
+  },
+  schedule: {
+    label: "Schedule", icon: "📅", description: "Events, sports, tasks",
+    subItems: [
+      { id: "events", label: "Calendar Events", hasMaxItems: true },
+      { id: "sports", label: "Sports Scores", hasMaxItems: true },
+      { id: "tasks", label: "Tasks Due", hasMaxItems: true },
+    ],
+  },
+  media: {
+    label: "Media", icon: "🎵", description: "Now playing",
+    subItems: [{ id: "spotify", label: "Spotify" }],
+  },
+};
+
+// Sortable widget card component
+function SortableWidgetCard({
+  config,
+  onUpdate,
+}: {
+  config: InfoPaneWidgetConfig;
+  onUpdate: (id: InfoPaneWidget, updates: Partial<InfoPaneWidgetConfig>) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: config.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const widgetInfo = WIDGET_INFO[config.id];
+  const isListWidget = LIST_WIDGETS.includes(config.id);
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center gap-3 p-3 border rounded-lg bg-background ${
+        config.enabled ? "border-primary/50" : "border-border"
+      } ${isDragging ? "shadow-lg" : ""}`}
+    >
+      {/* Drag handle */}
+      <button
+        type="button"
+        {...listeners}
+        {...attributes}
+        className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground touch-none"
+      >
+        <GripVertical className="h-5 w-5" />
+      </button>
+
+      {/* Widget icon and name */}
+      <div className="flex items-center gap-2 min-w-[100px]">
+        <span className="text-lg">{widgetInfo.icon}</span>
+        <span className="text-sm font-medium">{widgetInfo.label}</span>
+      </div>
+
+      {/* Enable/disable toggle */}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={config.enabled}
+        onClick={() => onUpdate(config.id, { enabled: !config.enabled })}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+          config.enabled ? "bg-primary" : "bg-muted"
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            config.enabled ? "translate-x-6" : "translate-x-1"
+          }`}
+        />
+      </button>
+
+      {/* Size selector */}
+      <select
+        value={config.size}
+        onChange={(e) => onUpdate(config.id, { size: e.target.value as WidgetSize })}
+        disabled={!config.enabled}
+        className={`rounded-md border border-border bg-background px-2 py-1 text-sm min-w-[70px] ${
+          !config.enabled ? "opacity-50" : ""
+        }`}
+      >
+        <option value="small">S</option>
+        <option value="medium">M</option>
+        <option value="large">L</option>
+      </select>
+
+      {/* Max items slider (only for list widgets) */}
+      {isListWidget && (
+        <div className={`flex items-center gap-2 ${!config.enabled ? "opacity-50" : ""}`}>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">Max:</span>
+          <input
+            type="range"
+            min={1}
+            max={5}
+            value={config.maxItems ?? 3}
+            onChange={(e) => onUpdate(config.id, { maxItems: Number(e.target.value) })}
+            disabled={!config.enabled}
+            className="w-16 h-2"
+          />
+          <span className="text-xs font-medium w-4">{config.maxItems ?? 3}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Sortable composite widget card component (v2)
+function SortableCompositeWidgetCard({
+  config,
+  onUpdate,
+  onUpdateSubItem,
+}: {
+  config: CompositeWidgetConfig;
+  onUpdate: (id: CompositeWidgetId, updates: Partial<CompositeWidgetConfig>) => void;
+  onUpdateSubItem: (widgetId: CompositeWidgetId, subItemId: string, updates: Partial<SubItemConfig>) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: config.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const widgetInfo = COMPOSITE_WIDGET_INFO[config.id];
+  const hasSubItems = widgetInfo.subItems && widgetInfo.subItems.length > 0;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`border rounded-lg bg-background ${
+        config.enabled ? "border-primary/50" : "border-border"
+      } ${isDragging ? "shadow-lg" : ""}`}
+    >
+      <div className="flex items-center gap-3 p-3">
+        {/* Drag handle */}
+        <button
+          type="button"
+          {...listeners}
+          {...attributes}
+          className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground touch-none"
+        >
+          <GripVertical className="h-5 w-5" />
+        </button>
+
+        {/* Widget icon and name */}
+        <div className="flex items-center gap-2 min-w-[100px]">
+          <span className="text-lg">{widgetInfo.icon}</span>
+          <div>
+            <span className="text-sm font-medium">{widgetInfo.label}</span>
+            <span className="text-xs text-muted-foreground block">{widgetInfo.description}</span>
+          </div>
+        </div>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Size selector */}
+        <select
+          value={config.size}
+          onChange={(e) => onUpdate(config.id, { size: e.target.value as WidgetSize })}
+          disabled={!config.enabled}
+          className={`rounded-md border border-border bg-background px-2 py-1 text-sm min-w-[70px] ${
+            !config.enabled ? "opacity-50" : ""
+          }`}
+        >
+          <option value="small">S</option>
+          <option value="medium">M</option>
+          <option value="large">L</option>
+        </select>
+
+        {/* Enable/disable toggle */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={config.enabled}
+          onClick={() => onUpdate(config.id, { enabled: !config.enabled })}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            config.enabled ? "bg-primary" : "bg-muted"
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              config.enabled ? "translate-x-6" : "translate-x-1"
+            }`}
+          />
+        </button>
+
+        {/* Expand button for sub-items */}
+        {hasSubItems && config.enabled && (
+          <button
+            type="button"
+            onClick={() => setExpanded(!expanded)}
+            className="text-muted-foreground hover:text-foreground p-1"
+          >
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+        )}
+      </div>
+
+      {/* Sub-items section */}
+      {hasSubItems && config.enabled && expanded && (
+        <div className="px-3 pb-3 pt-1 border-t border-border/50 space-y-2 ml-8">
+          {widgetInfo.subItems!.map((subItem) => {
+            const subItemConfig = config.subItems?.[subItem.id] ?? { enabled: true };
+            return (
+              <div key={subItem.id} className="flex items-center gap-3">
+                <label className="flex items-center gap-2 flex-1 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={subItemConfig.enabled}
+                    onChange={(e) => onUpdateSubItem(config.id, subItem.id, { enabled: e.target.checked })}
+                    className="rounded border-border"
+                  />
+                  {subItem.label}
+                </label>
+                {subItem.hasMaxItems && subItemConfig.enabled && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Max:</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={subItemConfig.maxItems ?? 3}
+                      onChange={(e) => onUpdateSubItem(config.id, subItem.id, { maxItems: Number(e.target.value) })}
+                      className="w-14 rounded-md border border-border bg-background px-2 py-0.5 text-sm"
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Draggable grid widget with span controls on edges (legacy)
+function DraggableGridWidget({
+  widget,
+  onSpanChange,
+  gridSize,
+}: {
+  widget: InfoPaneWidgetConfig;
+  onSpanChange: (colSpan: number, rowSpan: number) => void;
+  gridSize: WidgetGridSize;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: widget.id });
+
+  const colSpan = Math.min(widget.colSpan ?? 1, gridSize);
+  const rowSpan = Math.min(widget.rowSpan ?? 1, gridSize);
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    gridColumn: `span ${colSpan}`,
+    gridRow: `span ${rowSpan}`,
+  };
+
+  const canExpandCol = colSpan < gridSize;
+  const canShrinkCol = colSpan > 1;
+  const canExpandRow = rowSpan < gridSize;
+  const canShrinkRow = rowSpan > 1;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`relative group rounded-lg p-2 bg-white/10 hover:bg-white/15 transition-colors cursor-grab active:cursor-grabbing ${
+        isDragging ? 'opacity-50 z-10' : ''
+      }`}
+      {...listeners}
+      {...attributes}
+    >
+      {/* Widget content */}
+      <div className="h-full flex flex-col items-center justify-center gap-1 pointer-events-none">
+        <span className="text-xl">
+          {WIDGET_INFO[widget.id].icon}
+        </span>
+        <span className="text-xs truncate text-white/70">
+          {WIDGET_INFO[widget.id].label}
+        </span>
+      </div>
+
+      {/* Right edge controls */}
+      {gridSize > 1 && (canExpandCol || canShrinkCol) && (
+        <div className="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-auto">
+          {canExpandCol && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSpanChange(colSpan + 1, rowSpan);
+              }}
+              className="w-4 h-4 bg-black/70 hover:bg-primary/80 rounded-l text-[10px] text-white flex items-center justify-center"
+              title="Expand right"
+            >
+              +
+            </button>
+          )}
+          {canShrinkCol && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSpanChange(colSpan - 1, rowSpan);
+              }}
+              className="w-4 h-4 bg-black/70 hover:bg-red-500/80 rounded-l text-[10px] text-white flex items-center justify-center"
+              title="Shrink from right"
+            >
+              −
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Bottom edge controls */}
+      {gridSize > 1 && (canExpandRow || canShrinkRow) && (
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-auto">
+          {canExpandRow && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSpanChange(colSpan, rowSpan + 1);
+              }}
+              className="w-4 h-4 bg-black/70 hover:bg-primary/80 rounded-t text-[10px] text-white flex items-center justify-center"
+              title="Expand down"
+            >
+              +
+            </button>
+          )}
+          {canShrinkRow && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSpanChange(colSpan, rowSpan - 1);
+              }}
+              className="w-4 h-4 bg-black/70 hover:bg-red-500/80 rounded-t text-[10px] text-white flex items-center justify-center"
+              title="Shrink from bottom"
+            >
+              −
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Draggable composite grid widget with span controls (v2)
+function DraggableCompositeGridWidget({
+  widget,
+  onSpanChange,
+  gridSize,
+}: {
+  widget: CompositeWidgetConfig;
+  onSpanChange: (colSpan: number, rowSpan: number) => void;
+  gridSize: WidgetGridSize;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: widget.id });
+
+  const colSpan = Math.min(widget.colSpan ?? 1, gridSize);
+  const rowSpan = Math.min(widget.rowSpan ?? 1, gridSize);
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    gridColumn: `span ${colSpan}`,
+    gridRow: `span ${rowSpan}`,
+  };
+
+  const canExpandCol = colSpan < gridSize;
+  const canShrinkCol = colSpan > 1;
+  const canExpandRow = rowSpan < gridSize;
+  const canShrinkRow = rowSpan > 1;
+
+  const widgetInfo = COMPOSITE_WIDGET_INFO[widget.id];
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`relative group rounded-lg p-2 bg-white/10 hover:bg-white/15 transition-colors cursor-grab active:cursor-grabbing ${
+        isDragging ? 'opacity-50 z-10' : ''
+      }`}
+      {...listeners}
+      {...attributes}
+    >
+      {/* Widget content */}
+      <div className="h-full flex flex-col items-center justify-center gap-1 pointer-events-none">
+        <span className="text-xl">
+          {widgetInfo.icon}
+        </span>
+        <span className="text-xs truncate text-white/70">
+          {widgetInfo.label}
+        </span>
+      </div>
+
+      {/* Right edge controls */}
+      {gridSize > 1 && (canExpandCol || canShrinkCol) && (
+        <div className="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-auto">
+          {canExpandCol && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSpanChange(colSpan + 1, rowSpan);
+              }}
+              className="w-4 h-4 bg-black/70 hover:bg-primary/80 rounded-l text-[10px] text-white flex items-center justify-center"
+              title="Expand right"
+            >
+              +
+            </button>
+          )}
+          {canShrinkCol && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSpanChange(colSpan - 1, rowSpan);
+              }}
+              className="w-4 h-4 bg-black/70 hover:bg-red-500/80 rounded-l text-[10px] text-white flex items-center justify-center"
+              title="Shrink from right"
+            >
+              −
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Bottom edge controls */}
+      {gridSize > 1 && (canExpandRow || canShrinkRow) && (
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-auto">
+          {canExpandRow && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSpanChange(colSpan, rowSpan + 1);
+              }}
+              className="w-4 h-4 bg-black/70 hover:bg-primary/80 rounded-t text-[10px] text-white flex items-center justify-center"
+              title="Expand down"
+            >
+              +
+            </button>
+          )}
+          {canShrinkRow && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSpanChange(colSpan, rowSpan - 1);
+              }}
+              className="w-4 h-4 bg-black/70 hover:bg-red-500/80 rounded-t text-[10px] text-white flex items-center justify-center"
+              title="Shrink from bottom"
+            >
+              −
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Widget grid preview component
+function WidgetGridPreview({
+  configs,
+  gridSize,
+  onGridSizeChange,
+  onUpdateConfig,
+  onReorder,
+}: {
+  configs: InfoPaneWidgetConfig[];
+  gridSize: WidgetGridSize;
+  onGridSizeChange: (size: WidgetGridSize) => void;
+  onUpdateConfig: (id: InfoPaneWidget, updates: Partial<InfoPaneWidgetConfig>) => void;
+  onReorder: (fromIndex: number, toIndex: number) => void;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    })
+  );
+
+  // Only show enabled widgets
+  const enabledWidgets = configs.filter((w) => w.enabled);
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = configs.findIndex((c) => c.id === active.id);
+      const newIndex = configs.findIndex((c) => c.id === over.id);
+      onReorder(oldIndex, newIndex);
+    }
+  };
+
+  const gridClass = gridSize === 1
+    ? "grid-cols-1"
+    : gridSize === 2
+      ? "grid-cols-2"
+      : "grid-cols-3";
+
+  return (
+    <div className="mb-4 p-3 bg-muted/30 rounded-lg">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs text-muted-foreground">Widget Grid Preview</p>
+        <div className="flex items-center gap-1">
+          {([1, 2, 3] as WidgetGridSize[]).map((size) => (
+            <button
+              key={size}
+              type="button"
+              onClick={() => onGridSizeChange(size)}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                gridSize === size
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted hover:bg-muted/80 text-muted-foreground"
+              }`}
+            >
+              {size}×{size}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={enabledWidgets.map((c) => c.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          <div
+            className={`bg-black/80 rounded-lg overflow-hidden p-2 grid gap-2 ${gridClass}`}
+            style={{ minHeight: gridSize === 1 ? '80px' : gridSize === 2 ? '160px' : '200px' }}
+          >
+            {enabledWidgets.length > 0 ? (
+              enabledWidgets.map((widget) => (
+                <DraggableGridWidget
+                  key={widget.id}
+                  widget={widget}
+                  gridSize={gridSize}
+                  onSpanChange={(colSpan, rowSpan) => onUpdateConfig(widget.id, { colSpan, rowSpan })}
+                />
+              ))
+            ) : (
+              <div className="col-span-full flex items-center justify-center text-white/30 text-sm py-4">
+                Enable widgets below to see preview
+              </div>
+            )}
+          </div>
+        </SortableContext>
+      </DndContext>
+
+      <p className="text-[10px] text-muted-foreground mt-2">
+        Drag to reorder • Hover for size controls
+      </p>
+    </div>
+  );
+}
+
+// Info pane widget builder component
+function InfoPaneWidgetBuilder({
+  configs,
+  onConfigsChange,
+  onUpdateConfig,
+  onReorder,
+}: {
+  configs: InfoPaneWidgetConfig[];
+  onConfigsChange: (configs: InfoPaneWidgetConfig[]) => void;
+  onUpdateConfig: (id: InfoPaneWidget, updates: Partial<InfoPaneWidgetConfig>) => void;
+  onReorder: (fromIndex: number, toIndex: number) => void;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = configs.findIndex((c) => c.id === active.id);
+      const newIndex = configs.findIndex((c) => c.id === over.id);
+      onReorder(oldIndex, newIndex);
+    }
+  };
+
+  const handleResetToDefaults = () => {
+    onConfigsChange(DEFAULT_WIDGET_CONFIGS);
+  };
+
+  const enabledCount = configs.filter((c) => c.enabled).length;
+
+  return (
+    <div className="border-t border-border pt-4 mt-4">
+      <div className="mb-3 flex items-start justify-between">
+        <div>
+          <p className="font-medium">Info Pane Widgets</p>
+          <p className="text-sm text-muted-foreground">
+            Drag to reorder, toggle to enable/disable, and configure size and max items
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleResetToDefaults}
+          className="text-xs text-muted-foreground hover:text-foreground underline"
+        >
+          Reset to defaults
+        </button>
+      </div>
+
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={configs.map((c) => c.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          <div className="space-y-2">
+            {configs.map((config) => (
+              <SortableWidgetCard
+                key={config.id}
+                config={config}
+                onUpdate={onUpdateConfig}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+
+      {enabledCount > 0 && (
+        <p className="text-xs text-muted-foreground mt-3">
+          {enabledCount} widget{enabledCount !== 1 ? "s" : ""} enabled. Widgets display in the order shown above.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Composite widget grid preview component (v2)
+function CompositeWidgetGridPreview({
+  configs,
+  gridSize,
+  onGridSizeChange,
+  onUpdateConfig,
+  onReorder,
+}: {
+  configs: CompositeWidgetConfig[];
+  gridSize: WidgetGridSize;
+  onGridSizeChange: (size: WidgetGridSize) => void;
+  onUpdateConfig: (id: CompositeWidgetId, updates: Partial<CompositeWidgetConfig>) => void;
+  onReorder: (fromIndex: number, toIndex: number) => void;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    })
+  );
+
+  // Only show enabled widgets
+  const enabledWidgets = configs.filter((w) => w.enabled);
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = configs.findIndex((c) => c.id === active.id);
+      const newIndex = configs.findIndex((c) => c.id === over.id);
+      onReorder(oldIndex, newIndex);
+    }
+  };
+
+  const gridClass = gridSize === 1
+    ? "grid-cols-1"
+    : gridSize === 2
+      ? "grid-cols-2"
+      : "grid-cols-3";
+
+  return (
+    <div className="mb-4 p-3 bg-muted/30 rounded-lg">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs text-muted-foreground">Widget Grid Preview</p>
+        <div className="flex items-center gap-1">
+          {([1, 2, 3] as WidgetGridSize[]).map((size) => (
+            <button
+              key={size}
+              type="button"
+              onClick={() => onGridSizeChange(size)}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                gridSize === size
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted hover:bg-muted/80 text-muted-foreground"
+              }`}
+            >
+              {size}x{size}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={enabledWidgets.map((c) => c.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          <div
+            className={`bg-black/80 rounded-lg overflow-hidden p-2 grid gap-2 ${gridClass}`}
+            style={{ minHeight: gridSize === 1 ? '80px' : gridSize === 2 ? '160px' : '200px' }}
+          >
+            {enabledWidgets.length > 0 ? (
+              enabledWidgets.map((widget) => (
+                <DraggableCompositeGridWidget
+                  key={widget.id}
+                  widget={widget}
+                  gridSize={gridSize}
+                  onSpanChange={(colSpan, rowSpan) => onUpdateConfig(widget.id, { colSpan, rowSpan })}
+                />
+              ))
+            ) : (
+              <div className="col-span-full flex items-center justify-center text-white/30 text-sm py-4">
+                Enable widgets below to see preview
+              </div>
+            )}
+          </div>
+        </SortableContext>
+      </DndContext>
+
+      <p className="text-[10px] text-muted-foreground mt-2">
+        Drag to reorder - Hover for size controls
+      </p>
+    </div>
+  );
+}
+
+// Composite widget builder component (v2)
+function CompositeWidgetBuilder({
+  configs,
+  onConfigsChange,
+  onUpdateConfig,
+  onUpdateSubItem,
+  onReorder,
+}: {
+  configs: CompositeWidgetConfig[];
+  onConfigsChange: (configs: CompositeWidgetConfig[]) => void;
+  onUpdateConfig: (id: CompositeWidgetId, updates: Partial<CompositeWidgetConfig>) => void;
+  onUpdateSubItem: (widgetId: CompositeWidgetId, subItemId: string, updates: Partial<SubItemConfig>) => void;
+  onReorder: (fromIndex: number, toIndex: number) => void;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = configs.findIndex((c) => c.id === active.id);
+      const newIndex = configs.findIndex((c) => c.id === over.id);
+      onReorder(oldIndex, newIndex);
+    }
+  };
+
+  const handleResetToDefaults = () => {
+    onConfigsChange(DEFAULT_COMPOSITE_CONFIGS);
+  };
+
+  const enabledCount = configs.filter((c) => c.enabled).length;
+
+  return (
+    <div className="border-t border-border pt-4 mt-4">
+      <div className="mb-3 flex items-start justify-between">
+        <div>
+          <p className="font-medium">Info Pane Widgets</p>
+          <p className="text-sm text-muted-foreground">
+            Configure widgets shown on the screensaver info pane
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleResetToDefaults}
+          className="text-xs text-muted-foreground hover:text-foreground underline"
+        >
+          Reset to defaults
+        </button>
+      </div>
+
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={configs.map((c) => c.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          <div className="space-y-2">
+            {configs.map((config) => (
+              <SortableCompositeWidgetCard
+                key={config.id}
+                config={config}
+                onUpdate={onUpdateConfig}
+                onUpdateSubItem={onUpdateSubItem}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+
+      {enabledCount > 0 && (
+        <p className="text-xs text-muted-foreground mt-3">
+          {enabledCount} widget{enabledCount !== 1 ? "s" : ""} enabled. Widgets display in the order shown above.
+        </p>
+      )}
+    </div>
+  );
+}
 
 function KioskSettings() {
   const queryClient = useQueryClient();
@@ -72,6 +997,10 @@ function KioskSettings() {
       queryClient.invalidateQueries({ queryKey: ["kiosk-status-me"] });
       setKioskStatus(false);
     },
+  });
+
+  const refreshKiosk = useMutation({
+    mutationFn: () => api.refreshKiosk(),
   });
 
   const isEnabled = kioskStatus?.enabled ?? false;
@@ -125,7 +1054,7 @@ function KioskSettings() {
           <div className="rounded-lg border border-green-300 bg-green-50 p-4 dark:border-green-800 dark:bg-green-950">
             <div className="flex items-start gap-3">
               <Tv className="mt-0.5 h-5 w-5 text-green-600 dark:text-green-400" />
-              <div>
+              <div className="flex-1">
                 <p className="font-semibold text-green-900 dark:text-green-100">
                   Kiosk Mode is Active
                 </p>
@@ -138,6 +1067,25 @@ function KioskSettings() {
                 <p className="mt-2 text-sm text-green-700 dark:text-green-300">
                   They will have full access to view and create/edit events.
                 </p>
+                <div className="mt-3 pt-3 border-t border-green-200 dark:border-green-700">
+                  <button
+                    type="button"
+                    onClick={() => refreshKiosk.mutate()}
+                    disabled={refreshKiosk.isPending}
+                    className="inline-flex items-center gap-2 rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${refreshKiosk.isPending ? "animate-spin" : ""}`} />
+                    {refreshKiosk.isPending ? "Refreshing..." : "Refresh All Kiosks"}
+                  </button>
+                  {refreshKiosk.isSuccess && (
+                    <span className="ml-3 text-sm text-green-700 dark:text-green-300">
+                      Refresh command sent
+                    </span>
+                  )}
+                  <p className="mt-2 text-xs text-green-600 dark:text-green-400">
+                    Remotely trigger a full page refresh on all connected kiosk devices
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -166,6 +1114,371 @@ function KioskSettings() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function KiosksSettings() {
+  const queryClient = useQueryClient();
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingKiosk, setEditingKiosk] = useState<string | null>(null);
+  const [formName, setFormName] = useState("");
+  const [formColorScheme, setFormColorScheme] = useState<ColorScheme>("default");
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  const { data: kiosks = [], isLoading } = useQuery({
+    queryKey: ["kiosks"],
+    queryFn: () => api.getKiosks(),
+  });
+
+  const createKiosk = useMutation({
+    mutationFn: (name: string) => api.createKiosk({ name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["kiosks"] });
+      setShowCreateForm(false);
+      setFormName("");
+    },
+  });
+
+  const updateKiosk = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { name?: string; isActive?: boolean; colorScheme?: ColorScheme } }) =>
+      api.updateKiosk(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["kiosks"] });
+      setEditingKiosk(null);
+      setFormName("");
+      setFormColorScheme("default");
+    },
+  });
+
+  const deleteKiosk = useMutation({
+    mutationFn: (id: string) => api.deleteKiosk(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["kiosks"] });
+    },
+  });
+
+  const regenerateToken = useMutation({
+    mutationFn: (id: string) => api.regenerateKioskToken(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["kiosks"] });
+    },
+  });
+
+  const refreshKiosk = useMutation({
+    mutationFn: (id: string) => api.refreshKioskById(id),
+  });
+
+  const handleCopyUrl = async (token: string) => {
+    const url = `${window.location.origin}/kiosk/${token}`;
+    await navigator.clipboard.writeText(url);
+    setCopiedToken(token);
+    setTimeout(() => setCopiedToken(null), 2000);
+  };
+
+  const handleCreateSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formName.trim()) return;
+    createKiosk.mutate(formName.trim());
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingKiosk || !formName.trim()) return;
+    updateKiosk.mutate({ id: editingKiosk, data: { name: formName.trim(), colorScheme: formColorScheme } });
+  };
+
+  const handleStartEdit = (kiosk: Kiosk) => {
+    setEditingKiosk(kiosk.id);
+    setFormName(kiosk.name);
+    setFormColorScheme(kiosk.colorScheme || "default");
+    setShowCreateForm(false);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingKiosk(null);
+    setFormName("");
+    setFormColorScheme("default");
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Kiosks</CardTitle>
+              <CardDescription>
+                Create multiple kiosks with unique URLs that can be loaded without authentication
+              </CardDescription>
+            </div>
+            <Button
+              onClick={() => {
+                setShowCreateForm(true);
+                setEditingKiosk(null);
+                setFormName("");
+              }}
+              disabled={showCreateForm}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              New Kiosk
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Create Form */}
+          {showCreateForm && (
+            <form onSubmit={handleCreateSubmit} className="rounded-lg border border-primary/50 bg-primary/5 p-4 space-y-4">
+              <h4 className="font-medium">Create New Kiosk</h4>
+              <div>
+                <label className="text-sm font-medium">Kiosk Name</label>
+                <input
+                  type="text"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  placeholder="Living Room Display"
+                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button type="submit" disabled={createKiosk.isPending || !formName.trim()}>
+                  {createKiosk.isPending ? "Creating..." : "Create Kiosk"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowCreateForm(false);
+                    setFormName("");
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          )}
+
+          {/* Kiosks List */}
+          {isLoading ? (
+            <div className="text-center py-8 text-muted-foreground">Loading kiosks...</div>
+          ) : kiosks.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Monitor className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>No kiosks yet</p>
+              <p className="text-sm mt-1">Create your first kiosk to get a unique URL for your display</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {kiosks.map((kiosk) => (
+                <div
+                  key={kiosk.id}
+                  className={`rounded-lg border p-4 ${
+                    kiosk.isActive ? "border-border" : "border-border/50 opacity-60"
+                  }`}
+                >
+                  {editingKiosk === kiosk.id ? (
+                    <form onSubmit={handleEditSubmit} className="space-y-4">
+                      <div>
+                        <label className="text-sm font-medium">Kiosk Name</label>
+                        <input
+                          type="text"
+                          value={formName}
+                          onChange={(e) => setFormName(e.target.value)}
+                          className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
+                          autoFocus
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Color Scheme</label>
+                        <div className="mt-2 grid grid-cols-4 sm:grid-cols-6 gap-2">
+                          {COLOR_SCHEMES.map((scheme) => (
+                            <button
+                              key={scheme.value}
+                              type="button"
+                              onClick={() => setFormColorScheme(scheme.value)}
+                              className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all ${
+                                formColorScheme === scheme.value
+                                  ? "border-primary bg-primary/10"
+                                  : "border-border hover:border-muted-foreground/50"
+                              }`}
+                              title={scheme.label}
+                            >
+                              <div
+                                className="w-6 h-6 rounded-full shadow-sm"
+                                style={{ backgroundColor: scheme.accent }}
+                              />
+                              <span className="text-xs truncate w-full text-center">{scheme.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button type="submit" size="sm" disabled={updateKiosk.isPending || !formName.trim()}>
+                          Save
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={handleCancelEdit}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </form>
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium">{kiosk.name}</h4>
+                            {kiosk.colorScheme && kiosk.colorScheme !== "default" && (
+                              <span
+                                className="w-4 h-4 rounded-full border border-border shadow-sm"
+                                style={{ backgroundColor: COLOR_SCHEMES.find(s => s.value === kiosk.colorScheme)?.accent }}
+                                title={COLOR_SCHEMES.find(s => s.value === kiosk.colorScheme)?.label || kiosk.colorScheme}
+                              />
+                            )}
+                            {!kiosk.isActive && (
+                              <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                                Disabled
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-2 flex items-center gap-2">
+                            <code className="text-xs bg-muted px-2 py-1 rounded font-mono truncate max-w-md">
+                              {window.location.origin}/kiosk/{kiosk.token}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyUrl(kiosk.token)}
+                              className="text-xs text-primary hover:text-primary/80 flex items-center gap-1"
+                            >
+                              {copiedToken === kiosk.token ? (
+                                <>
+                                  <CheckCircle className="h-3 w-3" />
+                                  Copied!
+                                </>
+                              ) : (
+                                "Copy URL"
+                              )}
+                            </button>
+                          </div>
+                          {kiosk.lastAccessedAt && (
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Last accessed: {new Date(kiosk.lastAccessedAt).toLocaleString()}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Link
+                            to={`/settings/screensaver-builder?kioskId=${kiosk.id}`}
+                            className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md"
+                            title="Edit screensaver"
+                          >
+                            <Palette className="h-4 w-4" />
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => refreshKiosk.mutate(kiosk.id)}
+                            disabled={refreshKiosk.isPending}
+                            className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md"
+                            title="Refresh kiosk"
+                          >
+                            <RefreshCw className={`h-4 w-4 ${refreshKiosk.isPending ? "animate-spin" : ""}`} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStartEdit(kiosk)}
+                            className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md"
+                            title="Edit kiosk name"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`Are you sure you want to regenerate the token for "${kiosk.name}"? The old URL will stop working.`)) {
+                                regenerateToken.mutate(kiosk.id);
+                              }
+                            }}
+                            className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md"
+                            title="Regenerate token (invalidates old URL)"
+                          >
+                            <Key className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={kiosk.isActive}
+                            onClick={() => updateKiosk.mutate({ id: kiosk.id, data: { isActive: !kiosk.isActive } })}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                              kiosk.isActive ? "bg-primary" : "bg-muted"
+                            }`}
+                            title={kiosk.isActive ? "Disable kiosk" : "Enable kiosk"}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                kiosk.isActive ? "translate-x-6" : "translate-x-1"
+                              }`}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`Delete kiosk "${kiosk.name}"? This cannot be undone.`)) {
+                                deleteKiosk.mutate(kiosk.id);
+                              }
+                            }}
+                            className="p-2 text-destructive/70 hover:text-destructive hover:bg-destructive/10 rounded-md"
+                            title="Delete kiosk"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>How Kiosks Work</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-3 text-sm text-muted-foreground">
+            <li className="flex items-start gap-3">
+              <Monitor className="h-5 w-5 mt-0.5 text-primary" />
+              <div>
+                <p className="font-medium text-foreground">Unique URLs</p>
+                <p>Each kiosk gets a unique, unguessable URL that works without logging in</p>
+              </div>
+            </li>
+            <li className="flex items-start gap-3">
+              <Key className="h-5 w-5 mt-0.5 text-primary" />
+              <div>
+                <p className="font-medium text-foreground">Secure Tokens</p>
+                <p>URLs use UUID tokens - impossible to guess, easy to share with trusted displays</p>
+              </div>
+            </li>
+            <li className="flex items-start gap-3">
+              <RefreshCw className="h-5 w-5 mt-0.5 text-primary" />
+              <div>
+                <p className="font-medium text-foreground">Remote Control</p>
+                <p>Send refresh commands to update kiosk displays without physical access</p>
+              </div>
+            </li>
+            <li className="flex items-start gap-3">
+              <Settings className="h-5 w-5 mt-0.5 text-primary" />
+              <div>
+                <p className="font-medium text-foreground">Individual Settings</p>
+                <p>Each kiosk can have its own screensaver layout and color scheme</p>
+              </div>
+            </li>
+          </ul>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -4395,7 +5708,7 @@ export function SettingsPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const user = useAuthStore((state) => state.user);
-  const { weekStartsOn, setWeekStartsOn, familyName, setFamilyName, homeAddress, setHomeAddress, dayStartHour, setDayStartHour, dayEndHour, setDayEndHour, tickerSpeed, setTickerSpeed } = useCalendarStore();
+  const { weekStartsOn, setWeekStartsOn, familyName, setFamilyName, homeAddress, setHomeAddress, dayStartHour, setDayStartHour, dayEndHour, setDayEndHour, tickerSpeed, setTickerSpeed, weekCellWidget, setWeekCellWidget } = useCalendarStore();
   const {
     enabled: screensaverEnabled,
     setEnabled: setScreensaverEnabled,
@@ -4423,6 +5736,20 @@ export function SettingsPage() {
     setClockPosition,
     clockSize,
     setClockSize,
+    infoPaneWidgets,
+    setInfoPaneWidgets,
+    infoPaneWidgetConfigs,
+    setInfoPaneWidgetConfigs,
+    updateWidgetConfig,
+    reorderWidgets,
+    widgetGridSize,
+    setWidgetGridSize,
+    // Composite widgets (v2)
+    compositeWidgetConfigs,
+    setCompositeWidgetConfigs,
+    updateCompositeWidgetConfig,
+    updateSubItemConfig,
+    reorderCompositeWidgets,
   } = useScreensaverStore();
   const {
     layout: tasksLayout,
@@ -4443,6 +5770,12 @@ export function SettingsPage() {
   const initialSubTab = subTabFromUrl && validEntertainmentSubTabs.includes(subTabFromUrl) ? subTabFromUrl : "sports";
   const [activeEntertainmentSubTab, setActiveEntertainmentSubTab] = useState<EntertainmentSubTab>(initialSubTab);
 
+  // Appearance sub-tab state
+  const appearanceSubTabFromUrl = searchParams.get("subtab") as AppearanceSubTab | null;
+  const initialAppearanceSubTab = appearanceSubTabFromUrl && validAppearanceSubTabs.includes(appearanceSubTabFromUrl)
+    ? appearanceSubTabFromUrl : "display";
+  const [activeAppearanceSubTab, setActiveAppearanceSubTab] = useState<AppearanceSubTab>(initialAppearanceSubTab);
+
   // Local photos album selection state
   const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
   const [selectedAlbumName, setSelectedAlbumName] = useState<string>("");
@@ -4459,6 +5792,8 @@ export function SettingsPage() {
     setActiveTab(tab);
     if (tab === "entertainment") {
       setSearchParams({ tab, subtab: activeEntertainmentSubTab });
+    } else if (tab === "appearance") {
+      setSearchParams({ tab, subtab: activeAppearanceSubTab });
     } else {
       setSearchParams({ tab });
     }
@@ -4469,6 +5804,11 @@ export function SettingsPage() {
     setSearchParams({ tab: "entertainment", subtab });
   };
 
+  const handleAppearanceSubTabChange = (subtab: AppearanceSubTab) => {
+    setActiveAppearanceSubTab(subtab);
+    setSearchParams({ tab: "appearance", subtab });
+  };
+
   // Fetch calendars for settings
   const { data: calendars = [] } = useQuery({
     queryKey: ["calendars"],
@@ -4477,8 +5817,12 @@ export function SettingsPage() {
 
   // Fetch events to determine which calendars have recent activity
   const { data: events = [] } = useQuery({
-    queryKey: ["events"],
-    queryFn: () => api.getEvents(),
+    queryKey: ["events", "calendar-settings"],
+    queryFn: () => {
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      return api.getEvents(thirtyDaysAgo, now);
+    },
   });
 
   // Sort calendars: primary → favorites → read-write → recent events → alphabetical
@@ -4528,6 +5872,26 @@ export function SettingsPage() {
 
   // State for hidden calendars section
   const [hiddenCalendarsExpanded, setHiddenCalendarsExpanded] = useState(false);
+
+  // State for new two-column calendar settings layout
+  const [selectedCalendarProvider, setSelectedCalendarProvider] = useState<CalendarProvider | null>("google");
+  const [addAccountModalView, setAddAccountModalView] = useState<"select" | "caldav" | "ics" | null>(null);
+  const [showHACalendarModal, setShowHACalendarModal] = useState(false);
+
+  // Fetch favorite teams for sports provider in calendar settings
+  const { data: calendarFavoriteTeams = [] } = useQuery({
+    queryKey: ["favorite-teams"],
+    queryFn: () => api.getFavoriteTeams(),
+  });
+
+  // Update favorite team mutation for calendar settings
+  const updateFavoriteTeam = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { isVisible?: boolean; showOnDashboard?: boolean } }) =>
+      api.updateFavoriteTeam(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["favorite-teams"] });
+    },
+  });
 
   const syncAll = useMutation({
     mutationFn: () => api.syncAllCalendars(),
@@ -4829,331 +6193,114 @@ export function SettingsPage() {
             </div>
           )}
 
-          {/* Calendars Tab */}
+          {/* Calendars Tab - Two Column Layout */}
           {activeTab === "calendars" && (
-            <Card className="border-2 border-primary/40">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Calendars</CardTitle>
-                    <CardDescription>
-                      Configure which calendars to sync and display
-                    </CardDescription>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        calendars.forEach((cal) => {
-                          if (!cal.syncEnabled) {
-                            updateCalendar.mutate({
-                              id: cal.id,
-                              data: { syncEnabled: true, isVisible: true },
-                            });
+            <>
+              <Card className="border-2 border-primary/40">
+                <CardHeader>
+                  <CardTitle>Calendar Settings</CardTitle>
+                  <CardDescription>
+                    Manage your calendar accounts and configure visibility settings
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6 min-h-[500px]">
+                    {/* Left Column - Accounts List */}
+                    <div className="lg:border-r lg:border-border lg:pr-6">
+                      <CalendarAccountsList
+                        calendars={calendars}
+                        favoriteTeams={calendarFavoriteTeams}
+                        selectedProvider={selectedCalendarProvider}
+                        onSelectProvider={setSelectedCalendarProvider}
+                        onAddAccount={() => setAddAccountModalView("select")}
+                        onSyncAll={() => syncAll.mutate()}
+                        isSyncing={syncAll.isPending}
+                      />
+                    </div>
+
+                    {/* Right Column - Calendars for Selected Provider */}
+                    <div className="min-h-0">
+                      {selectedCalendarProvider ? (
+                        <CalendarListForAccount
+                          provider={selectedCalendarProvider}
+                          calendars={calendars}
+                          favoriteTeams={calendarFavoriteTeams}
+                          onUpdateCalendar={(id, updates) =>
+                            updateCalendar.mutate({ id, data: updates })
                           }
-                        });
-                      }}
-                    >
-                      Enable All
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        calendars.forEach((cal) => {
-                          if (cal.syncEnabled) {
-                            updateCalendar.mutate({
-                              id: cal.id,
-                              data: { syncEnabled: false, isVisible: false },
-                            });
+                          onUpdateTeam={(id, updates) =>
+                            updateFavoriteTeam.mutate({ id, data: updates })
                           }
-                        });
-                      }}
-                    >
-                      Disable All
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <motion.div ref={calendarListRef} className="space-y-3" layoutScroll>
-                  {/* Column toggle header */}
-                  <div className="flex items-center justify-between pb-2 border-b border-border">
-                    <span className="text-sm font-medium text-muted-foreground">Toggle all calendars:</span>
-                    <div className="flex items-center gap-1">
-                      {(["week", "month", "day", "popup", "screensaver"] as const).map((view) => {
-                        const allOn = sortedCalendars.every((c) => (c.visibility ?? { week: false, month: false, day: false, popup: true, screensaver: false })[view]);
-                        const allOff = sortedCalendars.every((c) => !(c.visibility ?? { week: false, month: false, day: false, popup: true, screensaver: false })[view]);
-                        return (
-                          <button
-                            key={view}
-                            onClick={async () => {
-                              const newValue = !allOn;
-                              // Update cache optimistically with only the specific view changing
-                              queryClient.setQueryData(["calendars"], (old: typeof calendars) =>
-                                old?.map((cal) => {
-                                  const currentVis = cal.visibility ?? { week: false, month: false, day: false, popup: true, screensaver: false };
-                                  return {
-                                    ...cal,
-                                    visibility: { ...currentVis, [view]: newValue },
-                                  };
-                                })
-                              );
-                              // Send updates - each with only the view field changing
-                              try {
-                                await Promise.all(
-                                  sortedCalendars.map((calendar) =>
-                                    api.updateCalendar(calendar.id, {
-                                      visibility: {
-                                        ...(calendar.visibility ?? { week: false, month: false, day: false, popup: true, screensaver: false }),
-                                        [view]: newValue
-                                      }
-                                    })
-                                  )
-                                );
-                              } finally {
-                                // Refetch to ensure sync with server
-                                queryClient.invalidateQueries({ queryKey: ["calendars"] });
-                              }
-                            }}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200 ${
-                              allOn
-                                ? "bg-primary text-primary-foreground shadow-sm"
-                                : allOff
-                                ? "bg-muted/50 text-muted-foreground hover:bg-muted"
-                                : "bg-primary/30 text-primary hover:bg-primary/40"
-                            }`}
-                          >
-                            {view.charAt(0).toUpperCase() + view.slice(1)}
-                          </button>
-                        );
-                      })}
+                          onConnect={() => {
+                            if (selectedCalendarProvider === "google") {
+                              window.location.href = `/api/v1/auth/oauth/google?returnUrl=${encodeURIComponent(window.location.origin + "/settings?tab=calendars")}`;
+                            } else if (selectedCalendarProvider === "microsoft") {
+                              window.location.href = "/api/v1/auth/oauth/microsoft";
+                            } else if (selectedCalendarProvider === "sports") {
+                              // Navigate to entertainment tab with sports sub-tab
+                              window.location.href = "/settings?tab=entertainment&subtab=sports";
+                            } else if (selectedCalendarProvider === "ics") {
+                              setAddAccountModalView("ics");
+                            } else if (selectedCalendarProvider === "caldav") {
+                              setAddAccountModalView("caldav");
+                            } else if (selectedCalendarProvider === "homeassistant") {
+                              setShowHACalendarModal(true);
+                            } else {
+                              setAddAccountModalView("select");
+                            }
+                          }}
+                          onManageTeams={() => {
+                            window.location.href = "/settings?tab=entertainment&subtab=sports";
+                          }}
+                        />
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-muted-foreground">
+                          Select an account type to view calendars
+                        </div>
+                      )}
                     </div>
                   </div>
-                  {/* Calendar rows */}
-                  <AnimatePresence mode="popLayout">
-                  {sortedCalendars.map((calendar) => {
-                    const visibility = calendar.visibility ?? { week: false, month: false, day: false, popup: true, screensaver: false };
-                    return (
-                      <motion.div
-                        key={calendar.id}
-                        layout
-                        layoutId={`calendar-${calendar.id}`}
-                        initial={false}
-                        animate={{
-                          opacity: 1,
-                          scale: recentlyFavorited.has(calendar.id) ? [1, 1.02, 1] : 1,
-                          boxShadow: recentlyFavorited.has(calendar.id)
-                            ? ["0 0 0 0 rgba(234, 179, 8, 0)", "0 0 0 4px rgba(234, 179, 8, 0.3)", "0 0 0 0 rgba(234, 179, 8, 0)"]
-                            : "0 0 0 0 rgba(234, 179, 8, 0)",
-                        }}
-                        transition={{
-                          layout: { type: "spring", stiffness: 500, damping: 40 },
-                          scale: { duration: 0.4 },
-                          boxShadow: { duration: 0.6 },
-                        }}
-                        className={`flex items-center justify-between rounded-xl border p-4 transition-colors ${
-                          calendar.isPrimary
-                            ? "border-primary/50 bg-primary/5 hover:bg-primary/10"
-                            : calendar.isFavorite
-                            ? "border-yellow-500/30 bg-yellow-500/5 hover:bg-yellow-500/10"
-                            : "border-border bg-card/50 hover:bg-card/80"
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          {/* Hide calendar button */}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateCalendar.mutate({
-                                id: calendar.id,
-                                data: { isVisible: false },
-                              })
-                            }
-                            className="flex-shrink-0 p-1 rounded-md text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                            title="Hide calendar"
-                          >
-                            <EyeOff className="h-4 w-4" />
-                          </button>
-                          {/* Favorite star toggle */}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateCalendar.mutate({
-                                id: calendar.id,
-                                data: { isFavorite: !calendar.isFavorite },
-                              })
-                            }
-                            className={`flex-shrink-0 p-1 rounded-md transition-colors ${
-                              calendar.isFavorite
-                                ? "text-yellow-500 hover:text-yellow-600"
-                                : "text-muted-foreground/40 hover:text-yellow-500"
-                            }`}
-                            title={calendar.isFavorite ? "Remove from favorites" : "Add to favorites"}
-                          >
-                            <Star className={`h-4 w-4 ${calendar.isFavorite ? "fill-current" : ""}`} />
-                          </button>
-                          <div
-                            className="h-5 w-5 rounded-lg shadow-sm flex-shrink-0"
-                            style={{ backgroundColor: calendar.color }}
-                          />
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="font-medium truncate">{calendar.name}</p>
-                              {calendar.isPrimary && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/20 text-primary text-xs font-medium">
-                                  <Crown className="h-3 w-3" />
-                                  Primary
-                                </span>
-                              )}
-                              {/* Set as Primary button - only show for non-readonly, non-primary calendars */}
-                              {!calendar.isReadOnly && !calendar.isPrimary && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    updateCalendar.mutate({
-                                      id: calendar.id,
-                                      data: { isPrimary: true },
-                                    })
-                                  }
-                                  className="p-1 rounded-md text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors"
-                                  title="Set as primary calendar"
-                                >
-                                  <Crown className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              {calendar.provider} • {calendar.isReadOnly ? "Read-only" : "Read-write"}
-                            </p>
-                          </div>
-                        </div>
-                        <ToggleGroup
-                          items={[
-                            {
-                              key: "week",
-                              label: "Week",
-                              checked: visibility.week,
-                              onChange: (checked) =>
-                                updateCalendar.mutate({
-                                  id: calendar.id,
-                                  data: { visibility: { ...visibility, week: checked } },
-                                }),
-                            },
-                            {
-                              key: "month",
-                              label: "Month",
-                              checked: visibility.month,
-                              onChange: (checked) =>
-                                updateCalendar.mutate({
-                                  id: calendar.id,
-                                  data: { visibility: { ...visibility, month: checked } },
-                                }),
-                            },
-                            {
-                              key: "day",
-                              label: "Day",
-                              checked: visibility.day,
-                              onChange: (checked) =>
-                                updateCalendar.mutate({
-                                  id: calendar.id,
-                                  data: { visibility: { ...visibility, day: checked } },
-                                }),
-                            },
-                            {
-                              key: "popup",
-                              label: "Popup",
-                              checked: visibility.popup,
-                              onChange: (checked) =>
-                                updateCalendar.mutate({
-                                  id: calendar.id,
-                                  data: { visibility: { ...visibility, popup: checked } },
-                                }),
-                            },
-                            {
-                              key: "screensaver",
-                              label: "Screensaver",
-                              checked: visibility.screensaver,
-                              onChange: (checked) =>
-                                updateCalendar.mutate({
-                                  id: calendar.id,
-                                  data: { visibility: { ...visibility, screensaver: checked } },
-                                }),
-                            },
-                          ]}
-                        />
-                      </motion.div>
-                    );
-                  })}
-                  </AnimatePresence>
-                </motion.div>
+                </CardContent>
+              </Card>
 
-                {/* Hidden calendars section */}
-                {hiddenCalendars.length > 0 && (
-                  <div className="mt-6 border-t border-border pt-4">
-                    <button
-                      type="button"
-                      onClick={() => setHiddenCalendarsExpanded(!hiddenCalendarsExpanded)}
-                      className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors w-full"
-                    >
-                      {hiddenCalendarsExpanded ? (
-                        <ChevronUp className="h-4 w-4" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4" />
-                      )}
-                      <EyeOff className="h-4 w-4" />
-                      <span>Hidden calendars ({hiddenCalendars.length})</span>
-                    </button>
+              {/* Add Account Modal */}
+              <AddAccountModal
+                isOpen={addAccountModalView !== null}
+                onClose={() => setAddAccountModalView(null)}
+                initialView={addAccountModalView ?? "select"}
+                onConnectGoogle={() => {
+                  window.location.href = `/api/v1/auth/oauth/google?returnUrl=${encodeURIComponent(window.location.origin + "/settings?tab=calendars")}`;
+                }}
+                onConnectMicrosoft={() => {
+                  window.location.href = "/api/v1/auth/oauth/microsoft";
+                }}
+                onConnectCalDAV={async (url, username, password) => {
+                  // TODO: Implement CalDAV connection
+                  console.log("CalDAV connection:", { url, username });
+                  throw new Error("CalDAV connection not yet implemented");
+                }}
+                onSubscribeICS={async (url, name) => {
+                  await api.subscribeICS(url, name);
+                  queryClient.invalidateQueries({ queryKey: ["calendars"] });
+                  setSelectedCalendarProvider("ics");
+                }}
+                onManageSports={() => {
+                  setAddAccountModalView(null);
+                  window.location.href = "/settings?tab=entertainment&subtab=sports";
+                }}
+              />
 
-                    <AnimatePresence>
-                      {hiddenCalendarsExpanded && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="overflow-hidden"
-                        >
-                          <div className="mt-3 space-y-2">
-                            {hiddenCalendars.map((calendar) => (
-                              <div
-                                key={calendar.id}
-                                className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/30 p-3 opacity-60 hover:opacity-80 transition-opacity"
-                              >
-                                <div className="flex items-center gap-3">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      updateCalendar.mutate({
-                                        id: calendar.id,
-                                        data: { isVisible: true },
-                                      })
-                                    }
-                                    className="flex-shrink-0 p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors"
-                                    title="Show calendar"
-                                  >
-                                    <Eye className="h-4 w-4" />
-                                  </button>
-                                  <div
-                                    className="h-4 w-4 rounded-md"
-                                    style={{ backgroundColor: calendar.color }}
-                                  />
-                                  <span className="text-sm">{calendar.name}</span>
-                                </div>
-                                <span className="text-xs text-muted-foreground">
-                                  {calendar.provider}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+              {/* Home Assistant Calendar Modal */}
+              <HACalendarModal
+                isOpen={showHACalendarModal}
+                onClose={() => setShowHACalendarModal(false)}
+                onSubscribe={async (entityId, name) => {
+                  await api.subscribeHomeAssistantCalendar(entityId, name);
+                  queryClient.invalidateQueries({ queryKey: ["calendars"] });
+                  setShowHACalendarModal(false);
+                }}
+              />
+            </>
           )}
 
           {/* Tasks Tab */}
@@ -5323,539 +6470,651 @@ export function SettingsPage() {
             </div>
           )}
 
-          {/* Appearance Tab (Display + Screensaver) */}
+          {/* Appearance Tab */}
           {activeTab === "appearance" && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Column 1: Display + Color Scheme */}
             <div className="space-y-6">
-            <Card className="border-2 border-primary/40">
-              <CardHeader>
-                <CardTitle>Display</CardTitle>
-                <CardDescription>
-                  Configure the dashboard display for kiosk mode
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <div>
-                    <p className="font-medium">Calendar name</p>
-                    <p className="text-sm text-muted-foreground">
-                      Display name shown at the top of the calendar
-                    </p>
-                  </div>
-                  <input
-                    type="text"
-                    value={familyName}
-                    onChange={(e) => setFamilyName(e.target.value)}
-                    className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-48"
-                    placeholder="Family Calendar"
-                  />
-                </div>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <div>
-                    <p className="font-medium">Home address</p>
-                    <p className="text-sm text-muted-foreground">
-                      Used to calculate travel times to event locations
-                    </p>
-                  </div>
-                  <input
-                    type="text"
-                    value={homeAddress}
-                    onChange={(e) => setHomeAddress(e.target.value)}
-                    className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-64"
-                    placeholder="123 Main St, City, State"
-                  />
-                </div>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <div>
-                    <p className="font-medium">Default calendar</p>
-                    <p className="text-sm text-muted-foreground">
-                      Calendar used when creating new events
-                    </p>
-                  </div>
-                  <select
-                    className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                    value={currentDefaultCalendar?.id ?? ""}
-                    onChange={(e) => {
-                      const newDefaultId = e.target.value;
-                      if (newDefaultId) {
-                        updateCalendar.mutate({
-                          id: newDefaultId,
-                          data: { isPrimary: true },
-                        });
-                      }
-                    }}
+              {/* Sub-tab navigation */}
+              <div className="flex gap-2 whitespace-nowrap">
+                {appearanceSubTabs.map((subtab) => (
+                  <button
+                    key={subtab.id}
+                    onClick={() => handleAppearanceSubTabChange(subtab.id)}
+                    className={`flex items-center gap-2 px-4 py-2 min-h-[44px] text-sm font-medium rounded-lg transition-colors ${
+                      activeAppearanceSubTab === subtab.id
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                    }`}
                   >
-                    <option value="" disabled>Select a calendar</option>
-                    {editableCalendars.map((calendar) => (
-                      <option key={calendar.id} value={calendar.id}>
-                        {calendar.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="font-medium">Show clock</p>
-                    <p className="text-sm text-muted-foreground">
-                      Display time on dashboard
-                    </p>
-                  </div>
-                  <input type="checkbox" defaultChecked className="rounded min-h-[44px] min-w-[44px]" />
-                </div>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <div>
-                    <p className="font-medium">Week starts on</p>
-                    <p className="text-sm text-muted-foreground">
-                      First day of the week in calendar views
-                    </p>
-                  </div>
-                  <select
-                    className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                    value={weekStartsOn}
-                    onChange={(e) => setWeekStartsOn(Number(e.target.value) as 0 | 1 | 2 | 3 | 4 | 5 | 6)}
-                  >
-                    <option value={1}>Monday</option>
-                    <option value={0}>Sunday</option>
-                    <option value={6}>Saturday</option>
-                  </select>
-                </div>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <div>
-                    <p className="font-medium">Day view hours</p>
-                    <p className="text-sm text-muted-foreground">
-                      Visible time range in day and week views
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <select
-                      className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px]"
-                      value={dayStartHour}
-                      onChange={(e) => setDayStartHour(Number(e.target.value))}
-                    >
-                      {Array.from({ length: 24 }, (_, i) => (
-                        <option key={i} value={i}>
-                          {i === 0 ? "12 AM" : i < 12 ? `${i} AM` : i === 12 ? "12 PM" : `${i - 12} PM`}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="text-muted-foreground">to</span>
-                    <select
-                      className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px]"
-                      value={dayEndHour}
-                      onChange={(e) => setDayEndHour(Number(e.target.value))}
-                    >
-                      {Array.from({ length: 24 }, (_, i) => (
-                        <option key={i} value={i}>
-                          {i === 0 ? "12 AM" : i < 12 ? `${i} AM` : i === 12 ? "12 PM" : `${i - 12} PM`}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <div>
-                    <p className="font-medium">Ticker speed</p>
-                    <p className="text-sm text-muted-foreground">
-                      Speed of the scrolling news ticker in the header
-                    </p>
-                  </div>
-                  <select
-                    className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                    value={tickerSpeed}
-                    onChange={(e) => setTickerSpeed(e.target.value as "slow" | "normal" | "fast")}
-                  >
-                    <option value="slow">Slow (45s)</option>
-                    <option value="normal">Normal (30s)</option>
-                    <option value="fast">Fast (15s)</option>
-                  </select>
-                </div>
-              </CardContent>
-            </Card>
-            </div>
-
-              {/* Column 2: Photo Albums + Manage Photos */}
-              <div className="space-y-6">
-              {/* Photo Albums */}
-              <Card className="border-2 border-primary/40">
-                <CardHeader>
-                  <CardTitle>
-                    <div className="flex items-center gap-2">
-                      <FolderOpen className="h-5 w-5" />
-                      Photo Albums
-                    </div>
-                  </CardTitle>
-                  <CardDescription>
-                    Manage photos for the screensaver slideshow. Photos can be uploaded from your device or imported from Google Photos.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {selectedAlbumId ? (
-                    <AlbumPhotoGrid
-                      albumId={selectedAlbumId}
-                      albumName={selectedAlbumName}
-                      onBack={() => setSelectedAlbumId(null)}
-                    />
-                  ) : (
-                    <LocalPhotoAlbums
-                      onSelectAlbum={(albumId) => {
-                        const album = albums.find((a) => a.id === albumId);
-                        setSelectedAlbumId(albumId);
-                        setSelectedAlbumName(album?.name ?? "Album");
-                      }}
-                    />
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Manage Photos */}
-              <Card className="border-2 border-primary/40">
-                <CardHeader>
-                  <CardTitle>Manage Photos</CardTitle>
-                  <CardDescription>
-                    View and delete uploaded photos across all albums
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ManageAllPhotos />
-                </CardContent>
-              </Card>
+                    {subtab.icon}
+                    {subtab.label}
+                  </button>
+                ))}
               </div>
 
-              {/* Column 3: Color Scheme + Screensaver */}
-              <div className="space-y-6">
-              {/* Color Scheme */}
-              <Card className="border-2 border-primary/40">
-                <CardHeader>
-                  <CardTitle>Color Scheme</CardTitle>
-                  <CardDescription>
-                    Choose a color theme for the entire application
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {COLOR_SCHEMES.map((scheme) => (
-                      <button
-                        key={scheme.value}
-                        onClick={() => setColorScheme(scheme.value)}
-                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
-                          colorScheme === scheme.value
-                            ? "border-primary bg-primary/10"
-                            : "border-border hover:border-muted-foreground/50"
-                        }`}
-                      >
-                        <div
-                          className="w-12 h-12 rounded-full shadow-lg"
-                          style={{ backgroundColor: scheme.accent }}
+              {/* Display sub-tab */}
+              {activeAppearanceSubTab === "display" && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Display Card */}
+                  <Card className="border-2 border-primary/40">
+                    <CardHeader>
+                      <CardTitle>Display</CardTitle>
+                      <CardDescription>
+                        Configure the dashboard display for kiosk mode
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                          <p className="font-medium">Calendar name</p>
+                          <p className="text-sm text-muted-foreground">
+                            Display name shown at the top of the calendar
+                          </p>
+                        </div>
+                        <input
+                          type="text"
+                          value={familyName}
+                          onChange={(e) => setFamilyName(e.target.value)}
+                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-48"
+                          placeholder="Family Calendar"
                         />
-                        <span className="text-sm font-medium">{scheme.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+                      </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                          <p className="font-medium">Home address</p>
+                          <p className="text-sm text-muted-foreground">
+                            Used to calculate travel times to event locations
+                          </p>
+                        </div>
+                        <input
+                          type="text"
+                          value={homeAddress}
+                          onChange={(e) => setHomeAddress(e.target.value)}
+                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-64"
+                          placeholder="123 Main St, City, State"
+                        />
+                      </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                          <p className="font-medium">Default calendar</p>
+                          <p className="text-sm text-muted-foreground">
+                            Calendar used when creating new events
+                          </p>
+                        </div>
+                        <select
+                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
+                          value={currentDefaultCalendar?.id ?? ""}
+                          onChange={(e) => {
+                            const newDefaultId = e.target.value;
+                            if (newDefaultId) {
+                              updateCalendar.mutate({
+                                id: newDefaultId,
+                                data: { isPrimary: true },
+                              });
+                            }
+                          }}
+                        >
+                          <option value="" disabled>Select a calendar</option>
+                          {editableCalendars.map((calendar) => (
+                            <option key={calendar.id} value={calendar.id}>
+                              {calendar.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="font-medium">Show clock</p>
+                          <p className="text-sm text-muted-foreground">
+                            Display time on dashboard
+                          </p>
+                        </div>
+                        <input type="checkbox" defaultChecked className="rounded min-h-[44px] min-w-[44px]" />
+                      </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                          <p className="font-medium">Week starts on</p>
+                          <p className="text-sm text-muted-foreground">
+                            First day of the week in calendar views
+                          </p>
+                        </div>
+                        <select
+                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
+                          value={weekStartsOn}
+                          onChange={(e) => setWeekStartsOn(Number(e.target.value) as 0 | 1 | 2 | 3 | 4 | 5 | 6)}
+                        >
+                          <option value={1}>Monday</option>
+                          <option value={0}>Sunday</option>
+                          <option value={6}>Saturday</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                          <p className="font-medium">Day view hours</p>
+                          <p className="text-sm text-muted-foreground">
+                            Visible time range in day and week views
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <select
+                            className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px]"
+                            value={dayStartHour}
+                            onChange={(e) => setDayStartHour(Number(e.target.value))}
+                          >
+                            {Array.from({ length: 24 }, (_, i) => (
+                              <option key={i} value={i}>
+                                {i === 0 ? "12 AM" : i < 12 ? `${i} AM` : i === 12 ? "12 PM" : `${i - 12} PM`}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="text-muted-foreground">to</span>
+                          <select
+                            className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px]"
+                            value={dayEndHour}
+                            onChange={(e) => setDayEndHour(Number(e.target.value))}
+                          >
+                            {Array.from({ length: 24 }, (_, i) => (
+                              <option key={i} value={i}>
+                                {i === 0 ? "12 AM" : i < 12 ? `${i} AM` : i === 12 ? "12 PM" : `${i - 12} PM`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                          <p className="font-medium">Ticker speed</p>
+                          <p className="text-sm text-muted-foreground">
+                            Speed of the scrolling news ticker in the header
+                          </p>
+                        </div>
+                        <select
+                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
+                          value={tickerSpeed}
+                          onChange={(e) => setTickerSpeed(e.target.value as "slow" | "normal" | "fast")}
+                        >
+                          <option value="slow">Slow (45s)</option>
+                          <option value="normal">Normal (30s)</option>
+                          <option value="fast">Fast (15s)</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                          <p className="font-medium">Week view widget</p>
+                          <p className="text-sm text-muted-foreground">
+                            What to show in the 8th cell of the week view
+                          </p>
+                        </div>
+                        <select
+                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
+                          value={weekCellWidget}
+                          onChange={(e) => setWeekCellWidget(e.target.value as "next-week" | "camera" | "map" | "spotify" | "home-control")}
+                        >
+                          <option value="next-week">Next Week</option>
+                          <option value="camera">Camera</option>
+                          <option value="map">Map</option>
+                          <option value="spotify">Spotify</option>
+                          <option value="home-control">Home Control</option>
+                        </select>
+                      </div>
+                    </CardContent>
+                  </Card>
 
-              {/* Screensaver Settings */}
-              <Card className="border-2 border-primary/40">
-                <CardHeader>
-                  <CardTitle>Screensaver Settings</CardTitle>
-                  <CardDescription>
-                    Configure when and how the screensaver appears
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="font-medium">Enable screensaver</p>
-                      <p className="text-sm text-muted-foreground">
-                        Start photo slideshow after idle timeout
-                      </p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={screensaverEnabled}
-                      onChange={(e) => setScreensaverEnabled(e.target.checked)}
-                      className="rounded min-h-[44px] min-w-[44px]"
-                    />
-                  </div>
-                  {screensaverEnabled && (
-                    <>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Idle timeout</p>
-                          <p className="text-sm text-muted-foreground">
-                            Time before screensaver starts
-                          </p>
-                        </div>
-                        <select
-                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                          value={idleTimeout}
-                          onChange={(e) => setIdleTimeout(Number(e.target.value))}
-                        >
-                          <option value={60}>1 minute</option>
-                          <option value={120}>2 minutes</option>
-                          <option value={300}>5 minutes</option>
-                          <option value={600}>10 minutes</option>
-                          <option value={900}>15 minutes</option>
-                          <option value={1800}>30 minutes</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Slide interval</p>
-                          <p className="text-sm text-muted-foreground">
-                            Time between photo transitions
-                          </p>
-                        </div>
-                        <select
-                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                          value={slideInterval}
-                          onChange={(e) => setSlideInterval(Number(e.target.value))}
-                        >
-                          <option value={5}>5 seconds</option>
-                          <option value={10}>10 seconds</option>
-                          <option value={15}>15 seconds</option>
-                          <option value={30}>30 seconds</option>
-                          <option value={60}>1 minute</option>
-                          <option value={300}>5 minutes</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Layout</p>
-                          <p className="text-sm text-muted-foreground">
-                            How photos are displayed
-                          </p>
-                        </div>
-                        <select
-                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                          value={screensaverLayout}
-                          onChange={(e) => setScreensaverLayout(e.target.value as ScreensaverLayout)}
-                        >
-                          <option value="fullscreen">Full screen</option>
-                          <option value="side-by-side">Side by side (2)</option>
-                          <option value="quad">Quad (4)</option>
-                          <option value="scatter">Scatter collage</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Transition</p>
-                          <p className="text-sm text-muted-foreground">
-                            Animation between slides
-                          </p>
-                        </div>
-                        <select
-                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                          value={transition}
-                          onChange={(e) => setTransition(e.target.value as ScreensaverTransition)}
-                          disabled={screensaverLayout === "scatter"}
-                        >
-                          <option value="fade">Fade</option>
-                          <option value="slide-left">Slide Left</option>
-                          <option value="slide-right">Slide Right</option>
-                          <option value="slide-up">Slide Up</option>
-                          <option value="slide-down">Slide Down</option>
-                          <option value="zoom">Zoom</option>
-                        </select>
-                      </div>
-                      <div className="rounded-lg border border-border p-4 bg-muted/30">
-                        <p className="text-sm font-medium mb-2">Layout preview</p>
-                        <div className="grid grid-cols-4 gap-2">
+                  {/* Color Scheme Card */}
+                  <Card className="border-2 border-primary/40">
+                    <CardHeader>
+                      <CardTitle>Color Scheme</CardTitle>
+                      <CardDescription>
+                        Choose a color theme for the entire application
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        {COLOR_SCHEMES.map((scheme) => (
                           <button
-                            type="button"
-                            onClick={() => setScreensaverLayout("fullscreen")}
-                            className={`aspect-video rounded border-2 flex items-center justify-center ${
-                              screensaverLayout === "fullscreen" ? "border-primary bg-primary/10" : "border-border"
+                            key={scheme.value}
+                            onClick={() => setColorScheme(scheme.value)}
+                            className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
+                              colorScheme === scheme.value
+                                ? "border-primary bg-primary/10"
+                                : "border-border hover:border-muted-foreground/50"
                             }`}
                           >
-                            <div className="w-8 h-6 bg-muted-foreground/30 rounded" />
+                            <div
+                              className="w-12 h-12 rounded-full shadow-lg"
+                              style={{ backgroundColor: scheme.accent }}
+                            />
+                            <span className="text-sm font-medium">{scheme.label}</span>
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => setScreensaverLayout("side-by-side")}
-                            className={`aspect-video rounded border-2 flex items-center justify-center gap-0.5 ${
-                              screensaverLayout === "side-by-side" ? "border-primary bg-primary/10" : "border-border"
-                            }`}
-                          >
-                            <div className="w-3 h-5 bg-muted-foreground/30 rounded" />
-                            <div className="w-3 h-5 bg-muted-foreground/30 rounded" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setScreensaverLayout("quad")}
-                            className={`aspect-video rounded border-2 grid grid-cols-2 grid-rows-2 gap-0.5 p-1 ${
-                              screensaverLayout === "quad" ? "border-primary bg-primary/10" : "border-border"
-                            }`}
-                          >
-                            <div className="bg-muted-foreground/30 rounded" />
-                            <div className="bg-muted-foreground/30 rounded" />
-                            <div className="bg-muted-foreground/30 rounded" />
-                            <div className="bg-muted-foreground/30 rounded" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setScreensaverLayout("scatter")}
-                            className={`aspect-video rounded border-2 relative overflow-hidden ${
-                              screensaverLayout === "scatter" ? "border-primary bg-primary/10" : "border-border"
-                            }`}
-                          >
-                            <div className="absolute w-3 h-2 bg-muted-foreground/30 rounded top-1 left-1 rotate-[-5deg]" />
-                            <div className="absolute w-4 h-3 bg-muted-foreground/30 rounded top-2 right-1 rotate-[8deg]" />
-                            <div className="absolute w-3 h-2 bg-muted-foreground/30 rounded bottom-1 left-2 rotate-[3deg]" />
-                          </button>
-                        </div>
+                        ))}
                       </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
 
-                      {/* Night Dim Settings */}
-                      <div className="border-t border-border pt-4 mt-4">
-                        <div className="flex items-center justify-between gap-2">
-                          <div>
-                            <p className="font-medium">Night dimming</p>
-                            <p className="text-sm text-muted-foreground">
-                              Dim the screen during nighttime hours
-                            </p>
+              {/* Photos sub-tab */}
+              {activeAppearanceSubTab === "photos" && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Photo Albums Card */}
+                  <Card className="border-2 border-primary/40">
+                    <CardHeader>
+                      <CardTitle>
+                        <div className="flex items-center gap-2">
+                          <FolderOpen className="h-5 w-5" />
+                          Photo Albums
+                        </div>
+                      </CardTitle>
+                      <CardDescription>
+                        Manage photos for the screensaver slideshow. Photos can be uploaded from your device or imported from Google Photos.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {selectedAlbumId ? (
+                        <AlbumPhotoGrid
+                          albumId={selectedAlbumId}
+                          albumName={selectedAlbumName}
+                          onBack={() => setSelectedAlbumId(null)}
+                        />
+                      ) : (
+                        <LocalPhotoAlbums
+                          onSelectAlbum={(albumId) => {
+                            const album = albums.find((a) => a.id === albumId);
+                            setSelectedAlbumId(albumId);
+                            setSelectedAlbumName(album?.name ?? "Album");
+                          }}
+                        />
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Manage Photos Card */}
+                  <Card className="border-2 border-primary/40">
+                    <CardHeader>
+                      <CardTitle>Manage Photos</CardTitle>
+                      <CardDescription>
+                        View and delete uploaded photos across all albums
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ManageAllPhotos />
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Screensaver sub-tab */}
+              {activeAppearanceSubTab === "screensaver" && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Screensaver Settings Card */}
+                  <Card className="border-2 border-primary/40">
+                    <CardHeader>
+                      <CardTitle>Screensaver Settings</CardTitle>
+                      <CardDescription>
+                        Configure when and how the screensaver appears
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="font-medium">Enable screensaver</p>
+                          <p className="text-sm text-muted-foreground">
+                            Start photo slideshow after idle timeout
+                          </p>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={screensaverEnabled}
+                          onChange={(e) => setScreensaverEnabled(e.target.checked)}
+                          className="rounded min-h-[44px] min-w-[44px]"
+                        />
+                      </div>
+                      {screensaverEnabled && (
+                        <>
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <div>
+                              <p className="font-medium">Idle timeout</p>
+                              <p className="text-sm text-muted-foreground">
+                                Time before screensaver starts
+                              </p>
+                            </div>
+                            <select
+                              className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
+                              value={idleTimeout}
+                              onChange={(e) => setIdleTimeout(Number(e.target.value))}
+                            >
+                              <option value={60}>1 minute</option>
+                              <option value={120}>2 minutes</option>
+                              <option value={300}>5 minutes</option>
+                              <option value={600}>10 minutes</option>
+                              <option value={900}>15 minutes</option>
+                              <option value={1800}>30 minutes</option>
+                            </select>
                           </div>
-                          <input
-                            type="checkbox"
-                            className="min-h-[44px] min-w-[44px]"
-                            checked={nightDimEnabled}
-                            onChange={(e) => setNightDimEnabled(e.target.checked)}
-                          />
-                        </div>
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <div>
+                              <p className="font-medium">Slide interval</p>
+                              <p className="text-sm text-muted-foreground">
+                                Time between photo transitions
+                              </p>
+                            </div>
+                            <select
+                              className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
+                              value={slideInterval}
+                              onChange={(e) => setSlideInterval(Number(e.target.value))}
+                            >
+                              <option value={5}>5 seconds</option>
+                              <option value={10}>10 seconds</option>
+                              <option value={15}>15 seconds</option>
+                              <option value={30}>30 seconds</option>
+                              <option value={60}>1 minute</option>
+                              <option value={300}>5 minutes</option>
+                            </select>
+                          </div>
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <div>
+                              <p className="font-medium">Layout</p>
+                              <p className="text-sm text-muted-foreground">
+                                How photos are displayed
+                              </p>
+                            </div>
+                            <select
+                              className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
+                              value={screensaverLayout}
+                              onChange={(e) => setScreensaverLayout(e.target.value as ScreensaverLayout)}
+                            >
+                              <option value="fullscreen">Full screen</option>
+                              <option value="informational">Informational</option>
+                              <option value="quad">Quad (4)</option>
+                              <option value="scatter">Scatter collage</option>
+                              <option value="builder">Custom Builder</option>
+                            </select>
+                          </div>
+                          {screensaverLayout === "builder" && (
+                            <div className="rounded-lg border-2 border-primary/40 p-4 bg-primary/5">
+                              <p className="font-medium mb-2">Custom Layout Builder</p>
+                              <p className="text-sm text-muted-foreground mb-3">
+                                Create a custom screensaver layout with drag-and-drop widgets
+                              </p>
+                              <Link
+                                to="/settings/screensaver-builder"
+                                className="inline-flex items-center gap-2 rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors"
+                              >
+                                Open Builder
+                              </Link>
+                            </div>
+                          )}
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <div>
+                              <p className="font-medium">Transition</p>
+                              <p className="text-sm text-muted-foreground">
+                                Animation between slides
+                              </p>
+                            </div>
+                            <select
+                              className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
+                              value={transition}
+                              onChange={(e) => setTransition(e.target.value as ScreensaverTransition)}
+                              disabled={screensaverLayout === "scatter"}
+                            >
+                              <option value="fade">Fade</option>
+                              <option value="slide-left">Slide Left</option>
+                              <option value="slide-right">Slide Right</option>
+                              <option value="slide-up">Slide Up</option>
+                              <option value="slide-down">Slide Down</option>
+                              <option value="zoom">Zoom</option>
+                            </select>
+                          </div>
+                          <div className="rounded-lg border border-border p-4 bg-muted/30">
+                            <p className="text-sm font-medium mb-2">Layout preview</p>
+                            <div className="grid grid-cols-5 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setScreensaverLayout("fullscreen")}
+                                className={`aspect-video rounded border-2 flex items-center justify-center ${
+                                  screensaverLayout === "fullscreen" ? "border-primary bg-primary/10" : "border-border"
+                                }`}
+                              >
+                                <div className="w-8 h-6 bg-muted-foreground/30 rounded" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setScreensaverLayout("informational")}
+                                className={`aspect-video rounded border-2 flex items-center justify-center gap-0.5 ${
+                                  screensaverLayout === "informational" ? "border-primary bg-primary/10" : "border-border"
+                                }`}
+                              >
+                                <div className="w-3 h-5 bg-muted-foreground/30 rounded" />
+                                <div className="w-3 h-5 bg-muted-foreground/30 rounded" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setScreensaverLayout("quad")}
+                                className={`aspect-video rounded border-2 grid grid-cols-2 grid-rows-2 gap-0.5 p-1 ${
+                                  screensaverLayout === "quad" ? "border-primary bg-primary/10" : "border-border"
+                                }`}
+                              >
+                                <div className="bg-muted-foreground/30 rounded" />
+                                <div className="bg-muted-foreground/30 rounded" />
+                                <div className="bg-muted-foreground/30 rounded" />
+                                <div className="bg-muted-foreground/30 rounded" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setScreensaverLayout("scatter")}
+                                className={`aspect-video rounded border-2 relative overflow-hidden ${
+                                  screensaverLayout === "scatter" ? "border-primary bg-primary/10" : "border-border"
+                                }`}
+                              >
+                                <div className="absolute w-3 h-2 bg-muted-foreground/30 rounded top-1 left-1 rotate-[-5deg]" />
+                                <div className="absolute w-4 h-3 bg-muted-foreground/30 rounded top-2 right-1 rotate-[8deg]" />
+                                <div className="absolute w-3 h-2 bg-muted-foreground/30 rounded bottom-1 left-2 rotate-[3deg]" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setScreensaverLayout("builder")}
+                                className={`aspect-video rounded border-2 grid grid-cols-3 grid-rows-2 gap-0.5 p-0.5 ${
+                                  screensaverLayout === "builder" ? "border-primary bg-primary/10" : "border-border"
+                                }`}
+                              >
+                                <div className="bg-primary/40 rounded col-span-2" />
+                                <div className="bg-muted-foreground/30 rounded" />
+                                <div className="bg-muted-foreground/30 rounded" />
+                                <div className="bg-primary/40 rounded col-span-2" />
+                              </button>
+                            </div>
+                          </div>
 
-                        {nightDimEnabled && (
-                          <div className="mt-4 space-y-4 pl-4 border-l-2 border-primary/20">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {/* Clock Display */}
+                          <div className="border-t border-border pt-4 mt-4">
+                            <h4 className="font-medium mb-3">Clock Display</h4>
+                            <div className="grid gap-4 sm:grid-cols-2">
                               <div>
-                                <label className="text-sm font-medium block mb-1">
-                                  Start time
-                                </label>
+                                <label className="text-sm font-medium block mb-2">Position</label>
                                 <select
-                                  value={nightDimStartHour}
-                                  onChange={(e) => setNightDimStartHour(Number(e.target.value))}
-                                  className="w-full rounded-md border border-border bg-background px-3 py-2 min-h-[44px] text-sm"
+                                  value={clockPosition}
+                                  onChange={(e) => setClockPosition(e.target.value as ClockPosition)}
+                                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                 >
-                                  {Array.from({ length: 24 }, (_, i) => (
-                                    <option key={i} value={i}>
-                                      {i === 0 ? "12:00 AM" : i < 12 ? `${i}:00 AM` : i === 12 ? "12:00 PM" : `${i - 12}:00 PM`}
-                                    </option>
-                                  ))}
+                                  <option value="top-left">Top Left</option>
+                                  <option value="top-center">Top Center</option>
+                                  <option value="top-right">Top Right</option>
+                                  <option value="bottom-left">Bottom Left</option>
+                                  <option value="bottom-center">Bottom Center</option>
+                                  <option value="bottom-right">Bottom Right</option>
                                 </select>
                               </div>
                               <div>
-                                <label className="text-sm font-medium block mb-1">
-                                  End time
-                                </label>
+                                <label className="text-sm font-medium block mb-2">Size</label>
                                 <select
-                                  value={nightDimEndHour}
-                                  onChange={(e) => setNightDimEndHour(Number(e.target.value))}
-                                  className="w-full rounded-md border border-border bg-background px-3 py-2 min-h-[44px] text-sm"
+                                  value={clockSize}
+                                  onChange={(e) => setClockSize(e.target.value as ClockSize)}
+                                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                                 >
-                                  {Array.from({ length: 24 }, (_, i) => (
-                                    <option key={i} value={i}>
-                                      {i === 0 ? "12:00 AM" : i < 12 ? `${i}:00 AM` : i === 12 ? "12:00 PM" : `${i - 12}:00 PM`}
-                                    </option>
-                                  ))}
+                                  <option value="small">Small</option>
+                                  <option value="medium">Medium</option>
+                                  <option value="large">Large</option>
+                                  <option value="extra-large">Extra Large</option>
                                 </select>
                               </div>
                             </div>
-
-                            <div>
-                              <label className="text-sm font-medium block mb-1">
-                                Fade duration: {nightDimFadeDuration} minutes
-                              </label>
-                              <input
-                                type="range"
-                                min="0"
-                                max="60"
-                                step="5"
-                                value={nightDimFadeDuration}
-                                onChange={(e) => setNightDimFadeDuration(Number(e.target.value))}
-                                className="w-full"
-                              />
-                              <div className="flex justify-between text-xs text-muted-foreground">
-                                <span>Instant</span>
-                                <span>1 hour</span>
-                              </div>
-                            </div>
-
-                            <div>
-                              <label className="text-sm font-medium block mb-1">
-                                Dim level: {nightDimOpacity}%
-                              </label>
-                              <input
-                                type="range"
-                                min="10"
-                                max="90"
-                                step="5"
-                                value={nightDimOpacity}
-                                onChange={(e) => setNightDimOpacity(Number(e.target.value))}
-                                className="w-full"
-                              />
-                              <div className="flex justify-between text-xs text-muted-foreground">
-                                <span>Slight</span>
-                                <span>Very dark</span>
-                              </div>
-                            </div>
-
-                            <p className="text-xs text-muted-foreground">
-                              {nightDimFadeDuration > 0 ? (
-                                <>Screen will gradually dim starting at {nightDimStartHour === 0 ? "12:00 AM" : nightDimStartHour < 12 ? `${nightDimStartHour}:00 AM` : nightDimStartHour === 12 ? "12:00 PM" : `${nightDimStartHour - 12}:00 PM`}, reaching full dim by {(() => {
-                                  const fullDimHour = nightDimStartHour + Math.floor(nightDimFadeDuration / 60);
-                                  const fullDimMinute = nightDimFadeDuration % 60;
-                                  const adjustedHour = fullDimHour % 24;
-                                  const hourStr = adjustedHour === 0 ? "12" : adjustedHour < 12 ? String(adjustedHour) : adjustedHour === 12 ? "12" : String(adjustedHour - 12);
-                                  const ampm = adjustedHour < 12 ? "AM" : "PM";
-                                  return `${hourStr}:${fullDimMinute.toString().padStart(2, '0')} ${ampm}`;
-                                })()}, until {nightDimEndHour === 0 ? "12:00 AM" : nightDimEndHour < 12 ? `${nightDimEndHour}:00 AM` : nightDimEndHour === 12 ? "12:00 PM" : `${nightDimEndHour - 12}:00 PM`}</>
-                              ) : (
-                                <>Screen will dim instantly at {nightDimStartHour === 0 ? "12:00 AM" : nightDimStartHour < 12 ? `${nightDimStartHour}:00 AM` : nightDimStartHour === 12 ? "12:00 PM" : `${nightDimStartHour - 12}:00 PM`} until {nightDimEndHour === 0 ? "12:00 AM" : nightDimEndHour < 12 ? `${nightDimEndHour}:00 AM` : nightDimEndHour === 12 ? "12:00 PM" : `${nightDimEndHour - 12}:00 PM`}</>
-                              )}
-                            </p>
                           </div>
-                        )}
-                      </div>
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
 
-                      {/* Clock settings */}
-                      <div className="space-y-4 pt-4 border-t border-border">
-                        <h4 className="font-medium">Clock Display</h4>
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <div>
-                            <label className="text-sm font-medium block mb-2">Position</label>
-                            <select
-                              value={clockPosition}
-                              onChange={(e) => setClockPosition(e.target.value as ClockPosition)}
-                              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            >
-                              <option value="top-left">Top Left</option>
-                              <option value="top-center">Top Center</option>
-                              <option value="top-right">Top Right</option>
-                              <option value="bottom-left">Bottom Left</option>
-                              <option value="bottom-center">Bottom Center</option>
-                              <option value="bottom-right">Bottom Right</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="text-sm font-medium block mb-2">Size</label>
-                            <select
-                              value={clockSize}
-                              onChange={(e) => setClockSize(e.target.value as ClockSize)}
-                              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            >
-                              <option value="small">Small</option>
-                              <option value="medium">Medium</option>
-                              <option value="large">Large</option>
-                              <option value="extra-large">Extra Large</option>
-                            </select>
-                          </div>
+                  {/* Night Dim Settings Card */}
+                  <Card className="border-2 border-primary/40">
+                    <CardHeader>
+                      <CardTitle>Night Dim Settings</CardTitle>
+                      <CardDescription>
+                        Automatically dim the screen during nighttime hours
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="font-medium">Enable night dimming</p>
+                          <p className="text-sm text-muted-foreground">
+                            Dim the screen during nighttime hours
+                          </p>
                         </div>
+                        <input
+                          type="checkbox"
+                          className="min-h-[44px] min-w-[44px]"
+                          checked={nightDimEnabled}
+                          onChange={(e) => setNightDimEnabled(e.target.checked)}
+                        />
                       </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-              </div>
+
+                      {nightDimEnabled && (
+                        <div className="space-y-4 pl-4 border-l-2 border-primary/20">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <label className="text-sm font-medium block mb-1">
+                                Start time
+                              </label>
+                              <select
+                                value={nightDimStartHour}
+                                onChange={(e) => setNightDimStartHour(Number(e.target.value))}
+                                className="w-full rounded-md border border-border bg-background px-3 py-2 min-h-[44px] text-sm"
+                              >
+                                {Array.from({ length: 24 }, (_, i) => (
+                                  <option key={i} value={i}>
+                                    {i === 0 ? "12:00 AM" : i < 12 ? `${i}:00 AM` : i === 12 ? "12:00 PM" : `${i - 12}:00 PM`}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium block mb-1">
+                                End time
+                              </label>
+                              <select
+                                value={nightDimEndHour}
+                                onChange={(e) => setNightDimEndHour(Number(e.target.value))}
+                                className="w-full rounded-md border border-border bg-background px-3 py-2 min-h-[44px] text-sm"
+                              >
+                                {Array.from({ length: 24 }, (_, i) => (
+                                  <option key={i} value={i}>
+                                    {i === 0 ? "12:00 AM" : i < 12 ? `${i}:00 AM` : i === 12 ? "12:00 PM" : `${i - 12}:00 PM`}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-sm font-medium block mb-1">
+                              Fade duration: {nightDimFadeDuration} minutes
+                            </label>
+                            <input
+                              type="range"
+                              min="0"
+                              max="60"
+                              step="5"
+                              value={nightDimFadeDuration}
+                              onChange={(e) => setNightDimFadeDuration(Number(e.target.value))}
+                              className="w-full"
+                            />
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>Instant</span>
+                              <span>1 hour</span>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-sm font-medium block mb-1">
+                              Dim level: {nightDimOpacity}%
+                            </label>
+                            <input
+                              type="range"
+                              min="10"
+                              max="90"
+                              step="5"
+                              value={nightDimOpacity}
+                              onChange={(e) => setNightDimOpacity(Number(e.target.value))}
+                              className="w-full"
+                            />
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>Slight</span>
+                              <span>Very dark</span>
+                            </div>
+                          </div>
+
+                          <p className="text-xs text-muted-foreground">
+                            {nightDimFadeDuration > 0 ? (
+                              <>Screen will gradually dim starting at {nightDimStartHour === 0 ? "12:00 AM" : nightDimStartHour < 12 ? `${nightDimStartHour}:00 AM` : nightDimStartHour === 12 ? "12:00 PM" : `${nightDimStartHour - 12}:00 PM`}, reaching full dim by {(() => {
+                                const fullDimHour = nightDimStartHour + Math.floor(nightDimFadeDuration / 60);
+                                const fullDimMinute = nightDimFadeDuration % 60;
+                                const adjustedHour = fullDimHour % 24;
+                                const hourStr = adjustedHour === 0 ? "12" : adjustedHour < 12 ? String(adjustedHour) : adjustedHour === 12 ? "12" : String(adjustedHour - 12);
+                                const ampm = adjustedHour < 12 ? "AM" : "PM";
+                                return `${hourStr}:${fullDimMinute.toString().padStart(2, '0')} ${ampm}`;
+                              })()}, until {nightDimEndHour === 0 ? "12:00 AM" : nightDimEndHour < 12 ? `${nightDimEndHour}:00 AM` : nightDimEndHour === 12 ? "12:00 PM" : `${nightDimEndHour - 12}:00 PM`}</>
+                            ) : (
+                              <>Screen will dim instantly at {nightDimStartHour === 0 ? "12:00 AM" : nightDimStartHour < 12 ? `${nightDimStartHour}:00 AM` : nightDimStartHour === 12 ? "12:00 PM" : `${nightDimStartHour - 12}:00 PM`} until {nightDimEndHour === 0 ? "12:00 AM" : nightDimEndHour < 12 ? `${nightDimEndHour}:00 AM` : nightDimEndHour === 12 ? "12:00 PM" : `${nightDimEndHour - 12}:00 PM`}</>
+                            )}
+                          </p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Informational Layout Widgets Card */}
+                  <Card className={`border-2 ${screensaverLayout === "informational" ? "border-primary/40" : "border-border"}`}>
+                    <CardHeader>
+                      <CardTitle>Informational Layout Widgets</CardTitle>
+                      <CardDescription>
+                        Configure widgets shown in the informational screensaver layout
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <CompositeWidgetGridPreview
+                        configs={compositeWidgetConfigs}
+                        gridSize={widgetGridSize}
+                        onGridSizeChange={setWidgetGridSize}
+                        onUpdateConfig={updateCompositeWidgetConfig}
+                        onReorder={reorderCompositeWidgets}
+                      />
+
+                      {screensaverLayout === "informational" ? (
+                        <CompositeWidgetBuilder
+                          configs={compositeWidgetConfigs}
+                          onConfigsChange={setCompositeWidgetConfigs}
+                          onUpdateConfig={updateCompositeWidgetConfig}
+                          onUpdateSubItem={updateSubItemConfig}
+                          onReorder={reorderCompositeWidgets}
+                        />
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          Select the "Informational" layout to configure widgets.
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
             </div>
           )}
 
@@ -5880,6 +7139,11 @@ export function SettingsPage() {
           {/* Automations Tab */}
           {activeTab === "automations" && (
             <AutomationsSettings />
+          )}
+
+          {/* Kiosks Tab */}
+          {activeTab === "kiosks" && (
+            <KiosksSettings />
           )}
 
           {/* System Settings Tab */}

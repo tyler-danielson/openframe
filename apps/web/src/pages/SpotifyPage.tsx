@@ -69,6 +69,15 @@ export function SpotifyPage() {
     retry: false,
   });
 
+  // Fetch hourly forecast for header
+  const { data: hourlyForecast } = useQuery({
+    queryKey: ["weather-hourly"],
+    queryFn: () => api.getHourlyForecast(),
+    refetchInterval: 30 * 60 * 1000,
+    staleTime: 15 * 60 * 1000,
+    retry: false,
+  });
+
   // Update current time every second
   useEffect(() => {
     const timer = setInterval(() => {
@@ -322,12 +331,11 @@ export function SpotifyPage() {
   return (
     <div className="flex h-full flex-col">
       {/* Main Navigation Header */}
-      <div className="flex items-center justify-between border-b border-border px-8 py-3 shrink-0">
-        <div className="flex items-center gap-8">
-          <h1 className="text-5xl font-bold">{familyName}</h1>
+      <div className="flex items-center justify-between border-b border-border px-4 py-1.5 shrink-0 overflow-hidden">
+        <div className="flex items-center gap-[clamp(0.5rem,1vw,1rem)] min-w-0 flex-1 whitespace-nowrap">
           <button
             onClick={handleTimeFormatChange}
-            className={`text-5xl font-semibold text-muted-foreground hover:text-foreground transition-opacity duration-300 ${
+            className={`text-[clamp(0.875rem,2vw,1.5rem)] font-semibold text-muted-foreground hover:text-foreground transition-opacity duration-300 ${
               timeFade ? "opacity-100" : "opacity-0"
             }`}
             title="Click to change time format"
@@ -335,14 +343,27 @@ export function SpotifyPage() {
             {formattedTime}
           </button>
           {weather && (
-            <div className="flex items-center gap-3 text-muted-foreground" title={weather.description}>
-              <span className="text-6xl">{getWeatherIcon(weather.icon)}</span>
-              <span className="text-5xl font-semibold">{weather.temp}°</span>
+            <div className="flex items-center gap-[clamp(0.25rem,0.5vw,0.5rem)] text-muted-foreground" title={weather.description}>
+              <span className="text-[clamp(1rem,2.5vw,1.75rem)]">{getWeatherIcon(weather.icon)}</span>
+              <span className="text-[clamp(0.875rem,2vw,1.5rem)] font-semibold">{weather.temp}°</span>
+            </div>
+          )}
+          {hourlyForecast && hourlyForecast.length > 0 && (
+            <div className="flex items-center gap-[clamp(0.5rem,1vw,1rem)] text-muted-foreground">
+              {hourlyForecast.slice(0, 4).map((hour, i) => (
+                <div key={i} className="flex flex-col items-center text-[clamp(0.5rem,1vw,0.75rem)] leading-tight">
+                  <div className="flex items-center gap-0.5">
+                    <span className="text-[clamp(0.625rem,1.25vw,1rem)]">{getWeatherIcon(hour.icon)}</span>
+                    <span>{hour.temp}°</span>
+                  </div>
+                  <span className="-mt-0.5">{hour.time}</span>
+                </div>
+              ))}
             </div>
           )}
         </div>
-        <div className="flex items-center gap-4">
-          <h2 className="text-3xl font-semibold">Music</h2>
+        <div className="flex items-center gap-2 shrink-0">
+          <h2 className="text-[clamp(0.75rem,1.5vw,1.125rem)] font-semibold">Music</h2>
         </div>
       </div>
 

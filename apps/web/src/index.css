@@ -3,7 +3,9 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+  /* Default Blue Theme */
+  :root,
+  [data-color-scheme="default"] {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
     --card: 222.2 84% 4.9%;
@@ -20,6 +22,125 @@
     --destructive-foreground: 210 40% 98%;
     --border: 217.2 32.6% 17.5%;
     --ring: 224.3 76.3% 48%;
+
+    /* Accent color for UI elements */
+    --theme-accent: 217.2 91.2% 59.8%;
+    --theme-accent-hex: #3B82F6;
+  }
+
+  /* HOMIO Gold Theme */
+  [data-color-scheme="homio"] {
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 6%;
+    --card-foreground: 0 0% 98%;
+    --primary: 37 36% 63%;
+    --primary-foreground: 0 0% 4%;
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 0 0% 10%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 0 0% 14%;
+    --ring: 37 36% 63%;
+
+    --theme-accent: 37 36% 63%;
+    --theme-accent-hex: #C4A77D;
+  }
+
+  /* Ocean Teal Theme */
+  [data-color-scheme="ocean"] {
+    --background: 180 20% 4%;
+    --foreground: 180 10% 98%;
+    --card: 180 15% 6%;
+    --card-foreground: 180 10% 98%;
+    --primary: 168 76% 42%;
+    --primary-foreground: 180 20% 4%;
+    --secondary: 180 15% 12%;
+    --secondary-foreground: 180 10% 98%;
+    --muted: 180 15% 14%;
+    --muted-foreground: 180 10% 60%;
+    --accent: 180 15% 12%;
+    --accent-foreground: 180 10% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 180 15% 16%;
+    --ring: 168 76% 42%;
+
+    --theme-accent: 168 76% 42%;
+    --theme-accent-hex: #14B8A6;
+  }
+
+  /* Forest Green Theme */
+  [data-color-scheme="forest"] {
+    --background: 140 20% 4%;
+    --foreground: 140 10% 98%;
+    --card: 140 15% 6%;
+    --card-foreground: 140 10% 98%;
+    --primary: 142 71% 45%;
+    --primary-foreground: 140 20% 4%;
+    --secondary: 140 15% 12%;
+    --secondary-foreground: 140 10% 98%;
+    --muted: 140 15% 14%;
+    --muted-foreground: 140 10% 60%;
+    --accent: 140 15% 12%;
+    --accent-foreground: 140 10% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 140 15% 16%;
+    --ring: 142 71% 45%;
+
+    --theme-accent: 142 71% 45%;
+    --theme-accent-hex: #22C55E;
+  }
+
+  /* Sunset Orange Theme */
+  [data-color-scheme="sunset"] {
+    --background: 20 20% 4%;
+    --foreground: 20 10% 98%;
+    --card: 20 15% 6%;
+    --card-foreground: 20 10% 98%;
+    --primary: 25 95% 53%;
+    --primary-foreground: 20 20% 4%;
+    --secondary: 20 15% 12%;
+    --secondary-foreground: 20 10% 98%;
+    --muted: 20 15% 14%;
+    --muted-foreground: 20 10% 60%;
+    --accent: 20 15% 12%;
+    --accent-foreground: 20 10% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 20 15% 16%;
+    --ring: 25 95% 53%;
+
+    --theme-accent: 25 95% 53%;
+    --theme-accent-hex: #F97316;
+  }
+
+  /* Lavender Purple Theme */
+  [data-color-scheme="lavender"] {
+    --background: 270 20% 4%;
+    --foreground: 270 10% 98%;
+    --card: 270 15% 6%;
+    --card-foreground: 270 10% 98%;
+    --primary: 271 91% 65%;
+    --primary-foreground: 270 20% 4%;
+    --secondary: 270 15% 12%;
+    --secondary-foreground: 270 10% 98%;
+    --muted: 270 15% 14%;
+    --muted-foreground: 270 10% 60%;
+    --accent: 270 15% 12%;
+    --accent-foreground: 270 10% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 270 15% 16%;
+    --ring: 271 91% 65%;
+
+    --theme-accent: 271 91% 65%;
+    --theme-accent-hex: #A855F7;
   }
 
   .light {
@@ -108,17 +229,17 @@
   @apply text-xs text-primary hover:underline;
 }
 
-/* Day/Time view subtle lines */
+/* Day/Time view subtle lines - use theme colors */
 .rbc-time-view {
-  border-color: #e5e7eb;
+  border-color: hsl(var(--border));
 }
 
 .rbc-time-header {
-  border-color: #e5e7eb;
+  border-color: hsl(var(--border));
 }
 
 .rbc-time-content {
-  border-color: #e5e7eb;
+  border-color: hsl(var(--border));
 }
 
 .rbc-time-gutter {
@@ -126,15 +247,15 @@
 }
 
 .rbc-timeslot-group {
-  border-color: #d1d5db;
+  border-color: hsl(var(--border));
 }
 
 .rbc-time-slot {
-  border-color: #e5e7eb;
+  border-color: hsl(var(--border) / 0.5);
 }
 
 .rbc-day-slot .rbc-time-slot {
-  border-color: #e5e7eb;
+  border-color: hsl(var(--border) / 0.5);
 }
 
 .rbc-current-time-indicator {
@@ -148,4 +269,266 @@
 
 .dashboard-mode:hover {
   cursor: default;
+}
+
+/* HOMIO-style Home Assistant Dashboard - uses theme variables */
+.homio-page {
+  --homio-accent: var(--theme-accent-hex, #C4A77D);
+  --homio-accent-light: hsl(var(--theme-accent) / 0.8);
+  --homio-bg: hsl(var(--background));
+  --homio-bg-secondary: hsl(var(--card));
+  --homio-card-bg: linear-gradient(145deg, hsl(var(--muted)) 0%, hsl(var(--background)) 100%);
+  --homio-card-border: hsl(var(--border));
+  --homio-text-primary: hsl(var(--foreground));
+  --homio-text-secondary: hsl(var(--muted-foreground));
+  --homio-text-muted: hsl(var(--muted-foreground) / 0.6);
+}
+
+.homio-page {
+  background: var(--homio-bg);
+  min-height: 100vh;
+}
+
+/* HOMIO Room sidebar */
+.homio-sidebar {
+  background: var(--homio-bg-secondary);
+  border-right: 1px solid var(--homio-card-border);
+}
+
+.homio-sidebar-item {
+  color: var(--homio-text-secondary);
+  transition: all 0.2s ease;
+  letter-spacing: 0.05em;
+}
+
+.homio-sidebar-item:hover {
+  color: var(--homio-text-primary);
+}
+
+.homio-sidebar-item.active {
+  color: var(--homio-accent);
+  border-left: 2px solid var(--homio-accent);
+  background: rgba(196, 167, 125, 0.05);
+}
+
+/* HOMIO Room title */
+.homio-room-title {
+  font-size: 3rem;
+  font-weight: 200;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--homio-accent);
+  margin: 0;
+  padding-right: 0.4em; /* Compensate for letter-spacing on last char */
+}
+
+/* HOMIO Status bar */
+.homio-status-bar {
+  display: flex;
+  gap: 2rem;
+  color: var(--homio-text-secondary);
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.homio-status-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.homio-status-value {
+  color: var(--homio-text-primary);
+  font-weight: 500;
+}
+
+/* HOMIO Entity Card - Icon-centric design */
+.homio-card {
+  background: var(--homio-card-bg);
+  border: 1px solid var(--homio-card-border);
+  border-radius: 1.25rem;
+  padding: 1rem;
+  transition: all 0.2s ease;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.homio-card:hover:not(:disabled) {
+  border-color: hsl(var(--theme-accent) / 0.3);
+  background: linear-gradient(145deg, hsl(var(--muted) / 1.2) 0%, hsl(var(--background)) 100%);
+}
+
+.homio-card:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.homio-card.active {
+  border-color: hsl(var(--theme-accent) / 0.5);
+  box-shadow: 0 0 30px hsl(var(--theme-accent) / 0.15);
+}
+
+.homio-card-status {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--homio-text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.homio-card-status.on {
+  color: var(--homio-accent);
+}
+
+.homio-card-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--homio-text-primary);
+  margin-bottom: 1rem;
+}
+
+/* HOMIO Toggle Switch */
+.homio-toggle {
+  position: relative;
+  width: 3.5rem;
+  height: 1.75rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.homio-toggle.on {
+  background: var(--homio-accent);
+}
+
+.homio-toggle::after {
+  content: '';
+  position: absolute;
+  top: 0.25rem;
+  left: 0.25rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  background: white;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.homio-toggle.on::after {
+  left: calc(100% - 1.5rem);
+}
+
+/* HOMIO Brightness Slider */
+.homio-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  outline: none;
+}
+
+.homio-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--homio-accent);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.homio-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+.homio-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: var(--homio-accent);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+
+/* HOMIO Clock */
+.homio-clock {
+  font-size: 2rem;
+  font-weight: 300;
+  color: var(--homio-accent);
+  letter-spacing: 0.1em;
+}
+
+/* HOMIO Mobile responsive */
+@media (max-width: 768px) {
+  .homio-room-title {
+    font-size: 1.5rem;
+    letter-spacing: 0.2em;
+  }
+
+  .homio-status-bar {
+    flex-wrap: wrap;
+    gap: 1rem;
+    font-size: 0.75rem;
+  }
+}
+
+/* HOMIO Grid */
+.homio-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+@media (min-width: 480px) {
+  .homio-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 768px) {
+  .homio-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .homio-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+@media (min-width: 1280px) {
+  .homio-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+
+/* MapLibre GL Customizations */
+.maplibregl-map {
+  font-family: inherit;
+}
+
+.maplibregl-ctrl-group {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+}
+
+.maplibregl-ctrl-group button {
+  background-color: transparent;
+}
+
+.maplibregl-ctrl-group button:hover {
+  background-color: hsl(var(--accent));
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid hsl(var(--border));
 }

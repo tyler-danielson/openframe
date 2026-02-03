@@ -111,35 +111,35 @@ export function EntityPicker({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="relative flex h-[80vh] w-full max-w-4xl flex-col rounded-lg bg-card border border-border shadow-xl">
+      <div className="relative flex h-[80vh] w-full max-w-4xl flex-col rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border p-4">
-          <h2 className="text-lg font-semibold">Add Entities</h2>
+        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 p-4">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Add Entities</h2>
           <button
             onClick={onClose}
-            className="rounded-full p-1 hover:bg-muted transition-colors"
+            className="rounded-full p-1 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Search */}
-        <div className="border-b border-border p-4">
+        <div className="border-b border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-800/50">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search entities..."
-              className="w-full rounded-md border border-border bg-background pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 pl-9 pr-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
         </div>
 
         <div className="flex flex-1 overflow-hidden">
           {/* Domain sidebar */}
-          <div className="w-48 border-r border-border overflow-y-auto">
+          <div className="w-48 border-r border-gray-200 dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-800/50">
             <div className="p-2">
               <button
                 onClick={() => setSelectedDomain(null)}
@@ -147,7 +147,7 @@ export function EntityPicker({
                   "w-full rounded-md px-3 py-2 text-left text-sm transition-colors",
                   selectedDomain === null
                     ? "bg-primary text-primary-foreground"
-                    : "hover:bg-muted"
+                    : "text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
                 )}
               >
                 All ({allStates.length})
@@ -160,7 +160,7 @@ export function EntityPicker({
                     "w-full rounded-md px-3 py-2 text-left text-sm transition-colors",
                     selectedDomain === domain
                       ? "bg-primary text-primary-foreground"
-                      : "hover:bg-muted"
+                      : "text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
                   )}
                 >
                   {DOMAIN_LABELS[domain] || domain} ({groupedEntities[domain]?.length || 0})
@@ -170,13 +170,13 @@ export function EntityPicker({
           </div>
 
           {/* Entity list */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto p-4 bg-white dark:bg-gray-900">
             {isLoading ? (
               <div className="flex h-full items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                <Loader2 className="h-8 w-8 animate-spin text-gray-400 dark:text-gray-500" />
               </div>
             ) : filteredEntities.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-muted-foreground">
+              <div className="flex h-full items-center justify-center text-gray-500 dark:text-gray-400">
                 No entities found
               </div>
             ) : (
@@ -191,21 +191,23 @@ export function EntityPicker({
                       key={entity.entity_id}
                       className={cn(
                         "flex items-center justify-between rounded-md border p-3 transition-colors",
-                        isSelected ? "border-primary/30 bg-primary/5" : "border-border"
+                        isSelected
+                          ? "border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950"
+                          : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
                       )}
                     >
                       <div className="min-w-0 flex-1">
-                        <h4 className="font-medium truncate">{name}</h4>
-                        <p className="text-xs text-muted-foreground truncate">
+                        <h4 className="font-medium truncate text-gray-900 dark:text-gray-100">{name}</h4>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
                           {entity.entity_id}
                         </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                           State: {entity.state}
                         </p>
                       </div>
 
                       {isSelected ? (
-                        <div className="flex items-center gap-2 text-sm text-primary">
+                        <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
                           <Check className="h-4 w-4" />
                           Added
                         </div>
@@ -213,6 +215,7 @@ export function EntityPicker({
                         <Button
                           size="sm"
                           variant="outline"
+                          className="bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600"
                           onClick={() => handleAddEntity(entity.entity_id)}
                           disabled={isAdding}
                         >
@@ -235,7 +238,7 @@ export function EntityPicker({
         </div>
 
         {/* Footer */}
-        <div className="border-t border-border p-4">
+        <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-800/50">
           <Button onClick={onClose} className="w-full">
             Done
           </Button>

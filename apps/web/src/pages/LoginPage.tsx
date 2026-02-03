@@ -5,6 +5,12 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../co
 import { useAuthStore } from "../stores/auth";
 import { useEffect } from "react";
 
+// Use relative URL - nginx proxies /api to the API service
+// This allows OAuth to work from any device on the network via LAN
+const getApiServerUrl = () => {
+  return '';
+};
+
 export function LoginPage() {
   const navigate = useNavigate();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -17,12 +23,16 @@ export function LoginPage() {
 
   const handleGoogleLogin = () => {
     // Redirect directly to API server to preserve OAuth state cookie
-    window.location.href = "http://127.0.0.1:6001/api/v1/auth/oauth/google";
+    // Pass returnUrl so server knows where to redirect after OAuth completes
+    const returnUrl = encodeURIComponent(window.location.origin + "/dashboard");
+    window.location.href = `${getApiServerUrl()}/api/v1/auth/oauth/google?returnUrl=${returnUrl}`;
   };
 
   const handleMicrosoftLogin = () => {
     // Redirect directly to API server to preserve OAuth state cookie
-    window.location.href = "http://127.0.0.1:6001/api/v1/auth/oauth/microsoft";
+    // Pass returnUrl so server knows where to redirect after OAuth completes
+    const returnUrl = encodeURIComponent(window.location.origin + "/dashboard");
+    window.location.href = `${getApiServerUrl()}/api/v1/auth/oauth/microsoft?returnUrl=${returnUrl}`;
   };
 
   return (

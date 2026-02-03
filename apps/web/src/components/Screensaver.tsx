@@ -1,7 +1,59 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../services/api";
-import { useScreensaverStore, type ScreensaverTransition } from "../stores/screensaver";
+import { format } from "date-fns";
+import { api, type WeatherData } from "../services/api";
+import { useScreensaverStore, type ScreensaverTransition, type ClockPosition, type ClockSize, type WidgetSize, type CompositeWidgetConfig } from "../stores/screensaver";
+import { useAuthStore } from "../stores/auth";
+import { SportsTicker } from "./SportsTicker";
+import { WidgetRenderer } from "./widgets/WidgetRenderer";
+import { isWidgetVisible } from "../lib/widget-visibility";
+import type { SportsGame, CalendarEvent, Calendar, Task } from "@openframe/shared";
+
+// Orientation detection helpers
+const isLandscape = (photo: Photo) => (photo.width ?? 0) > (photo.height ?? 0);
+const isPortrait = (photo: Photo) => (photo.height ?? 0) >= (photo.width ?? 0);
+
+// Find the next photo matching a predicate, excluding certain indices
+const findNextPhotoOfType = (
+  photos: Photo[],
+  startIndex: number,
+  predicate: (p: Photo) => boolean,
+  excludeIndices: Set<number>
+): { photo: Photo; index: number } | undefined => {
+  for (let i = 0; i < photos.length; i++) {
+    const idx = (startIndex + i) % photos.length;
+    const photo = photos[idx];
+    if (photo && predicate(photo) && !excludeIndices.has(idx)) {
+      return { photo, index: idx };
+    }
+  }
+  return undefined;
+};
+
+// Weather icon mapping from OpenWeatherMap codes
+const getWeatherIcon = (iconCode: string): string => {
+  const iconMap: Record<string, string> = {
+    "01d": "☀️", // clear sky day
+    "01n": "🌙", // clear sky night
+    "02d": "⛅", // few clouds day
+    "02n": "☁️", // few clouds night
+    "03d": "☁️", // scattered clouds
+    "03n": "☁️",
+    "04d": "☁️", // broken clouds
+    "04n": "☁️",
+    "09d": "🌧️", // shower rain
+    "09n": "🌧️",
+    "10d": "🌦️", // rain day
+    "10n": "🌧️", // rain night
+    "11d": "⛈️", // thunderstorm
+    "11n": "⛈️",
+    "13d": "❄️", // snow
+    "13n": "❄️",
+    "50d": "🌫️", // mist
+    "50n": "🌫️",
+  };
+  return iconMap[iconCode] || "🌡️";
+};
 
 interface Photo {
   id: string;
@@ -40,6 +92,167 @@ const getTransitionClasses = (transition: ScreensaverTransition, isEntering: boo
   }
 };
 
+// Get CSS classes for clock position
+const getClockPositionClasses = (position: ClockPosition): string => {
+  switch (position) {
+    case "top-left":
+      return "top-2 left-3";
+    case "top-center":
+      return "top-2 left-1/2 -translate-x-1/2";
+    case "top-right":
+      return "top-2 right-3";
+    case "bottom-left":
+      return "bottom-10 left-3";
+    case "bottom-center":
+      return "bottom-10 left-1/2 -translate-x-1/2";
+    case "bottom-right":
+      return "bottom-10 right-3";
+    default:
+      return "top-2 right-3";
+  }
+};
+
+// Get CSS classes for clock size
+const getClockSizeClasses = (size: ClockSize): { time: string; date: string; weather: string; weatherIcon: string; container: string } => {
+  switch (size) {
+    case "small":
+      return {
+        container: "px-4 py-2",
+        time: "text-2xl",
+        date: "text-xs",
+        weather: "text-lg",
+        weatherIcon: "text-xl",
+      };
+    case "medium":
+      return {
+        container: "px-6 py-4",
+        time: "text-4xl",
+        date: "text-sm",
+        weather: "text-2xl",
+        weatherIcon: "text-3xl",
+      };
+    case "large":
+      return {
+        container: "px-8 py-6",
+        time: "text-6xl",
+        date: "text-lg",
+        weather: "text-3xl",
+        weatherIcon: "text-4xl",
+      };
+    case "extra-large":
+      return {
+        container: "px-10 py-8",
+        time: "text-8xl",
+        date: "text-xl",
+        weather: "text-4xl",
+        weatherIcon: "text-5xl",
+      };
+    default:
+      return {
+        container: "px-6 py-4",
+        time: "text-4xl",
+        date: "text-sm",
+        weather: "text-2xl",
+        weatherIcon: "text-3xl",
+      };
+  }
+};
+
+// Get CSS classes for widget size (info pane widgets)
+const getWidgetSizeClasses = (size: WidgetSize) => {
+  switch (size) {
+    case "small":
+      return {
+        title: "text-xs",
+        value: "text-lg",
+        item: "text-xs",
+        gap: "gap-1",
+        icon: "text-xl",
+        sectionLabel: "text-[10px]",
+      };
+    case "medium":
+      return {
+        title: "text-base",
+        value: "text-2xl",
+        item: "text-sm",
+        gap: "gap-2",
+        icon: "text-2xl",
+        sectionLabel: "text-xs",
+      };
+    case "large":
+      return {
+        title: "text-lg",
+        value: "text-4xl",
+        item: "text-base",
+        gap: "gap-3",
+        icon: "text-3xl",
+        sectionLabel: "text-sm",
+      };
+    default:
+      return {
+        title: "text-base",
+        value: "text-2xl",
+        item: "text-sm",
+        gap: "gap-2",
+        icon: "text-2xl",
+        sectionLabel: "text-xs",
+      };
+  }
+};
+
+// Calculate the current dim opacity based on time and fade duration
+// Returns a value from 0 to maxOpacity
+const calculateDimOpacity = (
+  startHour: number,
+  endHour: number,
+  fadeDuration: number, // in minutes
+  maxOpacity: number
+): number => {
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+  const currentTimeInMinutes = currentHour * 60 + currentMinute;
+  const startTimeInMinutes = startHour * 60;
+  const endTimeInMinutes = endHour * 60;
+
+  // Handle overnight ranges (e.g., 9 PM to 7 AM)
+  const isOvernightRange = startHour >= endHour;
+
+  let isInDimPeriod = false;
+  let minutesSinceStart = 0;
+
+  if (isOvernightRange) {
+    // Overnight range (e.g., 21:00 to 07:00)
+    if (currentTimeInMinutes >= startTimeInMinutes) {
+      // After start time on the same day
+      isInDimPeriod = true;
+      minutesSinceStart = currentTimeInMinutes - startTimeInMinutes;
+    } else if (currentTimeInMinutes < endTimeInMinutes) {
+      // Before end time on the next day
+      isInDimPeriod = true;
+      minutesSinceStart = (24 * 60 - startTimeInMinutes) + currentTimeInMinutes;
+    }
+  } else {
+    // Simple range (e.g., 9 AM to 5 PM)
+    if (currentTimeInMinutes >= startTimeInMinutes && currentTimeInMinutes < endTimeInMinutes) {
+      isInDimPeriod = true;
+      minutesSinceStart = currentTimeInMinutes - startTimeInMinutes;
+    }
+  }
+
+  if (!isInDimPeriod) {
+    return 0;
+  }
+
+  // Calculate fade progress (0 to 1)
+  if (fadeDuration <= 0) {
+    return maxOpacity;
+  }
+
+  const fadeProgress = Math.min(minutesSinceStart / fadeDuration, 1);
+  return fadeProgress * maxOpacity;
+};
+
 export function Screensaver() {
   const {
     isActive,
@@ -47,26 +260,190 @@ export function Screensaver() {
     layout,
     transition,
     updateActivity,
+    nightDimEnabled,
+    nightDimStartHour,
+    nightDimEndHour,
+    nightDimOpacity,
+    nightDimFadeDuration,
+    clockPosition,
+    clockSize,
+    compositeWidgetConfigs,
+    widgetGridSize,
+    layoutConfig,
   } = useScreensaverStore();
+
+  const kioskEnabled = useAuthStore((state) => state.kioskEnabled);
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [prevIndex, setPrevIndex] = useState<number | null>(null);
   const [scatterPhotos, setScatterPhotos] = useState<ScatterPhoto[]>([]);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [currentDimOpacity, setCurrentDimOpacity] = useState(0);
+
+  // Track used photos for informational layout orientation pairing
+  const usedLandscapeIndices = useRef<Set<number>>(new Set());
+  const usedPortraitIndices = useRef<Set<number>>(new Set());
+  // Store current informational layout photos separately for staggered transitions
+  const [portraitPhoto, setPortraitPhoto] = useState<Photo | null>(null);
+  const [landscapePhoto, setLandscapePhoto] = useState<Photo | null>(null);
+  const [prevPortraitPhoto, setPrevPortraitPhoto] = useState<Photo | null>(null);
+  const [prevLandscapePhoto, setPrevLandscapePhoto] = useState<Photo | null>(null);
+  // Track which side is currently transitioning
+  const [transitioningSide, setTransitioningSide] = useState<'left' | 'right' | null>(null);
+  // Track which side to update next (alternates between left/right)
+  const nextSideToUpdate = useRef<'left' | 'right'>('left');
+
+  // Calculate dim opacity based on current time and fade duration
+  useEffect(() => {
+    if (!isActive || !nightDimEnabled) {
+      setCurrentDimOpacity(0);
+      return;
+    }
+
+    const updateDimOpacity = () => {
+      const opacity = calculateDimOpacity(
+        nightDimStartHour,
+        nightDimEndHour,
+        nightDimFadeDuration,
+        nightDimOpacity
+      );
+      setCurrentDimOpacity(opacity);
+    };
+
+    updateDimOpacity();
+    // Update every 10 seconds for smooth fade
+    const interval = setInterval(updateDimOpacity, 10000);
+
+    return () => clearInterval(interval);
+  }, [isActive, nightDimEnabled, nightDimStartHour, nightDimEndHour, nightDimOpacity, nightDimFadeDuration, currentTime]);
 
   // Fetch photos from local storage (all photos are now stored locally)
   const { data: slideshowData } = useQuery({
     queryKey: ["slideshow"],
     queryFn: () => api.getSlideshow(),
     enabled: isActive,
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    staleTime: 1 * 60 * 1000, // Cache for 1 minute
+    refetchOnMount: "always", // Always refetch when screensaver activates
   });
 
   const photos = slideshowData?.photos ?? [];
 
+  // Fetch weather data
+  const { data: weather } = useQuery({
+    queryKey: ["screensaver-weather"],
+    queryFn: () => api.getCurrentWeather(),
+    enabled: isActive,
+    staleTime: 10 * 60 * 1000, // Cache for 10 minutes
+    refetchInterval: 10 * 60 * 1000, // Refresh every 10 minutes
+    retry: false, // Don't retry if weather API isn't configured
+  });
+
+  // Fetch today's sports games (scheduled, live, and finished)
+  const { data: todaysGames = [] } = useQuery({
+    queryKey: ["screensaver-todays-sports"],
+    queryFn: () => api.getTodaySportsScores(),
+    enabled: isActive,
+    refetchInterval: (query) => {
+      // Smart polling: 30s if there are live games, 5 min otherwise
+      const games = query.state.data as SportsGame[] | undefined;
+      const hasLiveGames = games?.some(
+        (g) => g.status === "in_progress" || g.status === "halftime"
+      );
+      return hasLiveGames ? 30 * 1000 : 5 * 60 * 1000;
+    },
+    staleTime: 15 * 1000,
+    retry: false,
+  });
+
+  // Fetch calendars for visibility filtering
+  const { data: calendars = [] } = useQuery({
+    queryKey: ["screensaver-calendars"],
+    queryFn: () => api.getCalendars(),
+    enabled: isActive,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Get calendar IDs that have screensaver visibility enabled
+  const screensaverCalendarIds = useMemo(() => {
+    return calendars
+      .filter((cal: Calendar) => cal.isVisible && (cal.visibility?.screensaver ?? false))
+      .map((cal: Calendar) => cal.id);
+  }, [calendars]);
+
+  // Fetch today's events
+  const { data: todaysEvents = [] } = useQuery({
+    queryKey: ["screensaver-events", screensaverCalendarIds],
+    queryFn: async () => {
+      if (screensaverCalendarIds.length === 0) return [];
+      const today = new Date();
+      const start = new Date(today);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(today);
+      end.setHours(23, 59, 59, 999);
+      return api.getEvents(start, end, screensaverCalendarIds);
+    },
+    enabled: isActive && screensaverCalendarIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  // Sort events by start time and get upcoming ones
+  const upcomingEvents = useMemo(() => {
+    const now = new Date();
+    return [...todaysEvents]
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+      .filter((event) => new Date(event.endTime) > now) // Only show events that haven't ended
+      .slice(0, 3); // Show max 3 events
+  }, [todaysEvents]);
+
+  // Fetch tasks for info pane
+  const scheduleWidget = compositeWidgetConfigs.find((c) => c.id === "schedule");
+  const tasksSubItemEnabled = scheduleWidget?.enabled && (scheduleWidget?.subItems?.tasks?.enabled ?? true);
+  const { data: tasks = [] } = useQuery({
+    queryKey: ["screensaver-tasks"],
+    queryFn: () => api.getTasks({ status: "needsAction" }),
+    enabled: isActive && tasksSubItemEnabled,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  // Get upcoming tasks (due today or overdue)
+  const upcomingTasks = useMemo(() => {
+    const now = new Date();
+    const endOfToday = new Date(now);
+    endOfToday.setHours(23, 59, 59, 999);
+
+    return tasks
+      .filter((task: Task) => {
+        if (!task.dueDate) return false;
+        const dueDate = new Date(task.dueDate);
+        return dueDate <= endOfToday;
+      })
+      .sort((a: Task, b: Task) => {
+        const aDate = new Date(a.dueDate!);
+        const bDate = new Date(b.dueDate!);
+        return aDate.getTime() - bDate.getTime();
+      })
+      .slice(0, 3);
+  }, [tasks]);
+
+  // Fetch Spotify playback for info pane
+  const mediaWidget = compositeWidgetConfigs.find((c) => c.id === "media");
+  const spotifySubItemEnabled = mediaWidget?.enabled && (mediaWidget?.subItems?.spotify?.enabled ?? true);
+  const { data: spotifyPlayback } = useQuery({
+    queryKey: ["screensaver-spotify"],
+    queryFn: () => api.getSpotifyPlayback(),
+    enabled: isActive && spotifySubItemEnabled,
+    staleTime: 10 * 1000,
+    refetchInterval: 10 * 1000,
+  });
+
   // Handle user interaction to exit screensaver
-  const handleInteraction = useCallback(() => {
+  // Stop propagation to prevent clicks from reaching underlying elements
+  const handleInteraction = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
     updateActivity();
   }, [updateActivity]);
 
@@ -74,17 +451,47 @@ export function Screensaver() {
   useEffect(() => {
     if (!isActive) return;
 
-    const events = ["mousedown", "mousemove", "keydown", "touchstart", "wheel"];
+    // Simple handler that just updates activity - no preventDefault needed
+    const onInteraction = () => {
+      updateActivity();
+    };
+
+    // In kiosk mode, only respond to clicks/taps, not mouse movement
+    const events = kioskEnabled
+      ? ["mousedown", "keydown", "touchstart"]
+      : ["mousedown", "mousemove", "keydown", "touchstart", "wheel"];
     events.forEach((event) => {
-      window.addEventListener(event, handleInteraction, { passive: true });
+      window.addEventListener(event, onInteraction, { passive: true });
     });
 
     return () => {
       events.forEach((event) => {
-        window.removeEventListener(event, handleInteraction);
+        window.removeEventListener(event, onInteraction);
       });
     };
-  }, [isActive, handleInteraction]);
+  }, [isActive, updateActivity, kioskEnabled]);
+
+  // Enter fullscreen when screensaver activates, exit when it deactivates
+  // In kiosk mode, don't auto-enter fullscreen - only use fullscreen if already in it
+  useEffect(() => {
+    if (isActive) {
+      // Request fullscreen when screensaver becomes active (skip in kiosk mode)
+      if (!kioskEnabled && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {
+          // Fullscreen request may fail if not triggered by user gesture
+          // This is expected behavior - silently ignore
+        });
+      }
+    } else {
+      // Exit fullscreen when screensaver becomes inactive (only if not in kiosk mode)
+      // In kiosk mode, maintain whatever fullscreen state the user had
+      if (!kioskEnabled && document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {
+          // May fail if already exited - silently ignore
+        });
+      }
+    }
+  }, [isActive, kioskEnabled]);
 
   // Update clock every second
   useEffect(() => {
@@ -96,6 +503,98 @@ export function Screensaver() {
 
     return () => clearInterval(timer);
   }, [isActive]);
+
+  // Select next portrait photo (for left side)
+  const selectNextPortrait = useCallback(() => {
+    if (photos.length === 0) return null;
+
+    const portraitPhotos = photos.filter(isPortrait);
+    const landscapePhotos = photos.filter(isLandscape);
+
+    // Reset tracking if all photos have been used
+    if (usedPortraitIndices.current.size >= portraitPhotos.length) {
+      usedPortraitIndices.current.clear();
+    }
+
+    // Find next portrait photo
+    let result = findNextPhotoOfType(
+      photos,
+      currentIndex,
+      isPortrait,
+      usedPortraitIndices.current
+    );
+
+    // Fallback to landscape if no portraits available
+    if (!result && landscapePhotos.length > 0) {
+      if (usedLandscapeIndices.current.size >= landscapePhotos.length) {
+        usedLandscapeIndices.current.clear();
+      }
+      result = findNextPhotoOfType(
+        photos,
+        currentIndex,
+        isLandscape,
+        usedLandscapeIndices.current
+      );
+      if (result) usedLandscapeIndices.current.add(result.index);
+    } else if (result) {
+      usedPortraitIndices.current.add(result.index);
+    }
+
+    return result?.photo ?? null;
+  }, [photos, currentIndex]);
+
+  // Select next landscape photo (for right side)
+  const selectNextLandscape = useCallback(() => {
+    if (photos.length === 0) return null;
+
+    const landscapePhotos = photos.filter(isLandscape);
+    const portraitPhotos = photos.filter(isPortrait);
+
+    // Reset tracking if all photos have been used
+    if (usedLandscapeIndices.current.size >= landscapePhotos.length) {
+      usedLandscapeIndices.current.clear();
+    }
+
+    // Find next landscape photo
+    let result = findNextPhotoOfType(
+      photos,
+      currentIndex,
+      isLandscape,
+      usedLandscapeIndices.current
+    );
+
+    // Fallback to portrait if no landscapes available
+    if (!result && portraitPhotos.length > 0) {
+      if (usedPortraitIndices.current.size >= portraitPhotos.length) {
+        usedPortraitIndices.current.clear();
+      }
+      result = findNextPhotoOfType(
+        photos,
+        currentIndex,
+        isPortrait,
+        usedPortraitIndices.current
+      );
+      if (result) usedPortraitIndices.current.add(result.index);
+    } else if (result) {
+      usedLandscapeIndices.current.add(result.index);
+    }
+
+    return result?.photo ?? null;
+  }, [photos, currentIndex]);
+
+  // Initialize informational photos on mount and when photos change
+  useEffect(() => {
+    if (layout === "informational" && photos.length > 0) {
+      // Initialize portrait photo if missing
+      if (!portraitPhoto) {
+        setPortraitPhoto(selectNextPortrait());
+      }
+      // Initialize landscape photo if missing
+      if (!landscapePhoto) {
+        setLandscapePhoto(selectNextLandscape());
+      }
+    }
+  }, [layout, photos, portraitPhoto, landscapePhoto, selectNextPortrait, selectNextLandscape]);
 
   // Cycle through photos
   useEffect(() => {
@@ -123,6 +622,40 @@ export function Screensaver() {
             return updated.slice(-20);
           });
         }
+      } else if (layout === "informational") {
+        // Alternating transitions: left (portrait) then right (landscape)
+        const side = nextSideToUpdate.current;
+
+        // Start transition for the current side
+        setTransitioningSide(side);
+
+        if (side === 'left') {
+          setPrevPortraitPhoto(portraitPhoto);
+          // Small delay before changing photo so the exit animation starts
+          setTimeout(() => {
+            setPortraitPhoto(selectNextPortrait());
+            setCurrentIndex((prev) => (prev + 1) % photos.length);
+          }, 50);
+        } else {
+          setPrevLandscapePhoto(landscapePhoto);
+          setTimeout(() => {
+            setLandscapePhoto(selectNextLandscape());
+            setCurrentIndex((prev) => (prev + 1) % photos.length);
+          }, 50);
+        }
+
+        // End transition after animation completes
+        setTimeout(() => {
+          setTransitioningSide(null);
+          if (side === 'left') {
+            setPrevPortraitPhoto(null);
+          } else {
+            setPrevLandscapePhoto(null);
+          }
+        }, 750);
+
+        // Alternate to the other side for next time
+        nextSideToUpdate.current = side === 'left' ? 'right' : 'left';
       } else {
         // Start transition
         setIsTransitioning(true);
@@ -139,15 +672,25 @@ export function Screensaver() {
           setPrevIndex(null);
         }, 750);
       }
-    }, slideInterval * 1000);
+    }, (layout === "informational" ? slideInterval / 2 : slideInterval) * 1000);
 
     return () => clearInterval(interval);
-  }, [isActive, photos.length, slideInterval, layout, currentIndex]);
+  }, [isActive, photos.length, slideInterval, layout, currentIndex, portraitPhoto, landscapePhoto, selectNextPortrait, selectNextLandscape]);
 
-  // Reset scatter photos when layout changes
+  // Reset scatter photos and informational layout tracking when layout changes
   useEffect(() => {
     if (layout !== "scatter") {
       setScatterPhotos([]);
+    }
+    if (layout !== "informational") {
+      usedLandscapeIndices.current.clear();
+      usedPortraitIndices.current.clear();
+      setPortraitPhoto(null);
+      setLandscapePhoto(null);
+      setPrevPortraitPhoto(null);
+      setPrevLandscapePhoto(null);
+      setTransitioningSide(null);
+      nextSideToUpdate.current = 'left';
     }
   }, [layout]);
 
@@ -164,7 +707,7 @@ export function Screensaver() {
         const photo = getPhoto(index);
         return photo ? [photo] : [];
       }
-      case "side-by-side": {
+      case "informational": {
         return [getPhoto(index), getPhoto(index + 1)].filter((p): p is Photo => !!p);
       }
       case "quad": {
@@ -187,6 +730,422 @@ export function Screensaver() {
   const displayPhotos = getPhotosForIndex(currentIndex);
   const prevDisplayPhotos = prevIndex !== null ? getPhotosForIndex(prevIndex) : [];
 
+  // ============ Composite Widget Render Functions ============
+
+  // Render the Clock composite widget
+  const renderClockCompositeWidget = (config: CompositeWidgetConfig, isFirst: boolean) => {
+    const borderClass = isFirst ? "" : "pt-3 border-t border-white/20";
+    const sizeClasses = getWidgetSizeClasses(config.size);
+    const showSeconds = config.size === "large";
+    const timeFormat: Intl.DateTimeFormatOptions = showSeconds
+      ? { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }
+      : { hour: 'numeric', minute: '2-digit', hour12: true };
+    const dateFormat: Intl.DateTimeFormatOptions = config.size === "small"
+      ? { weekday: 'short', month: 'short', day: 'numeric' }
+      : { weekday: 'long', month: 'short', day: 'numeric' };
+
+    return (
+      <div key="clock" className={`${borderClass} ${isFirst ? "" : "mt-3"}`}>
+        <div className={`text-white ${sizeClasses.value} font-light`}>
+          {currentTime.toLocaleTimeString([], timeFormat)}
+        </div>
+        {config.size !== "small" && (
+          <div className={`text-white/70 ${sizeClasses.item} mt-1`}>
+            {currentTime.toLocaleDateString([], dateFormat)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Render the Weather composite widget (current + forecast)
+  const renderWeatherCompositeWidget = (config: CompositeWidgetConfig, isFirst: boolean) => {
+    if (!weather) return null;
+
+    const showCurrent = config.subItems?.current?.enabled ?? true;
+    const showForecast = config.subItems?.forecast?.enabled ?? true;
+
+    if (!showCurrent && !showForecast) return null;
+
+    const borderClass = isFirst ? "" : "pt-3 border-t border-white/20";
+    const sizeClasses = getWidgetSizeClasses(config.size);
+    const sections: JSX.Element[] = [];
+
+    if (showCurrent) {
+      sections.push(
+        <div key="current" className={`flex items-center ${sizeClasses.gap}`}>
+          <span className={sizeClasses.icon}>{getWeatherIcon(weather.icon)}</span>
+          <div className="text-white">
+            <div className={`${sizeClasses.value} font-light`}>{weather.temp}°F</div>
+            {config.size !== "small" && (
+              <div className={`${sizeClasses.item} text-white/70 capitalize`}>{weather.description}</div>
+            )}
+            {config.size === "large" && (
+              <div className="text-sm text-white/60">
+                Humidity: {weather.humidity}% - Wind: {weather.wind_speed} mph
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (showForecast) {
+      sections.push(
+        <div key="forecast" className={showCurrent ? "mt-2 pt-2 border-t border-white/10" : ""}>
+          <div className={`${sizeClasses.sectionLabel} text-white/50 uppercase tracking-wide mb-1`}>Today's Forecast</div>
+          <div className={`flex items-center ${sizeClasses.gap}`}>
+            <span className={sizeClasses.icon}>{getWeatherIcon(weather.icon)}</span>
+            <div className="text-white">
+              <div className={`${sizeClasses.item} font-light`}>H: {weather.temp_max}° L: {weather.temp_min}°</div>
+              {config.size !== "small" && (
+                <div className={`${sizeClasses.item} text-white/70`}>Humidity: {weather.humidity}%</div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div key="weather" className={`${borderClass} ${isFirst ? "" : "mt-3"}`}>
+        {sections}
+      </div>
+    );
+  };
+
+  // Render the Schedule composite widget (events + sports + tasks)
+  const renderScheduleCompositeWidget = (config: CompositeWidgetConfig, isFirst: boolean) => {
+    const showEvents = config.subItems?.events?.enabled ?? true;
+    const showSports = config.subItems?.sports?.enabled ?? true;
+    const showTasks = config.subItems?.tasks?.enabled ?? true;
+
+    const eventsMaxItems = config.subItems?.events?.maxItems ?? 3;
+    const sportsMaxItems = config.subItems?.sports?.maxItems ?? 3;
+    const tasksMaxItems = config.subItems?.tasks?.maxItems ?? 3;
+
+    const hasEvents = showEvents && upcomingEvents.length > 0;
+    const hasSports = showSports && todaysGames.length > 0;
+    const hasTasks = showTasks && upcomingTasks.length > 0;
+
+    if (!hasEvents && !hasSports && !hasTasks) return null;
+
+    const borderClass = isFirst ? "" : "pt-3 border-t border-white/20";
+    const sizeClasses = getWidgetSizeClasses(config.size);
+    const sections: JSX.Element[] = [];
+
+    if (hasEvents) {
+      const eventsToShow = upcomingEvents.slice(0, eventsMaxItems);
+      const showCalendarName = config.size === "large";
+      sections.push(
+        <div key="events" className="space-y-2">
+          <div className={`${sizeClasses.sectionLabel} text-white/50 uppercase tracking-wide`}>Upcoming Events</div>
+          {eventsToShow.map((event) => {
+            const startTime = new Date(event.startTime);
+            const isAllDay = event.isAllDay;
+            const calendar = calendars.find((c: Calendar) => c.id === event.calendarId);
+            return (
+              <div key={event.id} className={`flex items-center ${sizeClasses.gap} text-white ${sizeClasses.item}`}>
+                <div
+                  className={`${config.size === "small" ? "w-2 h-2" : "w-2.5 h-2.5"} rounded-full flex-shrink-0`}
+                  style={{ backgroundColor: calendar?.color ?? "#3B82F6" }}
+                />
+                <span className="truncate flex-1">{event.title}</span>
+                {config.size !== "small" && (
+                  <span className="text-white/60 flex-shrink-0">
+                    {isAllDay ? "All day" : format(startTime, "h:mm a")}
+                  </span>
+                )}
+                {showCalendarName && calendar && (
+                  <span className="text-white/40 text-xs flex-shrink-0">({calendar.name})</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    if (hasSports) {
+      const gamesToShow = todaysGames.slice(0, sportsMaxItems);
+      const showFullName = config.size === "large";
+      const showGameTime = config.size !== "small";
+      sections.push(
+        <div key="sports" className={`space-y-2 ${sections.length > 0 ? "mt-3 pt-2 border-t border-white/10" : ""}`}>
+          <div className={`${sizeClasses.sectionLabel} text-white/50 uppercase tracking-wide`}>Sports</div>
+          {gamesToShow.map((game) => {
+            const isGameLive = game.status === "in_progress" || game.status === "halftime";
+            const isScheduled = game.status === "scheduled";
+
+            if (isScheduled) {
+              const gameTime = new Date(game.startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+              return (
+                <div key={game.externalId} className={`flex items-center ${sizeClasses.gap} text-white ${sizeClasses.item}`}>
+                  <span className="font-medium">{showFullName ? game.awayTeam.name : game.awayTeam.abbreviation}</span>
+                  <span className="text-white/60">@</span>
+                  <span className="font-medium">{showFullName ? game.homeTeam.name : game.homeTeam.abbreviation}</span>
+                  {showGameTime && <span className="text-white/60 ml-1">{gameTime}</span>}
+                </div>
+              );
+            }
+
+            return (
+              <div key={game.externalId} className={`flex items-center ${sizeClasses.gap} text-white ${sizeClasses.item}`}>
+                <span className="font-medium">{showFullName ? game.awayTeam.name : game.awayTeam.abbreviation}</span>
+                <span className="font-bold">{game.awayTeam.score ?? 0}</span>
+                {showGameTime && (
+                  <span className={`px-1 ${isGameLive ? "text-red-400" : "text-white/60"}`}>
+                    {game.statusDetail || (game.status === "final" ? "F" : "")}
+                  </span>
+                )}
+                <span className="font-bold">{game.homeTeam.score ?? 0}</span>
+                <span className="font-medium">{showFullName ? game.homeTeam.name : game.homeTeam.abbreviation}</span>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    if (hasTasks) {
+      const tasksToShow = upcomingTasks.slice(0, tasksMaxItems);
+      sections.push(
+        <div key="tasks" className={`space-y-2 ${sections.length > 0 ? "mt-3 pt-2 border-t border-white/10" : ""}`}>
+          <div className={`${sizeClasses.sectionLabel} text-white/50 uppercase tracking-wide`}>Tasks Due Today</div>
+          {tasksToShow.map((task: Task) => (
+            <div key={task.id} className={`flex items-center ${sizeClasses.gap} text-white ${sizeClasses.item}`}>
+              <div className={`${config.size === "small" ? "w-1.5 h-1.5" : "w-2 h-2"} rounded-full bg-amber-500 flex-shrink-0`} />
+              <span className="truncate flex-1">{task.title}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <div key="schedule" className={`${borderClass} ${isFirst ? "" : "mt-3"}`}>
+        {sections}
+      </div>
+    );
+  };
+
+  // Render the Media composite widget (spotify)
+  const renderMediaCompositeWidget = (config: CompositeWidgetConfig, isFirst: boolean) => {
+    const showSpotify = config.subItems?.spotify?.enabled ?? true;
+
+    if (!showSpotify || !spotifyPlayback?.item) return null;
+
+    const borderClass = isFirst ? "" : "pt-3 border-t border-white/20";
+    const sizeClasses = getWidgetSizeClasses(config.size);
+    const showProgress = config.size === "large" && spotifyPlayback.progress_ms !== undefined;
+    const albumImageSize = config.size === "small" ? "w-8 h-8" : config.size === "large" ? "w-16 h-16" : "w-12 h-12";
+
+    return (
+      <div key="media" className={`${borderClass} ${isFirst ? "" : "mt-3"}`}>
+        <div className={`${sizeClasses.sectionLabel} text-white/50 uppercase tracking-wide mb-2`}>Now Playing</div>
+        <div className={`flex items-center ${sizeClasses.gap}`}>
+          {spotifyPlayback.item.album.images[0] && (
+            <img
+              src={spotifyPlayback.item.album.images[0].url}
+              alt=""
+              className={`${albumImageSize} rounded shadow-lg`}
+            />
+          )}
+          <div className="flex-1 min-w-0">
+            <div className={`text-white ${sizeClasses.item} font-medium truncate`}>{spotifyPlayback.item.name}</div>
+            {config.size !== "small" && (
+              <div className={`text-white/70 ${config.size === "large" ? sizeClasses.item : "text-xs"} truncate`}>
+                {spotifyPlayback.item.artists.map(a => a.name).join(", ")}
+              </div>
+            )}
+            {showProgress && (
+              <div className="mt-2 h-1 bg-white/20 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-green-500 rounded-full transition-all"
+                  style={{ width: `${(spotifyPlayback.progress_ms / spotifyPlayback.item.duration_ms) * 100}%` }}
+                />
+              </div>
+            )}
+          </div>
+          {spotifyPlayback.is_playing && config.size !== "small" && (
+            <div className="flex gap-0.5 items-end h-4">
+              <div className="w-1 bg-green-500 rounded-full animate-pulse" style={{ height: '60%' }} />
+              <div className="w-1 bg-green-500 rounded-full animate-pulse" style={{ height: '100%', animationDelay: '0.2s' }} />
+              <div className="w-1 bg-green-500 rounded-full animate-pulse" style={{ height: '40%', animationDelay: '0.4s' }} />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Render a composite widget by ID
+  const renderCompositeWidget = (config: CompositeWidgetConfig, isFirst: boolean): JSX.Element | null => {
+    switch (config.id) {
+      case "clock":
+        return renderClockCompositeWidget(config, isFirst);
+      case "weather":
+        return renderWeatherCompositeWidget(config, isFirst);
+      case "schedule":
+        return renderScheduleCompositeWidget(config, isFirst);
+      case "media":
+        return renderMediaCompositeWidget(config, isFirst);
+      default:
+        return null;
+    }
+  };
+
+  // Render a single widget cell for grid layout
+  const renderWidgetCell = (config: CompositeWidgetConfig) => {
+    const colSpan = Math.min(config.colSpan ?? 1, widgetGridSize);
+    const rowSpan = Math.min(config.rowSpan ?? 1, widgetGridSize);
+
+    const content = renderCompositeWidget(config, true); // Always treat as first (no separators in grid)
+    if (!content) return null;
+
+    return (
+      <div
+        key={config.id}
+        className="bg-black/40 backdrop-blur-sm rounded-xl p-4 overflow-hidden flex flex-col justify-center"
+        style={{
+          gridColumn: `span ${colSpan}`,
+          gridRow: `span ${rowSpan}`,
+        }}
+      >
+        {content}
+      </div>
+    );
+  };
+
+  // Render the info pane (used in informational layout) - uses composite widgets
+  const renderInfoPane = () => {
+    // Filter to enabled composite widgets and render them
+    const enabledConfigs = compositeWidgetConfigs.filter((c) => c.enabled);
+
+    if (enabledConfigs.length === 0) {
+      // Default to clock if no widgets selected
+      return (
+        <div className="bg-black/50 backdrop-blur-sm rounded-2xl w-full h-full flex flex-col justify-center p-6">
+          <div className="text-white text-5xl font-light text-center">
+            {currentTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}
+          </div>
+          <div className="text-white/70 text-lg text-center mt-2">
+            {currentTime.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}
+          </div>
+        </div>
+      );
+    }
+
+    // Determine grid class based on widgetGridSize
+    const gridClass = widgetGridSize === 1
+      ? "grid-cols-1"
+      : widgetGridSize === 2
+        ? "grid-cols-2"
+        : "grid-cols-3";
+
+    return (
+      <div className={`w-full h-full grid ${gridClass} gap-3 auto-rows-fr`}>
+        {enabledConfigs.map((config) => renderWidgetCell(config)).filter(Boolean)}
+      </div>
+    );
+  };
+
+  // Render the clock widget (used in non-informational layouts)
+  const renderClockWidget = () => {
+    const sizeClasses = getClockSizeClasses(clockSize);
+
+    return (
+      <div className={`bg-black/50 backdrop-blur-sm rounded-2xl ${sizeClasses.container}`}>
+        <div className={`text-white ${sizeClasses.time} font-light text-center`}>
+          {currentTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}
+        </div>
+        <div className={`text-white/70 ${sizeClasses.date} text-center mt-1`}>
+          {currentTime.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}
+        </div>
+        {weather && (
+          <div className="flex items-center justify-center gap-3 mt-3 pt-3 border-t border-white/20">
+            <span className={sizeClasses.weatherIcon}>{getWeatherIcon(weather.icon)}</span>
+            <div className="text-white">
+              <div className={`${sizeClasses.weather} font-light`}>{weather.temp}°F</div>
+              <div className="text-xs text-white/70 capitalize">{weather.description}</div>
+            </div>
+          </div>
+        )}
+        {/* Today's Sports Games */}
+        {todaysGames.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-white/20 space-y-2">
+            {todaysGames.slice(0, 2).map((game) => {
+              const isGameLive = game.status === "in_progress" || game.status === "halftime";
+              const isScheduled = game.status === "scheduled";
+
+              if (isScheduled) {
+                const gameTime = new Date(game.startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                return (
+                  <div key={game.externalId} className="flex items-center justify-center gap-2 text-white text-sm">
+                    <span className="font-medium">{game.awayTeam.abbreviation}</span>
+                    <span className="text-white/60">@</span>
+                    <span className="font-medium">{game.homeTeam.abbreviation}</span>
+                    <span className="text-xs text-white/60 ml-1">{gameTime}</span>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={game.externalId} className="flex items-center justify-center gap-2 text-white text-sm">
+                  <span className="font-medium">{game.awayTeam.abbreviation}</span>
+                  <span className="font-bold">{game.awayTeam.score ?? 0}</span>
+                  <span className={`text-xs px-1 ${isGameLive ? "text-red-400" : "text-white/60"}`}>
+                    {game.statusDetail || (game.status === "final" ? "F" : "")}
+                  </span>
+                  <span className="font-bold">{game.homeTeam.score ?? 0}</span>
+                  <span className="font-medium">{game.homeTeam.abbreviation}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {/* Today's Events */}
+        {upcomingEvents.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-white/20 space-y-1.5">
+            <div className="text-xs text-white/50 uppercase tracking-wide">Today's Events</div>
+            {upcomingEvents.map((event) => {
+              const startTime = new Date(event.startTime);
+              const isAllDay = event.isAllDay;
+              const calendar = calendars.find((c: Calendar) => c.id === event.calendarId);
+              return (
+                <div key={event.id} className="flex items-center gap-2 text-white text-sm">
+                  <div
+                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: calendar?.color ?? "#3B82F6" }}
+                  />
+                  <span className="truncate flex-1">{event.title}</span>
+                  <span className="text-xs text-white/60 flex-shrink-0">
+                    {isAllDay ? "All day" : format(startTime, "h:mm a")}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Render a single photo with transition (used for informational layout)
+  const renderPhotoWithTransition = (
+    photo: Photo | null,
+    isEntering: boolean,
+    className: string
+  ) => {
+    if (!photo) return null;
+    const transitionClass = getTransitionClasses(transition, isEntering);
+    return (
+      <div className={`${transitionClass} !absolute !inset-0 flex items-center justify-center`}>
+        <img src={photo.url} alt="" className={className} />
+      </div>
+    );
+  };
+
   const renderLayout = (layoutPhotos: Photo[], isEntering: boolean) => {
     const transitionClass = getTransitionClasses(transition, isEntering);
 
@@ -196,17 +1155,6 @@ export function Screensaver() {
           {layoutPhotos[0] && (
             <img src={layoutPhotos[0].url} alt="" className="max-h-full max-w-full object-contain" />
           )}
-        </div>
-      );
-    }
-    if (layout === "side-by-side") {
-      return (
-        <div className={`${transitionClass} gap-4 p-4`}>
-          {layoutPhotos.map((photo, index) => (
-            <div key={`${photo.id}-${index}`} className="flex-1 h-full flex items-center justify-center">
-              <img src={photo.url} alt="" className="max-h-full max-w-full object-contain" />
-            </div>
-          ))}
         </div>
       );
     }
@@ -226,11 +1174,81 @@ export function Screensaver() {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black cursor-none overflow-hidden"
+      className="fixed inset-0 z-[9999] bg-black cursor-none overflow-hidden"
       onClick={handleInteraction}
+      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+      onTouchStart={(e) => { e.stopPropagation(); }}
+      onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
     >
-      {layout === "scatter" ? (
+      {/* Sports Ticker at top */}
+      <div className="absolute top-0 left-0 right-0 z-10">
+        <SportsTicker variant="dark" />
+      </div>
+
+      {layout === "builder" ? (
+        // Builder layout - renders widgets from layoutConfig
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundColor: layoutConfig?.backgroundColor || "#000000",
+            backgroundImage: layoutConfig?.backgroundImage ? `url(${layoutConfig.backgroundImage})` : undefined,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+          }}
+        >
+          <div
+            className="w-full h-full"
+            style={{
+              display: "grid",
+              gridTemplateColumns: `repeat(${layoutConfig?.gridColumns || 12}, 1fr)`,
+              gridTemplateRows: `repeat(${layoutConfig?.gridRows || 8}, 1fr)`,
+              gap: `${layoutConfig?.gridGap || 8}px`,
+            }}
+          >
+            {(layoutConfig?.widgets || [])
+              .filter((widget) => isWidgetVisible(widget))
+              .map((widget) => (
+                <div
+                  key={widget.id}
+                  style={{
+                    gridColumn: `${widget.x + 1} / span ${widget.width}`,
+                    gridRow: `${widget.y + 1} / span ${widget.height}`,
+                  }}
+                >
+                  <WidgetRenderer widget={widget} />
+                </div>
+              ))}
+          </div>
+        </div>
+      ) : layout === "scatter" ? (
         <ScatterLayout photos={scatterPhotos} />
+      ) : layout === "informational" ? (
+        <div className="relative h-full w-full grid grid-cols-2 grid-rows-2 gap-4 p-4">
+          {/* Left column: Portrait photo spanning both rows */}
+          <div className="row-span-2 relative">
+            {/* Previous portrait (exiting) - only show when left side is transitioning */}
+            {transitioningSide === 'left' && prevPortraitPhoto &&
+              renderPhotoWithTransition(prevPortraitPhoto, false, "max-h-full max-w-full object-contain")}
+            {/* Current portrait (entering or static) */}
+            {portraitPhoto &&
+              renderPhotoWithTransition(portraitPhoto, transitioningSide !== 'left' || prevPortraitPhoto === null, "max-h-full max-w-full object-contain")}
+          </div>
+
+          {/* Top-right: Info pane (configurable widgets) */}
+          <div className="flex items-stretch justify-center">
+            {renderInfoPane()}
+          </div>
+
+          {/* Bottom-right: Landscape photo */}
+          <div className="relative">
+            {/* Previous landscape (exiting) - only show when right side is transitioning */}
+            {transitioningSide === 'right' && prevLandscapePhoto &&
+              renderPhotoWithTransition(prevLandscapePhoto, false, "max-h-full max-w-full object-contain")}
+            {/* Current landscape (entering or static) */}
+            {landscapePhoto &&
+              renderPhotoWithTransition(landscapePhoto, transitioningSide !== 'right' || prevLandscapePhoto === null, "max-h-full max-w-full object-contain")}
+          </div>
+        </div>
       ) : (
         <div className="relative h-full w-full">
           {/* Previous slide (exiting) */}
@@ -244,15 +1262,101 @@ export function Screensaver() {
         </div>
       )}
 
-      {/* Clock overlay */}
-      <div className="absolute top-6 right-8 text-white/80 text-4xl font-light drop-shadow-lg">
-        {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-      </div>
+      {/* Clock & Weather overlay (not shown for informational or builder layouts) */}
+      {layout !== "informational" && layout !== "builder" && (() => {
+        const positionClasses = getClockPositionClasses(clockPosition);
+        const sizeClasses = getClockSizeClasses(clockSize);
+        return (
+          <div className={`absolute ${positionClasses} bg-black/50 backdrop-blur-sm rounded-2xl ${sizeClasses.container}`}>
+            <div className={`text-white ${sizeClasses.time} font-light text-center`}>
+              {currentTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}
+            </div>
+            <div className={`text-white/70 ${sizeClasses.date} text-center mt-1`}>
+              {currentTime.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}
+            </div>
+            {weather && (
+              <div className="flex items-center justify-center gap-3 mt-3 pt-3 border-t border-white/20">
+                <span className={sizeClasses.weatherIcon}>{getWeatherIcon(weather.icon)}</span>
+                <div className="text-white">
+                  <div className={`${sizeClasses.weather} font-light`}>{weather.temp}°F</div>
+                  <div className="text-xs text-white/70 capitalize">{weather.description}</div>
+                </div>
+              </div>
+            )}
+            {/* Today's Sports Games */}
+            {todaysGames.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-white/20 space-y-2">
+                {todaysGames.slice(0, 2).map((game) => {
+                  const isLive = game.status === "in_progress" || game.status === "halftime";
+                  const isScheduled = game.status === "scheduled";
+
+                  if (isScheduled) {
+                    // Show scheduled game with time
+                    const gameTime = new Date(game.startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                    return (
+                      <div key={game.externalId} className="flex items-center justify-center gap-2 text-white text-sm">
+                        <span className="font-medium">{game.awayTeam.abbreviation}</span>
+                        <span className="text-white/60">@</span>
+                        <span className="font-medium">{game.homeTeam.abbreviation}</span>
+                        <span className="text-xs text-white/60 ml-1">{gameTime}</span>
+                      </div>
+                    );
+                  }
+
+                  // Live or finished game with scores
+                  return (
+                    <div key={game.externalId} className="flex items-center justify-center gap-2 text-white text-sm">
+                      <span className="font-medium">{game.awayTeam.abbreviation}</span>
+                      <span className="font-bold">{game.awayTeam.score ?? 0}</span>
+                      <span className={`text-xs px-1 ${isLive ? "text-red-400" : "text-white/60"}`}>
+                        {game.statusDetail || (game.status === "final" ? "F" : "")}
+                      </span>
+                      <span className="font-bold">{game.homeTeam.score ?? 0}</span>
+                      <span className="font-medium">{game.homeTeam.abbreviation}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {/* Today's Events */}
+            {upcomingEvents.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-white/20 space-y-1.5">
+                <div className="text-xs text-white/50 uppercase tracking-wide">Today's Events</div>
+                {upcomingEvents.map((event) => {
+                  const startTime = new Date(event.startTime);
+                  const isAllDay = event.isAllDay;
+                  const calendar = calendars.find((c: Calendar) => c.id === event.calendarId);
+                  return (
+                    <div key={event.id} className="flex items-center gap-2 text-white text-sm">
+                      <div
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: calendar?.color ?? "#3B82F6" }}
+                      />
+                      <span className="truncate flex-1">{event.title}</span>
+                      <span className="text-xs text-white/60 flex-shrink-0">
+                        {isAllDay ? "All day" : format(startTime, "h:mm a")}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Tap to exit hint */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/30 text-sm">
         Tap anywhere to exit
       </div>
+
+      {/* Night dim overlay */}
+      {currentDimOpacity > 0 && (
+        <div
+          className="absolute inset-0 bg-black pointer-events-none transition-opacity duration-[10s]"
+          style={{ opacity: currentDimOpacity / 100 }}
+        />
+      )}
     </div>
   );
 }

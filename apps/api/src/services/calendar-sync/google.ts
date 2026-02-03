@@ -48,6 +48,21 @@ interface GoogleEventsResponse {
 
 type OAuthToken = typeof oauthTokens.$inferSelect;
 
+/**
+ * Parse a date-only string (YYYY-MM-DD) as local midnight.
+ * This is needed for all-day events because:
+ * - Google sends date-only strings like "2026-02-02" for all-day events
+ * - new Date("2026-02-02") parses this as UTC midnight, causing timezone issues
+ * - All-day events should be treated as "floating" dates (the same date everywhere)
+ */
+function parseLocalDate(dateStr: string): Date {
+  const parts = dateStr.split("-").map(Number);
+  const year = parts[0] ?? 0;
+  const month = (parts[1] ?? 1) - 1;
+  const day = parts[2] ?? 1;
+  return new Date(year, month, day, 0, 0, 0, 0);
+}
+
 async function refreshGoogleToken(token: OAuthToken): Promise<string> {
   if (!token.refreshToken) {
     throw new Error("No refresh token available");
@@ -272,13 +287,14 @@ async function upsertEvent(
     return;
   }
 
+  // For all-day events, use parseLocalDate to avoid UTC timezone issues
   const startTime = gevent.start.dateTime
     ? new Date(gevent.start.dateTime)
-    : new Date(gevent.start.date!);
+    : parseLocalDate(gevent.start.date!);
 
   const endTime = gevent.end.dateTime
     ? new Date(gevent.end.dateTime)
-    : new Date(gevent.end.date!);
+    : parseLocalDate(gevent.end.date!);
 
   const isAllDay = !gevent.start.dateTime;
 
@@ -325,7 +341,7 @@ async function upsertEvent(
     originalStartTime: gevent.originalStartTime?.dateTime
       ? new Date(gevent.originalStartTime.dateTime)
       : gevent.originalStartTime?.date
-        ? new Date(gevent.originalStartTime.date)
+        ? parseLocalDate(gevent.originalStartTime.date)
         : null,
     attendees,
     reminders,

@@ -3,10 +3,10 @@ import { eq, and } from "drizzle-orm";
 import { oauthTokens } from "@openframe/database/schema";
 import { randomBytes } from "crypto";
 import { getCurrentUser } from "../../plugins/auth.js";
-import { SpotifyService } from "../../services/spotify.js";
+import { SpotifyService, type SpotifyAccount } from "../../services/spotify.js";
 
 // In-memory OAuth state store
-const oauthStateStore = new Map<string, { createdAt: number; returnUrl?: string }>();
+const oauthStateStore = new Map<string, { createdAt: number; returnUrl?: string; userId?: string }>();
 
 // Clean up expired states every 5 minutes
 setInterval(() => {
@@ -19,13 +19,13 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
-  // Check Spotify connection status
+  // Check Spotify connection status (returns all connected accounts)
   fastify.get(
     "/status",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
-        description: "Check Spotify connection status",
+        description: "Check Spotify connection status and get all connected accounts",
         tags: ["Spotify"],
         security: [{ bearerAuth: [] }],
       },
@@ -33,44 +33,146 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const user = await getCurrentUser(request);
 
-      const [token] = await fastify.db
-        .select()
-        .from(oauthTokens)
-        .where(
-          and(
-            eq(oauthTokens.userId, user.id),
-            eq(oauthTokens.provider, "spotify")
-          )
-        )
-        .limit(1);
+      const accounts = await SpotifyService.getAllAccounts(fastify.db, user.id);
 
-      if (!token) {
+      if (accounts.length === 0) {
         return {
           success: true,
-          data: { connected: false },
+          data: { connected: false, accounts: [] },
         };
       }
 
-      try {
-        const spotify = new SpotifyService(fastify.db, user.id);
-        const spotifyUser = await spotify.getCurrentUser();
-        return {
-          success: true,
-          data: {
-            connected: true,
-            user: {
-              id: spotifyUser.id,
-              name: spotifyUser.display_name,
-              image: spotifyUser.images?.[0]?.url,
-            },
+      // Fetch Spotify user info for each account
+      const accountsWithUsers: SpotifyAccount[] = await Promise.all(
+        accounts.map(async (account) => {
+          try {
+            const spotify = new SpotifyService(fastify.db, user.id, account.id);
+            const spotifyUser = await spotify.getCurrentUser();
+            return {
+              ...account,
+              spotifyUser: {
+                id: spotifyUser.id,
+                display_name: spotifyUser.display_name,
+                images: spotifyUser.images,
+              },
+            };
+          } catch {
+            return account;
+          }
+        })
+      );
+
+      // For backwards compatibility, also include the primary user info at top level
+      const primaryAccount = accountsWithUsers.find((a) => a.isPrimary) || accountsWithUsers[0];
+
+      return {
+        success: true,
+        data: {
+          connected: true,
+          accounts: accountsWithUsers,
+          // Backwards compatible fields
+          user: primaryAccount?.spotifyUser
+            ? {
+                id: primaryAccount.spotifyUser.id,
+                name: primaryAccount.spotifyUser.display_name,
+                image: primaryAccount.spotifyUser.images?.[0]?.url,
+              }
+            : undefined,
+        },
+      };
+    }
+  );
+
+  // List all connected Spotify accounts (requires full auth, not kiosk)
+  fastify.get(
+    "/accounts",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "List all connected Spotify accounts",
+        tags: ["Spotify"],
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      const accounts = await SpotifyService.getAllAccounts(fastify.db, user.id);
+
+      // Fetch Spotify user info for each account
+      const accountsWithUsers = await Promise.all(
+        accounts.map(async (account) => {
+          try {
+            const spotify = new SpotifyService(fastify.db, user.id, account.id);
+            const spotifyUser = await spotify.getCurrentUser();
+            return {
+              ...account,
+              spotifyUser: {
+                id: spotifyUser.id,
+                display_name: spotifyUser.display_name,
+                images: spotifyUser.images,
+              },
+            };
+          } catch {
+            return account;
+          }
+        })
+      );
+
+      return {
+        success: true,
+        data: accountsWithUsers,
+      };
+    }
+  );
+
+  // Update a Spotify account (rename, set primary)
+  fastify.patch(
+    "/accounts/:id",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Update a Spotify account",
+        tags: ["Spotify"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
           },
-        };
-      } catch {
-        return {
-          success: true,
-          data: { connected: false },
-        };
-      }
+          required: ["id"],
+        },
+        body: {
+          type: "object",
+          properties: {
+            accountName: { type: "string" },
+            isPrimary: { type: "boolean" },
+            icon: { type: "string", nullable: true },
+            defaultDeviceId: { type: "string", nullable: true },
+            favoriteDeviceIds: { type: "array", items: { type: "string" }, nullable: true },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      const { id } = request.params as { id: string };
+      const { accountName, isPrimary, icon, defaultDeviceId, favoriteDeviceIds } = request.body as {
+        accountName?: string;
+        isPrimary?: boolean;
+        icon?: string | null;
+        defaultDeviceId?: string | null;
+        favoriteDeviceIds?: string[] | null;
+      };
+
+      await SpotifyService.updateAccount(fastify.db, user.id, id, {
+        accountName,
+        isPrimary,
+        icon,
+        defaultDeviceId,
+        favoriteDeviceIds,
+      });
+
+      return { success: true };
     }
   );
 
@@ -78,14 +180,35 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/auth",
     {
-      onRequest: [fastify.authenticate],
       schema: {
         description: "Initiate Spotify OAuth flow",
         tags: ["Spotify", "OAuth"],
-        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            token: { type: "string" },
+            returnUrl: { type: "string" },
+          },
+        },
       },
     },
     async (request, reply) => {
+      // Get token from query parameter (since this is accessed via link, not fetch)
+      const query = request.query as Record<string, string>;
+      const token = query.token;
+
+      if (!token) {
+        return reply.badRequest("Missing authentication token");
+      }
+
+      let userId: string;
+      try {
+        const decoded = fastify.jwt.verify(token) as { userId: string };
+        userId = decoded.userId;
+      } catch {
+        return reply.unauthorized("Invalid or expired token");
+      }
+
       const clientId = process.env.SPOTIFY_CLIENT_ID;
       const redirectUri = process.env.SPOTIFY_REDIRECT_URI;
 
@@ -103,6 +226,7 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         "playlist-read-collaborative",
         "streaming",
         "user-library-read",
+        "user-library-modify",
       ];
 
       const url = new URL("https://accounts.spotify.com/authorize");
@@ -111,9 +235,10 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
       url.searchParams.set("redirect_uri", redirectUri);
       url.searchParams.set("scope", scopes.join(" "));
       url.searchParams.set("state", state);
+      // Force showing the login dialog so users can choose a different account
+      url.searchParams.set("show_dialog", "true");
 
       // Get return URL
-      const query = request.query as Record<string, string>;
       let returnUrl = query.returnUrl;
 
       if (!returnUrl) {
@@ -127,7 +252,8 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl });
+      // Store userId in state so we can retrieve it in callback
+      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl, userId });
 
       return reply.redirect(url.toString());
     }
@@ -205,38 +331,10 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         scope: string;
       };
 
-      // Get user from JWT cookie or header
-      const authHeader = request.headers.authorization;
-      let userId: string | null = null;
+      // Get userId from the stored state
+      const userId = storedState.userId;
 
-      if (authHeader?.startsWith("Bearer ")) {
-        try {
-          const decoded = fastify.jwt.verify(authHeader.slice(7)) as {
-            userId: string;
-          };
-          userId = decoded.userId;
-        } catch {
-          // Ignore
-        }
-      }
-
-      // Try to get userId from cookies if not in header
-      if (!userId) {
-        const cookies = request.headers.cookie?.split(";") || [];
-        for (const cookie of cookies) {
-          const [name, value] = cookie.trim().split("=");
-          if (name === "accessToken" && value) {
-            try {
-              const decoded = fastify.jwt.verify(value) as { userId: string };
-              userId = decoded.userId;
-            } catch {
-              // Ignore
-            }
-          }
-        }
-      }
-
-      // If we still don't have a user, redirect to login
+      // If we don't have a user, redirect to login
       if (!userId) {
         const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
         return reply.redirect(
@@ -244,8 +342,41 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         );
       }
 
-      // Store OAuth tokens
-      const [existingOAuth] = await fastify.db
+      // Fetch Spotify user info to get external account ID
+      const spotifyUserResponse = await fetch("https://api.spotify.com/v1/me", {
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`,
+        },
+      });
+
+      let spotifyUserId: string | null = null;
+      let spotifyUserName: string | null = null;
+      if (spotifyUserResponse.ok) {
+        const spotifyUser = (await spotifyUserResponse.json()) as {
+          id: string;
+          display_name: string;
+        };
+        spotifyUserId = spotifyUser.id;
+        spotifyUserName = spotifyUser.display_name;
+      }
+
+      // Check if this specific Spotify account is already connected
+      const [existingOAuth] = spotifyUserId
+        ? await fastify.db
+            .select()
+            .from(oauthTokens)
+            .where(
+              and(
+                eq(oauthTokens.userId, userId),
+                eq(oauthTokens.provider, "spotify"),
+                eq(oauthTokens.externalAccountId, spotifyUserId)
+              )
+            )
+            .limit(1)
+        : [null];
+
+      // Check if user has any existing Spotify accounts (for setting isPrimary)
+      const existingAccounts = await fastify.db
         .select()
         .from(oauthTokens)
         .where(
@@ -253,10 +384,11 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
             eq(oauthTokens.userId, userId),
             eq(oauthTokens.provider, "spotify")
           )
-        )
-        .limit(1);
+        );
+      const isFirstAccount = existingAccounts.length === 0;
 
       if (existingOAuth) {
+        // Update existing account if same Spotify user reconnects
         await fastify.db
           .update(oauthTokens)
           .set({
@@ -268,6 +400,7 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
           })
           .where(eq(oauthTokens.id, existingOAuth.id));
       } else {
+        // Create new account record
         await fastify.db.insert(oauthTokens).values({
           userId,
           provider: "spotify",
@@ -275,6 +408,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
           refreshToken: tokens.refresh_token,
           expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
           scope: tokens.scope,
+          externalAccountId: spotifyUserId,
+          accountName: spotifyUserName, // Default name from Spotify
+          isPrimary: isFirstAccount, // First account is automatically primary
         });
       }
 
@@ -287,28 +423,41 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // Disconnect Spotify
+  // Disconnect Spotify (specific account or all)
   fastify.delete(
     "/disconnect",
     {
       onRequest: [fastify.authenticate],
       schema: {
-        description: "Disconnect Spotify account",
+        description: "Disconnect Spotify account(s)",
         tags: ["Spotify"],
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific account ID to disconnect. If not provided, disconnects all accounts." },
+          },
+        },
       },
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      const { accountId } = request.query as { accountId?: string };
 
-      await fastify.db
-        .delete(oauthTokens)
-        .where(
-          and(
-            eq(oauthTokens.userId, user.id),
-            eq(oauthTokens.provider, "spotify")
-          )
-        );
+      if (accountId) {
+        // Disconnect specific account
+        await SpotifyService.deleteAccount(fastify.db, user.id, accountId);
+      } else {
+        // Disconnect all accounts (backwards compatible)
+        await fastify.db
+          .delete(oauthTokens)
+          .where(
+            and(
+              eq(oauthTokens.userId, user.id),
+              eq(oauthTokens.provider, "spotify")
+            )
+          );
+      }
 
       return { success: true };
     }
@@ -318,16 +467,23 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/playback",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Get current playback state",
         tags: ["Spotify"],
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+          },
+        },
       },
     },
     async (request) => {
       const user = await getCurrentUser(request);
-      const spotify = new SpotifyService(fastify.db, user.id);
+      const { accountId } = request.query as { accountId?: string };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
       const state = await spotify.getPlaybackState();
 
@@ -342,16 +498,23 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/devices",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Get available Spotify devices",
         tags: ["Spotify"],
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+          },
+        },
       },
     },
     async (request) => {
       const user = await getCurrentUser(request);
-      const spotify = new SpotifyService(fastify.db, user.id);
+      const { accountId } = request.query as { accountId?: string };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
       const devices = await spotify.getDevices();
 
@@ -366,11 +529,17 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put(
     "/play",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Start or resume playback",
         tags: ["Spotify"],
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+          },
+        },
         body: {
           type: "object",
           properties: {
@@ -384,7 +553,8 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
-      const spotify = new SpotifyService(fastify.db, user.id);
+      const { accountId } = request.query as { accountId?: string };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
       const body = request.body as {
         deviceId?: string;
         contextUri?: string;
@@ -402,16 +572,23 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put(
     "/pause",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Pause playback",
         tags: ["Spotify"],
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+          },
+        },
       },
     },
     async (request) => {
       const user = await getCurrentUser(request);
-      const spotify = new SpotifyService(fastify.db, user.id);
+      const { accountId } = request.query as { accountId?: string };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
       await spotify.pause();
 
@@ -423,16 +600,23 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/next",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Skip to next track",
         tags: ["Spotify"],
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+          },
+        },
       },
     },
     async (request) => {
       const user = await getCurrentUser(request);
-      const spotify = new SpotifyService(fastify.db, user.id);
+      const { accountId } = request.query as { accountId?: string };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
       await spotify.next();
 
@@ -444,16 +628,23 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/previous",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Skip to previous track",
         tags: ["Spotify"],
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+          },
+        },
       },
     },
     async (request) => {
       const user = await getCurrentUser(request);
-      const spotify = new SpotifyService(fastify.db, user.id);
+      const { accountId } = request.query as { accountId?: string };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
       await spotify.previous();
 
@@ -465,11 +656,17 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put(
     "/seek",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Seek to position in track",
         tags: ["Spotify"],
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+          },
+        },
         body: {
           type: "object",
           properties: {
@@ -481,7 +678,8 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
-      const spotify = new SpotifyService(fastify.db, user.id);
+      const { accountId } = request.query as { accountId?: string };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
       const { positionMs } = request.body as { positionMs: number };
 
       await spotify.seek(positionMs);
@@ -494,11 +692,17 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put(
     "/volume",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Set playback volume",
         tags: ["Spotify"],
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+          },
+        },
         body: {
           type: "object",
           properties: {
@@ -510,7 +714,8 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
-      const spotify = new SpotifyService(fastify.db, user.id);
+      const { accountId } = request.query as { accountId?: string };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
       const { volumePercent } = request.body as { volumePercent: number };
 
       await spotify.setVolume(volumePercent);
@@ -523,11 +728,17 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put(
     "/shuffle",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Set shuffle state",
         tags: ["Spotify"],
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+          },
+        },
         body: {
           type: "object",
           properties: {
@@ -539,7 +750,8 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
-      const spotify = new SpotifyService(fastify.db, user.id);
+      const { accountId } = request.query as { accountId?: string };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
       const { state } = request.body as { state: boolean };
 
       await spotify.setShuffle(state);
@@ -552,11 +764,17 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put(
     "/repeat",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Set repeat state",
         tags: ["Spotify"],
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+          },
+        },
         body: {
           type: "object",
           properties: {
@@ -568,7 +786,8 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
-      const spotify = new SpotifyService(fastify.db, user.id);
+      const { accountId } = request.query as { accountId?: string };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
       const { state } = request.body as { state: "off" | "track" | "context" };
 
       await spotify.setRepeat(state);
@@ -581,11 +800,17 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put(
     "/transfer",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Transfer playback to another device",
         tags: ["Spotify"],
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+          },
+        },
         body: {
           type: "object",
           properties: {
@@ -598,7 +823,8 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
-      const spotify = new SpotifyService(fastify.db, user.id);
+      const { accountId } = request.query as { accountId?: string };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
       const { deviceId, play } = request.body as {
         deviceId: string;
         play?: boolean;
@@ -614,7 +840,7 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/playlists",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Get user playlists",
         tags: ["Spotify"],
@@ -622,6 +848,7 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         querystring: {
           type: "object",
           properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
             limit: { type: "number", default: 20 },
             offset: { type: "number", default: 0 },
           },
@@ -630,11 +857,12 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
-      const spotify = new SpotifyService(fastify.db, user.id);
-      const { limit, offset } = request.query as {
+      const { accountId, limit, offset } = request.query as {
+        accountId?: string;
         limit?: number;
         offset?: number;
       };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
       const playlists = await spotify.getPlaylists(limit, offset);
 
@@ -649,7 +877,7 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/recently-played",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Get recently played tracks",
         tags: ["Spotify"],
@@ -657,6 +885,7 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         querystring: {
           type: "object",
           properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
             limit: { type: "number", default: 20 },
           },
         },
@@ -664,8 +893,8 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
-      const spotify = new SpotifyService(fastify.db, user.id);
-      const { limit } = request.query as { limit?: number };
+      const { accountId, limit } = request.query as { accountId?: string; limit?: number };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
       const tracks = await spotify.getRecentlyPlayed(limit);
 
@@ -680,7 +909,7 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/search",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Search Spotify",
         tags: ["Spotify"],
@@ -688,6 +917,7 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         querystring: {
           type: "object",
           properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
             q: { type: "string" },
             types: { type: "string" },
             limit: { type: "number", default: 10 },
@@ -698,12 +928,13 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
-      const spotify = new SpotifyService(fastify.db, user.id);
-      const { q, types, limit } = request.query as {
+      const { accountId, q, types, limit } = request.query as {
+        accountId?: string;
         q: string;
         types?: string;
         limit?: number;
       };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
       const typeArray = types?.split(",") || ["track", "artist", "album", "playlist"];
       const results = await spotify.search(q, typeArray, limit);
@@ -712,6 +943,112 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         success: true,
         data: results,
       };
+    }
+  );
+
+  // Check if tracks are saved
+  fastify.get(
+    "/tracks/saved",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Check if tracks are saved in user library",
+        tags: ["Spotify"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+            ids: { type: "string", description: "Comma-separated track IDs" },
+          },
+          required: ["ids"],
+        },
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      const { accountId, ids } = request.query as { accountId?: string; ids: string };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
+
+      const trackIds = ids.split(",");
+      const saved = await spotify.checkSavedTracks(trackIds);
+
+      return {
+        success: true,
+        data: saved,
+      };
+    }
+  );
+
+  // Save track to library
+  fastify.put(
+    "/tracks/save",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Save track to user library",
+        tags: ["Spotify"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+          },
+        },
+        body: {
+          type: "object",
+          properties: {
+            trackId: { type: "string" },
+          },
+          required: ["trackId"],
+        },
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      const { accountId } = request.query as { accountId?: string };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
+      const { trackId } = request.body as { trackId: string };
+
+      await spotify.saveTrack(trackId);
+
+      return { success: true };
+    }
+  );
+
+  // Remove track from library
+  fastify.delete(
+    "/tracks/save",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Remove track from user library",
+        tags: ["Spotify"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+          },
+        },
+        body: {
+          type: "object",
+          properties: {
+            trackId: { type: "string" },
+          },
+          required: ["trackId"],
+        },
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      const { accountId } = request.query as { accountId?: string };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
+      const { trackId } = request.body as { trackId: string };
+
+      await spotify.unsaveTrack(trackId);
+
+      return { success: true };
     }
   );
 };

@@ -18,7 +18,7 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
         querystring: {
           type: "object",
           properties: {
-            provider: { type: "string", enum: ["google", "microsoft", "caldav"] },
+            provider: { type: "string", enum: ["google", "microsoft", "caldav", "ics", "sports"] },
             includeHidden: { type: "boolean" },
           },
         },
@@ -60,9 +60,12 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
           color: cal.color,
           isVisible: cal.isVisible,
           isPrimary: cal.isPrimary,
+          isFavorite: cal.isFavorite,
           isReadOnly: cal.isReadOnly,
           syncEnabled: cal.syncEnabled,
+          showOnDashboard: cal.showOnDashboard,
           lastSyncAt: cal.lastSyncAt,
+          visibility: cal.visibility ?? { week: false, month: false, day: false, popup: true, screensaver: false },
         })),
       };
     }
@@ -130,6 +133,18 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
             isVisible: { type: "boolean" },
             syncEnabled: { type: "boolean" },
             isPrimary: { type: "boolean" },
+            isFavorite: { type: "boolean" },
+            showOnDashboard: { type: "boolean" },
+            visibility: {
+              type: "object",
+              properties: {
+                week: { type: "boolean" },
+                month: { type: "boolean" },
+                day: { type: "boolean" },
+                popup: { type: "boolean" },
+                screensaver: { type: "boolean" },
+              },
+            },
           },
         },
       },
@@ -142,6 +157,9 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
         isVisible: boolean;
         syncEnabled: boolean;
         isPrimary: boolean;
+        isFavorite: boolean;
+        showOnDashboard: boolean;
+        visibility: { week: boolean; month: boolean; day: boolean; popup: boolean; screensaver: boolean };
       }>;
 
       // If setting this calendar as primary, unset isPrimary on all other calendars first
@@ -278,6 +296,159 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         success: true,
         message: "Sync started for all calendars",
+      };
+    }
+  );
+
+  // Subscribe to ICS calendar feed
+  fastify.post(
+    "/ics/subscribe",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Subscribe to an ICS calendar feed",
+        tags: ["Calendars"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        body: {
+          type: "object",
+          properties: {
+            url: { type: "string", format: "uri" },
+            name: { type: "string" },
+          },
+          required: ["url"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      const { url, name } = request.body as { url: string; name?: string };
+
+      // Normalize webcal:// URLs to https://
+      const normalizedUrl = url.replace(/^webcal:\/\//i, "https://");
+
+      // Check if already subscribed to this URL
+      const existing = await fastify.db
+        .select()
+        .from(calendars)
+        .where(
+          and(
+            eq(calendars.userId, user!.id),
+            eq(calendars.provider, "ics"),
+            eq(calendars.sourceUrl, normalizedUrl)
+          )
+        )
+        .limit(1);
+
+      if (existing.length > 0) {
+        return reply.badRequest("Already subscribed to this calendar");
+      }
+
+      // Fetch the ICS file to validate it and extract the calendar name
+      let calendarName = name || "ICS Calendar";
+      try {
+        const response = await fetch(normalizedUrl, {
+          headers: {
+            "User-Agent": "OpenFrame/1.0",
+          },
+        });
+
+        if (!response.ok) {
+          return reply.badRequest(`Failed to fetch calendar: ${response.statusText}`);
+        }
+
+        const icsContent = await response.text();
+
+        // Basic validation - check if it looks like an ICS file
+        if (!icsContent.includes("BEGIN:VCALENDAR")) {
+          return reply.badRequest("Invalid ICS file: Not a valid iCalendar format");
+        }
+
+        // Extract calendar name from X-WR-CALNAME if not provided
+        if (!name) {
+          const nameMatch = icsContent.match(/X-WR-CALNAME:(.+)/);
+          if (nameMatch?.[1]) {
+            calendarName = nameMatch[1].trim();
+          }
+        }
+      } catch (err) {
+        return reply.badRequest(`Failed to fetch calendar: ${err instanceof Error ? err.message : "Unknown error"}`);
+      }
+
+      // Create the calendar subscription
+      const [calendar] = await fastify.db
+        .insert(calendars)
+        .values({
+          userId: user!.id,
+          provider: "ics",
+          externalId: normalizedUrl, // Use URL as external ID for ICS
+          name: calendarName,
+          sourceUrl: normalizedUrl,
+          isVisible: true,
+          syncEnabled: true,
+          isReadOnly: true, // ICS feeds are read-only
+        })
+        .returning();
+
+      if (!calendar) {
+        return reply.internalServerError("Failed to create calendar");
+      }
+
+      // Trigger initial sync
+      const { syncICSCalendar } = await import("../../services/calendar-sync/ics.js");
+      await syncICSCalendar(fastify.db, calendar.id, normalizedUrl);
+
+      // Update last sync time
+      await fastify.db
+        .update(calendars)
+        .set({ lastSyncAt: new Date() })
+        .where(eq(calendars.id, calendar.id));
+
+      return {
+        success: true,
+        data: {
+          id: calendar.id,
+          name: calendar.name,
+          provider: calendar.provider,
+          sourceUrl: calendar.sourceUrl,
+        },
+      };
+    }
+  );
+
+  // Delete a calendar
+  fastify.delete(
+    "/:id",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Delete a calendar",
+        tags: ["Calendars"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      const { id } = request.params as { id: string };
+
+      const [deleted] = await fastify.db
+        .delete(calendars)
+        .where(and(eq(calendars.id, id), eq(calendars.userId, user!.id)))
+        .returning();
+
+      if (!deleted) {
+        return reply.notFound("Calendar not found");
+      }
+
+      return {
+        success: true,
+        message: "Calendar deleted",
       };
     }
   );

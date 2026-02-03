@@ -1,6 +1,6 @@
 import fp from "fastify-plugin";
 import { eq } from "drizzle-orm";
-import { users, apiKeys, kioskConfig } from "@openframe/database/schema";
+import { users, apiKeys, kioskConfig, kiosks } from "@openframe/database/schema";
 import { createHash } from "crypto";
 import type { FastifyRequest, FastifyReply } from "fastify";
 
@@ -54,6 +54,34 @@ export const authPlugin = fp(
 
         if (!apiKey || typeof apiKey !== "string") {
           return reply.unauthorized("API key required");
+        }
+
+        // Check for kiosk token format: kiosk_<uuid>
+        if (apiKey.startsWith("kiosk_")) {
+          const kioskToken = apiKey.substring(6); // Remove "kiosk_" prefix
+
+          const [kiosk] = await fastify.db
+            .select()
+            .from(kiosks)
+            .where(eq(kiosks.token, kioskToken))
+            .limit(1);
+
+          if (!kiosk) {
+            return reply.unauthorized("Invalid kiosk token");
+          }
+
+          if (!kiosk.isActive) {
+            return reply.unauthorized("Kiosk is disabled");
+          }
+
+          // Update last accessed
+          await fastify.db
+            .update(kiosks)
+            .set({ lastAccessedAt: new Date() })
+            .where(eq(kiosks.id, kiosk.id));
+
+          request.user = { userId: kiosk.userId };
+          return;
         }
 
         // API keys format: openframe_<prefix>_<secret>
@@ -145,6 +173,10 @@ export const authPlugin = fp(
 
 // Helper to get current user
 export async function getCurrentUser(request: FastifyRequest) {
+  if (!request.user) {
+    return null;
+  }
+
   const { userId } = request.user;
   const [user] = await request.server.db
     .select()
@@ -153,7 +185,7 @@ export async function getCurrentUser(request: FastifyRequest) {
     .limit(1);
 
   if (!user) {
-    throw request.server.httpErrors.notFound("User not found");
+    return null;
   }
 
   return user;

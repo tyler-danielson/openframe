@@ -19,12 +19,29 @@ import { getCurrentUser } from "../../plugins/auth.js";
 // States expire after 10 minutes
 const oauthStateStore = new Map<string, { createdAt: number; returnUrl?: string }>();
 
+// In-memory kiosk command store
+// Commands expire after 60 seconds (kiosks should poll every 10-30 seconds)
+interface KioskCommand {
+  type: "refresh" | "reload-photos";
+  timestamp: number;
+}
+const kioskCommands = new Map<string, KioskCommand[]>();
+
 // Clean up expired states every 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [state, data] of oauthStateStore.entries()) {
     if (now - data.createdAt > 10 * 60 * 1000) {
       oauthStateStore.delete(state);
+    }
+  }
+  // Clean up expired kiosk commands (older than 60 seconds)
+  for (const [userId, commands] of kioskCommands.entries()) {
+    const validCommands = commands.filter((cmd) => now - cmd.timestamp < 60000);
+    if (validCommands.length === 0) {
+      kioskCommands.delete(userId);
+    } else {
+      kioskCommands.set(userId, validCommands);
     }
   }
 }, 5 * 60 * 1000);
@@ -547,6 +564,25 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
+  // Get server configuration (for frontend to know server URLs)
+  fastify.get(
+    "/config",
+    {
+      schema: {
+        description: "Get server configuration",
+        tags: ["Auth"],
+      },
+    },
+    async () => {
+      return {
+        success: true,
+        data: {
+          frontendUrl: process.env.FRONTEND_URL || `http://localhost:${process.env.PORT || 3000}`,
+        },
+      };
+    }
+  );
+
   // Get current user
   fastify.get(
     "/me",
@@ -804,6 +840,8 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
                   interval: { type: "number" },
                   layout: { type: "string" },
                   transition: { type: "string" },
+                  colorScheme: { type: "string" },
+                  layoutConfig: { type: "object", additionalProperties: true },
                 },
               },
             },
@@ -819,6 +857,17 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(kioskConfig.enabled, true))
         .limit(1);
 
+      const layoutConfig = kiosk?.screensaverLayoutConfig;
+      fastify.log.info({
+        foundKiosk: !!kiosk,
+        kioskId: kiosk?.id,
+        kioskUserId: kiosk?.userId,
+        hasLayoutConfig: !!layoutConfig,
+        layoutConfigType: typeof layoutConfig,
+        widgetCount: (layoutConfig as any)?.widgets?.length ?? 0,
+        layoutConfigRaw: JSON.stringify(layoutConfig)?.slice(0, 200)
+      }, "Kiosk screensaver GET request");
+
       return {
         success: true,
         data: {
@@ -827,6 +876,8 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           interval: kiosk?.screensaverInterval ?? 15,
           layout: kiosk?.screensaverLayout ?? "fullscreen",
           transition: kiosk?.screensaverTransition ?? "fade",
+          colorScheme: kiosk?.colorScheme ?? "default",
+          layoutConfig: layoutConfig ?? null,
         },
       };
     }
@@ -847,8 +898,10 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             enabled: { type: "boolean" },
             timeout: { type: "number", minimum: 30, maximum: 3600 },
             interval: { type: "number", minimum: 3, maximum: 300 },
-            layout: { type: "string", enum: ["fullscreen", "side-by-side", "quad", "scatter"] },
+            layout: { type: "string", enum: ["fullscreen", "informational", "quad", "scatter", "builder"] },
             transition: { type: "string", enum: ["fade", "slide-left", "slide-right", "slide-up", "slide-down", "zoom"] },
+            colorScheme: { type: "string", enum: ["default", "homio", "ocean", "forest", "sunset", "lavender"] },
+            layoutConfig: { type: "object" },
           },
         },
         response: {
@@ -861,15 +914,29 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("User not found");
+      }
       const body = request.body as {
         enabled?: boolean;
         timeout?: number;
         interval?: number;
-        layout?: "fullscreen" | "side-by-side" | "quad" | "scatter";
+        layout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
         transition?: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
+        colorScheme?: "default" | "homio" | "ocean" | "forest" | "sunset" | "lavender";
+        layoutConfig?: Record<string, unknown>;
       };
+
+      // Debug logging
+      fastify.log.info({
+        userId: user.id,
+        hasLayoutConfig: !!body.layoutConfig,
+        widgetCount: (body.layoutConfig as any)?.widgets?.length ?? 0,
+        layoutConfigKeys: body.layoutConfig ? Object.keys(body.layoutConfig) : [],
+        rawBody: JSON.stringify(body).slice(0, 500)
+      }, "Screensaver settings update received");
 
       // Check if user has a kiosk config
       const [existing] = await fastify.db
@@ -878,31 +945,149 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(kioskConfig.userId, user.id))
         .limit(1);
 
-      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      const updates: Record<string, unknown> = { updatedAt: new Date(), enabled: true };
       if (body.enabled !== undefined) updates.screensaverEnabled = body.enabled;
       if (body.timeout !== undefined) updates.screensaverTimeout = body.timeout;
       if (body.interval !== undefined) updates.screensaverInterval = body.interval;
       if (body.layout !== undefined) updates.screensaverLayout = body.layout;
       if (body.transition !== undefined) updates.screensaverTransition = body.transition;
+      if (body.colorScheme !== undefined) updates.colorScheme = body.colorScheme;
+      if (body.layoutConfig !== undefined) updates.screensaverLayoutConfig = body.layoutConfig;
 
       if (existing) {
+        fastify.log.info({ existingId: existing.id, userId: user.id }, "Updating existing kiosk config");
         await fastify.db
           .update(kioskConfig)
           .set(updates)
           .where(eq(kioskConfig.userId, user.id));
       } else {
+        fastify.log.info({ userId: user.id }, "Creating new kiosk config");
         await fastify.db.insert(kioskConfig).values({
           userId: user.id,
-          enabled: false,
+          enabled: true,
+          colorScheme: body.colorScheme ?? "default",
           screensaverEnabled: body.enabled ?? true,
           screensaverTimeout: body.timeout ?? 300,
           screensaverInterval: body.interval ?? 15,
           screensaverLayout: body.layout ?? "fullscreen",
           screensaverTransition: body.transition ?? "fade",
+          screensaverLayoutConfig: body.layoutConfig ?? null,
         });
       }
 
+      fastify.log.info({ userId: user.id }, "Screensaver settings saved successfully");
       return { success: true };
+    }
+  );
+
+  // Trigger kiosk refresh - protected (admin sends command to kiosk)
+  fastify.post(
+    "/kiosk/refresh",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Trigger a full page refresh on all kiosk devices",
+        tags: ["Auth", "Kiosk"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("User not found");
+      }
+
+      // Add refresh command for this user's kiosks
+      const existingCommands = kioskCommands.get(user.id) ?? [];
+      existingCommands.push({
+        type: "refresh",
+        timestamp: Date.now(),
+      });
+      kioskCommands.set(user.id, existingCommands);
+
+      fastify.log.info(`Kiosk refresh triggered by user ${user.id}`);
+
+      return { success: true };
+    }
+  );
+
+  // Poll for kiosk commands - public (kiosk checks for pending commands)
+  fastify.get(
+    "/kiosk/commands",
+    {
+      schema: {
+        description: "Poll for pending kiosk commands (called by kiosk devices)",
+        tags: ["Auth", "Kiosk"],
+        querystring: {
+          type: "object",
+          properties: {
+            since: { type: "number", description: "Timestamp to get commands since" },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  commands: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        type: { type: "string" },
+                        timestamp: { type: "number" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const { since } = request.query as { since?: number };
+      const sinceTimestamp = since ?? 0;
+
+      // Get the active kiosk owner
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kioskConfig)
+        .where(eq(kioskConfig.enabled, true))
+        .limit(1);
+
+      if (!kiosk) {
+        return {
+          success: true,
+          data: { commands: [] },
+        };
+      }
+
+      // Get commands for this kiosk owner newer than 'since' timestamp
+      const commands = kioskCommands.get(kiosk.userId) ?? [];
+      const newCommands = commands.filter((cmd) => cmd.timestamp > sinceTimestamp);
+
+      return {
+        success: true,
+        data: { commands: newCommands },
+      };
     }
   );
 };

@@ -10,6 +10,7 @@ import {
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { XtremeCodesClient } from "../../services/xtreme-codes.js";
+import { getIptvCacheService } from "../../services/iptv-cache.js";
 
 export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
   // ==================== SERVERS ====================
@@ -551,7 +552,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       try {
-        const epgData = await client.getEpg(result.channel.externalId, 20);
+        // Use epgChannelId if available, otherwise fall back to externalId
+        const epgId = result.channel.epgChannelId || result.channel.externalId;
+        const epgData = await client.getEpg(epgId, 20);
 
         const epgEntries = epgData.map((entry) => ({
           id: entry.id,
@@ -829,6 +832,177 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       return reply.status(201).send({ success: true });
+    }
+  );
+
+  // ==================== CACHE & GUIDE ====================
+
+  // Get full TV guide (EPG for all channels) from cache
+  fastify.get(
+    "/guide",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Get full TV guide (EPG) from cache for instant loading",
+        tags: ["IPTV"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            serverId: { type: "string", format: "uuid" },
+            categoryId: { type: "string", format: "uuid" },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      const { serverId, categoryId } = request.query as {
+        serverId?: string;
+        categoryId?: string;
+      };
+
+      const cacheService = getIptvCacheService(fastify);
+      const cachedData = cacheService.getCachedData(user.id);
+
+      if (!cachedData) {
+        // No cache, return empty - client should trigger refresh
+        return {
+          success: true,
+          data: {
+            channels: [],
+            categories: [],
+            epg: {},
+            cached: false,
+            lastUpdated: null,
+          },
+        };
+      }
+
+      // Get user's favorites
+      const favorites = await fastify.db
+        .select({ channelId: iptvFavorites.channelId })
+        .from(iptvFavorites)
+        .where(eq(iptvFavorites.userId, user.id));
+      const favoriteIds = new Set(favorites.map((f) => f.channelId));
+
+      // Filter channels by server and category if specified
+      let channels = cachedData.channels;
+      if (serverId) {
+        channels = channels.filter((c) => c.serverId === serverId);
+      }
+      if (categoryId) {
+        channels = channels.filter((c) => c.categoryId === categoryId);
+      }
+
+      // Filter categories by server if specified
+      let categories = cachedData.categories;
+      if (serverId) {
+        categories = categories.filter((c) => c.serverId === serverId);
+      }
+
+      // Build EPG map for filtered channels
+      const epg: Record<string, Array<{
+        id: string;
+        title: string;
+        description: string | null;
+        startTime: string;
+        endTime: string;
+      }>> = {};
+
+      for (const channel of channels) {
+        const channelEpg = cachedData.epg.get(channel.id);
+        if (channelEpg && channelEpg.length > 0) {
+          epg[channel.id] = channelEpg.map((e) => ({
+            id: e.id,
+            title: e.title,
+            description: e.description,
+            startTime: e.startTime.toISOString(),
+            endTime: e.endTime.toISOString(),
+          }));
+        }
+      }
+
+      return {
+        success: true,
+        data: {
+          channels: channels.map((c) => ({
+            ...c,
+            isFavorite: favoriteIds.has(c.id),
+          })),
+          categories,
+          epg,
+          cached: true,
+          lastUpdated: cachedData.lastUpdated.toISOString(),
+        },
+      };
+    }
+  );
+
+  // Refresh cache for current user
+  fastify.post(
+    "/cache/refresh",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Refresh IPTV cache for current user",
+        tags: ["IPTV"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      const cacheService = getIptvCacheService(fastify);
+
+      try {
+        await cacheService.refreshUserCache(user.id);
+        const cachedData = cacheService.getCachedData(user.id);
+
+        return {
+          success: true,
+          data: {
+            channelCount: cachedData?.channels.length || 0,
+            categoryCount: cachedData?.categories.length || 0,
+            epgChannelCount: cachedData?.epg.size || 0,
+            lastUpdated: cachedData?.lastUpdated.toISOString() || null,
+          },
+        };
+      } catch (error) {
+        return reply.internalServerError(
+          `Cache refresh failed: ${error instanceof Error ? error.message : "Unknown error"}`
+        );
+      }
+    }
+  );
+
+  // Get cache status
+  fastify.get(
+    "/cache/status",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Get IPTV cache status for current user",
+        tags: ["IPTV"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      const cacheService = getIptvCacheService(fastify);
+      const cachedData = cacheService.getCachedData(user.id);
+      const isValid = cacheService.isCacheValid(user.id);
+
+      return {
+        success: true,
+        data: {
+          cached: !!cachedData,
+          valid: isValid,
+          channelCount: cachedData?.channels.length || 0,
+          categoryCount: cachedData?.categories.length || 0,
+          epgChannelCount: cachedData?.epg.size || 0,
+          lastUpdated: cachedData?.lastUpdated.toISOString() || null,
+        },
+      };
     }
   );
 };

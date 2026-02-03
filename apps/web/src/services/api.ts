@@ -176,6 +176,11 @@ class ApiClient {
     return this.fetch<{ frontendUrl: string }>("/auth/config");
   }
 
+  // Server Info (IP addresses)
+  async getServerInfo(): Promise<{ hostname: string; port: number; addresses: string[] }> {
+    return this.fetch<{ hostname: string; port: number; addresses: string[] }>("/health/info");
+  }
+
   // Calendars
   async getCalendars(): Promise<Calendar[]> {
     return this.fetch<Calendar[]>("/calendars?includeHidden=true");
@@ -377,11 +382,48 @@ class ApiClient {
     return result.data;
   }
 
-  async getSlideshow(): Promise<{
+  async getSlideshow(options?: {
+    albumId?: string;
+    orientation?: "all" | "landscape" | "portrait";
+  }): Promise<{
     photos: Array<{ id: string; url: string; width?: number; height?: number }>;
     interval: number;
   }> {
-    return this.fetch("/photos/slideshow");
+    const params = new URLSearchParams();
+    if (options?.albumId) params.set("albumId", options.albumId);
+    if (options?.orientation) params.set("orientation", options.orientation);
+    const queryString = params.toString();
+    return this.fetch(`/photos/slideshow${queryString ? `?${queryString}` : ""}`);
+  }
+
+  async getRedditPhotos(
+    subreddit: string,
+    options?: {
+      limit?: number;
+      orientation?: "all" | "landscape" | "portrait";
+      sort?: "hot" | "new" | "top";
+      time?: "hour" | "day" | "week" | "month" | "year" | "all";
+    }
+  ): Promise<{
+    photos: Array<{
+      id: string;
+      url: string;
+      title: string;
+      author: string;
+      width: number;
+      height: number;
+      subreddit: string;
+      permalink: string;
+    }>;
+    subreddit: string;
+  }> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set("limit", options.limit.toString());
+    if (options?.orientation) params.set("orientation", options.orientation);
+    if (options?.sort) params.set("sort", options.sort);
+    if (options?.time) params.set("time", options.time);
+    const queryString = params.toString();
+    return this.fetch(`/photos/reddit/${subreddit}${queryString ? `?${queryString}` : ""}`);
   }
 
   async importPhotosFromGoogle(
@@ -500,14 +542,26 @@ class ApiClient {
     await this.fetch("/auth/kiosk/disable", { method: "POST", body: JSON.stringify({}) });
   }
 
+  async refreshKiosk(): Promise<void> {
+    await this.fetch("/auth/kiosk/refresh", { method: "POST", body: JSON.stringify({}) });
+  }
+
+  async getKioskCommands(since?: number): Promise<{ commands: Array<{ type: string; timestamp: number }> }> {
+    const params = since ? `?since=${since}` : "";
+    const response = await fetch(`${API_BASE}/auth/kiosk/commands${params}`);
+    const result = await response.json();
+    return result.data;
+  }
+
   // Screensaver settings
   async getScreensaverSettings(): Promise<{
     enabled: boolean;
     timeout: number;
     interval: number;
-    layout: "fullscreen" | "side-by-side" | "quad" | "scatter";
+    layout: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
     transition: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
     colorScheme: ColorScheme;
+    layoutConfig?: Record<string, unknown> | null;
   }> {
     const response = await fetch(`${API_BASE}/auth/kiosk/screensaver`);
     const result = await response.json();
@@ -518,14 +572,143 @@ class ApiClient {
     enabled?: boolean;
     timeout?: number;
     interval?: number;
-    layout?: "fullscreen" | "side-by-side" | "quad" | "scatter";
+    layout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
     transition?: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
     colorScheme?: ColorScheme;
+    layoutConfig?: Record<string, unknown>;
   }): Promise<void> {
     await this.fetch("/auth/kiosk/screensaver", {
       method: "PUT",
       body: JSON.stringify(settings),
     });
+  }
+
+  // Multi-Kiosk Management
+  async getKiosks(): Promise<Kiosk[]> {
+    return this.fetch<Kiosk[]>("/kiosks");
+  }
+
+  async getKiosk(id: string): Promise<Kiosk> {
+    return this.fetch<Kiosk>(`/kiosks/${id}`);
+  }
+
+  async createKiosk(data: {
+    name?: string;
+    colorScheme?: ColorScheme;
+    screensaverEnabled?: boolean;
+    screensaverTimeout?: number;
+    screensaverInterval?: number;
+    screensaverLayout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
+    screensaverTransition?: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
+    screensaverLayoutConfig?: Record<string, unknown>;
+  }): Promise<Kiosk> {
+    return this.fetch<Kiosk>("/kiosks", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateKiosk(
+    id: string,
+    data: {
+      name?: string;
+      isActive?: boolean;
+      colorScheme?: ColorScheme;
+      screensaverEnabled?: boolean;
+      screensaverTimeout?: number;
+      screensaverInterval?: number;
+      screensaverLayout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
+      screensaverTransition?: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
+      screensaverLayoutConfig?: Record<string, unknown>;
+    }
+  ): Promise<Kiosk> {
+    return this.fetch<Kiosk>(`/kiosks/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteKiosk(id: string): Promise<void> {
+    await this.fetch(`/kiosks/${id}`, { method: "DELETE" });
+  }
+
+  async regenerateKioskToken(id: string): Promise<Kiosk> {
+    return this.fetch<Kiosk>(`/kiosks/${id}/regenerate-token`, {
+      method: "POST",
+    });
+  }
+
+  async refreshKioskById(id: string): Promise<void> {
+    await this.fetch(`/kiosks/${id}/refresh`, { method: "POST" });
+  }
+
+  // Public kiosk endpoints (token-based, no auth)
+  async getKioskByToken(token: string): Promise<KioskConfig> {
+    const response = await fetch(`${API_BASE}/kiosks/public/${token}`);
+    if (!response.ok) {
+      throw new Error("Kiosk not found or disabled");
+    }
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getKioskApiKey(token: string): Promise<{ apiKey: string; userId: string }> {
+    const response = await fetch(`${API_BASE}/kiosks/public/${token}/auth`, {
+      method: "POST",
+    });
+    if (!response.ok) {
+      throw new Error("Failed to authenticate kiosk");
+    }
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getKioskCommandsByToken(token: string, since?: number): Promise<{ commands: Array<{ type: string; timestamp: number }> }> {
+    const params = since ? `?since=${since}` : "";
+    const response = await fetch(`${API_BASE}/kiosks/public/${token}/commands${params}`);
+    if (!response.ok) {
+      throw new Error("Kiosk not found or disabled");
+    }
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getKioskPhotosByToken(token: string, options?: { albumId?: string; orientation?: "all" | "landscape" | "portrait" }): Promise<{
+    photos: Array<{ id: string; url: string; width?: number; height?: number }>;
+    interval: number;
+  }> {
+    const params = new URLSearchParams();
+    if (options?.albumId) params.set("albumId", options.albumId);
+    if (options?.orientation) params.set("orientation", options.orientation);
+    const queryString = params.toString();
+    const response = await fetch(`${API_BASE}/kiosks/public/${token}/photos${queryString ? `?${queryString}` : ""}`);
+    if (!response.ok) {
+      throw new Error("Kiosk not found or disabled");
+    }
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getKioskEventsByToken(token: string, start?: Date, end?: Date): Promise<Array<{
+    id: string;
+    title: string;
+    description?: string;
+    location?: string;
+    startTime: string;
+    endTime: string;
+    isAllDay: boolean;
+    status: string;
+  }>> {
+    const params = new URLSearchParams();
+    if (start) params.set("start", start.toISOString());
+    if (end) params.set("end", end.toISOString());
+    const queryString = params.toString();
+    const response = await fetch(`${API_BASE}/kiosks/public/${token}/events${queryString ? `?${queryString}` : ""}`);
+    if (!response.ok) {
+      throw new Error("Kiosk not found or disabled");
+    }
+    const result = await response.json();
+    return result.data;
   }
 
   // Maps
@@ -938,6 +1121,23 @@ class ApiClient {
 
   getHACameraStreamUrl(entityId: string): string {
     return `${API_BASE}/homeassistant/camera/${entityId}/stream`;
+  }
+
+  async getHomeAssistantCameraSnapshot(entityId: string): Promise<Blob> {
+    const { accessToken, apiKey } = useAuthStore.getState();
+    const headers: HeadersInit = {};
+    if (apiKey) {
+      headers["x-api-key"] = apiKey;
+    } else if (accessToken) {
+      headers["Authorization"] = `Bearer ${accessToken}`;
+    }
+    const response = await fetch(this.getHACameraSnapshotUrl(entityId), {
+      headers,
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch camera snapshot: ${response.statusText}`);
+    }
+    return response.blob();
   }
 
   // Entity Timers
@@ -1592,6 +1792,36 @@ class ApiClient {
   }
 }
 
+// Kiosk types
+export interface Kiosk {
+  id: string;
+  userId: string;
+  token: string;
+  name: string;
+  isActive: boolean;
+  colorScheme: ColorScheme;
+  screensaverEnabled: boolean;
+  screensaverTimeout: number;
+  screensaverInterval: number;
+  screensaverLayout: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
+  screensaverTransition: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
+  screensaverLayoutConfig: Record<string, unknown> | null;
+  lastAccessedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KioskConfig {
+  name: string;
+  colorScheme: ColorScheme;
+  screensaverEnabled: boolean;
+  screensaverTimeout: number;
+  screensaverInterval: number;
+  screensaverLayout: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
+  screensaverTransition: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
+  screensaverLayoutConfig: Record<string, unknown> | null;
+}
+
 // Spotify account type
 export interface SpotifyAccount {
   id: string;
@@ -1761,8 +1991,12 @@ export interface RemarkableParsedEvent {
   error?: string;
 }
 
-// Capacities
+export const api = new ApiClient();
 
+// Capacities and Telegram API methods temporarily disabled
+// TODO: Re-add these methods inside the ApiClient class
+
+/*
   async connectCapacities(apiToken: string): Promise<{
     connected: boolean;
     message: string;
@@ -1920,55 +2154,4 @@ export interface RemarkableParsedEvent {
   async deleteTelegramWebhook(): Promise<{ message: string }> {
     return this.fetch("/telegram/webhook", { method: "DELETE" });
   }
-}
-
-// Capacities types
-export interface CapacitiesSpaceInfo {
-  id: string;
-  title: string;
-  icon?: string;
-  isDefault?: boolean;
-}
-
-export interface CapacitiesStatus {
-  connected: boolean;
-  defaultSpaceId: string | null;
-  lastSyncAt: string | null;
-  spaces: CapacitiesSpaceInfo[];
-}
-
-// Telegram types
-export interface TelegramChatInfo {
-  id: string;
-  chatId: string;
-  chatType: "private" | "group" | "supergroup" | "channel";
-  name: string;
-  username: string | null;
-  isActive: boolean;
-  linkedAt: string;
-  lastMessageAt: string | null;
-}
-
-export interface TelegramSettings {
-  dailyAgendaEnabled: boolean;
-  dailyAgendaTime: string;
-  eventRemindersEnabled: boolean;
-  eventReminderMinutes: number;
-}
-
-export interface TelegramStatus {
-  connected: boolean;
-  botUsername: string | null;
-  settings: TelegramSettings;
-  chats: TelegramChatInfo[];
-}
-
-export interface TelegramWebhookInfo {
-  url: string;
-  has_custom_certificate: boolean;
-  pending_update_count: number;
-  last_error_date?: number;
-  last_error_message?: string;
-}
-
-export const api = new ApiClient();
+*/

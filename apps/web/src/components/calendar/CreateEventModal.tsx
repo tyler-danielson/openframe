@@ -1,17 +1,43 @@
 import { useState, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { X, Calendar, Clock } from "lucide-react";
 import { format } from "date-fns";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { Calendar } from "@openframe/shared";
+import type { Calendar as CalendarType } from "@openframe/shared";
 import { Button } from "../ui/Button";
 import { PlacesAutocomplete } from "../ui/PlacesAutocomplete";
+import { TouchDatePicker } from "../ui/TouchDatePicker";
+import { TouchTimePicker } from "../ui/TouchTimePicker";
 import { api } from "../../services/api";
+
+// Round time up to the next 30-minute interval
+function getRoundedTime(): { startTime: Date; endTime: Date } {
+  const now = new Date();
+  const minutes = now.getMinutes();
+
+  // Round up to next 30-minute mark
+  const roundedMinutes = minutes <= 0 ? 0 : minutes <= 30 ? 30 : 60;
+
+  const startTime = new Date(now);
+  startTime.setMinutes(roundedMinutes, 0, 0);
+
+  // If we rounded to 60, that means next hour
+  if (roundedMinutes === 60) {
+    startTime.setMinutes(0);
+    startTime.setHours(startTime.getHours() + 1);
+  }
+
+  // End time is 1 hour after start
+  const endTime = new Date(startTime);
+  endTime.setHours(endTime.getHours() + 1);
+
+  return { startTime, endTime };
+}
 
 interface CreateEventModalProps {
   open: boolean;
   onClose: () => void;
-  calendars: Calendar[];
+  calendars: CalendarType[];
 }
 
 export function CreateEventModal({ open, onClose, calendars }: CreateEventModalProps) {
@@ -23,13 +49,20 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
 
   const [title, setTitle] = useState("");
   const [calendarId, setCalendarId] = useState(defaultCalendar?.id ?? "");
-  const [startDate, setStartDate] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [startTime, setStartTime] = useState(format(new Date(), "HH:mm"));
-  const [endDate, setEndDate] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [endTime, setEndTime] = useState(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm"));
+  const initialTimes = getRoundedTime();
+  const [startDate, setStartDate] = useState(format(initialTimes.startTime, "yyyy-MM-dd"));
+  const [startTime, setStartTime] = useState(format(initialTimes.startTime, "HH:mm"));
+  const [endDate, setEndDate] = useState(format(initialTimes.endTime, "yyyy-MM-dd"));
+  const [endTime, setEndTime] = useState(format(initialTimes.endTime, "HH:mm"));
   const [isAllDay, setIsAllDay] = useState(false);
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
+
+  // Touch picker visibility
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showStartTimePicker, setShowStartTimePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [showEndTimePicker, setShowEndTimePicker] = useState(false);
 
   // Update default calendar when calendars change
   useEffect(() => {
@@ -41,14 +74,19 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
   // Reset form when modal opens
   useEffect(() => {
     if (open) {
+      const { startTime: roundedStart, endTime: roundedEnd } = getRoundedTime();
       setTitle("");
-      setStartDate(format(new Date(), "yyyy-MM-dd"));
-      setStartTime(format(new Date(), "HH:mm"));
-      setEndDate(format(new Date(), "yyyy-MM-dd"));
-      setEndTime(format(new Date(Date.now() + 60 * 60 * 1000), "HH:mm"));
+      setStartDate(format(roundedStart, "yyyy-MM-dd"));
+      setStartTime(format(roundedStart, "HH:mm"));
+      setEndDate(format(roundedEnd, "yyyy-MM-dd"));
+      setEndTime(format(roundedEnd, "HH:mm"));
       setIsAllDay(false);
       setLocation("");
       setDescription("");
+      setShowStartDatePicker(false);
+      setShowStartTimePicker(false);
+      setShowEndDatePicker(false);
+      setShowEndTimePicker(false);
       if (defaultCalendar) {
         setCalendarId(defaultCalendar.id);
       }
@@ -100,13 +138,26 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
     });
   };
 
-  const selectedCalendar = calendars.find((c) => c.id === calendarId);
+  // Format time for display (12-hour format)
+  const formatTimeDisplay = (time: string) => {
+    const [h, m] = time.split(":").map(Number);
+    const hour = h ?? 0;
+    const minute = m ?? 0;
+    const period = hour >= 12 ? "PM" : "AM";
+    const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return `${hour12}:${minute.toString().padStart(2, "0")} ${period}`;
+  };
+
+  // Format date for display
+  const formatDateDisplay = (date: string) => {
+    return format(new Date(date), "EEE, MMM d");
+  };
 
   return (
     <Dialog.Root open={open} onOpenChange={onClose}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 data-[state=open]:animate-fade-in" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[85vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl border border-border bg-card p-6 shadow-xl data-[state=open]:animate-slide-up">
+        <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[90vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl border border-border bg-card p-6 shadow-xl data-[state=open]:animate-slide-up">
           <div className="mb-4 flex items-start justify-between">
             <Dialog.Title className="text-xl font-semibold">
               New Event
@@ -127,7 +178,7 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Event title"
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full rounded-md border border-border bg-background px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-primary touch-manipulation"
                 autoFocus
                 required
               />
@@ -142,7 +193,7 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
                     key={calendar.id}
                     type="button"
                     onClick={() => setCalendarId(calendar.id)}
-                    className={`w-full flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                    className={`w-full flex items-center gap-3 rounded-md px-3 py-3 text-left text-base transition-colors touch-manipulation ${
                       calendarId === calendar.id
                         ? "bg-primary/10 border border-primary"
                         : "border border-border hover:bg-accent"
@@ -165,59 +216,136 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
             </div>
 
             {/* All day toggle */}
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="allDay"
-                checked={isAllDay}
-                onChange={(e) => setIsAllDay(e.target.checked)}
-                className="rounded"
-              />
-              <label htmlFor="allDay" className="text-sm font-medium">
-                All day
-              </label>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setIsAllDay(!isAllDay)}
+                className={`relative w-14 h-8 rounded-full transition-colors touch-manipulation ${
+                  isAllDay ? "bg-primary" : "bg-muted"
+                }`}
+              >
+                <div
+                  className={`absolute top-1 w-6 h-6 rounded-full bg-white shadow transition-transform ${
+                    isAllDay ? "translate-x-7" : "translate-x-1"
+                  }`}
+                />
+              </button>
+              <label className="text-base font-medium">All day</label>
             </div>
 
-            {/* Date and time */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Start</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                />
+            {/* Start Date & Time */}
+            <div>
+              <label className="block text-sm font-medium mb-2">Start</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowStartDatePicker(!showStartDatePicker);
+                    setShowStartTimePicker(false);
+                  }}
+                  className={`flex-1 flex items-center gap-2 px-4 py-3 rounded-lg border text-left transition-colors touch-manipulation ${
+                    showStartDatePicker
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:bg-accent"
+                  }`}
+                >
+                  <Calendar className="h-5 w-5 text-muted-foreground" />
+                  <span className="text-base font-medium">{formatDateDisplay(startDate)}</span>
+                </button>
                 {!isAllDay && (
-                  <input
-                    type="time"
-                    value={startTime}
-                    onChange={(e) => setStartTime(e.target.value)}
-                    className="w-full mt-2 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    required
-                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowStartTimePicker(!showStartTimePicker);
+                      setShowStartDatePicker(false);
+                    }}
+                    className={`flex items-center gap-2 px-4 py-3 rounded-lg border transition-colors touch-manipulation ${
+                      showStartTimePicker
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:bg-accent"
+                    }`}
+                  >
+                    <Clock className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-base font-medium">{formatTimeDisplay(startTime)}</span>
+                  </button>
                 )}
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">End</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                />
-                {!isAllDay && (
-                  <input
-                    type="time"
-                    value={endTime}
-                    onChange={(e) => setEndTime(e.target.value)}
-                    className="w-full mt-2 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    required
+
+              {/* Start Date Picker */}
+              {showStartDatePicker && (
+                <div className="mt-3">
+                  <TouchDatePicker
+                    value={startDate}
+                    onChange={(value) => {
+                      setStartDate(value);
+                      // Auto-update end date if it's before start date
+                      if (new Date(value) > new Date(endDate)) {
+                        setEndDate(value);
+                      }
+                    }}
                   />
+                </div>
+              )}
+
+              {/* Start Time Picker */}
+              {showStartTimePicker && !isAllDay && (
+                <div className="mt-3">
+                  <TouchTimePicker value={startTime} onChange={setStartTime} />
+                </div>
+              )}
+            </div>
+
+            {/* End Date & Time */}
+            <div>
+              <label className="block text-sm font-medium mb-2">End</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEndDatePicker(!showEndDatePicker);
+                    setShowEndTimePicker(false);
+                  }}
+                  className={`flex-1 flex items-center gap-2 px-4 py-3 rounded-lg border text-left transition-colors touch-manipulation ${
+                    showEndDatePicker
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:bg-accent"
+                  }`}
+                >
+                  <Calendar className="h-5 w-5 text-muted-foreground" />
+                  <span className="text-base font-medium">{formatDateDisplay(endDate)}</span>
+                </button>
+                {!isAllDay && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEndTimePicker(!showEndTimePicker);
+                      setShowEndDatePicker(false);
+                    }}
+                    className={`flex items-center gap-2 px-4 py-3 rounded-lg border transition-colors touch-manipulation ${
+                      showEndTimePicker
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:bg-accent"
+                    }`}
+                  >
+                    <Clock className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-base font-medium">{formatTimeDisplay(endTime)}</span>
+                  </button>
                 )}
               </div>
+
+              {/* End Date Picker */}
+              {showEndDatePicker && (
+                <div className="mt-3">
+                  <TouchDatePicker value={endDate} onChange={setEndDate} />
+                </div>
+              )}
+
+              {/* End Time Picker */}
+              {showEndTimePicker && !isAllDay && (
+                <div className="mt-3">
+                  <TouchTimePicker value={endTime} onChange={setEndTime} />
+                </div>
+              )}
             </div>
 
             {/* Location */}
@@ -227,7 +355,7 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
                 value={location}
                 onChange={setLocation}
                 placeholder="Search for a location"
-                className="rounded-md px-3 py-2 focus:ring-2 focus:ring-primary"
+                className="rounded-md px-3 py-3 text-base focus:ring-2 focus:ring-primary"
               />
             </div>
 
@@ -239,18 +367,23 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Add description"
                 rows={3}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                className="w-full rounded-md border border-border bg-background px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-primary resize-none touch-manipulation"
               />
             </div>
 
             {/* Actions */}
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" size="sm" onClick={onClose}>
+            <div className="flex gap-3 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 py-3 text-base touch-manipulation"
+                onClick={onClose}
+              >
                 Cancel
               </Button>
               <Button
                 type="submit"
-                size="sm"
+                className="flex-1 py-3 text-base touch-manipulation"
                 disabled={!title.trim() || !calendarId || createEvent.isPending}
               >
                 {createEvent.isPending ? "Creating..." : "Create Event"}

@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Image, Trash2, Upload } from "lucide-react";
+import { Plus, Image, Trash2, Upload, QrCode } from "lucide-react";
 import { api } from "../services/api";
 import { Button } from "../components/ui/Button";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card";
+import { QRUploadModal } from "../components/photos/QRUploadModal";
 import { cn } from "../lib/utils";
 import type { PhotoAlbum, Photo } from "@openframe/shared";
 
@@ -11,6 +12,7 @@ export function PhotosPage() {
   const queryClient = useQueryClient();
   const [selectedAlbum, setSelectedAlbum] = useState<PhotoAlbum | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
 
   // Fetch albums
   const { data: albums = [] } = useQuery({
@@ -115,7 +117,15 @@ export function PhotosPage() {
                   </p>
                 )}
               </div>
-              <div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowQRModal(true)}
+                  title="Upload from mobile device"
+                >
+                  <QrCode className="mr-2 h-4 w-4" />
+                  Mobile Upload
+                </Button>
                 <input
                   type="file"
                   id="photo-upload"
@@ -182,6 +192,20 @@ export function PhotosPage() {
           </div>
         )}
       </div>
+
+      {/* QR Code Upload Modal */}
+      {selectedAlbum && (
+        <QRUploadModal
+          isOpen={showQRModal}
+          onClose={() => {
+            setShowQRModal(false);
+            // Refresh photos after closing in case uploads happened
+            queryClient.invalidateQueries({ queryKey: ["photos", selectedAlbum.id] });
+          }}
+          albumId={selectedAlbum.id}
+          albumName={selectedAlbum.name}
+        />
+      )}
     </div>
   );
 }

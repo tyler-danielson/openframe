@@ -379,9 +379,10 @@ export const colorSchemeEnum = pgEnum("color_scheme", [
 // Screensaver layout enum
 export const screensaverLayoutEnum = pgEnum("screensaver_layout", [
   "fullscreen",
-  "side-by-side",
+  "informational",
   "quad",
   "scatter",
+  "builder",
 ]);
 
 // Screensaver transition enum
@@ -410,6 +411,7 @@ export const kioskConfig = pgTable("kiosk_config", {
   screensaverInterval: integer("screensaver_interval").default(15).notNull(), // seconds between slides
   screensaverLayout: screensaverLayoutEnum("screensaver_layout").default("fullscreen").notNull(),
   screensaverTransition: screensaverTransitionEnum("screensaver_transition").default("fade").notNull(),
+  screensaverLayoutConfig: jsonb("screensaver_layout_config"), // Custom builder layout config (widgets, grid, etc.)
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
@@ -417,6 +419,44 @@ export const kioskConfig = pgTable("kiosk_config", {
     .defaultNow()
     .notNull(),
 });
+
+// Kiosks (multi-kiosk support with token-based URLs)
+export const kiosks = pgTable(
+  "kiosks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    token: uuid("token").notNull().unique().defaultRandom(), // URL token for public access
+    name: text("name").notNull().default("My Kiosk"),
+    isActive: boolean("is_active").default(true).notNull(),
+    // Color scheme
+    colorScheme: colorSchemeEnum("color_scheme").default("default").notNull(),
+    // Screensaver settings
+    screensaverEnabled: boolean("screensaver_enabled").default(true).notNull(),
+    screensaverTimeout: integer("screensaver_timeout").default(300).notNull(), // seconds
+    screensaverInterval: integer("screensaver_interval").default(15).notNull(), // seconds between slides
+    screensaverLayout: screensaverLayoutEnum("screensaver_layout")
+      .default("builder")
+      .notNull(),
+    screensaverTransition: screensaverTransitionEnum("screensaver_transition")
+      .default("fade")
+      .notNull(),
+    screensaverLayoutConfig: jsonb("screensaver_layout_config"), // Custom builder layout config
+    lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("kiosks_user_idx").on(table.userId),
+    index("kiosks_token_idx").on(table.token),
+  ]
+);
 
 // Display configurations
 export const displayConfigs = pgTable("display_configs", {
@@ -472,6 +512,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   photoAlbums: many(photoAlbums),
   displayConfigs: many(displayConfigs),
   kioskConfig: one(kioskConfig),
+  kiosks: many(kiosks),
 }));
 
 export const oauthTokensRelations = relations(oauthTokens, ({ one }) => ({
@@ -550,6 +591,13 @@ export const displayConfigsRelations = relations(displayConfigs, ({ one }) => ({
 export const kioskConfigRelations = relations(kioskConfig, ({ one }) => ({
   user: one(users, {
     fields: [kioskConfig.userId],
+    references: [users.id],
+  }),
+}));
+
+export const kiosksRelations = relations(kiosks, ({ one }) => ({
+  user: one(users, {
+    fields: [kiosks.userId],
     references: [users.id],
   }),
 }));
@@ -1499,3 +1547,4 @@ export type CapacitiesConfig = typeof capacitiesConfig.$inferSelect;
 export type CapacitiesSpace = typeof capacitiesSpaces.$inferSelect;
 export type TelegramConfig = typeof telegramConfig.$inferSelect;
 export type TelegramChat = typeof telegramChats.$inferSelect;
+export type Kiosk = typeof kiosks.$inferSelect;

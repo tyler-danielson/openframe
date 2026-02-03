@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
-import { Outlet, NavLink, useNavigate } from "react-router-dom";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { Outlet, NavLink, useNavigate, useLocation, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Calendar,
@@ -19,19 +19,63 @@ import {
   MapPin,
   Menu,
   X,
+  Moon,
+  Play,
 } from "lucide-react";
 import { api } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
 import { useHAWebSocket } from "../../stores/homeassistant-ws";
+import { useScreensaverStore } from "../../stores/screensaver";
 import { cn } from "../../lib/utils";
+
+// Media sub-items (base paths, will be prefixed in component)
+const mediaItemsBase = [
+  { path: "spotify", icon: Music, label: "Spotify" },
+  { path: "iptv", icon: Tv, label: "Live TV" },
+];
 
 export function Layout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { logout, setUser, isAuthenticated, kioskEnabled } = useAuthStore();
+  const setScreensaverActive = useScreensaverStore((state) => state.setActive);
+  const screensaverEnabled = useScreensaverStore((state) => state.enabled);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isMediaMenuOpen, setIsMediaMenuOpen] = useState(false);
+
+  // Detect kiosk mode base path from URL (e.g., /kiosk/abc123)
+  const basePath = useMemo(() => {
+    const match = location.pathname.match(/^(\/kiosk\/[^/]+)/);
+    return match ? match[1] : "";
+  }, [location.pathname]);
+
+  // Helper to build full path with kiosk prefix if needed
+  const buildPath = useCallback((path: string) => {
+    return basePath ? `${basePath}/${path}` : `/${path}`;
+  }, [basePath]);
+
+  // Media items with correct paths
+  const mediaItems = useMemo(() =>
+    mediaItemsBase.map(item => ({
+      to: buildPath(item.path),
+      icon: item.icon,
+      label: item.label,
+    })),
+    [buildPath]
+  );
+
+  // Check if current route is a media route
+  const isMediaRoute = location.pathname.endsWith("/spotify") || location.pathname.endsWith("/iptv");
+
+  // Auto-open media menu when on a media route
+  useEffect(() => {
+    if (isMediaRoute) {
+      setIsMediaMenuOpen(true);
+    }
+  }, [isMediaRoute]);
 
   // Home Assistant WebSocket
   const haDisconnect = useHAWebSocket((state) => state.disconnect);
@@ -58,6 +102,12 @@ export function Layout() {
       console.error("Fullscreen error:", err);
     }
   }, []);
+
+  const activateScreensaver = useCallback(() => {
+    if (screensaverEnabled) {
+      setScreensaverActive(true);
+    }
+  }, [screensaverEnabled, setScreensaverActive]);
 
   const { data: user, isLoading } = useQuery({
     queryKey: ["me"],
@@ -105,22 +155,21 @@ export function Layout() {
     }
   };
 
-  // Build nav items based on authentication status
-  const navItems = [
-    { to: "/calendar", icon: Calendar, label: "Calendar" },
-    { to: "/tasks", icon: ListTodo, label: "Tasks" },
-    { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-    { to: "/photos", icon: Image, label: "Photos" },
-    { to: "/spotify", icon: Music, label: "Spotify" },
-    { to: "/iptv", icon: Tv, label: "Live TV" },
-    { to: "/cameras", icon: Camera, label: "Cameras" },
-    { to: "/homeassistant", icon: Home, label: "Home Assistant" },
-    { to: "/map", icon: MapPin, label: "Map" },
-    // Only show settings if authenticated
-    ...(isAuthenticated
-      ? [{ to: "/settings", icon: Settings, label: "Settings" }]
+  // Build nav items based on authentication status (with kiosk prefix if needed)
+  const navItems = useMemo(() => [
+    { to: buildPath("calendar"), icon: Calendar, label: "Calendar" },
+    { to: buildPath("tasks"), icon: ListTodo, label: "Tasks" },
+    { to: buildPath("dashboard"), icon: LayoutDashboard, label: "Dashboard" },
+    { to: buildPath("photos"), icon: Image, label: "Photos" },
+    // Media is handled separately with submenu
+    { to: buildPath("cameras"), icon: Camera, label: "Cameras" },
+    { to: buildPath("homeassistant"), icon: Home, label: "Home Assistant" },
+    { to: buildPath("map"), icon: MapPin, label: "Map" },
+    // Only show settings if authenticated AND not in kiosk mode
+    ...(isAuthenticated && !kioskEnabled
+      ? [{ to: buildPath("settings"), icon: Settings, label: "Settings" }]
       : []),
-  ];
+  ], [buildPath, isAuthenticated, kioskEnabled]);
 
   return (
     <div className="flex h-screen bg-background">
@@ -162,11 +211,44 @@ export function Layout() {
         </div>
 
         <nav className="flex flex-1 flex-col items-center gap-2">
-          {navItems.map((item) => (
+          {navItems.slice(0, 4).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
-              onClick={() => setIsMobileSidebarOpen(false)}
+              onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); }}
+              className={({ isActive }) =>
+                cn(
+                  "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+                  isActive
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                )
+              }
+              title={item.label}
+            >
+              <item.icon className="h-5 w-5" />
+            </NavLink>
+          ))}
+
+          {/* Media button with submenu */}
+          <button
+            onClick={() => setIsMediaMenuOpen(!isMediaMenuOpen)}
+            className={cn(
+              "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+              isMediaRoute || isMediaMenuOpen
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            )}
+            title="Media"
+          >
+            <Play className="h-5 w-5" />
+          </button>
+
+          {navItems.slice(4).map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); }}
               className={({ isActive }) =>
                 cn(
                   "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
@@ -184,13 +266,23 @@ export function Layout() {
 
         <div className="flex flex-col items-center gap-2">
           {/* Kiosk mode indicator */}
-          {kioskEnabled && !isAuthenticated && (
+          {kioskEnabled && (
             <div
               className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500"
               title="Kiosk Mode"
             >
               <Monitor className="h-5 w-5" />
             </div>
+          )}
+          {/* Screensaver toggle */}
+          {screensaverEnabled && (
+            <button
+              onClick={activateScreensaver}
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              title="Start screensaver"
+            >
+              <Moon className="h-5 w-5" />
+            </button>
           )}
           {/* Fullscreen toggle */}
           <button
@@ -211,25 +303,54 @@ export function Layout() {
           >
             <RefreshCw className={cn("h-5 w-5", isReconnecting && "animate-spin")} />
           </button>
-          {isAuthenticated ? (
-            <button
-              onClick={handleLogout}
-              className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
-              title="Logout"
-            >
-              <LogOut className="h-5 w-5" />
-            </button>
-          ) : (
-            <NavLink
-              to="/login"
-              className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-              title="Login"
-            >
-              <LogOut className="h-5 w-5 rotate-180" />
-            </NavLink>
+          {/* Hide logout/login in kiosk mode */}
+          {!kioskEnabled && (
+            isAuthenticated ? (
+              <button
+                onClick={handleLogout}
+                className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+                title="Logout"
+              >
+                <LogOut className="h-5 w-5" />
+              </button>
+            ) : (
+              <NavLink
+                to="/login"
+                className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                title="Login"
+              >
+                <LogOut className="h-5 w-5 rotate-180" />
+              </NavLink>
+            )
           )}
         </div>
       </aside>
+
+      {/* Media Submenu - appears to the right of sidebar */}
+      {isMediaMenuOpen && (
+        <aside className="fixed lg:relative z-40 lg:z-auto h-full flex w-16 flex-col items-center border-r border-border bg-card/95 backdrop-blur-sm py-4 left-16 lg:left-auto">
+          <div className="flex flex-col items-center gap-2 mt-[72px]">
+            {mediaItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); }}
+                className={({ isActive }) =>
+                  cn(
+                    "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )
+                }
+                title={item.label}
+              >
+                <item.icon className="h-5 w-5" />
+              </NavLink>
+            ))}
+          </div>
+        </aside>
+      )}
 
       {/* Main content */}
       <main className="relative flex-1 overflow-auto pt-16 lg:pt-0">

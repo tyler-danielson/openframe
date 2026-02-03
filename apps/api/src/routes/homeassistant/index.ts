@@ -6,6 +6,8 @@ import {
   homeAssistantEntities,
   homeAssistantRooms,
   haEntityTimers,
+  calendars,
+  events,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 
@@ -1635,4 +1637,339 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
       return { success: true };
     }
   );
+
+  // ==================== CALENDARS ====================
+
+  // List available Home Assistant calendars
+  fastify.get(
+    "/calendars",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "List available Home Assistant calendar entities",
+        tags: ["Home Assistant", "Calendars"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+
+      const [config] = await fastify.db
+        .select()
+        .from(homeAssistantConfig)
+        .where(eq(homeAssistantConfig.userId, user!.id))
+        .limit(1);
+
+      if (!config) {
+        return reply.badRequest("Home Assistant not configured");
+      }
+
+      try {
+        // Fetch all calendar entities from HA
+        const response = await fetchFromHA(
+          config.url,
+          config.accessToken,
+          "/calendars"
+        );
+
+        if (!response.ok) {
+          return reply.internalServerError("Failed to fetch calendars from Home Assistant");
+        }
+
+        const haCalendars = await response.json() as Array<{
+          entity_id: string;
+          name: string;
+        }>;
+
+        // Get already subscribed calendars
+        const subscribedCalendars = await fastify.db
+          .select()
+          .from(calendars)
+          .where(
+            and(
+              eq(calendars.userId, user!.id),
+              eq(calendars.provider, "homeassistant")
+            )
+          );
+
+        const subscribedEntityIds = new Set(subscribedCalendars.map(c => c.externalId));
+
+        return {
+          success: true,
+          data: haCalendars.map(cal => ({
+            entityId: cal.entity_id,
+            name: cal.name,
+            isSubscribed: subscribedEntityIds.has(cal.entity_id),
+          })),
+        };
+      } catch (error) {
+        console.error("Failed to fetch HA calendars:", error);
+        return reply.internalServerError("Failed to connect to Home Assistant");
+      }
+    }
+  );
+
+  // Subscribe to a Home Assistant calendar
+  fastify.post(
+    "/calendars/subscribe",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Subscribe to a Home Assistant calendar",
+        tags: ["Home Assistant", "Calendars"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        body: {
+          type: "object",
+          properties: {
+            entityId: { type: "string" },
+            name: { type: "string" },
+          },
+          required: ["entityId"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      const { entityId, name } = request.body as { entityId: string; name?: string };
+
+      const [config] = await fastify.db
+        .select()
+        .from(homeAssistantConfig)
+        .where(eq(homeAssistantConfig.userId, user!.id))
+        .limit(1);
+
+      if (!config) {
+        return reply.badRequest("Home Assistant not configured");
+      }
+
+      // Check if already subscribed
+      const existing = await fastify.db
+        .select()
+        .from(calendars)
+        .where(
+          and(
+            eq(calendars.userId, user!.id),
+            eq(calendars.provider, "homeassistant"),
+            eq(calendars.externalId, entityId)
+          )
+        )
+        .limit(1);
+
+      if (existing.length > 0) {
+        return reply.badRequest("Already subscribed to this calendar");
+      }
+
+      // Fetch calendar info from HA to get the name
+      let calendarName = name || entityId;
+      try {
+        const response = await fetchFromHA(
+          config.url,
+          config.accessToken,
+          "/calendars"
+        );
+
+        if (response.ok) {
+          const haCalendars = await response.json() as Array<{ entity_id: string; name: string }>;
+          const haCal = haCalendars.find(c => c.entity_id === entityId);
+          if (haCal && !name) {
+            calendarName = haCal.name;
+          }
+        }
+      } catch {
+        // Use provided name or entity_id as fallback
+      }
+
+      // Create the calendar subscription
+      const [calendar] = await fastify.db
+        .insert(calendars)
+        .values({
+          userId: user!.id,
+          provider: "homeassistant",
+          externalId: entityId,
+          name: calendarName,
+          isVisible: true,
+          syncEnabled: true,
+          isReadOnly: true,
+        })
+        .returning();
+
+      if (!calendar) {
+        return reply.internalServerError("Failed to create calendar");
+      }
+
+      // Trigger initial sync
+      await syncHACalendar(fastify.db, config.url, config.accessToken, calendar.id, entityId);
+
+      // Update last sync time
+      await fastify.db
+        .update(calendars)
+        .set({ lastSyncAt: new Date() })
+        .where(eq(calendars.id, calendar.id));
+
+      return {
+        success: true,
+        data: {
+          id: calendar.id,
+          name: calendar.name,
+          provider: calendar.provider,
+          entityId: calendar.externalId,
+        },
+      };
+    }
+  );
+
+  // Sync a Home Assistant calendar
+  fastify.post(
+    "/calendars/:id/sync",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Sync events from a Home Assistant calendar",
+        tags: ["Home Assistant", "Calendars"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      const { id } = request.params as { id: string };
+
+      const [config] = await fastify.db
+        .select()
+        .from(homeAssistantConfig)
+        .where(eq(homeAssistantConfig.userId, user!.id))
+        .limit(1);
+
+      if (!config) {
+        return reply.badRequest("Home Assistant not configured");
+      }
+
+      const [calendar] = await fastify.db
+        .select()
+        .from(calendars)
+        .where(
+          and(
+            eq(calendars.id, id),
+            eq(calendars.userId, user!.id),
+            eq(calendars.provider, "homeassistant")
+          )
+        )
+        .limit(1);
+
+      if (!calendar) {
+        return reply.notFound("Calendar not found");
+      }
+
+      await syncHACalendar(fastify.db, config.url, config.accessToken, calendar.id, calendar.externalId);
+
+      await fastify.db
+        .update(calendars)
+        .set({ lastSyncAt: new Date() })
+        .where(eq(calendars.id, calendar.id));
+
+      return { success: true, message: "Calendar synced" };
+    }
+  );
 };
+
+// Helper function to sync events from a Home Assistant calendar
+async function syncHACalendar(
+  db: typeof import("@openframe/database").db,
+  haUrl: string,
+  haToken: string,
+  calendarId: string,
+  entityId: string
+): Promise<void> {
+  // Fetch events for the next 90 days
+  const start = new Date();
+  const end = new Date();
+  end.setDate(end.getDate() + 90);
+
+  const response = await fetch(
+    `${haUrl.replace(/\/+$/, "")}/api/calendars/${entityId}?start=${start.toISOString()}&end=${end.toISOString()}`,
+    {
+      headers: {
+        Authorization: `Bearer ${haToken}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch events from Home Assistant: ${response.statusText}`);
+  }
+
+  const haEvents = await response.json() as Array<{
+    uid?: string;
+    summary: string;
+    description?: string;
+    location?: string;
+    start: { dateTime?: string; date?: string };
+    end: { dateTime?: string; date?: string };
+    recurrence_id?: string;
+    rrule?: string;
+  }>;
+
+  // Get existing events for this calendar
+  const existingEvents = await db
+    .select()
+    .from(events)
+    .where(eq(events.calendarId, calendarId));
+
+  const existingByExternalId = new Map(
+    existingEvents.map(e => [e.externalId, e])
+  );
+
+  const processedIds = new Set<string>();
+
+  for (const haEvent of haEvents) {
+    // Generate a unique ID for the event
+    const externalId = haEvent.uid || `${haEvent.summary}-${haEvent.start.dateTime || haEvent.start.date}`;
+    processedIds.add(externalId);
+
+    const isAllDay = !haEvent.start.dateTime;
+    const startTime = haEvent.start.dateTime
+      ? new Date(haEvent.start.dateTime)
+      : new Date(haEvent.start.date + "T00:00:00");
+    const endTime = haEvent.end.dateTime
+      ? new Date(haEvent.end.dateTime)
+      : new Date(haEvent.end.date + "T00:00:00");
+
+    const eventData = {
+      calendarId,
+      externalId,
+      title: haEvent.summary,
+      description: haEvent.description || null,
+      location: haEvent.location || null,
+      startTime,
+      endTime,
+      isAllDay,
+      status: "confirmed" as const,
+      recurrenceRule: haEvent.rrule || null,
+      updatedAt: new Date(),
+    };
+
+    const existing = existingByExternalId.get(externalId);
+    if (existing) {
+      await db
+        .update(events)
+        .set(eventData)
+        .where(eq(events.id, existing.id));
+    } else {
+      await db.insert(events).values(eventData);
+    }
+  }
+
+  // Delete events that no longer exist
+  for (const existing of existingEvents) {
+    if (!processedIds.has(existing.externalId)) {
+      await db.delete(events).where(eq(events.id, existing.id));
+    }
+  }
+}

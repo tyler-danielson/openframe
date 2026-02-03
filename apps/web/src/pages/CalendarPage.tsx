@@ -1,12 +1,13 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, addWeeks, format, isSameDay } from "date-fns";
+import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, addWeeks, addDays, format, isSameDay } from "date-fns";
 import { ChevronLeft, ChevronRight, Plus, X, Droplets, Wind, Thermometer, PenTool } from "lucide-react";
 import { api, type WeatherData, type WeatherForecast, type HourlyForecast } from "../services/api";
 import { useCalendarStore } from "../stores/calendar";
 import { CalendarView, EventModal, CreateEventModal, HandwritingOverlay, DaySummaryModal } from "../components/calendar";
 import { SportsScoreBadge } from "../components/sports";
 import { Button } from "../components/ui/Button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/Select";
 import type { CalendarEvent, SportsGame } from "@openframe/shared";
 
 // Weather detail info for popup
@@ -15,6 +16,132 @@ interface WeatherPopupData {
   isToday: boolean;
   current?: WeatherData;
   forecast?: WeatherForecast;
+}
+
+// Sports game detail modal
+function SportsGameModal({
+  game,
+  onClose
+}: {
+  game: SportsGame;
+  onClose: () => void;
+}) {
+  const isLive = game.status === "in_progress" || game.status === "halftime";
+  const isFinal = game.status === "final";
+  const isScheduled = game.status === "scheduled";
+
+  const formatGameTime = (startTime: string | Date): string => {
+    const date = new Date(startTime);
+    return format(date, "h:mm a");
+  };
+
+  const formatGameDate = (startTime: string | Date): string => {
+    const date = new Date(startTime);
+    return format(date, "EEEE, MMMM d");
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div
+        className="bg-card border border-border rounded-lg shadow-xl p-6 max-w-md w-full mx-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">
+            {game.league.toUpperCase()} Game
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-muted rounded-full transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Game date/time */}
+        <p className="text-sm text-muted-foreground mb-4">
+          {formatGameDate(game.startTime)} • {formatGameTime(game.startTime)}
+        </p>
+
+        {/* Teams and scores */}
+        <div className="space-y-4">
+          {/* Away team */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {game.awayTeam.logo ? (
+                <img
+                  src={game.awayTeam.logo}
+                  alt={game.awayTeam.name}
+                  className="h-10 w-10 object-contain"
+                />
+              ) : (
+                <div
+                  className="h-10 w-10 rounded-full"
+                  style={{ backgroundColor: game.awayTeam.color || "#6366F1" }}
+                />
+              )}
+              <div>
+                <p className="font-semibold">{game.awayTeam.name}</p>
+                <p className="text-xs text-muted-foreground">{game.awayTeam.abbreviation}</p>
+              </div>
+            </div>
+            {!isScheduled && (
+              <span className="text-3xl font-bold">{game.awayTeam.score ?? 0}</span>
+            )}
+          </div>
+
+          {/* Home team */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {game.homeTeam.logo ? (
+                <img
+                  src={game.homeTeam.logo}
+                  alt={game.homeTeam.name}
+                  className="h-10 w-10 object-contain"
+                />
+              ) : (
+                <div
+                  className="h-10 w-10 rounded-full"
+                  style={{ backgroundColor: game.homeTeam.color || "#6366F1" }}
+                />
+              )}
+              <div>
+                <p className="font-semibold">{game.homeTeam.name}</p>
+                <p className="text-xs text-muted-foreground">{game.homeTeam.abbreviation}</p>
+              </div>
+            </div>
+            {!isScheduled && (
+              <span className="text-3xl font-bold">{game.homeTeam.score ?? 0}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Status */}
+        <div className="mt-4 pt-4 border-t border-border text-center">
+          {isScheduled && (
+            <p className="text-muted-foreground">
+              Game starts at {formatGameTime(game.startTime)}
+            </p>
+          )}
+          {isLive && (
+            <p className="text-red-500 font-semibold">
+              {game.statusDetail || "LIVE"}
+            </p>
+          )}
+          {isFinal && (
+            <p className="text-muted-foreground font-medium">Final</p>
+          )}
+        </div>
+
+        {/* Venue if available */}
+        {game.venue && (
+          <p className="mt-3 text-sm text-muted-foreground text-center">
+            {game.venue}
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // Weather popup component
@@ -236,6 +363,11 @@ export function CalendarPage() {
     navigateNext,
     setView,
     setCurrentDate,
+    tickerSpeed,
+    weekMode,
+    setWeekMode,
+    monthMode,
+    setMonthMode,
   } = useCalendarStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -245,6 +377,7 @@ export function CalendarPage() {
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [drawingTargetDate, setDrawingTargetDate] = useState<Date | null>(null);
   const [daySummaryDate, setDaySummaryDate] = useState<Date | null>(null);
+  const [selectedGame, setSelectedGame] = useState<SportsGame | null>(null);
 
   // Fetch weather data
   const { data: weather } = useQuery({
@@ -260,6 +393,15 @@ export function CalendarPage() {
     queryKey: ["weather-forecast"],
     queryFn: () => api.getWeatherForecast(),
     refetchInterval: 30 * 60 * 1000, // Refresh every 30 minutes
+    staleTime: 15 * 60 * 1000,
+    retry: false,
+  });
+
+  // Fetch hourly forecast for header
+  const { data: hourlyForecast } = useQuery({
+    queryKey: ["weather-hourly"],
+    queryFn: () => api.getHourlyForecast(),
+    refetchInterval: 30 * 60 * 1000,
     staleTime: 15 * 60 * 1000,
     retry: false,
   });
@@ -304,19 +446,39 @@ export function CalendarPage() {
 
     switch (view) {
       case "month":
-        start = startOfWeek(startOfMonth(currentDate), { weekStartsOn });
-        end = endOfWeek(endOfMonth(currentDate), { weekStartsOn });
+        if (monthMode === "rolling") {
+          // Rolling month: 28 days (4 weeks) starting from beginning of current week
+          start = startOfWeek(currentDate, { weekStartsOn });
+          end = addDays(start, 28);
+        } else {
+          // Standard month: full visible calendar grid
+          start = startOfWeek(startOfMonth(currentDate), { weekStartsOn });
+          end = endOfWeek(endOfMonth(currentDate), { weekStartsOn });
+        }
         break;
       case "week":
-        start = startOfWeek(currentDate, { weekStartsOn });
-        // Include next week for the "Next Week" preview cell
-        end = endOfWeek(addWeeks(currentDate, 1), { weekStartsOn });
+        if (weekMode === "rolling") {
+          start = new Date(currentDate);
+          start.setHours(0, 0, 0, 0);
+          // Include next week for the "Next Week" preview cell
+          end = addDays(start, 14);
+        } else {
+          start = startOfWeek(currentDate, { weekStartsOn });
+          // Include next week for the "Next Week" preview cell
+          end = endOfWeek(addWeeks(currentDate, 1), { weekStartsOn });
+        }
         break;
       case "day":
         start = new Date(currentDate);
         start.setHours(0, 0, 0, 0);
         end = new Date(currentDate);
         end.setHours(23, 59, 59, 999);
+        break;
+      case "schedule":
+        // Schedule view: today + next 4 days (5 days total)
+        start = new Date(currentDate);
+        start.setHours(0, 0, 0, 0);
+        end = addDays(start, 5);
         break;
       case "agenda":
       default:
@@ -327,7 +489,7 @@ export function CalendarPage() {
     }
 
     return { start, end };
-  }, [currentDate, view, weekStartsOn]);
+  }, [currentDate, view, weekStartsOn, weekMode, monthMode]);
 
   // Fetch calendars
   const { data: calendarsData } = useQuery({
@@ -342,11 +504,50 @@ export function CalendarPage() {
   }, [calendarsData, setCalendars]);
 
   // Fetch events
-  const { data: events = [] } = useQuery({
+  const { data: rawEvents = [] } = useQuery({
     queryKey: ["events", dateRange.start.toISOString(), dateRange.end.toISOString(), selectedCalendarIds],
     queryFn: () => api.getEvents(dateRange.start, dateRange.end, selectedCalendarIds),
     enabled: selectedCalendarIds.length > 0,
   });
+
+  // Map calendar IDs to their visibility settings
+  const calendarVisibility = useMemo(() =>
+    new Map(calendars.map(cal => [cal.id, cal.visibility ?? { week: true, month: true, day: true, popup: true, screensaver: false }])),
+    [calendars]
+  );
+
+  // Filter events based on calendar visibility settings for current view
+  const events = useMemo(() => {
+    return rawEvents.filter(event => {
+      const visibility = calendarVisibility.get(event.calendarId);
+      if (!visibility) return true; // Default to visible if calendar not found
+
+      // Check visibility based on current view
+      switch (view) {
+        case "week":
+          return visibility.week;
+        case "month":
+          return visibility.month;
+        case "day":
+          return visibility.day;
+        case "agenda":
+          return visibility.day; // Agenda uses day visibility
+        case "schedule":
+          return visibility.week; // Schedule uses week visibility
+        default:
+          return true;
+      }
+    });
+  }, [rawEvents, calendarVisibility, view]);
+
+  // Filter events for popup (day summary modal) based on popup visibility
+  const popupEvents = useMemo(() => {
+    return rawEvents.filter(event => {
+      const visibility = calendarVisibility.get(event.calendarId);
+      if (!visibility) return true;
+      return visibility.popup;
+    });
+  }, [rawEvents, calendarVisibility]);
 
   // Delete event mutation
   const deleteEvent = useMutation({
@@ -439,88 +640,169 @@ export function CalendarPage() {
   const headerText = useMemo(() => {
     switch (view) {
       case "month":
+        if (monthMode === "rolling") {
+          const monthStart = startOfWeek(currentDate, { weekStartsOn });
+          const monthEnd = addDays(monthStart, 27); // 28 days total (4 weeks)
+          return `${format(monthStart, "MMM d")} - ${format(monthEnd, "MMM d, yyyy")}`;
+        }
         return format(currentDate, "MMMM yyyy");
       case "week":
-        const weekStart = startOfWeek(currentDate, { weekStartsOn });
-        const weekEnd = endOfWeek(currentDate, { weekStartsOn });
+        const weekStart = weekMode === "rolling"
+          ? currentDate
+          : startOfWeek(currentDate, { weekStartsOn });
+        const weekEnd = weekMode === "rolling"
+          ? addDays(currentDate, 6)
+          : endOfWeek(currentDate, { weekStartsOn });
         return `${format(weekStart, "MMM d")} - ${format(weekEnd, "MMM d, yyyy")}`;
       case "day":
         return format(currentDate, "EEEE, MMMM d, yyyy");
       case "agenda":
         return format(currentDate, "MMMM yyyy");
+      case "schedule":
+        const scheduleStart = currentDate;
+        const scheduleEnd = addDays(currentDate, 4);
+        return `${format(scheduleStart, "MMM d")} - ${format(scheduleEnd, "MMM d, yyyy")}`;
       default:
         return "";
     }
-  }, [currentDate, view, weekStartsOn]);
+  }, [currentDate, view, weekStartsOn, weekMode, monthMode]);
 
   return (
     <div className="flex h-full">
       <div className="flex-1 flex flex-col">
-        {/* Navigation header */}
-        <div className="flex items-center justify-between border-b border-border px-8 py-3">
-          <div className="flex items-center gap-8">
-            <h1 className="text-5xl font-bold">{familyName}</h1>
+        {/* Navigation header - 2-row grid layout */}
+        <div className="grid grid-cols-[auto_1fr] grid-rows-[auto_auto] gap-x-4 gap-y-0 border-b border-border px-4 pt-0.5 pb-2">
+          {/* Row 1, Left: Weather */}
+          <div className="flex items-center gap-[clamp(0.5rem,1vw,1rem)]">
+            {/* Current weather */}
+            {weather && (
+              <button
+                onClick={() => handleWeatherClick(new Date())}
+                className="flex items-center gap-[clamp(0.25rem,0.5vw,0.5rem)] text-muted-foreground hover:text-foreground transition-colors"
+                title={weather.description}
+              >
+                <span className="text-[clamp(1.5rem,3vw,2.5rem)]">{getWeatherIcon(weather.icon)}</span>
+                <span className="text-[clamp(1.25rem,2.5vw,2rem)] font-semibold">{weather.temp}°</span>
+              </button>
+            )}
+            {/* Hourly forecast */}
+            {hourlyForecast && hourlyForecast.length > 0 && (
+              <div className="flex items-center gap-[clamp(0.5rem,1vw,1rem)] text-muted-foreground">
+                {hourlyForecast.slice(0, 4).map((hour, i) => (
+                  <div key={i} className="flex flex-col items-center text-[clamp(0.625rem,1.25vw,0.875rem)] leading-tight">
+                    <div className="flex items-center gap-0.5">
+                      <span className="text-[clamp(0.875rem,1.5vw,1.25rem)]">{getWeatherIcon(hour.icon)}</span>
+                      <span>{hour.temp}°</span>
+                    </div>
+                    <span className="-mt-0.5">{hour.time}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Row 1, Right: Clock */}
+          <div className="flex items-stretch justify-end">
             <button
               onClick={handleTimeFormatChange}
-              className={`text-5xl font-semibold text-muted-foreground hover:text-foreground transition-opacity duration-300 ${
+              className={`flex items-center text-[clamp(1.75rem,4vw,3rem)] font-semibold text-muted-foreground hover:text-foreground transition-opacity duration-300 whitespace-nowrap ${
                 timeFade ? "opacity-100" : "opacity-0"
               }`}
               title="Click to change time format"
             >
               {formattedTime}
             </button>
-            {weather && (
-              <button
-                onClick={() => handleWeatherClick(new Date())}
-                className="flex items-center gap-3 text-muted-foreground hover:text-foreground transition-colors"
-                title={weather.description}
-              >
-                <span className="text-6xl">{getWeatherIcon(weather.icon)}</span>
-                <span className="text-5xl font-semibold">{weather.temp}°</span>
-              </button>
-            )}
-            {/* Today's Sports Games */}
-            {todaysGames.length > 0 && (
-              <div className="flex items-center gap-4 border-l border-border pl-8">
-                {todaysGames.slice(0, 3).map((game) => (
-                  <SportsScoreBadge key={game.externalId} game={game} compact />
-                ))}
-                {todaysGames.length > 3 && (
-                  <span className="text-xl text-muted-foreground">
-                    +{todaysGames.length - 3} more
-                  </span>
-                )}
-              </div>
-            )}
           </div>
-          <div className="flex items-center gap-4">
-            <h2 className="text-3xl font-semibold">{headerText}</h2>
-            <select
-              className="rounded-md border border-border bg-background px-6 py-3 text-2xl font-medium"
-              value={view}
-              onChange={(e) => setView(e.target.value as "month" | "week" | "day" | "agenda")}
-            >
-              <option value="month">Month</option>
-              <option value="week">Week</option>
-              <option value="day">Day</option>
-              <option value="agenda">Agenda</option>
-            </select>
-            <div className="flex items-center gap-3 ml-4">
-              <Button variant="ghost" size="lg" onClick={navigatePrevious} title="Previous" className="p-3">
-                <ChevronLeft className="h-12 w-12" />
-              </Button>
-              <Button variant="outline" size="lg" onClick={navigateToday} className="text-2xl px-8 py-3">
-                TODAY
-              </Button>
-              <Button variant="ghost" size="lg" onClick={navigateNext} title="Next" className="p-3">
-                <ChevronRight className="h-12 w-12" />
-              </Button>
+
+          {/* Row 2, Left: Date range */}
+          <div className="flex items-center">
+            <p className="text-sm text-muted-foreground whitespace-nowrap">{headerText}</p>
+          </div>
+
+          {/* Row 2, Right: Ticker + Navigation */}
+          <div className="flex items-center gap-2 min-w-0">
+            {/* Ticker area - fills available space, or spacer when no games */}
+            {todaysGames.length > 0 ? (
+              <div className="flex-1 overflow-hidden relative min-w-0">
+                {/* Left fade gradient */}
+                <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-background to-transparent z-10 pointer-events-none" />
+                {/* Right fade gradient */}
+                <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-background to-transparent z-10 pointer-events-none" />
+
+                {/* Scrolling content - clickable items */}
+                <div
+                  className="flex items-center whitespace-nowrap"
+                  style={{
+                    animation: `ticker ${tickerSpeed === 'slow' ? 45 : tickerSpeed === 'fast' ? 15 : 30}s linear infinite`,
+                  }}
+                >
+                  {/* First set of items with separators */}
+                  {todaysGames.map((game, idx) => (
+                    <div key={`${game.externalId}-1`} className="flex items-center shrink-0">
+                      <button
+                        onClick={() => setSelectedGame(game)}
+                        className="shrink-0 hover:bg-muted/50 rounded px-1 py-0.5 transition-colors"
+                      >
+                        <SportsScoreBadge game={game} compact />
+                      </button>
+                      {/* Separator after each item */}
+                      <span className="mx-3 text-muted-foreground/50">•</span>
+                    </div>
+                  ))}
+                  {/* Gap before repeat */}
+                  <div className="shrink-0" style={{ width: '50%' }} />
+                  {/* Duplicate items for seamless loop */}
+                  {todaysGames.map((game, idx) => (
+                    <div key={`${game.externalId}-2`} className="flex items-center shrink-0">
+                      <button
+                        onClick={() => setSelectedGame(game)}
+                        className="shrink-0 hover:bg-muted/50 rounded px-1 py-0.5 transition-colors"
+                      >
+                        <SportsScoreBadge game={game} compact />
+                      </button>
+                      {/* Separator after each item */}
+                      <span className="mx-3 text-muted-foreground/50">•</span>
+                    </div>
+                  ))}
+                  {/* Gap at end for seamless loop */}
+                  <div className="shrink-0" style={{ width: '50%' }} />
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1" />
+            )}
+
+            {/* Navigation controls */}
+            <div className="flex items-center gap-2 shrink-0">
+              <Select value={view} onValueChange={(v) => setView(v as "month" | "week" | "day" | "agenda" | "schedule")}>
+                <SelectTrigger className="w-[100px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="month">Month</SelectItem>
+                  <SelectItem value="week">Week</SelectItem>
+                  <SelectItem value="day">Day</SelectItem>
+                  <SelectItem value="agenda">Agenda</SelectItem>
+                  <SelectItem value="schedule">Schedule</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="sm" onClick={navigatePrevious} title="Previous" className="p-1.5 border-2 border-primary/30 bg-primary/5 hover:border-primary/50 hover:bg-primary/10">
+                  <ChevronLeft className="h-5 w-5" />
+                </Button>
+                <Button variant="outline" size="sm" onClick={navigateToday} className="text-sm px-3 py-1.5 border-2 border-primary/40 bg-primary/10 hover:border-primary/60 hover:bg-primary/20 font-semibold">
+                  TODAY
+                </Button>
+                <Button variant="ghost" size="sm" onClick={navigateNext} title="Next" className="p-1.5 border-2 border-primary/30 bg-primary/5 hover:border-primary/50 hover:bg-primary/10">
+                  <ChevronRight className="h-5 w-5" />
+                </Button>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Calendar view */}
-        <div className="flex-1 relative">
+        <div className="flex-1 relative overflow-hidden">
           <CalendarView
             events={events}
             onSelectEvent={handleSelectEvent}
@@ -536,6 +818,30 @@ export function CalendarPage() {
             <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground px-4 py-2 rounded-full shadow-md text-sm font-medium">
               Tap a date to write an event
             </div>
+          )}
+
+          {/* Rolling/Current toggle - bottom left */}
+          {(view === "week" || view === "month") && (
+            <button
+              onClick={() => {
+                if (view === "week") {
+                  setWeekMode(weekMode === "current" ? "rolling" : "current");
+                } else {
+                  setMonthMode(monthMode === "current" ? "rolling" : "current");
+                }
+              }}
+              className="absolute bottom-6 left-6 px-4 py-2 text-sm font-medium rounded-full shadow-md bg-card border-2 border-primary/40 hover:bg-muted hover:border-primary/60 transition-colors"
+              title={
+                view === "week"
+                  ? weekMode === "current" ? "Switch to rolling week (Today+7)" : "Switch to current week (Mon-Sun)"
+                  : monthMode === "current" ? "Switch to 4-week rolling view" : "Switch to calendar month"
+              }
+            >
+              {view === "week"
+                ? (weekMode === "current" ? "Mon-Sun" : "Today+7")
+                : (monthMode === "current" ? "Calendar" : "4 Weeks")
+              }
+            </button>
           )}
 
           {/* FAB buttons */}
@@ -596,11 +902,30 @@ export function CalendarPage() {
 
       <DaySummaryModal
         date={daySummaryDate}
-        events={events}
+        events={popupEvents}
         open={daySummaryDate !== null}
         onClose={() => setDaySummaryDate(null)}
         onSelectEvent={handleSelectEvent}
       />
+
+      {selectedGame && (
+        <SportsGameModal
+          game={selectedGame}
+          onClose={() => setSelectedGame(null)}
+        />
+      )}
+
+      {/* Ticker animation styles */}
+      <style>{`
+        @keyframes ticker {
+          0% {
+            transform: translateX(0);
+          }
+          100% {
+            transform: translateX(-50%);
+          }
+        }
+      `}</style>
     </div>
   );
 }

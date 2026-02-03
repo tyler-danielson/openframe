@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { sql } from "drizzle-orm";
+import os from "os";
 
 export const healthRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
@@ -86,6 +87,50 @@ export const healthRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         status: "ok",
         checks,
+      };
+    }
+  );
+
+  // Server info endpoint - returns server IP addresses for kiosk URL generation
+  fastify.get(
+    "/health/info",
+    {
+      schema: {
+        description: "Get server information including IP addresses",
+        tags: ["Health"],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              hostname: { type: "string" },
+              port: { type: "number" },
+              addresses: {
+                type: "array",
+                items: { type: "string" },
+              },
+            },
+          },
+        },
+      },
+    },
+    async () => {
+      const interfaces = os.networkInterfaces();
+      const addresses: string[] = [];
+
+      for (const [, nets] of Object.entries(interfaces)) {
+        if (!nets) continue;
+        for (const net of nets) {
+          // Skip internal (127.0.0.1) and non-IPv4 addresses
+          if (net.family === "IPv4" && !net.internal) {
+            addresses.push(net.address);
+          }
+        }
+      }
+
+      return {
+        hostname: os.hostname(),
+        port: fastify.config.port,
+        addresses,
       };
     }
   );

@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import { randomUUID } from "crypto";
 import { eq, and, gte, lte, inArray } from "drizzle-orm";
 import { calendars, events } from "@openframe/database/schema";
 import { eventQuerySchema, createEventSchema, quickEventSchema } from "@openframe/shared/validators";
@@ -205,7 +206,7 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
         .insert(events)
         .values({
           calendarId: input.calendarId,
-          externalId: `local_${crypto.randomUUID()}`,
+          externalId: `local_${randomUUID()}`,
           title: input.title,
           description: input.description,
           location: input.location,
@@ -280,7 +281,7 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
         .insert(events)
         .values({
           calendarId,
-          externalId: `local_${crypto.randomUUID()}`,
+          externalId: `local_${randomUUID()}`,
           title: parsed.title,
           startTime: parsed.startTime,
           endTime: parsed.endTime,
@@ -316,14 +317,28 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const user = await getCurrentUser(request);
       const { id } = request.params as { id: string };
-      const updates = request.body as Partial<{
+      const body = request.body as Partial<{
+        title: string;
+        description: string;
+        location: string;
+        startTime: string | Date;
+        endTime: string | Date;
+        isAllDay: boolean;
+      }>;
+
+      // Parse date strings into Date objects
+      const updates: Partial<{
         title: string;
         description: string;
         location: string;
         startTime: Date;
         endTime: Date;
         isAllDay: boolean;
-      }>;
+      }> = {
+        ...body,
+        startTime: body.startTime ? new Date(body.startTime) : undefined,
+        endTime: body.endTime ? new Date(body.endTime) : undefined,
+      };
 
       // Get event and verify ownership
       const [existingEvent] = await fastify.db

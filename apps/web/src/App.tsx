@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "./stores/auth";
 import { useScreensaverStore } from "./stores/screensaver";
 import { Layout } from "./components/ui/Layout";
@@ -14,9 +14,18 @@ import { IptvPage } from "./pages/IptvPage";
 import { CamerasPage } from "./pages/CamerasPage";
 import { HomeAssistantPage } from "./pages/HomeAssistantPage";
 import { SpotifyPage } from "./pages/SpotifyPage";
+import { MapPage } from "./pages/MapPage";
+import { MobileUploadPage } from "./pages/MobileUploadPage";
+import { RemarkablePage } from "./pages/RemarkablePage";
+import { ScreensaverBuilderPage } from "./pages/ScreensaverBuilderPage";
+import { KioskDisplayPage } from "./pages/KioskDisplayPage";
 import { Toaster } from "./components/ui/Toaster";
 import { Screensaver } from "./components/Screensaver";
+import { NowPlaying } from "./components/spotify/NowPlaying";
 import { useIdleDetector } from "./hooks/useIdleDetector";
+import { useDurationAlertMonitor } from "./hooks/useDurationAlertMonitor";
+import { useHAWebSocket } from "./stores/homeassistant-ws";
+import { DurationAlertBanner } from "./components/alerts/DurationAlertBanner";
 import { api } from "./services/api";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -51,22 +60,62 @@ function SettingsProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Wrapper component that runs the duration alert monitor inside the Toaster context
+function DurationAlertMonitor() {
+  useDurationAlertMonitor();
+  return null;
+}
+
 export default function App() {
+  const location = useLocation();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const kioskEnabled = useAuthStore((state) => state.kioskEnabled);
   const kioskChecked = useAuthStore((state) => state.kioskChecked);
   const setKioskStatus = useAuthStore((state) => state.setKioskStatus);
   const setKioskChecked = useAuthStore((state) => state.setKioskChecked);
+  const setApiKey = useAuthStore((state) => state.setApiKey);
   const syncScreensaverSettings = useScreensaverStore((state) => state.syncFromServer);
+  const colorScheme = useScreensaverStore((state) => state.colorScheme);
+
+  // Hide NowPlaying on settings pages
+  const isSettingsPage = location.pathname.startsWith("/settings");
+
+  // Apply color scheme on initial render (from persisted store)
+  useEffect(() => {
+    document.documentElement.setAttribute("data-color-scheme", colorScheme);
+  }, [colorScheme]);
+
+  // Check for API key in URL params on app load
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const apiKeyParam = urlParams.get("apiKey");
+
+    if (apiKeyParam) {
+      // Store the API key and mark as authenticated
+      setApiKey(apiKeyParam);
+      // Remove the API key from the URL for security (don't leave it visible)
+      urlParams.delete("apiKey");
+      const newUrl = urlParams.toString()
+        ? `${window.location.pathname}?${urlParams.toString()}`
+        : window.location.pathname;
+      window.history.replaceState({}, "", newUrl);
+    }
+  }, [setApiKey]);
 
   // Check kiosk status and sync settings on app load
   useEffect(() => {
     async function checkKioskStatus() {
+      // Skip global settings sync when on kiosk URL - KioskContext handles settings
+      const isKioskUrl = window.location.pathname.startsWith("/kiosk/");
+
       try {
         const status = await api.getKioskStatus();
         setKioskStatus(status.enabled);
-        // Sync screensaver settings from server
-        await syncScreensaverSettings();
+        // Only sync screensaver settings from server if NOT on a kiosk URL
+        // Kiosk URLs use kiosk-specific settings from KioskContext instead
+        if (!isKioskUrl) {
+          await syncScreensaverSettings();
+        }
       } catch {
         setKioskStatus(false);
       } finally {
@@ -75,6 +124,39 @@ export default function App() {
     }
     checkKioskStatus();
   }, [setKioskStatus, setKioskChecked, syncScreensaverSettings]);
+
+  // Connect to Home Assistant WebSocket for real-time updates
+  const connectHA = useHAWebSocket((state) => state.connect);
+  useEffect(() => {
+    if (isAuthenticated) {
+      connectHA();
+    }
+  }, [isAuthenticated, connectHA]);
+
+  // Poll for kiosk commands (refresh, etc.) when in kiosk mode
+  const lastCommandTimestamp = useRef(Date.now());
+  useEffect(() => {
+    if (!kioskEnabled) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const { commands } = await api.getKioskCommands(lastCommandTimestamp.current);
+        for (const cmd of commands) {
+          if (cmd.timestamp > lastCommandTimestamp.current) {
+            lastCommandTimestamp.current = cmd.timestamp;
+          }
+          if (cmd.type === "refresh") {
+            console.log("Kiosk refresh command received, reloading page...");
+            window.location.reload();
+          }
+        }
+      } catch (error) {
+        console.error("Failed to poll kiosk commands:", error);
+      }
+    }, 10000); // Poll every 10 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [kioskEnabled]);
 
   // Show loading while checking kiosk status
   if (!kioskChecked) {
@@ -90,6 +172,10 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        {/* Public mobile upload page (accessed via QR code) */}
+        <Route path="/upload/:token" element={<MobileUploadPage />} />
+        {/* Public kiosk display page (accessed via unique token URL) */}
+        <Route path="/kiosk/:token/*" element={<KioskDisplayPage />} />
 
         <Route
           path="/"
@@ -108,6 +194,15 @@ export default function App() {
           <Route path="cameras" element={<CamerasPage />} />
           <Route path="homeassistant" element={<HomeAssistantPage />} />
           <Route path="spotify" element={<SpotifyPage />} />
+          <Route path="map" element={<MapPage />} />
+          <Route
+            path="remarkable"
+            element={
+              <SettingsProtectedRoute>
+                <RemarkablePage />
+              </SettingsProtectedRoute>
+            }
+          />
           <Route
             path="settings"
             element={
@@ -116,12 +211,28 @@ export default function App() {
               </SettingsProtectedRoute>
             }
           />
+          <Route
+            path="settings/screensaver-builder"
+            element={
+              <SettingsProtectedRoute>
+                <ScreensaverBuilderPage />
+              </SettingsProtectedRoute>
+            }
+          />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      <Toaster />
-      {(isAuthenticated || kioskEnabled) && <Screensaver />}
+      <Toaster>
+        <DurationAlertMonitor />
+      </Toaster>
+      {(isAuthenticated || kioskEnabled) && (
+        <>
+          <DurationAlertBanner />
+          <Screensaver />
+          {!isSettingsPage && <NowPlaying />}
+        </>
+      )}
     </>
   );
 }

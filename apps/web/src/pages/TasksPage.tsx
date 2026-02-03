@@ -15,9 +15,12 @@ import {
   Columns3,
   List,
   Kanban,
+  PenTool,
+  X,
 } from "lucide-react";
 import { api } from "../services/api";
 import { Button } from "../components/ui/Button";
+import { HandwritingCanvas } from "../components/ui/HandwritingCanvas";
 import { cn } from "../lib/utils";
 import { useTasksStore, type TasksLayout } from "../stores/tasks";
 import type { Task, TaskList } from "@openframe/shared";
@@ -28,6 +31,9 @@ export function TasksPage() {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [expandedLists, setExpandedLists] = useState<Set<string>>(new Set());
   const [activeAddList, setActiveAddList] = useState<string | null>(null);
+  const [showHandwriting, setShowHandwriting] = useState(false);
+  const [handwritingStatus, setHandwritingStatus] = useState<"drawing" | "creating" | "success" | "error">("drawing");
+  const [handwritingError, setHandwritingError] = useState<string | null>(null);
 
   const { layout, setLayout, showCompleted, setShowCompleted, expandAllLists } = useTasksStore();
 
@@ -94,6 +100,62 @@ export function TasksPage() {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
   });
+
+  // Get default task list (first one)
+  const defaultTaskList = taskLists[0];
+
+  // Handle handwriting recognition for tasks
+  const handleHandwritingRecognized = (text: string) => {
+    if (!defaultTaskList) {
+      setHandwritingError("No task list available");
+      setHandwritingStatus("error");
+      return;
+    }
+
+    setHandwritingStatus("creating");
+
+    // Clean up the recognized text
+    const taskTitle = text.trim().replace(/\s+/g, " ");
+    if (!taskTitle) {
+      setHandwritingError("Could not recognize text");
+      setHandwritingStatus("error");
+      return;
+    }
+
+    // Capitalize first letter
+    const formattedTitle = taskTitle.charAt(0).toUpperCase() + taskTitle.slice(1);
+
+    // Create the task
+    createMutation.mutate(
+      { taskListId: defaultTaskList.id, title: formattedTitle },
+      {
+        onSuccess: () => {
+          setHandwritingStatus("success");
+          setTimeout(() => {
+            setShowHandwriting(false);
+            setHandwritingStatus("drawing");
+          }, 1500);
+        },
+        onError: (error: Error) => {
+          setHandwritingError(error.message || "Failed to create task");
+          setHandwritingStatus("error");
+        },
+      }
+    );
+  };
+
+  // Close handwriting overlay
+  const handleCloseHandwriting = () => {
+    setShowHandwriting(false);
+    setHandwritingStatus("drawing");
+    setHandwritingError(null);
+  };
+
+  // Retry handwriting
+  const handleRetryHandwriting = () => {
+    setHandwritingStatus("drawing");
+    setHandwritingError(null);
+  };
 
   const toggleListExpanded = (listId: string) => {
     setExpandedLists((prev) => {
@@ -467,7 +529,7 @@ export function TasksPage() {
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col relative">
       {/* Header */}
       <header className="flex items-center justify-between border-b border-border bg-card px-4 py-2">
         <h1 className="text-lg font-semibold">Tasks</h1>
@@ -529,6 +591,93 @@ export function TasksPage() {
           </>
         )}
       </div>
+
+      {/* Pen FAB button */}
+      <button
+        onClick={() => setShowHandwriting(true)}
+        className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-md hover:shadow-lg hover:bg-primary/90 transition-all flex items-center justify-center"
+        title="Write task by hand"
+      >
+        <PenTool className="h-6 w-6" />
+      </button>
+
+      {/* Handwriting overlay */}
+      {showHandwriting && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-2xl mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Write a Task</h2>
+                {defaultTaskList && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Will be added to: {defaultTaskList.name}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={handleCloseHandwriting}
+                className="p-2 rounded-lg hover:bg-muted transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              {handwritingStatus === "drawing" && (
+                <HandwritingCanvas
+                  onRecognized={handleHandwritingRecognized}
+                  onCancel={handleCloseHandwriting}
+                  placeholder="Write your task here... (e.g., 'buy groceries')"
+                  className="h-64"
+                />
+              )}
+
+              {handwritingStatus === "creating" && (
+                <div className="h-64 flex flex-col items-center justify-center">
+                  <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mb-4" />
+                  <p className="text-muted-foreground">Creating task...</p>
+                </div>
+              )}
+
+              {handwritingStatus === "success" && (
+                <div className="h-64 flex flex-col items-center justify-center">
+                  <div className="h-16 w-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-4">
+                    <Check className="h-8 w-8 text-green-600 dark:text-green-400" />
+                  </div>
+                  <p className="font-medium text-green-600 dark:text-green-400">Task created!</p>
+                </div>
+              )}
+
+              {handwritingStatus === "error" && (
+                <div className="h-64 flex flex-col items-center justify-center">
+                  <div className="h-16 w-16 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-4">
+                    <X className="h-8 w-8 text-red-600 dark:text-red-400" />
+                  </div>
+                  <p className="font-medium text-red-600 dark:text-red-400">
+                    {handwritingError || "Something went wrong"}
+                  </p>
+                  <div className="mt-4 flex gap-3">
+                    <button
+                      onClick={handleRetryHandwriting}
+                      className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                    >
+                      Try Again
+                    </button>
+                    <button
+                      onClick={handleCloseHandwriting}
+                      className="px-4 py-2 text-muted-foreground hover:bg-muted rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

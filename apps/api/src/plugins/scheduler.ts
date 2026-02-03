@@ -10,7 +10,23 @@ import { eq, and, gte, lte } from "drizzle-orm";
 import { getIptvCacheService } from "../services/iptv-cache.js";
 import { getAutomationEngine } from "../services/automation-engine.js";
 import { getNewsCacheService } from "../services/news-cache.js";
-import { favoriteSportsTeams, sportsGames, haEntityTimers, homeAssistantConfig } from "@openframe/database/schema";
+import {
+  favoriteSportsTeams,
+  sportsGames,
+  haEntityTimers,
+  homeAssistantConfig,
+  remarkableConfig,
+  remarkableAgendaSettings,
+  remarkableDocuments,
+  calendars,
+  events,
+} from "@openframe/database/schema";
+import { getRemarkableClient } from "../services/remarkable/client.js";
+import { syncGoogleCalendars } from "../services/calendar-sync/google.js";
+import { oauthTokens, users } from "@openframe/database/schema";
+import { generateAgendaPdf, getAgendaFilename, type AgendaEvent } from "../services/remarkable/agenda-generator.js";
+import { syncRemarkableDocuments } from "../services/remarkable/note-processor.js";
+import { startOfDay, endOfDay, format, parse } from "date-fns";
 import {
   fetchGamesForTeams,
   formatDateForESPN,
@@ -39,6 +55,15 @@ const AUTOMATION_POLL_INTERVAL_MS = 30 * 1000;
 
 // News feed refresh interval (30 minutes)
 const NEWS_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
+
+// reMarkable polling interval (5 minutes for notes)
+const REMARKABLE_POLL_INTERVAL_MS = 5 * 60 * 1000;
+
+// reMarkable agenda check interval (1 minute - to check if push time reached)
+const REMARKABLE_AGENDA_CHECK_INTERVAL_MS = 60 * 1000;
+
+// Calendar sync interval (5 minutes)
+const CALENDAR_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
 // Determine the appropriate polling interval based on game states
 function determineSportsPollingInterval(games: SportsGame[]): number {
@@ -90,7 +115,12 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
   let entityTimerInterval: NodeJS.Timeout | null = null;
   let automationInterval: NodeJS.Timeout | null = null;
   let newsInterval: NodeJS.Timeout | null = null;
+  let remarkableNoteInterval: NodeJS.Timeout | null = null;
+  let remarkableAgendaInterval: NodeJS.Timeout | null = null;
+  let calendarSyncInterval: NodeJS.Timeout | null = null;
   let currentSportsPollingInterval = SPORTS_POLL_IDLE;
+  // Track which users have already pushed agenda today
+  const agendaPushedToday = new Map<string, string>(); // userId -> dateString
 
   // Start the IPTV cache refresh scheduler
   const startIptvCacheScheduler = () => {
@@ -363,6 +393,247 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     );
   };
 
+  // Start calendar sync scheduler
+  const startCalendarSyncScheduler = () => {
+    const syncAllCalendars = async () => {
+      try {
+        // Get all users with Google OAuth tokens
+        const tokens = await fastify.db
+          .select()
+          .from(oauthTokens)
+          .where(eq(oauthTokens.provider, "google"));
+
+        for (const token of tokens) {
+          try {
+            await syncGoogleCalendars(fastify.db, token.userId, token);
+          } catch (err) {
+            fastify.log.error(
+              { err, userId: token.userId },
+              "Failed to sync Google calendars"
+            );
+          }
+        }
+      } catch (error) {
+        fastify.log.error({ err: error }, "Calendar sync scheduler failed");
+      }
+    };
+
+    // Initial sync after startup delay
+    setTimeout(async () => {
+      fastify.log.info("Running initial calendar sync...");
+      await syncAllCalendars();
+
+      // Schedule periodic sync
+      calendarSyncInterval = setInterval(async () => {
+        fastify.log.info("Running scheduled calendar sync...");
+        await syncAllCalendars();
+      }, CALENDAR_SYNC_INTERVAL_MS);
+
+      fastify.log.info(
+        `Calendar sync scheduler started (refresh every ${CALENDAR_SYNC_INTERVAL_MS / 1000 / 60} minutes)`
+      );
+    }, STARTUP_DELAY_MS + 10000); // Start 10 seconds after other services
+  };
+
+  // Start reMarkable note polling scheduler
+  const startRemarkableNoteScheduler = () => {
+    const pollNotes = async () => {
+      try {
+        // Get all connected reMarkable users
+        const connectedUsers = await fastify.db
+          .select()
+          .from(remarkableConfig)
+          .where(eq(remarkableConfig.isConnected, true));
+
+        for (const config of connectedUsers) {
+          try {
+            await syncRemarkableDocuments(fastify, config.userId);
+          } catch (err) {
+            fastify.log.error(
+              { err, userId: config.userId },
+              "Failed to sync reMarkable documents"
+            );
+          }
+        }
+      } catch (error) {
+        fastify.log.error({ err: error }, "reMarkable note polling failed");
+      }
+    };
+
+    // Start polling after startup delay
+    setTimeout(async () => {
+      fastify.log.info("Starting reMarkable note polling (5 min interval)...");
+      await pollNotes();
+
+      remarkableNoteInterval = setInterval(pollNotes, REMARKABLE_POLL_INTERVAL_MS);
+    }, STARTUP_DELAY_MS + 20000); // Start 20 seconds after IPTV
+  };
+
+  // Start reMarkable agenda push scheduler
+  const startRemarkableAgendaScheduler = () => {
+    const checkAgendaPush = async () => {
+      try {
+        const now = new Date();
+        const todayStr = format(now, "yyyy-MM-dd");
+        const currentTime = format(now, "HH:mm");
+
+        // Get all users with agenda push enabled
+        const agendaSettings = await fastify.db
+          .select()
+          .from(remarkableAgendaSettings)
+          .where(eq(remarkableAgendaSettings.enabled, true));
+
+        for (const settings of agendaSettings) {
+          // Check if already pushed today
+          if (agendaPushedToday.get(settings.userId) === todayStr) {
+            continue;
+          }
+
+          // Check if it's time to push (within 1 minute window)
+          if (currentTime >= settings.pushTime) {
+            // Verify connection is active
+            const [config] = await fastify.db
+              .select()
+              .from(remarkableConfig)
+              .where(
+                and(
+                  eq(remarkableConfig.userId, settings.userId),
+                  eq(remarkableConfig.isConnected, true)
+                )
+              )
+              .limit(1);
+
+            if (!config) {
+              continue;
+            }
+
+            try {
+              fastify.log.info({ userId: settings.userId }, "Pushing daily agenda to reMarkable...");
+
+              const start = startOfDay(now);
+              const end = endOfDay(now);
+
+              // Get calendars to include
+              let calendarIds: string[];
+              if (settings.includeCalendarIds && settings.includeCalendarIds.length > 0) {
+                calendarIds = settings.includeCalendarIds;
+              } else {
+                const userCalendars = await fastify.db
+                  .select()
+                  .from(calendars)
+                  .where(and(eq(calendars.userId, settings.userId), eq(calendars.isVisible, true)));
+                calendarIds = userCalendars.map((c) => c.id);
+              }
+
+              // Get events for today
+              const dayEvents: AgendaEvent[] = [];
+              const calendarMap = new Map<string, typeof calendars.$inferSelect>();
+
+              for (const calId of calendarIds) {
+                const [cal] = await fastify.db
+                  .select()
+                  .from(calendars)
+                  .where(eq(calendars.id, calId))
+                  .limit(1);
+
+                if (cal) {
+                  calendarMap.set(calId, cal);
+                }
+
+                const calEvents = await fastify.db
+                  .select()
+                  .from(events)
+                  .where(
+                    and(
+                      eq(events.calendarId, calId),
+                      lte(events.startTime, end),
+                      gte(events.endTime, start)
+                    )
+                  );
+
+                for (const event of calEvents) {
+                  dayEvents.push({
+                    title: event.title,
+                    startTime: event.startTime,
+                    endTime: event.endTime,
+                    isAllDay: event.isAllDay,
+                    location: event.location,
+                    description: event.description,
+                    calendarName: calendarMap.get(calId)?.name,
+                    calendarColor: calendarMap.get(calId)?.color ?? undefined,
+                  });
+                }
+              }
+
+              // Generate PDF
+              const pdfBuffer = await generateAgendaPdf({
+                date: now,
+                events: dayEvents,
+                showLocation: settings.showLocation,
+                showDescription: settings.showDescription,
+                notesLines: settings.notesLines,
+                templateStyle: settings.templateStyle as "default" | "minimal" | "detailed",
+              });
+
+              // Upload to reMarkable
+              const client = getRemarkableClient(fastify, settings.userId);
+              const filename = getAgendaFilename(now);
+              const documentId = await client.uploadPdf(pdfBuffer, filename, settings.folderPath);
+
+              // Track the document
+              await fastify.db.insert(remarkableDocuments).values({
+                userId: settings.userId,
+                documentId,
+                documentVersion: 1,
+                documentName: filename,
+                documentType: "pdf",
+                folderPath: settings.folderPath,
+                isAgenda: true,
+                isProcessed: false,
+              });
+
+              // Update last push time
+              await fastify.db
+                .update(remarkableAgendaSettings)
+                .set({ lastPushAt: now, updatedAt: now })
+                .where(eq(remarkableAgendaSettings.id, settings.id));
+
+              // Mark as pushed today
+              agendaPushedToday.set(settings.userId, todayStr);
+
+              fastify.log.info(
+                { userId: settings.userId, eventCount: dayEvents.length },
+                "Daily agenda pushed to reMarkable"
+              );
+            } catch (err) {
+              fastify.log.error(
+                { err, userId: settings.userId },
+                "Failed to push agenda to reMarkable"
+              );
+            }
+          }
+        }
+
+        // Clean up old entries from agendaPushedToday
+        for (const [userId, dateStr] of agendaPushedToday.entries()) {
+          if (dateStr !== todayStr) {
+            agendaPushedToday.delete(userId);
+          }
+        }
+      } catch (error) {
+        fastify.log.error({ err: error }, "reMarkable agenda scheduler error");
+      }
+    };
+
+    // Start checking after startup delay
+    setTimeout(async () => {
+      fastify.log.info("Starting reMarkable agenda scheduler (1 min interval)...");
+      await checkAgendaPush();
+
+      remarkableAgendaInterval = setInterval(checkAgendaPush, REMARKABLE_AGENDA_CHECK_INTERVAL_MS);
+    }, STARTUP_DELAY_MS + 25000); // Start 25 seconds after IPTV
+  };
+
   // Start scheduler when server is ready
   fastify.addHook("onReady", async () => {
     startIptvCacheScheduler();
@@ -370,6 +641,9 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     startEntityTimerScheduler();
     startAutomationScheduler();
     startNewsScheduler();
+    startCalendarSyncScheduler();
+    startRemarkableNoteScheduler();
+    startRemarkableAgendaScheduler();
   });
 
   // Clean up on server close
@@ -398,6 +672,21 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
       clearInterval(newsInterval);
       newsInterval = null;
       fastify.log.info("News feed scheduler stopped");
+    }
+    if (calendarSyncInterval) {
+      clearInterval(calendarSyncInterval);
+      calendarSyncInterval = null;
+      fastify.log.info("Calendar sync scheduler stopped");
+    }
+    if (remarkableNoteInterval) {
+      clearInterval(remarkableNoteInterval);
+      remarkableNoteInterval = null;
+      fastify.log.info("reMarkable note scheduler stopped");
+    }
+    if (remarkableAgendaInterval) {
+      clearInterval(remarkableAgendaInterval);
+      remarkableAgendaInterval = null;
+      fastify.log.info("reMarkable agenda scheduler stopped");
     }
   });
 };

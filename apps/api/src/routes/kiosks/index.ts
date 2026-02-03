@@ -1,0 +1,833 @@
+import type { FastifyPluginAsync } from "fastify";
+import { eq, and } from "drizzle-orm";
+import {
+  kiosks,
+  photoAlbums,
+  photos,
+  calendars,
+  events,
+} from "@openframe/database/schema";
+import { getCurrentUser } from "../../plugins/auth.js";
+import { randomUUID } from "crypto";
+
+// In-memory kiosk command store
+// Commands expire after 60 seconds (kiosks should poll every 10 seconds)
+interface KioskCommand {
+  type: "refresh" | "reload-photos";
+  timestamp: number;
+}
+const kioskCommands = new Map<string, KioskCommand[]>();
+
+// Clean up expired commands every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [kioskId, commands] of kioskCommands.entries()) {
+    const validCommands = commands.filter((cmd) => now - cmd.timestamp < 60000);
+    if (validCommands.length === 0) {
+      kioskCommands.delete(kioskId);
+    } else {
+      kioskCommands.set(kioskId, validCommands);
+    }
+  }
+}, 5 * 60 * 1000);
+
+export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
+  // ========== PROTECTED ENDPOINTS (require auth) ==========
+
+  // List user's kiosks
+  fastify.get(
+    "/",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "List all kiosks for the current user",
+        tags: ["Kiosks"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("User not found");
+      }
+
+      const userKiosks = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(eq(kiosks.userId, user.id))
+        .orderBy(kiosks.createdAt);
+
+      return {
+        success: true,
+        data: userKiosks,
+      };
+    }
+  );
+
+  // Get a specific kiosk by ID
+  fastify.get(
+    "/:id",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Get a specific kiosk by ID",
+        tags: ["Kiosks"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("User not found");
+      }
+      const { id } = request.params as { id: string };
+
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(and(eq(kiosks.id, id), eq(kiosks.userId, user.id)))
+        .limit(1);
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      return {
+        success: true,
+        data: kiosk,
+      };
+    }
+  );
+
+  // Create a new kiosk
+  fastify.post(
+    "/",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Create a new kiosk",
+        tags: ["Kiosks"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        body: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            colorScheme: {
+              type: "string",
+              enum: ["default", "homio", "ocean", "forest", "sunset", "lavender"],
+            },
+            screensaverEnabled: { type: "boolean" },
+            screensaverTimeout: { type: "number", minimum: 30, maximum: 3600 },
+            screensaverInterval: { type: "number", minimum: 3, maximum: 300 },
+            screensaverLayout: {
+              type: "string",
+              enum: ["fullscreen", "informational", "quad", "scatter", "builder"],
+            },
+            screensaverTransition: {
+              type: "string",
+              enum: ["fade", "slide-left", "slide-right", "slide-up", "slide-down", "zoom"],
+            },
+            screensaverLayoutConfig: { type: "object" },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("User not found");
+      }
+
+      const body = request.body as {
+        name?: string;
+        colorScheme?: string;
+        screensaverEnabled?: boolean;
+        screensaverTimeout?: number;
+        screensaverInterval?: number;
+        screensaverLayout?: string;
+        screensaverTransition?: string;
+        screensaverLayoutConfig?: Record<string, unknown>;
+      };
+
+      const [kiosk] = await fastify.db
+        .insert(kiosks)
+        .values({
+          userId: user.id,
+          name: body.name ?? "My Kiosk",
+          colorScheme: (body.colorScheme as any) ?? "default",
+          screensaverEnabled: body.screensaverEnabled ?? true,
+          screensaverTimeout: body.screensaverTimeout ?? 300,
+          screensaverInterval: body.screensaverInterval ?? 15,
+          screensaverLayout: (body.screensaverLayout as any) ?? "builder",
+          screensaverTransition: (body.screensaverTransition as any) ?? "fade",
+          screensaverLayoutConfig: body.screensaverLayoutConfig ?? null,
+        })
+        .returning();
+
+      return reply.status(201).send({
+        success: true,
+        data: kiosk,
+      });
+    }
+  );
+
+  // Update a kiosk
+  fastify.put(
+    "/:id",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Update a kiosk",
+        tags: ["Kiosks"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+        body: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            isActive: { type: "boolean" },
+            colorScheme: {
+              type: "string",
+              enum: ["default", "homio", "ocean", "forest", "sunset", "lavender"],
+            },
+            screensaverEnabled: { type: "boolean" },
+            screensaverTimeout: { type: "number", minimum: 30, maximum: 3600 },
+            screensaverInterval: { type: "number", minimum: 3, maximum: 300 },
+            screensaverLayout: {
+              type: "string",
+              enum: ["fullscreen", "informational", "quad", "scatter", "builder"],
+            },
+            screensaverTransition: {
+              type: "string",
+              enum: ["fade", "slide-left", "slide-right", "slide-up", "slide-down", "zoom"],
+            },
+            screensaverLayoutConfig: { type: "object" },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("User not found");
+      }
+      const { id } = request.params as { id: string };
+
+      const body = request.body as {
+        name?: string;
+        isActive?: boolean;
+        colorScheme?: string;
+        screensaverEnabled?: boolean;
+        screensaverTimeout?: number;
+        screensaverInterval?: number;
+        screensaverLayout?: string;
+        screensaverTransition?: string;
+        screensaverLayoutConfig?: Record<string, unknown>;
+      };
+
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (body.name !== undefined) updates.name = body.name;
+      if (body.isActive !== undefined) updates.isActive = body.isActive;
+      if (body.colorScheme !== undefined) updates.colorScheme = body.colorScheme;
+      if (body.screensaverEnabled !== undefined) updates.screensaverEnabled = body.screensaverEnabled;
+      if (body.screensaverTimeout !== undefined) updates.screensaverTimeout = body.screensaverTimeout;
+      if (body.screensaverInterval !== undefined) updates.screensaverInterval = body.screensaverInterval;
+      if (body.screensaverLayout !== undefined) updates.screensaverLayout = body.screensaverLayout;
+      if (body.screensaverTransition !== undefined) updates.screensaverTransition = body.screensaverTransition;
+      if (body.screensaverLayoutConfig !== undefined) updates.screensaverLayoutConfig = body.screensaverLayoutConfig;
+
+      const [kiosk] = await fastify.db
+        .update(kiosks)
+        .set(updates)
+        .where(and(eq(kiosks.id, id), eq(kiosks.userId, user.id)))
+        .returning();
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      return {
+        success: true,
+        data: kiosk,
+      };
+    }
+  );
+
+  // Delete a kiosk
+  fastify.delete(
+    "/:id",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Delete a kiosk",
+        tags: ["Kiosks"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("User not found");
+      }
+      const { id } = request.params as { id: string };
+
+      const result = await fastify.db
+        .delete(kiosks)
+        .where(and(eq(kiosks.id, id), eq(kiosks.userId, user.id)));
+
+      if (!result) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      return { success: true };
+    }
+  );
+
+  // Regenerate token (invalidates old URL)
+  fastify.post(
+    "/:id/regenerate-token",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Regenerate the kiosk token (invalidates the old URL)",
+        tags: ["Kiosks"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("User not found");
+      }
+      const { id } = request.params as { id: string };
+
+      const newToken = randomUUID();
+
+      const [kiosk] = await fastify.db
+        .update(kiosks)
+        .set({ token: newToken, updatedAt: new Date() })
+        .where(and(eq(kiosks.id, id), eq(kiosks.userId, user.id)))
+        .returning();
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      return {
+        success: true,
+        data: kiosk,
+      };
+    }
+  );
+
+  // Send refresh command to a kiosk
+  fastify.post(
+    "/:id/refresh",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Send a refresh command to a kiosk",
+        tags: ["Kiosks"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("User not found");
+      }
+      const { id } = request.params as { id: string };
+
+      // Verify ownership
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(and(eq(kiosks.id, id), eq(kiosks.userId, user.id)))
+        .limit(1);
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      // Add refresh command for this kiosk
+      const existingCommands = kioskCommands.get(id) ?? [];
+      existingCommands.push({
+        type: "refresh",
+        timestamp: Date.now(),
+      });
+      kioskCommands.set(id, existingCommands);
+
+      fastify.log.info(`Kiosk refresh triggered for kiosk ${id}`);
+
+      return { success: true };
+    }
+  );
+
+  // ========== PUBLIC ENDPOINTS (accessed by token, no auth) ==========
+
+  // Get kiosk config by token
+  fastify.get(
+    "/public/:token",
+    {
+      schema: {
+        description: "Get kiosk configuration by token (public, no auth required)",
+        tags: ["Kiosks", "Public"],
+        params: {
+          type: "object",
+          properties: {
+            token: { type: "string", format: "uuid" },
+          },
+          required: ["token"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const { token } = request.params as { token: string };
+
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(eq(kiosks.token, token))
+        .limit(1);
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      if (!kiosk.isActive) {
+        return reply.forbidden("Kiosk is disabled");
+      }
+
+      // Update last accessed time
+      await fastify.db
+        .update(kiosks)
+        .set({ lastAccessedAt: new Date() })
+        .where(eq(kiosks.id, kiosk.id));
+
+      // Return config without sensitive data (userId, id)
+      return {
+        success: true,
+        data: {
+          name: kiosk.name,
+          colorScheme: kiosk.colorScheme,
+          screensaverEnabled: kiosk.screensaverEnabled,
+          screensaverTimeout: kiosk.screensaverTimeout,
+          screensaverInterval: kiosk.screensaverInterval,
+          screensaverLayout: kiosk.screensaverLayout,
+          screensaverTransition: kiosk.screensaverTransition,
+          screensaverLayoutConfig: kiosk.screensaverLayoutConfig,
+        },
+      };
+    }
+  );
+
+  // Poll for commands by token
+  fastify.get(
+    "/public/:token/commands",
+    {
+      schema: {
+        description: "Poll for kiosk commands (public, no auth required)",
+        tags: ["Kiosks", "Public"],
+        params: {
+          type: "object",
+          properties: {
+            token: { type: "string", format: "uuid" },
+          },
+          required: ["token"],
+        },
+        querystring: {
+          type: "object",
+          properties: {
+            since: { type: "number", description: "Timestamp to get commands since" },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { token } = request.params as { token: string };
+      const { since } = request.query as { since?: number };
+      const sinceTimestamp = since ?? 0;
+
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(eq(kiosks.token, token))
+        .limit(1);
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      if (!kiosk.isActive) {
+        return reply.forbidden("Kiosk is disabled");
+      }
+
+      // Get commands for this kiosk newer than 'since' timestamp
+      const commands = kioskCommands.get(kiosk.id) ?? [];
+      const newCommands = commands.filter((cmd) => cmd.timestamp > sinceTimestamp);
+
+      return {
+        success: true,
+        data: { commands: newCommands },
+      };
+    }
+  );
+
+  // Get photos for a kiosk by token
+  fastify.get(
+    "/public/:token/photos",
+    {
+      schema: {
+        description: "Get photos for kiosk slideshow (public, no auth required)",
+        tags: ["Kiosks", "Public"],
+        params: {
+          type: "object",
+          properties: {
+            token: { type: "string", format: "uuid" },
+          },
+          required: ["token"],
+        },
+        querystring: {
+          type: "object",
+          properties: {
+            albumId: { type: "string", format: "uuid" },
+            orientation: { type: "string", enum: ["all", "landscape", "portrait"] },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { token } = request.params as { token: string };
+      const { albumId, orientation } = request.query as {
+        albumId?: string;
+        orientation?: "all" | "landscape" | "portrait";
+      };
+
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(eq(kiosks.token, token))
+        .limit(1);
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      if (!kiosk.isActive) {
+        return reply.forbidden("Kiosk is disabled");
+      }
+
+      // Get active albums for this user
+      let albumsQuery = fastify.db
+        .select()
+        .from(photoAlbums)
+        .where(
+          and(
+            eq(photoAlbums.userId, kiosk.userId),
+            eq(photoAlbums.isActive, true)
+          )
+        );
+
+      if (albumId) {
+        albumsQuery = fastify.db
+          .select()
+          .from(photoAlbums)
+          .where(
+            and(
+              eq(photoAlbums.id, albumId),
+              eq(photoAlbums.userId, kiosk.userId),
+              eq(photoAlbums.isActive, true)
+            )
+          );
+      }
+
+      const albums = await albumsQuery;
+
+      if (albums.length === 0) {
+        return {
+          success: true,
+          data: {
+            photos: [],
+            interval: kiosk.screensaverInterval,
+          },
+        };
+      }
+
+      // Get photos from all active albums
+      const allPhotos: Array<{
+        id: string;
+        url: string;
+        width?: number | null;
+        height?: number | null;
+      }> = [];
+
+      for (const album of albums) {
+        const albumPhotos = await fastify.db
+          .select()
+          .from(photos)
+          .where(eq(photos.albumId, album.id));
+
+        for (const photo of albumPhotos) {
+          // Filter by orientation if specified
+          if (orientation && orientation !== "all" && photo.width && photo.height) {
+            const isLandscape = photo.width > photo.height;
+            if (orientation === "landscape" && !isLandscape) continue;
+            if (orientation === "portrait" && isLandscape) continue;
+          }
+
+          allPhotos.push({
+            id: photo.id,
+            url: `/api/v1/photos/${photo.id}/file`,
+            width: photo.width,
+            height: photo.height,
+          });
+        }
+      }
+
+      // Shuffle photos
+      for (let i = allPhotos.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allPhotos[i], allPhotos[j]] = [allPhotos[j]!, allPhotos[i]!];
+      }
+
+      return {
+        success: true,
+        data: {
+          photos: allPhotos,
+          interval: kiosk.screensaverInterval,
+        },
+      };
+    }
+  );
+
+  // Get events for a kiosk by token
+  fastify.get(
+    "/public/:token/events",
+    {
+      schema: {
+        description: "Get calendar events for kiosk (public, no auth required)",
+        tags: ["Kiosks", "Public"],
+        params: {
+          type: "object",
+          properties: {
+            token: { type: "string", format: "uuid" },
+          },
+          required: ["token"],
+        },
+        querystring: {
+          type: "object",
+          properties: {
+            start: { type: "string", format: "date-time" },
+            end: { type: "string", format: "date-time" },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { token } = request.params as { token: string };
+      const { start, end } = request.query as { start?: string; end?: string };
+
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(eq(kiosks.token, token))
+        .limit(1);
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      if (!kiosk.isActive) {
+        return reply.forbidden("Kiosk is disabled");
+      }
+
+      // Get visible calendars with screensaver visibility enabled
+      const userCalendars = await fastify.db
+        .select()
+        .from(calendars)
+        .where(
+          and(
+            eq(calendars.userId, kiosk.userId),
+            eq(calendars.isVisible, true)
+          )
+        );
+
+      // Filter to only those with screensaver visibility
+      const screensaverCalendars = userCalendars.filter((cal) => {
+        const visibility = cal.visibility as { screensaver?: boolean } | null;
+        return visibility?.screensaver === true;
+      });
+
+      if (screensaverCalendars.length === 0) {
+        return {
+          success: true,
+          data: [],
+        };
+      }
+
+      // Get events from those calendars
+      const calendarIds = screensaverCalendars.map((c) => c.id);
+      const now = new Date();
+      const startDate = start ? new Date(start) : now;
+      const endDate = end ? new Date(end) : new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+      const allEvents = await fastify.db
+        .select()
+        .from(events)
+        .where(
+          and(
+            // Filter by calendar IDs - note: drizzle doesn't have an in() helper for this case
+            // so we'll filter in JS
+          )
+        );
+
+      const filteredEvents = allEvents.filter((event) => {
+        if (!calendarIds.includes(event.calendarId)) return false;
+        const eventStart = new Date(event.startTime);
+        const eventEnd = new Date(event.endTime);
+        return eventEnd >= startDate && eventStart <= endDate;
+      });
+
+      // Return events without sensitive data
+      return {
+        success: true,
+        data: filteredEvents.map((event) => ({
+          id: event.id,
+          title: event.title,
+          description: event.description,
+          location: event.location,
+          startTime: event.startTime,
+          endTime: event.endTime,
+          isAllDay: event.isAllDay,
+          status: event.status,
+        })),
+      };
+    }
+  );
+
+  // Exchange kiosk token for API key (allows full app access)
+  fastify.post(
+    "/public/:token/auth",
+    {
+      schema: {
+        description: "Exchange kiosk token for an API key to enable full app access",
+        tags: ["Kiosks", "Public"],
+        params: {
+          type: "object",
+          properties: {
+            token: { type: "string", format: "uuid" },
+          },
+          required: ["token"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const { token } = request.params as { token: string };
+
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(eq(kiosks.token, token))
+        .limit(1);
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      if (!kiosk.isActive) {
+        return reply.forbidden("Kiosk is disabled");
+      }
+
+      // Generate a session token for this kiosk
+      // This is a simple approach - the token is the kiosk token itself
+      // The API key header will be checked against kiosk tokens
+      return {
+        success: true,
+        data: {
+          apiKey: `kiosk_${token}`,
+          userId: kiosk.userId,
+        },
+      };
+    }
+  );
+
+  // Get weather for a kiosk by token
+  fastify.get(
+    "/public/:token/weather",
+    {
+      schema: {
+        description: "Get weather data for kiosk (public, no auth required)",
+        tags: ["Kiosks", "Public"],
+        params: {
+          type: "object",
+          properties: {
+            token: { type: "string", format: "uuid" },
+          },
+          required: ["token"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const { token } = request.params as { token: string };
+
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(eq(kiosks.token, token))
+        .limit(1);
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      if (!kiosk.isActive) {
+        return reply.forbidden("Kiosk is disabled");
+      }
+
+      // Weather is fetched from the weather service using system settings
+      // Redirect to the weather endpoint with the kiosk user context
+      // For now, return a placeholder - the frontend can call the weather API directly
+      // since weather doesn't require user-specific data beyond location settings
+      return {
+        success: true,
+        data: {
+          message: "Use /api/v1/weather endpoints for weather data",
+        },
+      };
+    }
+  );
+};

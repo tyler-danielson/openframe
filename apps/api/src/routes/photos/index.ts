@@ -12,6 +12,7 @@ import {
   getPhotoUrl,
   getAccessToken,
 } from "../../services/google-photos.js";
+import { fetchSubredditPhotos } from "../../services/reddit-photos.js";
 import { randomUUID } from "crypto";
 import { mkdir, unlink, stat } from "fs/promises";
 import { createReadStream } from "fs";
@@ -257,7 +258,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(photos.albumId, id))
         .orderBy(photos.sortOrder);
 
-      // Convert paths to URLs
+      // Convert paths to URLs (normalize path separators to forward slashes)
       const photosWithUrls = albumPhotos.map((photo) => ({
         id: photo.id,
         filename: photo.filename,
@@ -266,12 +267,12 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         width: photo.width,
         height: photo.height,
         thumbnailUrl: photo.thumbnailPath
-          ? `/api/v1/photos/files/${photo.thumbnailPath}`
+          ? `/api/v1/photos/files/${photo.thumbnailPath.replace(/\\/g, "/")}`
           : null,
         mediumUrl: photo.mediumPath
-          ? `/api/v1/photos/files/${photo.mediumPath}`
+          ? `/api/v1/photos/files/${photo.mediumPath.replace(/\\/g, "/")}`
           : null,
-        originalUrl: `/api/v1/photos/files/${photo.originalPath}`,
+        originalUrl: `/api/v1/photos/files/${photo.originalPath.replace(/\\/g, "/")}`,
         takenAt: photo.takenAt,
         sortOrder: photo.sortOrder,
         sourceType: photo.sourceType,
@@ -1003,7 +1004,70 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // Get active slideshow - always returns local photos from active albums
+  // Get photos from a Reddit subreddit
+  fastify.get(
+    "/reddit/:subreddit",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Get photos from a Reddit subreddit",
+        tags: ["Photos", "Reddit"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            subreddit: { type: "string" },
+          },
+          required: ["subreddit"],
+        },
+        querystring: {
+          type: "object",
+          properties: {
+            limit: { type: "number", default: 50, minimum: 1, maximum: 100 },
+            orientation: { type: "string", enum: ["all", "landscape", "portrait"], default: "all" },
+            sort: { type: "string", enum: ["hot", "new", "top"], default: "hot" },
+            time: { type: "string", enum: ["hour", "day", "week", "month", "year", "all"], default: "week" },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { subreddit } = request.params as { subreddit: string };
+      const { limit = 50, orientation = "all", sort = "hot", time = "week" } = request.query as {
+        limit?: number;
+        orientation?: "all" | "landscape" | "portrait";
+        sort?: "hot" | "new" | "top";
+        time?: "hour" | "day" | "week" | "month" | "year" | "all";
+      };
+
+      // Validate subreddit name (alphanumeric and underscore only)
+      if (!/^[a-zA-Z0-9_]+$/.test(subreddit)) {
+        return reply.badRequest("Invalid subreddit name");
+      }
+
+      try {
+        const photos = await fetchSubredditPhotos(subreddit, {
+          limit,
+          orientation,
+          sort,
+          time,
+        });
+
+        return {
+          success: true,
+          data: {
+            photos,
+            subreddit,
+          },
+        };
+      } catch (error) {
+        console.error(`Failed to fetch photos from r/${subreddit}:`, error);
+        return reply.internalServerError("Failed to fetch Reddit photos");
+      }
+    }
+  );
+
+  // Get active slideshow - returns local photos from active albums or specific album
   fastify.get(
     "/slideshow",
     {
@@ -1012,23 +1076,57 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         description: "Get photos for slideshow from active local albums",
         tags: ["Photos"],
         security: [{ bearerAuth: [] }, { apiKey: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            albumId: { type: "string", format: "uuid", description: "Optional specific album ID" },
+            orientation: {
+              type: "string",
+              enum: ["all", "landscape", "portrait"],
+              default: "all",
+              description: "Filter photos by orientation"
+            },
+          },
+        },
       },
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      const { albumId, orientation = "all" } = request.query as { albumId?: string; orientation?: string };
 
-      // Get all active albums
-      const activeAlbums = await fastify.db
-        .select()
-        .from(photoAlbums)
-        .where(
-          and(
-            eq(photoAlbums.userId, user.id),
-            eq(photoAlbums.isActive, true)
+      let targetAlbums;
+
+      if (albumId) {
+        // Get specific album
+        const [album] = await fastify.db
+          .select()
+          .from(photoAlbums)
+          .where(
+            and(
+              eq(photoAlbums.id, albumId),
+              eq(photoAlbums.userId, user.id)
+            )
           )
-        );
+          .limit(1);
 
-      if (activeAlbums.length === 0) {
+        if (!album) {
+          return reply.notFound("Album not found");
+        }
+        targetAlbums = [album];
+      } else {
+        // Get all active albums
+        targetAlbums = await fastify.db
+          .select()
+          .from(photoAlbums)
+          .where(
+            and(
+              eq(photoAlbums.userId, user.id),
+              eq(photoAlbums.isActive, true)
+            )
+          );
+      }
+
+      if (targetAlbums.length === 0) {
         return {
           success: true,
           data: {
@@ -1038,9 +1136,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         };
       }
 
-      // Get photos from all active albums
+      // Get photos from all target albums
       const allPhotos = [];
-      for (const album of activeAlbums) {
+      for (const album of targetAlbums) {
         const albumPhotos = await fastify.db
           .select()
           .from(photos)
@@ -1048,19 +1146,270 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         allPhotos.push(...albumPhotos);
       }
 
+      // Filter by orientation
+      let filteredPhotos = allPhotos;
+      if (orientation === "landscape") {
+        filteredPhotos = allPhotos.filter((p) => p.width && p.height && p.width > p.height);
+      } else if (orientation === "portrait") {
+        filteredPhotos = allPhotos.filter((p) => p.width && p.height && p.height > p.width);
+      }
+
       // Shuffle photos
-      const shuffled = allPhotos.sort(() => Math.random() - 0.5);
+      const shuffled = filteredPhotos.sort(() => Math.random() - 0.5);
 
       return {
         success: true,
         data: {
           photos: shuffled.map((photo) => ({
             id: photo.id,
-            url: `/api/v1/photos/files/${photo.mediumPath ?? photo.originalPath}`,
+            // Normalize path separators to forward slashes for URLs
+            url: `/api/v1/photos/files/${(photo.mediumPath ?? photo.originalPath).replace(/\\/g, "/")}`,
             width: photo.width,
             height: photo.height,
           })),
-          interval: activeAlbums[0]?.slideshowInterval ?? 30,
+          interval: targetAlbums[0]?.slideshowInterval ?? 30,
+        },
+      };
+    }
+  );
+
+  // ==================== TEMPORARY UPLOAD TOKENS ====================
+
+  // In-memory store for temporary upload tokens
+  // Structure: { token: { userId, albumId, createdAt, expiresAt } }
+  const uploadTokens = new Map<string, { userId: string; albumId: string; createdAt: Date; expiresAt: Date }>();
+
+  // Clean up expired tokens periodically
+  setInterval(() => {
+    const now = new Date();
+    for (const [token, data] of uploadTokens.entries()) {
+      if (data.expiresAt < now) {
+        uploadTokens.delete(token);
+      }
+    }
+  }, 60000); // Clean every minute
+
+  // Generate temporary upload token
+  fastify.post(
+    "/albums/:id/upload-token",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Generate a temporary upload token for mobile uploads",
+        tags: ["Photos"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      const { id: albumId } = request.params as { id: string };
+
+      // Verify album exists and belongs to user
+      const [album] = await fastify.db
+        .select()
+        .from(photoAlbums)
+        .where(
+          and(
+            eq(photoAlbums.id, albumId),
+            eq(photoAlbums.userId, user.id)
+          )
+        )
+        .limit(1);
+
+      if (!album) {
+        return reply.notFound("Album not found");
+      }
+
+      // Generate token (valid for 30 minutes)
+      const token = randomUUID();
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 30 * 60 * 1000);
+
+      uploadTokens.set(token, {
+        userId: user.id,
+        albumId,
+        createdAt: now,
+        expiresAt,
+      });
+
+      return {
+        success: true,
+        data: {
+          token,
+          expiresAt: expiresAt.toISOString(),
+          albumName: album.name,
+        },
+      };
+    }
+  );
+
+  // Revoke upload token
+  fastify.delete(
+    "/upload-token/:token",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Revoke a temporary upload token",
+        tags: ["Photos"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            token: { type: "string" },
+          },
+          required: ["token"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      const { token } = request.params as { token: string };
+
+      const tokenData = uploadTokens.get(token);
+      if (!tokenData || tokenData.userId !== user.id) {
+        return reply.notFound("Token not found");
+      }
+
+      uploadTokens.delete(token);
+
+      return { success: true };
+    }
+  );
+
+  // Get upload token info (public - for upload page)
+  fastify.get(
+    "/upload-token/:token",
+    {
+      schema: {
+        description: "Get upload token info (public)",
+        tags: ["Photos"],
+        params: {
+          type: "object",
+          properties: {
+            token: { type: "string" },
+          },
+          required: ["token"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const { token } = request.params as { token: string };
+
+      const tokenData = uploadTokens.get(token);
+      if (!tokenData) {
+        return reply.notFound("Token not found or expired");
+      }
+
+      if (tokenData.expiresAt < new Date()) {
+        uploadTokens.delete(token);
+        return reply.notFound("Token expired");
+      }
+
+      // Get album name
+      const [album] = await fastify.db
+        .select()
+        .from(photoAlbums)
+        .where(eq(photoAlbums.id, tokenData.albumId))
+        .limit(1);
+
+      return {
+        success: true,
+        data: {
+          albumName: album?.name ?? "Unknown Album",
+          expiresAt: tokenData.expiresAt.toISOString(),
+        },
+      };
+    }
+  );
+
+  // Public upload endpoint (using temporary token)
+  fastify.post(
+    "/upload-public/:token",
+    {
+      schema: {
+        description: "Upload photo using temporary token (public, no auth required)",
+        tags: ["Photos"],
+        params: {
+          type: "object",
+          properties: {
+            token: { type: "string" },
+          },
+          required: ["token"],
+        },
+        consumes: ["multipart/form-data"],
+      },
+    },
+    async (request, reply) => {
+      const { token } = request.params as { token: string };
+
+      // Validate token
+      const tokenData = uploadTokens.get(token);
+      if (!tokenData) {
+        return reply.unauthorized("Invalid or expired upload token");
+      }
+
+      if (tokenData.expiresAt < new Date()) {
+        uploadTokens.delete(token);
+        return reply.unauthorized("Upload token expired");
+      }
+
+      const data = await request.file();
+      if (!data) {
+        return reply.badRequest("No file uploaded");
+      }
+
+      const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+      if (!allowedTypes.includes(data.mimetype)) {
+        return reply.badRequest("Invalid file type. Allowed: JPEG, PNG, WebP, GIF");
+      }
+
+      // Create upload directories
+      const userDir = join(uploadDir, tokenData.userId);
+      await mkdir(userDir, { recursive: true });
+      await mkdir(join(userDir, "thumbnails"), { recursive: true });
+      await mkdir(join(userDir, "medium"), { recursive: true });
+
+      // Generate unique filename
+      const ext = path.extname(data.filename);
+      const uniqueName = `${randomUUID()}${ext}`;
+      const originalPath = join(tokenData.userId, uniqueName);
+
+      // Process image (saves original and creates thumbnails)
+      const { width, height, thumbnailPath, mediumPath } = await processImage(
+        data.file,
+        uploadDir,
+        tokenData.userId,
+        uniqueName
+      );
+
+      // Save to database
+      const [photo] = await fastify.db
+        .insert(photos)
+        .values({
+          albumId: tokenData.albumId,
+          filename: data.filename,
+          originalPath,
+          thumbnailPath,
+          mediumPath,
+          width,
+          height,
+          mimeType: data.mimetype,
+          size: 0, // Will be updated after processing
+        })
+        .returning();
+
+      return {
+        success: true,
+        data: {
+          id: photo.id,
+          filename: photo.filename,
         },
       };
     }

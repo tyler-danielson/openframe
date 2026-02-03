@@ -1,10 +1,13 @@
 import { type ReactNode, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import * as Popover from "@radix-ui/react-popover";
 import { X, MapPin, Calendar, Clock, Users, Repeat, CircleDot, Car, Pencil, Home } from "lucide-react";
 import { format } from "date-fns";
 import type { CalendarEvent, Calendar as CalendarType } from "@openframe/shared";
 import { Button } from "../ui/Button";
 import { PlacesAutocomplete } from "../ui/PlacesAutocomplete";
+import { TouchDatePicker } from "../ui/TouchDatePicker";
+import { TouchTimePicker } from "../ui/TouchTimePicker";
 import { useCalendarStore } from "../../stores/calendar";
 import { api } from "../../services/api";
 
@@ -75,24 +78,6 @@ function parseDescriptionWithLinks(text: string): ReactNode[] {
   return parts.length > 0 ? parts : [text];
 }
 
-// Format date for datetime-local input
-function formatDateTimeLocal(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
-
-// Format date for date input
-function formatDateLocal(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventModalProps) {
   const calendars = useCalendarStore((state) => state.calendars);
   const homeAddress = useCalendarStore((state) => state.homeAddress);
@@ -102,11 +87,20 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
 
   // Edit form state
   const [editTitle, setEditTitle] = useState("");
+  const [editStartDate, setEditStartDate] = useState("");
   const [editStartTime, setEditStartTime] = useState("");
+  const [editEndDate, setEditEndDate] = useState("");
   const [editEndTime, setEditEndTime] = useState("");
   const [editLocation, setEditLocation] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editIsAllDay, setEditIsAllDay] = useState(false);
+  const [editIsMultiDay, setEditIsMultiDay] = useState(false);
+
+  // Touch picker visibility
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showStartTimePicker, setShowStartTimePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [showEndTimePicker, setShowEndTimePicker] = useState(false);
 
   const [drivingTime, setDrivingTime] = useState<{
     duration: string;
@@ -127,17 +121,26 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
       const start = new Date(event.startTime);
       const end = new Date(event.endTime);
 
-      if (event.isAllDay) {
-        setEditStartTime(formatDateLocal(start));
-        setEditEndTime(formatDateLocal(end));
-      } else {
-        setEditStartTime(formatDateTimeLocal(start));
-        setEditEndTime(formatDateTimeLocal(end));
-      }
+      const startDateStr = format(start, "yyyy-MM-dd");
+      const endDateStr = format(end, "yyyy-MM-dd");
+
+      setEditStartDate(startDateStr);
+      setEditEndDate(endDateStr);
+      setEditStartTime(format(start, "HH:mm"));
+      setEditEndTime(format(end, "HH:mm"));
+
+      // Detect if event spans multiple days
+      setEditIsMultiDay(startDateStr !== endDateStr);
     }
-    if (!open) {
+    if (open && event) {
+      setIsEditing(true);
+    } else if (!open) {
       setIsEditing(false);
       setShowRoutes(false);
+      setShowStartDatePicker(false);
+      setShowStartTimePicker(false);
+      setShowEndDatePicker(false);
+      setShowEndTimePicker(false);
     }
   }, [event, open]);
 
@@ -181,33 +184,57 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
     return `${format(startDate, "h:mm a")} - ${format(endDate, "h:mm a")}`;
   };
 
+  // Format time for display (12-hour format)
+  const formatTimeDisplay = (time: string) => {
+    const [h, m] = time.split(":").map(Number);
+    const hour = h ?? 0;
+    const minute = m ?? 0;
+    const period = hour >= 12 ? "PM" : "AM";
+    const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return `${hour12}:${minute.toString().padStart(2, "0")} ${period}`;
+  };
+
+  // Format date for display (parse as local date, not UTC)
+  const formatDateDisplay = (dateStr: string) => {
+    const parts = dateStr.split("-").map(Number);
+    const year = parts[0] ?? 2026;
+    const month = parts[1] ?? 1;
+    const day = parts[2] ?? 1;
+    const localDate = new Date(year, month - 1, day);
+    return format(localDate, "EEE, MMM d");
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      let startTime: Date;
-      let endTime: Date;
+      let startDateTime: Date;
+      let endDateTime: Date;
+
+      // Use start date for end date if not multi-day
+      const effectiveEndDate = editIsMultiDay ? editEndDate : editStartDate;
 
       if (editIsAllDay) {
-        startTime = new Date(editStartTime + "T00:00:00");
-        endTime = new Date(editEndTime + "T23:59:59");
+        startDateTime = new Date(editStartDate + "T00:00:00");
+        endDateTime = new Date(effectiveEndDate + "T23:59:59");
       } else {
-        startTime = new Date(editStartTime);
-        endTime = new Date(editEndTime);
+        startDateTime = new Date(`${editStartDate}T${editStartTime}`);
+        endDateTime = new Date(`${effectiveEndDate}T${editEndTime}`);
       }
 
       const updatedEvent = await api.updateEvent(event.id, {
         title: editTitle,
-        startTime: startTime.toISOString(),
-        endTime: endTime.toISOString(),
+        startTime: startDateTime,
+        endTime: endDateTime,
         location: editLocation || undefined,
         description: editDescription || undefined,
         isAllDay: editIsAllDay,
       });
 
       onUpdate?.(updatedEvent);
-      setIsEditing(false);
+      onClose(); // Close modal after successful save
     } catch (error) {
       console.error("Failed to update event:", error);
+      alert("Failed to save event. Please try again.");
     } finally {
       setIsSaving(false);
     }
@@ -223,29 +250,34 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
     const start = new Date(event.startTime);
     const end = new Date(event.endTime);
 
-    if (event.isAllDay) {
-      setEditStartTime(formatDateLocal(start));
-      setEditEndTime(formatDateLocal(end));
-    } else {
-      setEditStartTime(formatDateTimeLocal(start));
-      setEditEndTime(formatDateTimeLocal(end));
-    }
+    const startDateStr = format(start, "yyyy-MM-dd");
+    const endDateStr = format(end, "yyyy-MM-dd");
+
+    setEditStartDate(startDateStr);
+    setEditEndDate(endDateStr);
+    setEditStartTime(format(start, "HH:mm"));
+    setEditEndTime(format(end, "HH:mm"));
+    setEditIsMultiDay(startDateStr !== endDateStr);
 
     setIsEditing(false);
+    setShowStartDatePicker(false);
+    setShowStartTimePicker(false);
+    setShowEndDatePicker(false);
+    setShowEndTimePicker(false);
   };
 
   return (
     <Dialog.Root open={open} onOpenChange={onClose}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 data-[state=open]:animate-fade-in" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[85vh] w-full max-w-md -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl border border-border bg-card p-6 shadow-xl data-[state=open]:animate-slide-up">
-          <div className="mb-4 flex items-start justify-between">
+        <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[90vh] w-full max-w-xl -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl border border-border bg-card p-4 shadow-xl data-[state=open]:animate-slide-up">
+          <div className="mb-3 flex items-start justify-between">
             {isEditing ? (
               <input
                 type="text"
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
-                className="flex-1 text-xl font-semibold bg-transparent border-b border-border focus:border-primary focus:outline-none"
+                className="flex-1 text-xl font-semibold bg-transparent border-b border-border focus:border-primary focus:outline-none py-2 touch-manipulation"
                 placeholder="Event title"
               />
             ) : (
@@ -275,47 +307,194 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
             {/* Date and time */}
             {isEditing ? (
               <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="allDay"
-                    checked={editIsAllDay}
-                    onChange={(e) => {
-                      setEditIsAllDay(e.target.checked);
-                      // Convert times when toggling
-                      if (e.target.checked) {
-                        setEditStartTime(formatDateLocal(new Date(editStartTime)));
-                        setEditEndTime(formatDateLocal(new Date(editEndTime)));
-                      } else {
-                        const start = new Date(editStartTime);
-                        start.setHours(9, 0, 0, 0);
-                        const end = new Date(editEndTime);
-                        end.setHours(10, 0, 0, 0);
-                        setEditStartTime(formatDateTimeLocal(start));
-                        setEditEndTime(formatDateTimeLocal(end));
-                      }
-                    }}
-                    className="rounded"
-                  />
-                  <label htmlFor="allDay" className="text-sm">All day</label>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <div className="flex-1 space-y-2">
-                    <input
-                      type={editIsAllDay ? "date" : "datetime-local"}
-                      value={editStartTime}
-                      onChange={(e) => setEditStartTime(e.target.value)}
-                      className="w-full rounded border border-border bg-background px-2 py-1 text-sm focus:border-primary focus:outline-none"
-                    />
-                    <input
-                      type={editIsAllDay ? "date" : "datetime-local"}
-                      value={editEndTime}
-                      onChange={(e) => setEditEndTime(e.target.value)}
-                      className="w-full rounded border border-border bg-background px-2 py-1 text-sm focus:border-primary focus:outline-none"
-                    />
+                {/* Toggles row */}
+                <div className="flex items-center gap-4">
+                  {/* All day toggle */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditIsAllDay(!editIsAllDay)}
+                      className={`relative w-10 h-6 rounded-full transition-colors touch-manipulation ${
+                        editIsAllDay ? "bg-primary" : "bg-muted"
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                          editIsAllDay ? "translate-x-4" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                    <label className="text-sm">All day</label>
+                  </div>
+                  {/* Multi-day toggle */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditIsMultiDay(!editIsMultiDay);
+                        setShowEndDatePicker(false);
+                      }}
+                      className={`relative w-10 h-6 rounded-full transition-colors touch-manipulation ${
+                        editIsMultiDay ? "bg-primary" : "bg-muted"
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                          editIsMultiDay ? "translate-x-4" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                    <label className="text-sm">Multi-day</label>
                   </div>
                 </div>
+
+                {/* Date and Time row */}
+                <div className="flex gap-2">
+                  {/* Date picker */}
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium mb-1">
+                      {editIsMultiDay ? "Start" : "Date"}
+                    </label>
+                    <Popover.Root open={showStartDatePicker} onOpenChange={setShowStartDatePicker}>
+                      <Popover.Trigger asChild>
+                        <button
+                          type="button"
+                          className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors touch-manipulation ${
+                            showStartDatePicker
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:bg-accent"
+                          }`}
+                        >
+                          <Calendar className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium">{formatDateDisplay(editStartDate)}</span>
+                        </button>
+                      </Popover.Trigger>
+                      <Popover.Portal>
+                        <Popover.Content
+                          className="z-[9999] bg-card border border-border rounded-xl shadow-xl"
+                          sideOffset={4}
+                          align="start"
+                        >
+                          <TouchDatePicker
+                            value={editStartDate}
+                            onChange={(value) => {
+                              setEditStartDate(value);
+                              if (editIsMultiDay && new Date(value) > new Date(editEndDate)) {
+                                setEditEndDate(value);
+                              }
+                            }}
+                            onSelect={() => setShowStartDatePicker(false)}
+                          />
+                        </Popover.Content>
+                      </Popover.Portal>
+                    </Popover.Root>
+                  </div>
+
+                  {/* End Date (only if multi-day) */}
+                  {editIsMultiDay && (
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium mb-1">End</label>
+                      <Popover.Root open={showEndDatePicker} onOpenChange={setShowEndDatePicker}>
+                        <Popover.Trigger asChild>
+                          <button
+                            type="button"
+                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors touch-manipulation ${
+                              showEndDatePicker
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:bg-accent"
+                            }`}
+                          >
+                            <Calendar className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">{formatDateDisplay(editEndDate)}</span>
+                          </button>
+                        </Popover.Trigger>
+                        <Popover.Portal>
+                          <Popover.Content
+                            className="z-[9999] bg-card border border-border rounded-xl shadow-xl"
+                            sideOffset={4}
+                            align="start"
+                          >
+                            <TouchDatePicker
+                              value={editEndDate}
+                              onChange={setEditEndDate}
+                              onSelect={() => setShowEndDatePicker(false)}
+                            />
+                          </Popover.Content>
+                        </Popover.Portal>
+                      </Popover.Root>
+                    </div>
+                  )}
+                </div>
+
+                {/* Time pickers (only if not all-day) */}
+                {!editIsAllDay && (
+                  <div className="flex gap-2">
+                    {/* Start Time */}
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium mb-1">Start Time</label>
+                      <Popover.Root open={showStartTimePicker} onOpenChange={setShowStartTimePicker}>
+                        <Popover.Trigger asChild>
+                          <button
+                            type="button"
+                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors touch-manipulation ${
+                              showStartTimePicker
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:bg-accent"
+                            }`}
+                          >
+                            <Clock className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">{formatTimeDisplay(editStartTime)}</span>
+                          </button>
+                        </Popover.Trigger>
+                        <Popover.Portal>
+                          <Popover.Content
+                            className="z-[9999] bg-card border border-border rounded-xl shadow-xl"
+                            sideOffset={4}
+                            align="start"
+                          >
+                            <TouchTimePicker
+                              value={editStartTime}
+                              onChange={setEditStartTime}
+                              onSelect={() => setShowStartTimePicker(false)}
+                            />
+                          </Popover.Content>
+                        </Popover.Portal>
+                      </Popover.Root>
+                    </div>
+                    {/* End Time */}
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium mb-1">End Time</label>
+                      <Popover.Root open={showEndTimePicker} onOpenChange={setShowEndTimePicker}>
+                        <Popover.Trigger asChild>
+                          <button
+                            type="button"
+                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors touch-manipulation ${
+                              showEndTimePicker
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:bg-accent"
+                            }`}
+                          >
+                            <Clock className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">{formatTimeDisplay(editEndTime)}</span>
+                          </button>
+                        </Popover.Trigger>
+                        <Popover.Portal>
+                          <Popover.Content
+                            className="z-[9999] bg-card border border-border rounded-xl shadow-xl"
+                            sideOffset={4}
+                            align="end"
+                          >
+                            <TouchTimePicker
+                              value={editEndTime}
+                              onChange={setEditEndTime}
+                              onSelect={() => setShowEndTimePicker(false)}
+                            />
+                          </Popover.Content>
+                        </Popover.Portal>
+                      </Popover.Root>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex items-start gap-3 text-sm">
@@ -347,12 +526,13 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
 
             {/* Location */}
             {isEditing ? (
-              <div className="flex items-start gap-3">
-                <MapPin className="mt-2 h-4 w-4 text-muted-foreground" />
+              <div>
+                <label className="block text-sm font-medium mb-2">Location</label>
                 <PlacesAutocomplete
                   value={editLocation}
                   onChange={setEditLocation}
                   placeholder="Search for a location"
+                  className="rounded-md px-3 py-3 text-base"
                 />
               </div>
             ) : event.location ? (
@@ -412,7 +592,7 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
                 {homeAddress && (
                   <button
                     onClick={() => setShowRoutes(!showRoutes)}
-                    className="flex items-center justify-center gap-2 w-full ml-7 py-2 px-4 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-sm font-medium"
+                    className="flex items-center justify-center gap-2 w-full ml-7 py-2 px-4 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-sm font-medium touch-manipulation"
                     style={{ width: "calc(100% - 1.75rem)" }}
                   >
                     {showRoutes ? (
@@ -431,14 +611,14 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
 
             {/* Description */}
             {isEditing ? (
-              <div className="space-y-1">
-                <label className="text-sm text-muted-foreground">Description</label>
+              <div>
+                <label className="block text-sm font-medium mb-2">Description</label>
                 <textarea
                   value={editDescription}
                   onChange={(e) => setEditDescription(e.target.value)}
                   placeholder="Add description"
                   rows={4}
-                  className="w-full rounded border border-border bg-background px-2 py-1 text-sm focus:border-primary focus:outline-none resize-none"
+                  className="w-full rounded-md border border-border bg-background px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-primary resize-none touch-manipulation"
                 />
               </div>
             ) : event.description ? (
@@ -480,13 +660,22 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
           </div>
 
           {/* Actions */}
-          <div className="mt-6 flex justify-end gap-2">
+          <div className="mt-4 flex gap-2">
             {isEditing ? (
               <>
-                <Button variant="outline" size="sm" onClick={handleCancel} disabled={isSaving}>
+                <Button
+                  variant="outline"
+                  className="flex-1 py-2 text-sm touch-manipulation"
+                  onClick={handleCancel}
+                  disabled={isSaving}
+                >
                   Cancel
                 </Button>
-                <Button size="sm" onClick={handleSave} disabled={isSaving}>
+                <Button
+                  className="flex-1 py-2 text-sm touch-manipulation"
+                  onClick={handleSave}
+                  disabled={isSaving}
+                >
                   {isSaving ? "Saving..." : "Save"}
                 </Button>
               </>
@@ -495,7 +684,7 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
                 {onDelete && (
                   <Button
                     variant="destructive"
-                    size="sm"
+                    className="flex-1 py-2 text-sm touch-manipulation"
                     onClick={() => {
                       onDelete(event.id);
                       onClose();
@@ -506,13 +695,17 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
                 )}
                 <Button
                   variant="outline"
-                  size="sm"
+                  className="flex-1 py-2 text-sm touch-manipulation"
                   onClick={() => setIsEditing(true)}
                 >
-                  <Pencil className="h-4 w-4 mr-1" />
+                  <Pencil className="h-4 w-4 mr-2" />
                   Edit
                 </Button>
-                <Button variant="outline" size="sm" onClick={onClose}>
+                <Button
+                  variant="outline"
+                  className="flex-1 py-2 text-sm touch-manipulation"
+                  onClick={onClose}
+                >
                   Close
                 </Button>
               </>
