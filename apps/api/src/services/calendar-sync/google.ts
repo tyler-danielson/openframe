@@ -172,13 +172,14 @@ async function syncCalendarList(
       .limit(1);
 
     if (existing) {
+      // Note: We don't update isPrimary here - that's a user-controlled setting
+      // that shouldn't be overwritten by sync
       await db
         .update(calendars)
         .set({
           name: gcal.summary,
           description: gcal.description,
           color: gcal.backgroundColor ?? "#3B82F6",
-          isPrimary: gcal.primary ?? false,
           isReadOnly: gcal.accessRole === "reader",
           updatedAt: new Date(),
         })
