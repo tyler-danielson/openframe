@@ -8,7 +8,7 @@ import { CalendarView, EventModal, CreateEventModal, HandwritingOverlay, DaySumm
 import { SportsScoreBadge } from "../components/sports";
 import { Button } from "../components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/Select";
-import type { CalendarEvent, SportsGame } from "@openframe/shared";
+import type { CalendarEvent, SportsGame, FavoriteSportsTeam, CalendarVisibility } from "@openframe/shared";
 
 // Weather detail info for popup
 interface WeatherPopupData {
@@ -503,11 +503,28 @@ export function CalendarPage() {
     }
   }, [calendarsData, setCalendars]);
 
-  // Fetch events
-  const { data: rawEvents = [] } = useQuery({
+  // Fetch events (refresh every 2 minutes)
+  const { data: rawCalendarEvents = [] } = useQuery({
     queryKey: ["events", dateRange.start.toISOString(), dateRange.end.toISOString(), selectedCalendarIds],
     queryFn: () => api.getEvents(dateRange.start, dateRange.end, selectedCalendarIds),
     enabled: selectedCalendarIds.length > 0,
+    refetchInterval: 2 * 60 * 1000, // 2 minutes
+    staleTime: 60 * 1000, // 1 minute
+  });
+
+  // Fetch favorite teams for visibility settings
+  const { data: favoriteTeams = [] } = useQuery({
+    queryKey: ["favorite-teams"],
+    queryFn: () => api.getFavoriteTeams(),
+  });
+
+  // Fetch sports events (refresh every 2 minutes)
+  const { data: rawSportsEvents = [] } = useQuery({
+    queryKey: ["sports-events", dateRange.start.toISOString(), dateRange.end.toISOString()],
+    queryFn: () => api.getSportsEvents(dateRange.start, dateRange.end),
+    enabled: favoriteTeams.length > 0,
+    refetchInterval: 2 * 60 * 1000, // 2 minutes
+    staleTime: 60 * 1000, // 1 minute
   });
 
   // Map calendar IDs to their visibility settings
@@ -516,38 +533,71 @@ export function CalendarPage() {
     [calendars]
   );
 
-  // Filter events based on calendar visibility settings for current view
+  // Map favorite team database IDs to their visibility settings
+  const teamVisibility = useMemo(() => {
+    const defaultVisibility: CalendarVisibility = { week: false, month: false, day: false, popup: true, screensaver: false };
+    return new Map(favoriteTeams.map((team: FavoriteSportsTeam) => [
+      team.id, // Use database ID, not ESPN teamId
+      team.visibility ?? defaultVisibility
+    ]));
+  }, [favoriteTeams]);
+
+  // Helper to check visibility for current view
+  const isVisibleForView = (visibility: CalendarVisibility | undefined, currentView: string): boolean => {
+    if (!visibility) return true;
+    switch (currentView) {
+      case "week": return visibility.week;
+      case "month": return visibility.month;
+      case "day": return visibility.day;
+      case "agenda": return visibility.day;
+      case "schedule": return visibility.week;
+      default: return true;
+    }
+  };
+
+  // Combine and filter all events based on visibility settings for current view
+  const rawEvents = useMemo(() => {
+    // Filter sports events based on team visibility
+    // Sports event calendarId format is "sports-{favoriteTeamId}"
+    const filteredSportsEvents = rawSportsEvents.filter(event => {
+      if (!event.calendarId?.startsWith("sports-")) return false;
+      const teamDbId = event.calendarId.replace("sports-", "");
+      const visibility = teamVisibility.get(teamDbId);
+      return isVisibleForView(visibility, view);
+    });
+    return [...rawCalendarEvents, ...filteredSportsEvents];
+  }, [rawCalendarEvents, rawSportsEvents, teamVisibility, view]);
+
+  // Filter calendar events based on calendar visibility settings for current view
   const events = useMemo(() => {
     return rawEvents.filter(event => {
+      // Sports events don't have calendarId visibility - they use team visibility (already filtered above)
+      if (!event.calendarId || event.calendarId.startsWith("sports-")) {
+        return true; // Sports events already filtered in rawEvents
+      }
       const visibility = calendarVisibility.get(event.calendarId);
       if (!visibility) return true; // Default to visible if calendar not found
 
       // Check visibility based on current view
-      switch (view) {
-        case "week":
-          return visibility.week;
-        case "month":
-          return visibility.month;
-        case "day":
-          return visibility.day;
-        case "agenda":
-          return visibility.day; // Agenda uses day visibility
-        case "schedule":
-          return visibility.week; // Schedule uses week visibility
-        default:
-          return true;
-      }
+      return isVisibleForView(visibility, view);
     });
   }, [rawEvents, calendarVisibility, view]);
 
   // Filter events for popup (day summary modal) based on popup visibility
   const popupEvents = useMemo(() => {
-    return rawEvents.filter(event => {
+    return [...rawCalendarEvents, ...rawSportsEvents].filter(event => {
+      // Check sports team popup visibility
+      if (event.calendarId?.startsWith("sports-")) {
+        const teamDbId = event.calendarId.replace("sports-", "");
+        const visibility = teamVisibility.get(teamDbId);
+        return visibility?.popup ?? true;
+      }
+      // Check calendar popup visibility
       const visibility = calendarVisibility.get(event.calendarId);
       if (!visibility) return true;
       return visibility.popup;
     });
-  }, [rawEvents, calendarVisibility]);
+  }, [rawCalendarEvents, rawSportsEvents, teamVisibility, calendarVisibility]);
 
   // Delete event mutation
   const deleteEvent = useMutation({

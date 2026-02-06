@@ -2,6 +2,7 @@ import { useAuthStore } from "../stores/auth";
 import type {
   Calendar,
   CalendarEvent,
+  CalendarVisibility,
   User,
   AuthTokens,
   PhotoAlbum,
@@ -65,6 +66,38 @@ export const COLOR_SCHEMES: { value: ColorScheme; label: string; accent: string 
   { value: "sunset", label: "Orange Sunset", accent: "#F97316" },
   { value: "lavender", label: "Purple Lavender", accent: "#A855F7" },
 ];
+
+// Telegram types
+export interface TelegramChatInfo {
+  id: string;
+  chatId: string;
+  chatType: string;
+  name: string;
+  username?: string;
+  isActive: boolean;
+  linkedAt: string;
+  lastMessageAt: string | null;
+}
+
+export interface TelegramStatus {
+  connected: boolean;
+  botUsername?: string;
+  settings: {
+    dailyAgendaEnabled: boolean;
+    dailyAgendaTime: string;
+    eventRemindersEnabled: boolean;
+    eventReminderMinutes: number;
+  };
+  chats: TelegramChatInfo[];
+}
+
+export interface TelegramWebhookInfo {
+  url: string;
+  has_custom_certificate: boolean;
+  pending_update_count: number;
+  last_error_date?: number;
+  last_error_message?: string;
+}
 
 const API_BASE = "/api/v1";
 
@@ -1511,7 +1544,7 @@ class ApiClient {
 
   async updateFavoriteTeam(
     id: string,
-    data: { isVisible?: boolean; showOnDashboard?: boolean }
+    data: { isVisible?: boolean; showOnDashboard?: boolean; visibility?: Partial<CalendarVisibility> }
   ): Promise<FavoriteSportsTeam> {
     return this.fetch<FavoriteSportsTeam>(`/sports/favorites/${id}`, {
       method: "PATCH",
@@ -1790,6 +1823,87 @@ class ApiClient {
   }> {
     return this.fetch("/remarkable/sync", { method: "POST" });
   }
+
+  // Telegram
+
+  async connectTelegram(botToken: string): Promise<{
+    connected: boolean;
+    message: string;
+    bot: { username: string; firstName: string };
+  }> {
+    return this.fetch("/telegram/connect", {
+      method: "POST",
+      body: JSON.stringify({ botToken }),
+    });
+  }
+
+  async disconnectTelegram(): Promise<{ message: string }> {
+    return this.fetch("/telegram/disconnect", { method: "DELETE" });
+  }
+
+  async getTelegramStatus(): Promise<TelegramStatus> {
+    return this.fetch("/telegram/status");
+  }
+
+  async testTelegramConnection(): Promise<{ connected: boolean; message: string }> {
+    return this.fetch("/telegram/test", { method: "POST" });
+  }
+
+  async getTelegramChats(): Promise<TelegramChatInfo[]> {
+    return this.fetch("/telegram/chats");
+  }
+
+  async unlinkTelegramChat(chatId: string): Promise<{ message: string }> {
+    return this.fetch(`/telegram/chats/${chatId}`, { method: "DELETE" });
+  }
+
+  async updateTelegramSettings(settings: {
+    dailyAgendaEnabled?: boolean;
+    dailyAgendaTime?: string;
+    eventRemindersEnabled?: boolean;
+    eventReminderMinutes?: number;
+  }): Promise<{ message: string }> {
+    return this.fetch("/telegram/settings", {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    });
+  }
+
+  async sendTelegramMessage(
+    message: string,
+    chatId?: string
+  ): Promise<{ sent: number; failed: number }> {
+    return this.fetch("/telegram/send", {
+      method: "POST",
+      body: JSON.stringify({ message, chatId }),
+    });
+  }
+
+  async getTelegramLinkCode(): Promise<{
+    botUsername: string;
+    startLink: string;
+    message: string;
+  }> {
+    return this.fetch("/telegram/link-code");
+  }
+
+  async setupTelegramWebhook(webhookUrl: string): Promise<{
+    message: string;
+    webhookUrl: string;
+  }> {
+    return this.fetch("/telegram/webhook/setup", {
+      method: "POST",
+      body: JSON.stringify({ webhookUrl }),
+    });
+  }
+
+  async getTelegramWebhookInfo(): Promise<TelegramWebhookInfo> {
+    return this.fetch("/telegram/webhook/info");
+  }
+
+  async deleteTelegramWebhook(): Promise<{ message: string }> {
+    return this.fetch("/telegram/webhook", { method: "DELETE" });
+  }
 }
 
 // Kiosk types
@@ -1849,6 +1963,7 @@ export interface WeatherData {
   icon: string;
   wind_speed: number;
   city: string;
+  units: "imperial" | "metric";
 }
 
 export interface WeatherForecast {
@@ -1857,6 +1972,7 @@ export interface WeatherForecast {
   temp_max: number;
   description: string;
   icon: string;
+  units: "imperial" | "metric";
 }
 
 export interface HourlyForecast {
@@ -1869,6 +1985,7 @@ export interface HourlyForecast {
   pop: number; // Probability of precipitation (0-100%)
   rain?: number; // Rain volume in mm
   snow?: number; // Snow volume in mm
+  units: "imperial" | "metric";
 }
 
 // Home Assistant Camera type (enabled cameras with settings)
@@ -1992,166 +2109,3 @@ export interface RemarkableParsedEvent {
 }
 
 export const api = new ApiClient();
-
-// Capacities and Telegram API methods temporarily disabled
-// TODO: Re-add these methods inside the ApiClient class
-
-/*
-  async connectCapacities(apiToken: string): Promise<{
-    connected: boolean;
-    message: string;
-    spaces: CapacitiesSpaceInfo[];
-  }> {
-    return this.fetch("/capacities/connect", {
-      method: "POST",
-      body: JSON.stringify({ apiToken }),
-    });
-  }
-
-  async disconnectCapacities(): Promise<{ message: string }> {
-    return this.fetch("/capacities/disconnect", { method: "DELETE" });
-  }
-
-  async getCapacitiesStatus(): Promise<CapacitiesStatus> {
-    return this.fetch("/capacities/status");
-  }
-
-  async testCapacitiesConnection(): Promise<{ connected: boolean; message: string }> {
-    return this.fetch("/capacities/test", { method: "POST" });
-  }
-
-  async getCapacitiesSpaces(): Promise<CapacitiesSpaceInfo[]> {
-    return this.fetch("/capacities/spaces");
-  }
-
-  async setCapacitiesDefaultSpace(spaceId: string): Promise<{ message: string }> {
-    return this.fetch(`/capacities/spaces/${spaceId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ isDefault: true }),
-    });
-  }
-
-  async getCapacitiesSpaceInfo(spaceId: string): Promise<{
-    id: string;
-    title: string;
-    structures: Array<{ id: string; pluralName: string; icon?: string }>;
-  }> {
-    return this.fetch(`/capacities/spaces/${spaceId}/info`);
-  }
-
-  async searchCapacities(
-    spaceId: string,
-    searchTerm: string,
-    structureId?: string
-  ): Promise<Array<{ id: string; structureId: string; title: string }>> {
-    return this.fetch("/capacities/search", {
-      method: "POST",
-      body: JSON.stringify({ spaceId, searchTerm, structureId }),
-    });
-  }
-
-  async saveToCapacitiesDailyNote(data: {
-    spaceId?: string;
-    mdText: string;
-    noTimeStamp?: boolean;
-  }): Promise<{ message: string }> {
-    return this.fetch("/capacities/daily-note", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  }
-
-  async saveCapacitiesWeblink(data: {
-    spaceId?: string;
-    url: string;
-    title?: string;
-    mdText?: string;
-    tags?: string[];
-  }): Promise<{ id: string; title: string; structureId: string }> {
-    return this.fetch("/capacities/weblink", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  }
-
-  // Telegram
-
-  async connectTelegram(botToken: string): Promise<{
-    connected: boolean;
-    message: string;
-    bot: { username: string; firstName: string };
-  }> {
-    return this.fetch("/telegram/connect", {
-      method: "POST",
-      body: JSON.stringify({ botToken }),
-    });
-  }
-
-  async disconnectTelegram(): Promise<{ message: string }> {
-    return this.fetch("/telegram/disconnect", { method: "DELETE" });
-  }
-
-  async getTelegramStatus(): Promise<TelegramStatus> {
-    return this.fetch("/telegram/status");
-  }
-
-  async testTelegramConnection(): Promise<{ connected: boolean; message: string }> {
-    return this.fetch("/telegram/test", { method: "POST" });
-  }
-
-  async getTelegramChats(): Promise<TelegramChatInfo[]> {
-    return this.fetch("/telegram/chats");
-  }
-
-  async unlinkTelegramChat(chatId: string): Promise<{ message: string }> {
-    return this.fetch(`/telegram/chats/${chatId}`, { method: "DELETE" });
-  }
-
-  async updateTelegramSettings(settings: {
-    dailyAgendaEnabled?: boolean;
-    dailyAgendaTime?: string;
-    eventRemindersEnabled?: boolean;
-    eventReminderMinutes?: number;
-  }): Promise<{ message: string }> {
-    return this.fetch("/telegram/settings", {
-      method: "PATCH",
-      body: JSON.stringify(settings),
-    });
-  }
-
-  async sendTelegramMessage(
-    message: string,
-    chatId?: string
-  ): Promise<{ sent: number; failed: number }> {
-    return this.fetch("/telegram/send", {
-      method: "POST",
-      body: JSON.stringify({ message, chatId }),
-    });
-  }
-
-  async getTelegramLinkCode(): Promise<{
-    botUsername: string;
-    startLink: string;
-    message: string;
-  }> {
-    return this.fetch("/telegram/link-code");
-  }
-
-  async setupTelegramWebhook(webhookUrl: string): Promise<{
-    message: string;
-    webhookUrl: string;
-  }> {
-    return this.fetch("/telegram/webhook/setup", {
-      method: "POST",
-      body: JSON.stringify({ webhookUrl }),
-    });
-  }
-
-  async getTelegramWebhookInfo(): Promise<TelegramWebhookInfo> {
-    return this.fetch("/telegram/webhook/info");
-  }
-
-  async deleteTelegramWebhook(): Promise<{ message: string }> {
-    return this.fetch("/telegram/webhook", { method: "DELETE" });
-  }
-*/

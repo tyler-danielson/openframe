@@ -202,6 +202,7 @@ export const sportsRoutes: FastifyPluginAsync = async (fastify) => {
     Body: {
       isVisible?: boolean;
       showOnDashboard?: boolean;
+      visibility?: { week?: boolean; month?: boolean; day?: boolean; popup?: boolean; screensaver?: boolean };
     };
   }>("/favorites/:id", {
     onRequest: [fastify.authenticateKioskOrAny],
@@ -216,18 +217,27 @@ export const sportsRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const { id } = request.params;
-    const { isVisible, showOnDashboard } = request.body;
+    const { isVisible, showOnDashboard, visibility } = request.body;
 
-    const updates: Partial<{
-      isVisible: boolean;
-      showOnDashboard: boolean;
-    }> = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updates: Record<string, any> = {};
 
     if (typeof isVisible === "boolean") {
       updates.isVisible = isVisible;
     }
     if (typeof showOnDashboard === "boolean") {
       updates.showOnDashboard = showOnDashboard;
+    }
+    if (visibility) {
+      // Fetch current visibility to merge with partial updates
+      const [current] = await fastify.db
+        .select({ visibility: favoriteSportsTeams.visibility })
+        .from(favoriteSportsTeams)
+        .where(and(eq(favoriteSportsTeams.id, id), eq(favoriteSportsTeams.userId, userId)));
+
+      if (current) {
+        updates.visibility = { ...current.visibility, ...visibility };
+      }
     }
 
     if (Object.keys(updates).length === 0) {

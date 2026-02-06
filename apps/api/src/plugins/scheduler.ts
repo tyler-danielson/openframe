@@ -62,8 +62,8 @@ const REMARKABLE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 // reMarkable agenda check interval (1 minute - to check if push time reached)
 const REMARKABLE_AGENDA_CHECK_INTERVAL_MS = 60 * 1000;
 
-// Calendar sync interval (5 minutes)
-const CALENDAR_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+// Calendar sync interval (2 minutes)
+const CALENDAR_SYNC_INTERVAL_MS = 2 * 60 * 1000;
 
 // Determine the appropriate polling interval based on game states
 function determineSportsPollingInterval(games: SportsGame[]): number {

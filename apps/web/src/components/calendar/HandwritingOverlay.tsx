@@ -24,10 +24,13 @@ export function HandwritingOverlay({
   const [recognizedText, setRecognizedText] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
 
-  // Find primary calendar or use first visible one
-  const primaryCalendar = calendars.find((c) => c.isPrimary && c.isVisible)
-    || calendars.find((c) => c.isVisible)
-    || calendars[0];
+  // Find primary writable calendar, or fall back to any writable visible calendar
+  // Filter out read-only calendars since we can't create events on them
+  const writableCalendars = calendars.filter((c) => !c.isReadOnly);
+  const primaryCalendar = writableCalendars.find((c) => c.isPrimary && c.isVisible)
+    || writableCalendars.find((c) => c.isPrimary)
+    || writableCalendars.find((c) => c.isVisible)
+    || writableCalendars[0];
 
   const createEventMutation = useMutation({
     mutationFn: async (data: {

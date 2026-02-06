@@ -527,6 +527,7 @@ export interface FavoriteSportsTeam {
   teamColor: string | null;
   isVisible: boolean;
   showOnDashboard: boolean;
+  visibility: CalendarVisibility;
   createdAt: Date;
 }
 

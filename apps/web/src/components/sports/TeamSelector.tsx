@@ -10,6 +10,8 @@ const SPORTS = [
   { sport: "football", league: "nfl", label: "NFL", icon: "🏈" },
   { sport: "basketball", league: "nba", label: "NBA", icon: "🏀" },
   { sport: "hockey", league: "nhl", label: "NHL", icon: "🏒" },
+  { sport: "hockey", league: "olympics-mens-ice-hockey", label: "Olympics (M)", icon: "🏒" },
+  { sport: "hockey", league: "olympics-womens-ice-hockey", label: "Olympics (W)", icon: "🏒" },
   { sport: "baseball", league: "mlb", label: "MLB", icon: "⚾" },
 ] as const;
 

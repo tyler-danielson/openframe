@@ -999,6 +999,7 @@ export const favoriteSportsTeams = pgTable(
     teamColor: text("team_color"), // Primary team color (hex)
     isVisible: boolean("is_visible").default(true).notNull(),
     showOnDashboard: boolean("show_on_dashboard").default(true).notNull(),
+    visibility: jsonb("visibility").$type<{ week: boolean; month: boolean; day: boolean; popup: boolean; screensaver: boolean }>().default({ week: false, month: false, day: false, popup: true, screensaver: false }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

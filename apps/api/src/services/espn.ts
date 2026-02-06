@@ -13,7 +13,29 @@ export const SUPPORTED_LEAGUES: SportsLeague[] = [
   { sport: "football", league: "nfl", displayName: "NFL" },
   { sport: "basketball", league: "nba", displayName: "NBA" },
   { sport: "hockey", league: "nhl", displayName: "NHL" },
+  { sport: "hockey", league: "olympics-mens-ice-hockey", displayName: "Olympic Hockey (M)" },
+  { sport: "hockey", league: "olympics-womens-ice-hockey", displayName: "Olympic Hockey (W)" },
   { sport: "baseball", league: "mlb", displayName: "MLB" },
+];
+
+// Olympic hockey teams (hardcoded since ESPN doesn't expose via teams API)
+const OLYMPIC_HOCKEY_TEAMS: SportsTeam[] = [
+  { id: "oly-can", name: "Canada", abbreviation: "CAN", logo: "https://a.espncdn.com/i/teamlogos/countries/500/can.png", color: "#FF0000", sport: "hockey", league: "" },
+  { id: "oly-usa", name: "United States", abbreviation: "USA", logo: "https://a.espncdn.com/i/teamlogos/countries/500/usa.png", color: "#002868", sport: "hockey", league: "" },
+  { id: "oly-fin", name: "Finland", abbreviation: "FIN", logo: "https://a.espncdn.com/i/teamlogos/countries/500/fin.png", color: "#003580", sport: "hockey", league: "" },
+  { id: "oly-swe", name: "Sweden", abbreviation: "SWE", logo: "https://a.espncdn.com/i/teamlogos/countries/500/swe.png", color: "#006AA7", sport: "hockey", league: "" },
+  { id: "oly-rus", name: "Russia", abbreviation: "RUS", logo: "https://a.espncdn.com/i/teamlogos/countries/500/rus.png", color: "#D52B1E", sport: "hockey", league: "" },
+  { id: "oly-cze", name: "Czech Republic", abbreviation: "CZE", logo: "https://a.espncdn.com/i/teamlogos/countries/500/cze.png", color: "#11457E", sport: "hockey", league: "" },
+  { id: "oly-sui", name: "Switzerland", abbreviation: "SUI", logo: "https://a.espncdn.com/i/teamlogos/countries/500/sui.png", color: "#FF0000", sport: "hockey", league: "" },
+  { id: "oly-ger", name: "Germany", abbreviation: "GER", logo: "https://a.espncdn.com/i/teamlogos/countries/500/ger.png", color: "#000000", sport: "hockey", league: "" },
+  { id: "oly-svk", name: "Slovakia", abbreviation: "SVK", logo: "https://a.espncdn.com/i/teamlogos/countries/500/svk.png", color: "#0B4EA2", sport: "hockey", league: "" },
+  { id: "oly-lat", name: "Latvia", abbreviation: "LAT", logo: "https://a.espncdn.com/i/teamlogos/countries/500/lat.png", color: "#9E3039", sport: "hockey", league: "" },
+  { id: "oly-den", name: "Denmark", abbreviation: "DEN", logo: "https://a.espncdn.com/i/teamlogos/countries/500/den.png", color: "#C60C30", sport: "hockey", league: "" },
+  { id: "oly-nor", name: "Norway", abbreviation: "NOR", logo: "https://a.espncdn.com/i/teamlogos/countries/500/nor.png", color: "#EF2B2D", sport: "hockey", league: "" },
+  { id: "oly-jpn", name: "Japan", abbreviation: "JPN", logo: "https://a.espncdn.com/i/teamlogos/countries/500/jpn.png", color: "#BC002D", sport: "hockey", league: "" },
+  { id: "oly-chn", name: "China", abbreviation: "CHN", logo: "https://a.espncdn.com/i/teamlogos/countries/500/chn.png", color: "#DE2910", sport: "hockey", league: "" },
+  { id: "oly-aut", name: "Austria", abbreviation: "AUT", logo: "https://a.espncdn.com/i/teamlogos/countries/500/aut.png", color: "#ED2939", sport: "hockey", league: "" },
+  { id: "oly-fra", name: "France", abbreviation: "FRA", logo: "https://a.espncdn.com/i/teamlogos/countries/500/fra.png", color: "#002395", sport: "hockey", league: "" },
 ];
 
 // ESPN API response types
@@ -142,6 +164,11 @@ export async function fetchTeams(
 ): Promise<SportsTeam[]> {
   if (!isLeagueSupported(sport, league)) {
     throw new Error(`Unsupported league: ${sport}/${league}`);
+  }
+
+  // Return hardcoded teams for Olympic hockey (ESPN doesn't provide via API)
+  if (league === "olympics-mens-ice-hockey" || league === "olympics-womens-ice-hockey") {
+    return OLYMPIC_HOCKEY_TEAMS.map((team) => ({ ...team, league }));
   }
 
   const url = `${ESPN_API_BASE}/${sport}/${league}/teams?limit=100`;
@@ -359,7 +386,15 @@ export async function fetchGamesForTeams(
     const parts = key.split("/");
     const sport = parts[0] ?? "";
     const league = parts[1] ?? "";
-    const games = await fetchScoreboard(sport, league, date);
+
+    let games: SportsGame[];
+    try {
+      games = await fetchScoreboard(sport, league, date);
+    } catch (err) {
+      // Skip leagues that return errors (e.g., Olympic leagues when not active)
+      console.warn(`Skipping ${sport}/${league}: ${err instanceof Error ? err.message : "unknown error"}`);
+      continue;
+    }
 
     // Filter to only include games involving the specified teams
     const teamIdSet = new Set(ids);

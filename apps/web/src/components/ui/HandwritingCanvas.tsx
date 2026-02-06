@@ -105,7 +105,7 @@ export function HandwritingCanvas({
 
     if (points.length === 1) {
       // Single point - draw a dot
-      const size = 2 + firstPoint.pressure * 3;
+      const size = 4 + firstPoint.pressure * 6;
       ctx.beginPath();
       ctx.arc(firstPoint.x, firstPoint.y, size / 2, 0, Math.PI * 2);
       ctx.fill();
@@ -121,8 +121,8 @@ export function HandwritingCanvas({
       const p2 = points[i + 1];
       if (!p1 || !p2) continue;
 
-      // Line width based on pressure
-      ctx.lineWidth = 2 + p1.pressure * 4;
+      // Line width based on pressure (doubled for larger strokes)
+      ctx.lineWidth = 4 + p1.pressure * 8;
 
       // Calculate midpoint for smooth curve
       const midX = (p1.x + p2.x) / 2;
@@ -134,7 +134,7 @@ export function HandwritingCanvas({
     // Draw to last point
     const last = points[points.length - 1];
     if (last) {
-      ctx.lineWidth = 2 + last.pressure * 4;
+      ctx.lineWidth = 4 + last.pressure * 8;
       ctx.lineTo(last.x, last.y);
     }
     ctx.stroke();
@@ -298,7 +298,7 @@ export function HandwritingCanvas({
     if (!firstPoint) return;
 
     if (points.length === 1) {
-      const size = 3 + firstPoint.pressure * 4;
+      const size = 6 + firstPoint.pressure * 8;
       ctx.beginPath();
       ctx.arc(firstPoint.x, firstPoint.y, size / 2, 0, Math.PI * 2);
       ctx.fill();
@@ -313,7 +313,7 @@ export function HandwritingCanvas({
       const p2 = points[i + 1];
       if (!p1 || !p2) continue;
 
-      ctx.lineWidth = 3 + p1.pressure * 5;
+      ctx.lineWidth = 6 + p1.pressure * 10;
 
       const midX = (p1.x + p2.x) / 2;
       const midY = (p1.y + p2.y) / 2;
@@ -323,7 +323,7 @@ export function HandwritingCanvas({
 
     const last = points[points.length - 1];
     if (last) {
-      ctx.lineWidth = 3 + last.pressure * 5;
+      ctx.lineWidth = 6 + last.pressure * 10;
       ctx.lineTo(last.x, last.y);
     }
     ctx.stroke();

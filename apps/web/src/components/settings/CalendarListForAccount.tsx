@@ -129,50 +129,88 @@ export function CalendarListForAccount({
           <h3 className="text-sm font-medium text-muted-foreground">
             Favorite Teams ({favoriteTeams.length})
           </h3>
-          <Button variant="outline" size="sm" onClick={onManageTeams}>
-            Manage Teams
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              {(["week", "month", "day", "popup", "screensaver"] as const).map((view) => (
+                <span
+                  key={view}
+                  className="px-2 py-1 text-xs font-medium text-muted-foreground"
+                >
+                  {view.charAt(0).toUpperCase() + view.slice(1)}
+                </span>
+              ))}
+            </div>
+            <Button variant="outline" size="sm" onClick={onManageTeams}>
+              Manage Teams
+            </Button>
+          </div>
         </div>
 
         <div className="space-y-2">
-          {favoriteTeams.map((team) => (
-            <div
-              key={team.id}
-              className="flex items-center justify-between rounded-lg border border-border p-3"
-            >
-              <div className="flex items-center gap-3">
-                {team.teamLogo && (
-                  <img
-                    src={team.teamLogo}
-                    alt={team.teamName}
-                    className="h-8 w-8 object-contain"
-                  />
-                )}
-                <div>
-                  <p className="font-medium">{team.teamName}</p>
-                  <p className="text-xs text-muted-foreground uppercase">
-                    {team.league}
-                  </p>
+          {favoriteTeams.map((team) => {
+            const visibility = team.visibility || DEFAULT_VISIBILITY;
+            return (
+              <div
+                key={team.id}
+                className="flex items-center justify-between rounded-lg border border-border p-3"
+              >
+                <div className="flex items-center gap-3">
+                  {team.teamLogo && (
+                    <img
+                      src={team.teamLogo}
+                      alt={team.teamName}
+                      className="h-8 w-8 object-contain"
+                    />
+                  )}
+                  <div>
+                    <p className="font-medium">{team.teamName}</p>
+                    <p className="text-xs text-muted-foreground uppercase">
+                      {team.league}
+                    </p>
+                  </div>
                 </div>
+                <ToggleGroup
+                  items={[
+                    {
+                      key: "week",
+                      label: "Week",
+                      checked: visibility.week,
+                      onChange: (checked) =>
+                        onUpdateTeam(team.id, { visibility: { week: checked } }),
+                    },
+                    {
+                      key: "month",
+                      label: "Month",
+                      checked: visibility.month,
+                      onChange: (checked) =>
+                        onUpdateTeam(team.id, { visibility: { month: checked } }),
+                    },
+                    {
+                      key: "day",
+                      label: "Day",
+                      checked: visibility.day,
+                      onChange: (checked) =>
+                        onUpdateTeam(team.id, { visibility: { day: checked } }),
+                    },
+                    {
+                      key: "popup",
+                      label: "Popup",
+                      checked: visibility.popup,
+                      onChange: (checked) =>
+                        onUpdateTeam(team.id, { visibility: { popup: checked } }),
+                    },
+                    {
+                      key: "screensaver",
+                      label: "Screensaver",
+                      checked: visibility.screensaver,
+                      onChange: (checked) =>
+                        onUpdateTeam(team.id, { visibility: { screensaver: checked } }),
+                    },
+                  ]}
+                />
               </div>
-              <ToggleGroup
-                items={[
-                  {
-                    key: "visible",
-                    label: "Calendar",
-                    checked: team.isVisible,
-                    onChange: (checked) => onUpdateTeam(team.id, { isVisible: checked }),
-                  },
-                  {
-                    key: "dashboard",
-                    label: "Dashboard",
-                    checked: team.showOnDashboard,
-                    onChange: (checked) => onUpdateTeam(team.id, { showOnDashboard: checked }),
-                  },
-                ]}
-              />
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -226,6 +264,21 @@ export function CalendarListForAccount({
                     title="Hide calendar"
                   >
                     <EyeOff className="h-4 w-4" />
+                  </button>
+
+                  {/* Set as primary */}
+                  <button
+                    type="button"
+                    onClick={() => onUpdateCalendar(calendar.id, { isPrimary: true })}
+                    className={`p-1 rounded-md transition-colors flex-shrink-0 ${
+                      calendar.isPrimary
+                        ? "text-primary"
+                        : "text-muted-foreground/40 hover:text-primary"
+                    }`}
+                    title={calendar.isPrimary ? "Primary calendar" : "Set as primary"}
+                    disabled={calendar.isPrimary}
+                  >
+                    <Crown className={`h-4 w-4 ${calendar.isPrimary ? "fill-current" : ""}`} />
                   </button>
 
                   {/* Favorite star */}
