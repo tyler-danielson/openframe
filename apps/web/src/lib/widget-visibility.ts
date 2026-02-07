@@ -7,6 +7,11 @@ import type { WidgetInstance } from "../stores/screensaver";
  * @returns true if the widget should be visible, false otherwise
  */
 export function isWidgetVisible(widget: WidgetInstance, now: Date = new Date()): boolean {
+  // Hide countdown placeholders (no event assigned) on screensaver
+  if (widget.type === "countdown" && !widget.config.eventId && !widget.config.targetDate) {
+    return false;
+  }
+
   const visibility = widget.visibility;
 
   // No schedule or schedule disabled = always visible

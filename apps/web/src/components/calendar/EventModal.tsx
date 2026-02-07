@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Popover from "@radix-ui/react-popover";
-import { X, MapPin, Calendar, Clock, Users, Repeat, CircleDot, Car, Pencil, Home } from "lucide-react";
+import { X, MapPin, Calendar, Clock, Users, Repeat, CircleDot, Car, Pencil, Home, Timer } from "lucide-react";
 import { format } from "date-fns";
 import type { CalendarEvent, Calendar as CalendarType } from "@openframe/shared";
 import { Button } from "../ui/Button";
@@ -10,6 +10,7 @@ import { TouchDatePicker } from "../ui/TouchDatePicker";
 import { TouchTimePicker } from "../ui/TouchTimePicker";
 import { useCalendarStore } from "../../stores/calendar";
 import { api } from "../../services/api";
+import { CountdownPlaceholderPicker } from "./CountdownPlaceholderPicker";
 
 interface EventModalProps {
   event: CalendarEvent | null;
@@ -109,6 +110,7 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
   } | null>(null);
   const [drivingTimeLoading, setDrivingTimeLoading] = useState(false);
   const [showRoutes, setShowRoutes] = useState(false);
+  const [showCountdownPicker, setShowCountdownPicker] = useState(false);
 
   // Reset edit state when modal opens/closes or event changes
   useEffect(() => {
@@ -141,6 +143,7 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
       setShowStartTimePicker(false);
       setShowEndDatePicker(false);
       setShowEndTimePicker(false);
+      setShowCountdownPicker(false);
     }
   }, [event, open]);
 
@@ -704,6 +707,14 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
                 <Button
                   variant="outline"
                   className="flex-1 py-2 text-sm touch-manipulation"
+                  onClick={() => setShowCountdownPicker(true)}
+                >
+                  <Timer className="h-4 w-4 mr-2" />
+                  Countdown
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1 py-2 text-sm touch-manipulation"
                   onClick={onClose}
                 >
                   Close
@@ -713,6 +724,15 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
           </div>
         </Dialog.Content>
       </Dialog.Portal>
+
+      {/* Countdown Placeholder Picker */}
+      {showCountdownPicker && (
+        <CountdownPlaceholderPicker
+          event={event}
+          open={showCountdownPicker}
+          onClose={() => setShowCountdownPicker(false)}
+        />
+      )}
     </Dialog.Root>
   );
 }
