@@ -35,6 +35,10 @@ import type {
   NewsArticle,
   NewsHeadline,
   PresetFeed,
+  ExportedSettings,
+  ImportResult,
+  Recipe,
+  RecipeIngredient,
 } from "@openframe/shared";
 
 // API Key types
@@ -987,8 +991,30 @@ class ApiClient {
   }
 
   // MediaMTX streaming endpoints
-  async getMediaMTXStatus(): Promise<{ available: boolean }> {
-    return this.fetch<{ available: boolean }>("/cameras/mediamtx/status");
+  async getMediaMTXStatus(testUrl?: string): Promise<{ available: boolean; testedUrl?: string }> {
+    const query = testUrl ? `?testUrl=${encodeURIComponent(testUrl)}` : "";
+    return this.fetch<{ available: boolean; testedUrl?: string }>(`/cameras/mediamtx/status${query}`);
+  }
+
+  async getMediaMTXConfig(): Promise<{
+    apiUrl: string;
+    webrtcPort: string;
+    hlsPort: string;
+    host: string;
+  }> {
+    return this.fetch("/cameras/mediamtx/config");
+  }
+
+  async saveMediaMTXConfig(data: {
+    apiUrl?: string;
+    webrtcPort?: string;
+    hlsPort?: string;
+    host?: string;
+  }): Promise<void> {
+    await this.fetch("/cameras/mediamtx/config", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
   }
 
   async getCameraWebRTCUrl(id: string): Promise<{ webrtcUrl: string; pathName: string }> {
@@ -1021,6 +1047,35 @@ class ApiClient {
     hlsUrl?: string;
   }> {
     return this.fetch(`/cameras/${id}/stream-status`);
+  }
+
+  async getMediaMTXPaths(): Promise<Array<{
+    name: string;
+    ready: boolean;
+    readyTime: string | null;
+    sourceType: string | null;
+    readers: number;
+    bytesReceived: number;
+    tracks: string[];
+  }>> {
+    return this.fetch("/cameras/mediamtx/paths");
+  }
+
+  async testRtspUrl(data: {
+    rtspUrl: string;
+    username?: string;
+    password?: string;
+  }): Promise<{
+    registered: boolean;
+    ready: boolean;
+    sourceType: string | null;
+    tracks: string[];
+    error: string | null;
+  }> {
+    return this.fetch("/cameras/mediamtx/test-rtsp", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
   }
 
   // Home Assistant
@@ -1510,6 +1565,20 @@ class ApiClient {
     return this.fetch<{ latitude: string; longitude: string; formattedAddress: string }>("/settings/geocode", {
       method: "POST",
       body: JSON.stringify({ address }),
+    });
+  }
+
+  async exportSettings(): Promise<ExportedSettings> {
+    return this.fetch<ExportedSettings>("/settings/export");
+  }
+
+  async importSettings(
+    settings: ExportedSettings,
+    mode: "merge" | "replace" = "merge"
+  ): Promise<ImportResult> {
+    return this.fetch<ImportResult>("/settings/import", {
+      method: "POST",
+      body: JSON.stringify({ settings, mode }),
     });
   }
 
@@ -2159,6 +2228,109 @@ class ApiClient {
       method: "POST",
       body: JSON.stringify(params),
     });
+  }
+
+  // Recipes
+
+  async getRecipes(params?: { favorite?: boolean; tag?: string }): Promise<Recipe[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.favorite) searchParams.set("favorite", "true");
+    if (params?.tag) searchParams.set("tag", params.tag);
+    const query = searchParams.toString();
+    return this.fetch<Recipe[]>(`/recipes${query ? `?${query}` : ""}`);
+  }
+
+  async getRecipe(id: string): Promise<Recipe> {
+    return this.fetch<Recipe>(`/recipes/${id}`);
+  }
+
+  async createRecipe(data: {
+    title: string;
+    description?: string | null;
+    servings?: number | null;
+    prepTime?: number | null;
+    cookTime?: number | null;
+    ingredients?: RecipeIngredient[];
+    instructions?: string[];
+    tags?: string[];
+    notes?: string | null;
+  }): Promise<Recipe> {
+    return this.fetch<Recipe>("/recipes", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateRecipe(
+    id: string,
+    data: Partial<{
+      title: string;
+      description: string | null;
+      servings: number | null;
+      prepTime: number | null;
+      cookTime: number | null;
+      ingredients: RecipeIngredient[];
+      instructions: string[];
+      tags: string[];
+      notes: string | null;
+    }>
+  ): Promise<Recipe> {
+    return this.fetch<Recipe>(`/recipes/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteRecipe(id: string): Promise<void> {
+    await this.fetch(`/recipes/${id}`, { method: "DELETE" });
+  }
+
+  async toggleRecipeFavorite(id: string): Promise<Recipe> {
+    return this.fetch<Recipe>(`/recipes/${id}/favorite`, {
+      method: "POST",
+    });
+  }
+
+  async getRecipeTags(): Promise<string[]> {
+    return this.fetch<string[]>("/recipes/tags");
+  }
+
+  async createRecipeUploadToken(): Promise<{ token: string; expiresAt: string }> {
+    return this.fetch<{ token: string; expiresAt: string }>("/recipes/upload-token", {
+      method: "POST",
+    });
+  }
+
+  async getRecipeUploadTokenInfo(token: string): Promise<{ expiresAt: string }> {
+    const response = await fetch(`${API_BASE}/recipes/upload/${token}`);
+    if (!response.ok) {
+      throw new Error("Token not found or expired");
+    }
+    const result = await response.json();
+    return result.data;
+  }
+
+  async uploadRecipeWithToken(token: string, file: File): Promise<Recipe> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(`${API_BASE}/recipes/upload/${token}`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || "Upload failed");
+    }
+
+    const result = await response.json();
+    return result.data;
+  }
+
+  getRecipeImageUrl(path: string): string {
+    const { accessToken } = useAuthStore.getState();
+    return `${API_BASE}/recipes/image/${path}?token=${accessToken}`;
   }
 }
 

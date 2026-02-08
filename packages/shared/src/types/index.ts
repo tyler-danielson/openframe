@@ -653,3 +653,139 @@ export interface TelegramWebhookInfo {
   last_error_date?: number;
   last_error_message?: string;
 }
+
+// Settings Export/Import types
+export interface ExportedSettings {
+  version: "1.0";
+  exportedAt: string; // ISO timestamp
+
+  clientSettings: {
+    calendar: Record<string, unknown> | null;
+    screensaver: Record<string, unknown> | null;
+    tasks: Record<string, unknown> | null;
+    durationAlerts: Record<string, unknown> | null;
+  };
+
+  serverSettings: {
+    systemSettings: Array<{ category: string; key: string; value: string | null }>;
+    kiosks: Array<ExportedKiosk>;
+    cameras: Array<ExportedCamera>;
+    iptvServers: Array<ExportedIptvServer>;
+    homeAssistant: {
+      rooms: Array<ExportedHomeAssistantRoom>;
+      entities: Array<ExportedHomeAssistantEntity>;
+    };
+    favoriteTeams: Array<ExportedFavoriteSportsTeam>;
+    newsFeeds: Array<ExportedNewsFeed>;
+  };
+}
+
+export interface ExportedKiosk {
+  name: string;
+  colorScheme: string;
+  screensaverEnabled: boolean;
+  screensaverTimeout: number;
+  screensaverInterval: number;
+  screensaverLayout: string;
+  screensaverTransition: string;
+  screensaverLayoutConfig: Record<string, unknown> | null;
+}
+
+export interface ExportedCamera {
+  name: string;
+  rtspUrl: string | null;
+  mjpegUrl: string | null;
+  snapshotUrl: string | null;
+  username: string | null;
+  isEnabled: boolean;
+  sortOrder: number;
+  settings: CameraSettings;
+}
+
+export interface ExportedIptvServer {
+  name: string;
+  serverUrl: string;
+  isActive: boolean;
+}
+
+export interface ExportedHomeAssistantRoom {
+  name: string;
+  sortOrder: number;
+  temperatureSensorId: string | null;
+  humiditySensorId: string | null;
+  windowSensorId: string | null;
+}
+
+export interface ExportedHomeAssistantEntity {
+  entityId: string;
+  displayName: string | null;
+  sortOrder: number;
+  showInDashboard: boolean;
+  settings: HomeAssistantEntitySettings;
+}
+
+export interface ExportedFavoriteSportsTeam {
+  sport: string;
+  league: string;
+  teamId: string;
+  teamName: string;
+  teamAbbreviation: string;
+  teamLogo: string | null;
+  teamColor: string | null;
+  isVisible: boolean;
+  showOnDashboard: boolean;
+  visibility: CalendarVisibility;
+}
+
+export interface ExportedNewsFeed {
+  name: string;
+  feedUrl: string;
+  category: string | null;
+  isActive: boolean;
+}
+
+export interface ImportResult {
+  success: boolean;
+  imported: {
+    systemSettings: number;
+    kiosks: number;
+    cameras: number;
+    iptvServers: number;
+    homeAssistantRooms: number;
+    homeAssistantEntities: number;
+    favoriteTeams: number;
+    newsFeeds: number;
+  };
+  errors: string[];
+}
+
+// Recipe types
+export interface RecipeIngredient {
+  name: string;
+  amount: string;  // "2", "1/2", etc.
+  unit: string;    // "cups", "tbsp", etc.
+}
+
+export interface Recipe {
+  id: string;
+  userId: string;
+  title: string;
+  description: string | null;
+  servings: number | null;
+  prepTime: number | null;      // minutes
+  cookTime: number | null;      // minutes
+  ingredients: RecipeIngredient[];
+  instructions: string[];
+  tags: string[];
+  notes: string | null;
+  sourceImagePath: string | null;
+  thumbnailPath: string | null;
+  isFavorite: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface RecipeUploadToken {
+  token: string;
+  expiresAt: Date;
+}

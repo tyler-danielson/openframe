@@ -19,6 +19,8 @@ import { MobileUploadPage } from "./pages/MobileUploadPage";
 import { RemarkablePage } from "./pages/RemarkablePage";
 import { ScreensaverBuilderPage } from "./pages/ScreensaverBuilderPage";
 import { KioskDisplayPage } from "./pages/KioskDisplayPage";
+import { RecipesPage } from "./pages/RecipesPage";
+import { MobileRecipeUploadPage } from "./pages/MobileRecipeUploadPage";
 import { Toaster } from "./components/ui/Toaster";
 import { Screensaver } from "./components/Screensaver";
 import { NowPlaying } from "./components/spotify/NowPlaying";
@@ -174,6 +176,8 @@ export default function App() {
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         {/* Public mobile upload page (accessed via QR code) */}
         <Route path="/upload/:token" element={<MobileUploadPage />} />
+        {/* Public mobile recipe upload page (accessed via QR code) */}
+        <Route path="/upload-recipe/:token" element={<MobileRecipeUploadPage />} />
         {/* Public kiosk display page (accessed via unique token URL) */}
         <Route path="/kiosk/:token/*" element={<KioskDisplayPage />} />
 
@@ -195,6 +199,7 @@ export default function App() {
           <Route path="homeassistant" element={<HomeAssistantPage />} />
           <Route path="spotify" element={<SpotifyPage />} />
           <Route path="map" element={<MapPage />} />
+          <Route path="recipes" element={<RecipesPage />} />
           <Route
             path="remarkable"
             element={

@@ -21,6 +21,8 @@ import {
   X,
   Moon,
   Play,
+  PenTool,
+  ChefHat,
 } from "lucide-react";
 import { api } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
@@ -165,11 +167,15 @@ export function Layout() {
     { to: buildPath("cameras"), icon: Camera, label: "Cameras" },
     { to: buildPath("homeassistant"), icon: Home, label: "Home Assistant" },
     { to: buildPath("map"), icon: MapPin, label: "Map" },
-    // Only show settings if authenticated AND not in kiosk mode
-    ...(isAuthenticated && !kioskEnabled
-      ? [{ to: buildPath("settings"), icon: Settings, label: "Settings" }]
+    { to: buildPath("recipes"), icon: ChefHat, label: "Recipes" },
+    // Only show reMarkable and settings if authenticated AND not accessing via kiosk URL
+    ...(isAuthenticated && !basePath
+      ? [
+          { to: "/remarkable", icon: PenTool, label: "reMarkable" },
+          { to: "/settings", icon: Settings, label: "Settings" },
+        ]
       : []),
-  ], [buildPath, isAuthenticated, kioskEnabled]);
+  ], [buildPath, isAuthenticated, basePath]);
 
   return (
     <div className="flex h-screen bg-background">

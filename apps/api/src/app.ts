@@ -32,6 +32,7 @@ import { remarkableRoutes } from "./routes/remarkable/index.js";
 import { capacitiesRoutes } from "./routes/capacities/index.js";
 import { telegramRoutes } from "./routes/telegram/index.js";
 import { kiosksRoutes } from "./routes/kiosks/index.js";
+import { recipeRoutes } from "./routes/recipes/index.js";
 import type { Config } from "./config.js";
 
 export async function buildApp(config: Config): Promise<FastifyInstance> {
@@ -142,6 +143,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(capacitiesRoutes, { prefix: "/api/v1/capacities" });
   await app.register(telegramRoutes, { prefix: "/api/v1/telegram" });
   await app.register(kiosksRoutes, { prefix: "/api/v1/kiosks" });
+  await app.register(recipeRoutes, { prefix: "/api/v1/recipes" });
 
   // Error handler
   app.setErrorHandler((error: FastifyError, _request, reply) => {

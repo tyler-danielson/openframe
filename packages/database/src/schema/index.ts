@@ -1549,3 +1549,273 @@ export type CapacitiesSpace = typeof capacitiesSpaces.$inferSelect;
 export type TelegramConfig = typeof telegramConfig.$inferSelect;
 export type TelegramChat = typeof telegramChats.$inferSelect;
 export type Kiosk = typeof kiosks.$inferSelect;
+
+// reMarkable Template Enums
+export const remarkableTemplateTypeEnum = pgEnum("remarkable_template_type", [
+  "weekly_planner",
+  "habit_tracker",
+  "custom_agenda",
+  "user_designed",
+]);
+
+export const remarkableScheduleTypeEnum = pgEnum("remarkable_schedule_type", [
+  "daily",
+  "weekly",
+  "monthly",
+  "manual",
+]);
+
+// reMarkable Templates - stores template configurations
+export const remarkableTemplates = pgTable(
+  "remarkable_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    templateType: remarkableTemplateTypeEnum("template_type").notNull(),
+    config: jsonb("config").$type<RemarkableTemplateConfig>().default({}).notNull(),
+    pdfTemplate: text("pdf_template"), // Base64 encoded for user-uploaded PDF templates
+    mergeFields: jsonb("merge_fields").$type<RemarkableMergeField[]>(),
+    folderPath: text("folder_path").default("/Calendar").notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("remarkable_templates_user_idx").on(table.userId),
+    index("remarkable_templates_type_idx").on(table.userId, table.templateType),
+    index("remarkable_templates_active_idx").on(table.userId, table.isActive),
+  ]
+);
+
+// reMarkable Schedules - unified scheduling for templates and default agenda
+export const remarkableSchedules = pgTable(
+  "remarkable_schedules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    templateId: uuid("template_id").references(() => remarkableTemplates.id, {
+      onDelete: "cascade",
+    }), // null for default agenda
+    scheduleType: remarkableScheduleTypeEnum("schedule_type").notNull().default("daily"),
+    enabled: boolean("enabled").default(true).notNull(),
+    pushTime: text("push_time").default("06:00").notNull(), // HH:mm format
+    pushDay: integer("push_day"), // 0-6 for weekly (Sunday=0), 1-31 for monthly
+    timezone: text("timezone").default("UTC").notNull(),
+    lastPushAt: timestamp("last_push_at", { withTimezone: true }),
+    nextPushAt: timestamp("next_push_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("remarkable_schedules_user_idx").on(table.userId),
+    index("remarkable_schedules_template_idx").on(table.templateId),
+    index("remarkable_schedules_enabled_idx").on(table.userId, table.enabled),
+    index("remarkable_schedules_next_push_idx").on(table.nextPushAt),
+  ]
+);
+
+// reMarkable Processed Confirmations - tracks confirmations sent back after note processing
+export const remarkableProcessedConfirmations = pgTable(
+  "remarkable_processed_confirmations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => remarkableDocuments.id, { onDelete: "cascade" }),
+    confirmationType: text("confirmation_type").default("events_created").notNull(),
+    confirmationDocumentId: text("confirmation_document_id"), // document ID of pushed confirmation
+    eventsConfirmed: jsonb("events_confirmed").$type<ConfirmedEventSummary[]>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("remarkable_processed_confirmations_user_idx").on(table.userId),
+    index("remarkable_processed_confirmations_document_idx").on(table.documentId),
+    index("remarkable_processed_confirmations_created_idx").on(table.userId, table.createdAt),
+  ]
+);
+
+// Template config types
+export interface RemarkableTemplateConfig {
+  // Weekly planner config
+  weekStartsOn?: 0 | 1 | 6; // Sunday, Monday, Saturday
+  showNotes?: boolean;
+  notesPosition?: "per-day" | "shared";
+
+  // Habit tracker config
+  habits?: string[];
+  trackerMonth?: string; // YYYY-MM format
+
+  // Custom agenda config
+  layout?: "timeline" | "list" | "blocks";
+  fontFamily?: string;
+  showDecorations?: boolean;
+  customSections?: { name: string; position: "top" | "bottom" }[];
+
+  // Common config
+  includeCalendarIds?: string[];
+  showLocation?: boolean;
+  showDescription?: boolean;
+  notesLines?: number;
+}
+
+export interface RemarkableMergeField {
+  name: string;
+  type: "date" | "events" | "weather" | "text" | "custom";
+  x: number; // X position in PDF
+  y: number; // Y position in PDF
+  width?: number;
+  height?: number;
+  fontSize?: number;
+  format?: string; // Date format or custom format string
+}
+
+export interface ConfirmedEventSummary {
+  eventId: string;
+  title: string;
+  startTime: string;
+  endTime?: string;
+  isAllDay: boolean;
+}
+
+// reMarkable Template Relations
+export const remarkableTemplatesRelations = relations(
+  remarkableTemplates,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [remarkableTemplates.userId],
+      references: [users.id],
+    }),
+    schedules: many(remarkableSchedules),
+  })
+);
+
+export const remarkableSchedulesRelations = relations(
+  remarkableSchedules,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [remarkableSchedules.userId],
+      references: [users.id],
+    }),
+    template: one(remarkableTemplates, {
+      fields: [remarkableSchedules.templateId],
+      references: [remarkableTemplates.id],
+    }),
+  })
+);
+
+export const remarkableProcessedConfirmationsRelations = relations(
+  remarkableProcessedConfirmations,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [remarkableProcessedConfirmations.userId],
+      references: [users.id],
+    }),
+    document: one(remarkableDocuments, {
+      fields: [remarkableProcessedConfirmations.documentId],
+      references: [remarkableDocuments.id],
+    }),
+  })
+);
+
+// Type exports for new reMarkable tables
+export type RemarkableTemplate = typeof remarkableTemplates.$inferSelect;
+export type RemarkableSchedule = typeof remarkableSchedules.$inferSelect;
+export type RemarkableProcessedConfirmation = typeof remarkableProcessedConfirmations.$inferSelect;
+
+// Recipe ingredient interface
+export interface RecipeIngredient {
+  name: string;
+  amount: string;  // "2", "1/2", etc.
+  unit: string;    // "cups", "tbsp", etc.
+}
+
+// Recipes table
+export const recipes = pgTable(
+  "recipes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    servings: integer("servings"),
+    prepTime: integer("prep_time"),      // minutes
+    cookTime: integer("cook_time"),      // minutes
+    ingredients: jsonb("ingredients").$type<RecipeIngredient[]>().default([]),
+    instructions: jsonb("instructions").$type<string[]>().default([]),
+    tags: text("tags").array().default([]),
+    notes: text("notes"),
+    sourceImagePath: text("source_image_path"),  // Original uploaded image
+    thumbnailPath: text("thumbnail_path"),
+    isFavorite: boolean("is_favorite").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("recipes_user_idx").on(table.userId),
+    index("recipes_favorite_idx").on(table.userId, table.isFavorite),
+    index("recipes_created_idx").on(table.userId, table.createdAt),
+  ]
+);
+
+// Recipe upload tokens for QR code mobile uploads
+export const recipeUploadTokens = pgTable(
+  "recipe_upload_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    token: text("token").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("recipe_upload_tokens_token_idx").on(table.token),
+    index("recipe_upload_tokens_expires_idx").on(table.expiresAt),
+  ]
+);
+
+// Recipe relations
+export const recipesRelations = relations(recipes, ({ one }) => ({
+  user: one(users, {
+    fields: [recipes.userId],
+    references: [users.id],
+  }),
+}));
+
+export const recipeUploadTokensRelations = relations(recipeUploadTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [recipeUploadTokens.userId],
+    references: [users.id],
+  }),
+}));
+
+// Type exports for recipes
+export type Recipe = typeof recipes.$inferSelect;
+export type RecipeUploadToken = typeof recipeUploadTokens.$inferSelect;

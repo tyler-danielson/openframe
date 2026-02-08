@@ -1,6 +1,19 @@
 import type { FastifyPluginAsync } from "fastify";
 import { eq, and } from "drizzle-orm";
-import { systemSettings } from "@openframe/database/schema";
+import {
+  systemSettings,
+  kiosks,
+  cameras,
+  iptvServers,
+  homeAssistantRooms,
+  homeAssistantEntities,
+  favoriteSportsTeams,
+  newsFeeds,
+} from "@openframe/database/schema";
+import type {
+  ExportedSettings,
+  ImportResult,
+} from "@openframe/shared";
 import crypto from "crypto";
 
 // Simple encryption for secrets (uses the ENCRYPTION_KEY from env)
@@ -60,16 +73,16 @@ interface CategoryDefinition {
 
 const SETTING_DEFINITIONS: CategoryDefinition[] = [
   {
-    category: "weather",
-    label: "Weather (OpenWeatherMap)",
-    description: "Configure OpenWeatherMap API for weather display",
+    category: "home",
+    label: "Home Location",
+    description: "Your home address/coordinates used for weather, navigation, and other location-based features",
     settings: [
       {
-        key: "api_key",
-        label: "API Key",
-        description: "Get your free API key from openweathermap.org",
-        isSecret: true,
-        placeholder: "Your OpenWeatherMap API key",
+        key: "address",
+        label: "Address",
+        description: "Your home address (optional, for reference)",
+        isSecret: false,
+        placeholder: "123 Main St, City, State",
       },
       {
         key: "latitude",
@@ -85,6 +98,20 @@ const SETTING_DEFINITIONS: CategoryDefinition[] = [
         isSecret: false,
         placeholder: "-74.0060",
       },
+    ],
+  },
+  {
+    category: "weather",
+    label: "Weather (OpenWeatherMap)",
+    description: "Configure OpenWeatherMap API for weather display",
+    settings: [
+      {
+        key: "api_key",
+        label: "API Key",
+        description: "Get your free API key from openweathermap.org",
+        isSecret: true,
+        placeholder: "Your OpenWeatherMap API key",
+      },
       {
         key: "units",
         label: "Temperature Units",
@@ -97,7 +124,7 @@ const SETTING_DEFINITIONS: CategoryDefinition[] = [
   {
     category: "google",
     label: "Google APIs",
-    description: "Configure Google OAuth and Maps API",
+    description: "Configure Google OAuth, Maps, Gemini, and Vision APIs",
     settings: [
       {
         key: "client_id",
@@ -119,6 +146,20 @@ const SETTING_DEFINITIONS: CategoryDefinition[] = [
         description: "Google Maps API key for driving time estimates",
         isSecret: true,
         placeholder: "AIzaSy...",
+      },
+      {
+        key: "gemini_api_key",
+        label: "Gemini API Key",
+        description: "For Gemini vision - best value (~$0.001 per recognition)",
+        isSecret: true,
+        placeholder: "AIza...",
+      },
+      {
+        key: "vision_api_key",
+        label: "Cloud Vision API Key",
+        description: "For Cloud Vision OCR (~$0.0015 per recognition)",
+        isSecret: true,
+        placeholder: "AIza...",
       },
     ],
   },
@@ -181,42 +222,56 @@ const SETTING_DEFINITIONS: CategoryDefinition[] = [
   {
     category: "handwriting",
     label: "Handwriting Recognition",
-    description: "Configure AI provider for handwriting recognition",
+    description: "Select AI provider for handwriting recognition",
     settings: [
       {
         key: "provider",
         label: "Recognition Provider",
-        description: "tesseract (free/offline), gemini, openai, claude, or google_vision",
+        description: "Select which AI service to use",
         isSecret: false,
         placeholder: "tesseract",
       },
+    ],
+  },
+  {
+    category: "openai",
+    label: "OpenAI",
+    description: "Configure OpenAI API for GPT-4o vision and other AI features",
+    settings: [
       {
-        key: "openai_api_key",
-        label: "OpenAI API Key",
+        key: "api_key",
+        label: "API Key",
         description: "For GPT-4o vision (~$0.01-0.03 per recognition)",
         isSecret: true,
         placeholder: "sk-...",
       },
+    ],
+  },
+  {
+    category: "anthropic",
+    label: "Anthropic",
+    description: "Configure Anthropic API for Claude vision and other AI features",
+    settings: [
       {
-        key: "anthropic_api_key",
-        label: "Anthropic API Key",
+        key: "api_key",
+        label: "API Key",
         description: "For Claude vision (~$0.01-0.02 per recognition)",
         isSecret: true,
         placeholder: "sk-ant-...",
       },
+    ],
+  },
+  {
+    category: "recipes",
+    label: "Recipes",
+    description: "Configure recipe parsing settings",
+    settings: [
       {
-        key: "gemini_api_key",
-        label: "Google Gemini API Key",
-        description: "Recommended - best value (~$0.001 per recognition)",
-        isSecret: true,
-        placeholder: "AIza...",
-      },
-      {
-        key: "google_vision_api_key",
-        label: "Google Cloud Vision API Key",
-        description: "For Cloud Vision OCR (~$0.0015 per recognition)",
-        isSecret: true,
-        placeholder: "AIza...",
+        key: "ai_provider",
+        label: "AI Provider for Recipe Parsing",
+        description: "Which AI to use for extracting recipes from images (gemini, openai, or claude)",
+        isSecret: false,
+        placeholder: "gemini",
       },
     ],
   },
@@ -560,13 +615,10 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
         };
 
         if (data.status !== "OK" || !data.results?.length) {
-          return reply.status(400).send({
-            success: false,
-            error: data.error_message || "No results found for this address",
-          });
+          throw fastify.httpErrors.badRequest(data.error_message || "No results found for this address");
         }
 
-        const result = data.results[0];
+        const result = data.results[0]!;
         return {
           success: true,
           data: {
@@ -576,12 +628,516 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
           },
         };
       } catch (error) {
-        fastify.log.error("Geocoding error:", error);
-        return reply.status(500).send({
-          success: false,
-          error: "Failed to geocode address",
-        });
+        fastify.log.error({ err: error }, "Geocoding error");
+        throw fastify.httpErrors.internalServerError("Failed to geocode address");
       }
+    }
+  );
+
+  // Export all settings (excludes secrets/sensitive data)
+  fastify.get(
+    "/export",
+    {
+      preHandler: [authenticate],
+      schema: {
+        description: "Export all settings to JSON (excludes passwords and API keys)",
+        tags: ["Settings"],
+      },
+    },
+    async (request) => {
+      const user = (request as any).user;
+
+      // Get system settings (non-secrets only)
+      const systemSettingsData = await fastify.db
+        .select({
+          category: systemSettings.category,
+          key: systemSettings.key,
+          value: systemSettings.value,
+        })
+        .from(systemSettings)
+        .where(eq(systemSettings.isSecret, false));
+
+      // Get kiosks (exclude token)
+      const kiosksData = await fastify.db
+        .select({
+          name: kiosks.name,
+          colorScheme: kiosks.colorScheme,
+          screensaverEnabled: kiosks.screensaverEnabled,
+          screensaverTimeout: kiosks.screensaverTimeout,
+          screensaverInterval: kiosks.screensaverInterval,
+          screensaverLayout: kiosks.screensaverLayout,
+          screensaverTransition: kiosks.screensaverTransition,
+          screensaverLayoutConfig: kiosks.screensaverLayoutConfig,
+        })
+        .from(kiosks)
+        .where(eq(kiosks.userId, user.id));
+
+      // Get cameras (exclude password)
+      const camerasData = await fastify.db
+        .select({
+          name: cameras.name,
+          rtspUrl: cameras.rtspUrl,
+          mjpegUrl: cameras.mjpegUrl,
+          snapshotUrl: cameras.snapshotUrl,
+          username: cameras.username,
+          isEnabled: cameras.isEnabled,
+          sortOrder: cameras.sortOrder,
+          settings: cameras.settings,
+        })
+        .from(cameras)
+        .where(eq(cameras.userId, user.id));
+
+      // Get IPTV servers (exclude username/password)
+      const iptvServersData = await fastify.db
+        .select({
+          name: iptvServers.name,
+          serverUrl: iptvServers.serverUrl,
+          isActive: iptvServers.isActive,
+        })
+        .from(iptvServers)
+        .where(eq(iptvServers.userId, user.id));
+
+      // Get Home Assistant rooms
+      const haRoomsData = await fastify.db
+        .select({
+          name: homeAssistantRooms.name,
+          sortOrder: homeAssistantRooms.sortOrder,
+          temperatureSensorId: homeAssistantRooms.temperatureSensorId,
+          humiditySensorId: homeAssistantRooms.humiditySensorId,
+          windowSensorId: homeAssistantRooms.windowSensorId,
+        })
+        .from(homeAssistantRooms)
+        .where(eq(homeAssistantRooms.userId, user.id));
+
+      // Get Home Assistant entities
+      const haEntitiesData = await fastify.db
+        .select({
+          entityId: homeAssistantEntities.entityId,
+          displayName: homeAssistantEntities.displayName,
+          sortOrder: homeAssistantEntities.sortOrder,
+          showInDashboard: homeAssistantEntities.showInDashboard,
+          settings: homeAssistantEntities.settings,
+        })
+        .from(homeAssistantEntities)
+        .where(eq(homeAssistantEntities.userId, user.id));
+
+      // Get favorite sports teams
+      const favoriteTeamsData = await fastify.db
+        .select({
+          sport: favoriteSportsTeams.sport,
+          league: favoriteSportsTeams.league,
+          teamId: favoriteSportsTeams.teamId,
+          teamName: favoriteSportsTeams.teamName,
+          teamAbbreviation: favoriteSportsTeams.teamAbbreviation,
+          teamLogo: favoriteSportsTeams.teamLogo,
+          teamColor: favoriteSportsTeams.teamColor,
+          isVisible: favoriteSportsTeams.isVisible,
+          showOnDashboard: favoriteSportsTeams.showOnDashboard,
+          visibility: favoriteSportsTeams.visibility,
+        })
+        .from(favoriteSportsTeams)
+        .where(eq(favoriteSportsTeams.userId, user.id));
+
+      // Get news feeds
+      const newsFeedsData = await fastify.db
+        .select({
+          name: newsFeeds.name,
+          feedUrl: newsFeeds.feedUrl,
+          category: newsFeeds.category,
+          isActive: newsFeeds.isActive,
+        })
+        .from(newsFeeds)
+        .where(eq(newsFeeds.userId, user.id));
+
+      const exportData: ExportedSettings = {
+        version: "1.0",
+        exportedAt: new Date().toISOString(),
+        clientSettings: {
+          calendar: null,
+          screensaver: null,
+          tasks: null,
+          durationAlerts: null,
+        },
+        serverSettings: {
+          systemSettings: systemSettingsData,
+          kiosks: kiosksData as ExportedSettings["serverSettings"]["kiosks"],
+          cameras: camerasData as ExportedSettings["serverSettings"]["cameras"],
+          iptvServers: iptvServersData,
+          homeAssistant: {
+            rooms: haRoomsData,
+            entities: haEntitiesData as ExportedSettings["serverSettings"]["homeAssistant"]["entities"],
+          },
+          favoriteTeams: favoriteTeamsData as ExportedSettings["serverSettings"]["favoriteTeams"],
+          newsFeeds: newsFeedsData,
+        },
+      };
+
+      return {
+        success: true,
+        data: exportData,
+      };
+    }
+  );
+
+  // Import settings from exported JSON
+  fastify.post<{
+    Body: { settings: ExportedSettings; mode?: "merge" | "replace" };
+  }>(
+    "/import",
+    {
+      preHandler: [authenticate],
+      schema: {
+        description: "Import settings from exported JSON",
+        tags: ["Settings"],
+        body: {
+          type: "object",
+          properties: {
+            settings: { type: "object" },
+            mode: { type: "string", enum: ["merge", "replace"] },
+          },
+          required: ["settings"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = (request as any).user;
+      const { settings, mode = "merge" } = request.body;
+
+      // Validate version
+      if (settings.version !== "1.0") {
+        return reply.badRequest("Unsupported export version");
+      }
+
+      const result: ImportResult = {
+        success: true,
+        imported: {
+          systemSettings: 0,
+          kiosks: 0,
+          cameras: 0,
+          iptvServers: 0,
+          homeAssistantRooms: 0,
+          homeAssistantEntities: 0,
+          favoriteTeams: 0,
+          newsFeeds: 0,
+        },
+        errors: [],
+      };
+
+      try {
+        // Import system settings (non-secrets only)
+        for (const setting of settings.serverSettings?.systemSettings ?? []) {
+          try {
+            // Find if setting is a secret in our definitions
+            const categoryDef = SETTING_DEFINITIONS.find((c) => c.category === setting.category);
+            const settingDef = categoryDef?.settings.find((s) => s.key === setting.key);
+
+            // Skip if this is a secret setting
+            if (settingDef?.isSecret) {
+              continue;
+            }
+
+            const [existing] = await fastify.db
+              .select()
+              .from(systemSettings)
+              .where(
+                and(
+                  eq(systemSettings.category, setting.category),
+                  eq(systemSettings.key, setting.key)
+                )
+              )
+              .limit(1);
+
+            if (existing) {
+              await fastify.db
+                .update(systemSettings)
+                .set({
+                  value: setting.value,
+                  updatedAt: new Date(),
+                })
+                .where(eq(systemSettings.id, existing.id));
+            } else {
+              await fastify.db.insert(systemSettings).values({
+                category: setting.category,
+                key: setting.key,
+                value: setting.value,
+                isSecret: false,
+                description: settingDef?.description,
+              });
+            }
+            result.imported.systemSettings++;
+          } catch (err) {
+            result.errors.push(`Failed to import system setting ${setting.category}/${setting.key}`);
+          }
+        }
+
+        // Import kiosks by name match (update if exists, insert if new)
+        for (const kiosk of settings.serverSettings?.kiosks ?? []) {
+          try {
+            const [existing] = await fastify.db
+              .select()
+              .from(kiosks)
+              .where(and(eq(kiosks.userId, user.id), eq(kiosks.name, kiosk.name)))
+              .limit(1);
+
+            if (existing) {
+              await fastify.db
+                .update(kiosks)
+                .set({
+                  colorScheme: kiosk.colorScheme as any,
+                  screensaverEnabled: kiosk.screensaverEnabled,
+                  screensaverTimeout: kiosk.screensaverTimeout,
+                  screensaverInterval: kiosk.screensaverInterval,
+                  screensaverLayout: kiosk.screensaverLayout as any,
+                  screensaverTransition: kiosk.screensaverTransition as any,
+                  screensaverLayoutConfig: kiosk.screensaverLayoutConfig,
+                  updatedAt: new Date(),
+                })
+                .where(eq(kiosks.id, existing.id));
+            } else {
+              await fastify.db.insert(kiosks).values({
+                userId: user.id,
+                name: kiosk.name,
+                colorScheme: kiosk.colorScheme as any,
+                screensaverEnabled: kiosk.screensaverEnabled,
+                screensaverTimeout: kiosk.screensaverTimeout,
+                screensaverInterval: kiosk.screensaverInterval,
+                screensaverLayout: kiosk.screensaverLayout as any,
+                screensaverTransition: kiosk.screensaverTransition as any,
+                screensaverLayoutConfig: kiosk.screensaverLayoutConfig,
+              });
+            }
+            result.imported.kiosks++;
+          } catch (err) {
+            result.errors.push(`Failed to import kiosk "${kiosk.name}"`);
+          }
+        }
+
+        // Import cameras by name match
+        for (const camera of settings.serverSettings?.cameras ?? []) {
+          try {
+            const [existing] = await fastify.db
+              .select()
+              .from(cameras)
+              .where(and(eq(cameras.userId, user.id), eq(cameras.name, camera.name)))
+              .limit(1);
+
+            if (existing) {
+              await fastify.db
+                .update(cameras)
+                .set({
+                  rtspUrl: camera.rtspUrl,
+                  mjpegUrl: camera.mjpegUrl,
+                  snapshotUrl: camera.snapshotUrl,
+                  username: camera.username,
+                  isEnabled: camera.isEnabled,
+                  sortOrder: camera.sortOrder,
+                  settings: camera.settings,
+                  updatedAt: new Date(),
+                })
+                .where(eq(cameras.id, existing.id));
+            } else {
+              await fastify.db.insert(cameras).values({
+                userId: user.id,
+                name: camera.name,
+                rtspUrl: camera.rtspUrl,
+                mjpegUrl: camera.mjpegUrl,
+                snapshotUrl: camera.snapshotUrl,
+                username: camera.username,
+                isEnabled: camera.isEnabled,
+                sortOrder: camera.sortOrder,
+                settings: camera.settings,
+              });
+            }
+            result.imported.cameras++;
+          } catch (err) {
+            result.errors.push(`Failed to import camera "${camera.name}"`);
+          }
+        }
+
+        // Import IPTV servers by name match (note: will need credentials re-entered)
+        for (const server of settings.serverSettings?.iptvServers ?? []) {
+          try {
+            const [existing] = await fastify.db
+              .select()
+              .from(iptvServers)
+              .where(and(eq(iptvServers.userId, user.id), eq(iptvServers.name, server.name)))
+              .limit(1);
+
+            if (existing) {
+              await fastify.db
+                .update(iptvServers)
+                .set({
+                  serverUrl: server.serverUrl,
+                  isActive: server.isActive,
+                  updatedAt: new Date(),
+                })
+                .where(eq(iptvServers.id, existing.id));
+              result.imported.iptvServers++;
+            }
+            // Don't create new IPTV servers as they require credentials
+          } catch (err) {
+            result.errors.push(`Failed to import IPTV server "${server.name}"`);
+          }
+        }
+
+        // Import Home Assistant rooms by name match
+        for (const room of settings.serverSettings?.homeAssistant?.rooms ?? []) {
+          try {
+            const [existing] = await fastify.db
+              .select()
+              .from(homeAssistantRooms)
+              .where(and(eq(homeAssistantRooms.userId, user.id), eq(homeAssistantRooms.name, room.name)))
+              .limit(1);
+
+            if (existing) {
+              await fastify.db
+                .update(homeAssistantRooms)
+                .set({
+                  sortOrder: room.sortOrder,
+                  temperatureSensorId: room.temperatureSensorId,
+                  humiditySensorId: room.humiditySensorId,
+                  windowSensorId: room.windowSensorId,
+                })
+                .where(eq(homeAssistantRooms.id, existing.id));
+            } else {
+              await fastify.db.insert(homeAssistantRooms).values({
+                userId: user.id,
+                name: room.name,
+                sortOrder: room.sortOrder,
+                temperatureSensorId: room.temperatureSensorId,
+                humiditySensorId: room.humiditySensorId,
+                windowSensorId: room.windowSensorId,
+              });
+            }
+            result.imported.homeAssistantRooms++;
+          } catch (err) {
+            result.errors.push(`Failed to import HA room "${room.name}"`);
+          }
+        }
+
+        // Import Home Assistant entities by entityId match
+        for (const entity of settings.serverSettings?.homeAssistant?.entities ?? []) {
+          try {
+            const [existing] = await fastify.db
+              .select()
+              .from(homeAssistantEntities)
+              .where(and(eq(homeAssistantEntities.userId, user.id), eq(homeAssistantEntities.entityId, entity.entityId)))
+              .limit(1);
+
+            if (existing) {
+              await fastify.db
+                .update(homeAssistantEntities)
+                .set({
+                  displayName: entity.displayName,
+                  sortOrder: entity.sortOrder,
+                  showInDashboard: entity.showInDashboard,
+                  settings: entity.settings,
+                })
+                .where(eq(homeAssistantEntities.id, existing.id));
+            } else {
+              await fastify.db.insert(homeAssistantEntities).values({
+                userId: user.id,
+                entityId: entity.entityId,
+                displayName: entity.displayName,
+                sortOrder: entity.sortOrder,
+                showInDashboard: entity.showInDashboard,
+                settings: entity.settings,
+              });
+            }
+            result.imported.homeAssistantEntities++;
+          } catch (err) {
+            result.errors.push(`Failed to import HA entity "${entity.entityId}"`);
+          }
+        }
+
+        // Import favorite teams by teamId match
+        for (const team of settings.serverSettings?.favoriteTeams ?? []) {
+          try {
+            const [existing] = await fastify.db
+              .select()
+              .from(favoriteSportsTeams)
+              .where(
+                and(
+                  eq(favoriteSportsTeams.userId, user.id),
+                  eq(favoriteSportsTeams.league, team.league),
+                  eq(favoriteSportsTeams.teamId, team.teamId)
+                )
+              )
+              .limit(1);
+
+            if (existing) {
+              await fastify.db
+                .update(favoriteSportsTeams)
+                .set({
+                  teamName: team.teamName,
+                  teamAbbreviation: team.teamAbbreviation,
+                  teamLogo: team.teamLogo,
+                  teamColor: team.teamColor,
+                  isVisible: team.isVisible,
+                  showOnDashboard: team.showOnDashboard,
+                  visibility: team.visibility,
+                })
+                .where(eq(favoriteSportsTeams.id, existing.id));
+            } else {
+              await fastify.db.insert(favoriteSportsTeams).values({
+                userId: user.id,
+                sport: team.sport,
+                league: team.league,
+                teamId: team.teamId,
+                teamName: team.teamName,
+                teamAbbreviation: team.teamAbbreviation,
+                teamLogo: team.teamLogo,
+                teamColor: team.teamColor,
+                isVisible: team.isVisible,
+                showOnDashboard: team.showOnDashboard,
+                visibility: team.visibility,
+              });
+            }
+            result.imported.favoriteTeams++;
+          } catch (err) {
+            result.errors.push(`Failed to import favorite team "${team.teamName}"`);
+          }
+        }
+
+        // Import news feeds by feedUrl match
+        for (const feed of settings.serverSettings?.newsFeeds ?? []) {
+          try {
+            const [existing] = await fastify.db
+              .select()
+              .from(newsFeeds)
+              .where(and(eq(newsFeeds.userId, user.id), eq(newsFeeds.feedUrl, feed.feedUrl)))
+              .limit(1);
+
+            if (existing) {
+              await fastify.db
+                .update(newsFeeds)
+                .set({
+                  name: feed.name,
+                  category: feed.category,
+                  isActive: feed.isActive,
+                })
+                .where(eq(newsFeeds.id, existing.id));
+            } else {
+              await fastify.db.insert(newsFeeds).values({
+                userId: user.id,
+                name: feed.name,
+                feedUrl: feed.feedUrl,
+                category: feed.category,
+                isActive: feed.isActive,
+              });
+            }
+            result.imported.newsFeeds++;
+          } catch (err) {
+            result.errors.push(`Failed to import news feed "${feed.name}"`);
+          }
+        }
+      } catch (error) {
+        fastify.log.error({ err: error }, "Settings import error");
+        result.success = false;
+        result.errors.push("Unexpected error during import");
+      }
+
+      return { success: true, data: result };
     }
   );
 };
