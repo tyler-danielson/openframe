@@ -1,0 +1,11 @@
+This directory contains app assets.
+
+Required icons (create before building):
+- icon.png (1024x1024) - App icon
+- adaptive-icon.png (1024x1024) - Android adaptive icon foreground
+- splash-icon.png (512x512) - Splash screen icon
+- favicon.png (48x48) - Web favicon
+
+You can generate these from your logo using tools like:
+- https://icon.kitchen/
+- https://easyappicon.com/
