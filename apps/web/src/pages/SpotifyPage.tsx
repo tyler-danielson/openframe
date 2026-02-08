@@ -19,6 +19,7 @@ import {
   ExternalLink,
   ChevronDown,
   User,
+  History,
 } from "lucide-react";
 import { api, type SpotifyAccount } from "../services/api";
 import { Button } from "../components/ui/Button";
@@ -161,12 +162,46 @@ export function SpotifyPage() {
     enabled: status?.connected === true,
   });
 
+  // Get recently played tracks for search boosting
+  const { data: recentlyPlayed } = useQuery({
+    queryKey: ["spotify-recently-played", accountIdForApi],
+    queryFn: () => api.getSpotifyRecentlyPlayed(50, accountIdForApi),
+    enabled: status?.connected === true,
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+
   // Search
   const { data: searchResults, isLoading: searching } = useQuery({
     queryKey: ["spotify-search", searchQuery, accountIdForApi],
     queryFn: () => api.searchSpotify(searchQuery, ["track", "playlist"], 20, accountIdForApi),
     enabled: status?.connected === true && searchQuery.length > 2,
   });
+
+  // Create a set of recently played track IDs for boosting
+  const recentTrackIds = useMemo(() => {
+    return new Set(
+      recentlyPlayed?.items?.map((item) => item.track.id) || []
+    );
+  }, [recentlyPlayed]);
+
+  // Boost search results based on recently played tracks
+  const boostedSearchResults = useMemo(() => {
+    if (!searchResults?.tracks?.items) return searchResults;
+
+    // Separate tracks into boosted (recently played) and regular
+    const tracks = searchResults.tracks.items.filter(Boolean);
+    const boostedTracks = tracks.filter((track) => recentTrackIds.has(track.id));
+    const regularTracks = tracks.filter((track) => !recentTrackIds.has(track.id));
+
+    // Return with boosted tracks first
+    return {
+      ...searchResults,
+      tracks: {
+        ...searchResults.tracks,
+        items: [...boostedTracks, ...regularTracks],
+      },
+    };
+  }, [searchResults, recentTrackIds]);
 
   // Mutations
   const playMutation = useMutation({
@@ -675,14 +710,14 @@ export function SpotifyPage() {
                     </div>
                   )}
 
-                  {searchResults && (
+                  {boostedSearchResults && (
                     <>
                       {/* Tracks */}
-                      {searchResults.tracks?.items && searchResults.tracks.items.length > 0 && (
+                      {boostedSearchResults.tracks?.items && boostedSearchResults.tracks.items.length > 0 && (
                         <div>
                           <h3 className="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">Songs</h3>
                           <div className="space-y-1">
-                            {searchResults.tracks.items.slice(0, 10).map((track) => (
+                            {boostedSearchResults.tracks.items.filter(Boolean).slice(0, 10).map((track) => (
                               <button
                                 key={track.id}
                                 onClick={() =>
@@ -704,7 +739,12 @@ export function SpotifyPage() {
                                   )}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{track.name}</p>
+                                  <div className="flex items-center gap-1.5">
+                                    <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{track.name}</p>
+                                    {recentTrackIds.has(track.id) && (
+                                      <History className="h-3 w-3 text-green-500 shrink-0" title="Recently played" />
+                                    )}
+                                  </div>
                                   <p className="truncate text-xs text-gray-600 dark:text-gray-400">
                                     {track.artists?.map((a) => a.name).join(", ")}
                                   </p>
@@ -717,11 +757,11 @@ export function SpotifyPage() {
                       )}
 
                       {/* Search Playlists */}
-                      {searchResults.playlists?.items && searchResults.playlists.items.length > 0 && (
+                      {boostedSearchResults.playlists?.items && boostedSearchResults.playlists.items.length > 0 && (
                         <div>
                           <h3 className="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">Playlists</h3>
                           <div className="grid gap-2 grid-cols-2 lg:grid-cols-3">
-                            {searchResults.playlists.items.slice(0, 6).map((playlist) => (
+                            {boostedSearchResults.playlists.items.filter(Boolean).slice(0, 6).map((playlist) => (
                               <button
                                 key={playlist.id}
                                 onClick={() =>

@@ -1,7 +1,8 @@
 import { type ReactNode, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import * as Popover from "@radix-ui/react-popover";
-import { X, MapPin, Calendar, Clock, Users, Repeat, CircleDot, Car, Pencil, Home, Timer } from "lucide-react";
+import { X, MapPin, Calendar, Clock, Users, Repeat, CircleDot, Car, Pencil, Home, Timer, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import type { CalendarEvent, Calendar as CalendarType } from "@openframe/shared";
 import { Button } from "../ui/Button";
@@ -111,6 +112,8 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
   const [drivingTimeLoading, setDrivingTimeLoading] = useState(false);
   const [showRoutes, setShowRoutes] = useState(false);
   const [showCountdownPicker, setShowCountdownPicker] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Reset edit state when modal opens/closes or event changes
   useEffect(() => {
@@ -267,6 +270,22 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
     setShowStartTimePicker(false);
     setShowEndDatePicker(false);
     setShowEndTimePicker(false);
+  };
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    setIsDeleting(true);
+    try {
+      await api.deleteEvent(event.id);
+      onDelete(event.id);
+      setShowDeleteConfirm(false);
+      onClose();
+    } catch (error) {
+      console.error("Failed to delete event:", error);
+      alert("Failed to delete event. Please try again.");
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -687,13 +706,10 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
                 {onDelete && (
                   <Button
                     variant="destructive"
-                    className="flex-1 py-2 text-sm touch-manipulation"
-                    onClick={() => {
-                      onDelete(event.id);
-                      onClose();
-                    }}
+                    className="py-2 text-sm touch-manipulation"
+                    onClick={() => setShowDeleteConfirm(true)}
                   >
-                    Delete
+                    <Trash2 className="h-4 w-4" />
                   </Button>
                 )}
                 <Button
@@ -733,6 +749,40 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
           onClose={() => setShowCountdownPicker(false)}
         />
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog.Root open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="fixed inset-0 bg-black/50 data-[state=open]:animate-fade-in z-[100]" />
+          <AlertDialog.Content className="fixed left-1/2 top-1/2 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-6 shadow-xl data-[state=open]:animate-slide-up z-[101]">
+            <AlertDialog.Title className="text-lg font-semibold">
+              Delete Event
+            </AlertDialog.Title>
+            <AlertDialog.Description className="mt-2 text-sm text-muted-foreground">
+              Are you sure you want to delete "{event.title}"? This action cannot be undone.
+            </AlertDialog.Description>
+            <div className="mt-6 flex gap-3 justify-end">
+              <AlertDialog.Cancel asChild>
+                <Button
+                  variant="outline"
+                  className="px-4 py-2 text-sm"
+                  disabled={isDeleting}
+                >
+                  Cancel
+                </Button>
+              </AlertDialog.Cancel>
+              <Button
+                variant="destructive"
+                className="px-4 py-2 text-sm"
+                onClick={handleDelete}
+                disabled={isDeleting}
+              >
+                {isDeleting ? "Deleting..." : "Delete"}
+              </Button>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
     </Dialog.Root>
   );
 }

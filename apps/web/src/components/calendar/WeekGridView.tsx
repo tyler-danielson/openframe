@@ -15,7 +15,10 @@ function getEventStartDate(event: CalendarEvent): Date {
       : event.startTime.toISOString();
     // Extract YYYY-MM-DD and create a local midnight date
     const datePart = isoString.slice(0, 10);
-    const [year, month, day] = datePart.split('-').map(Number);
+    const parts = datePart.split('-').map(Number);
+    const year = parts[0] ?? 1970;
+    const month = parts[1] ?? 1;
+    const day = parts[2] ?? 1;
     return new Date(year, month - 1, day); // Local midnight
   }
   return new Date(event.startTime);
@@ -27,7 +30,10 @@ function getEventEndDate(event: CalendarEvent): Date {
       ? event.endTime
       : event.endTime.toISOString();
     const datePart = isoString.slice(0, 10);
-    const [year, month, day] = datePart.split('-').map(Number);
+    const parts = datePart.split('-').map(Number);
+    const year = parts[0] ?? 1970;
+    const month = parts[1] ?? 1;
+    const day = parts[2] ?? 1;
     return new Date(year, month - 1, day);
   }
   return new Date(event.endTime);
@@ -284,7 +290,7 @@ export function WeekGridView({
     return (
       <div
         key={dateKey}
-        className="flex flex-col border-r border-b border-white overflow-hidden bg-card cursor-pointer"
+        className="flex flex-col border-r border-b border-white bg-card cursor-pointer min-h-0"
         onClick={() => handleDayClick(day)}
         onPointerDown={(e) => handleDayPointerDown(day, e)}
         onPointerMove={handleDayPointerMove}
@@ -293,7 +299,7 @@ export function WeekGridView({
         onPointerCancel={handleDayPointerUp}
       >
         {/* Day header */}
-        <div className="px-3 py-2 border-b border-white bg-muted h-16 flex flex-col justify-center">
+        <div className="px-3 py-2 border-b border-white bg-muted h-16 flex flex-col justify-center shrink-0">
           <div className="flex items-center justify-between">
             <p className="text-2xl font-bold text-foreground flex items-center gap-2">
               <span>{format(day, "EEE")}</span>
@@ -322,7 +328,7 @@ export function WeekGridView({
         </div>
 
         {/* Events */}
-        <div className="flex-1 p-2 space-y-1 overflow-auto min-h-[120px]">
+        <div className="flex-1 p-2 space-y-1 overflow-y-auto min-h-0">
           {dayEvents.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-4">
               No events
@@ -377,12 +383,12 @@ export function WeekGridView({
   return (
     <div className="h-full flex flex-col border-t border-l border-white">
       {/* Top row - 4 days */}
-      <div className="flex-1 grid grid-cols-4">
+      <div className="flex-1 grid grid-cols-4 min-h-0">
         {topRow.map(renderDay)}
       </div>
 
       {/* Bottom row - 3 days + Configurable Widget */}
-      <div className="flex-1 grid grid-cols-4">
+      <div className="flex-1 grid grid-cols-4 min-h-0">
         {bottomRow.map(renderDay)}
         <WeekCellWidget
           mode={weekCellWidget}

@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useScreensaverStore } from "../stores/screensaver";
 
 export function useIdleDetector() {
-  const { enabled, idleTimeout, isActive, setActive, updateActivity, lastActivity } =
+  const { enabled, setActive, updateActivity } =
     useScreensaverStore();
   const checkIntervalRef = useRef<number | null>(null);
 
@@ -17,7 +17,9 @@ export function useIdleDetector() {
 
     // Track user activity
     const handleActivity = () => {
-      if (!isActive) {
+      // Read fresh value from store to avoid stale closure
+      const { isActive: currentlyActive } = useScreensaverStore.getState();
+      if (!currentlyActive) {
         updateActivity();
       }
     };
@@ -29,10 +31,23 @@ export function useIdleDetector() {
 
     // Check idle timeout periodically
     checkIntervalRef.current = window.setInterval(() => {
+      // Don't activate screensaver while user is focused on an input
+      const activeElement = document.activeElement;
+      const isInputFocused = activeElement && (
+        activeElement.tagName === "INPUT" ||
+        activeElement.tagName === "TEXTAREA" ||
+        activeElement.getAttribute("contenteditable") === "true"
+      );
+      if (isInputFocused) {
+        return;
+      }
+
+      // Read fresh values from store to avoid stale closures
+      const { lastActivity, isActive: currentlyActive, idleTimeout: currentTimeout } = useScreensaverStore.getState();
       const now = Date.now();
       const idleTime = (now - lastActivity) / 1000;
 
-      if (idleTime >= idleTimeout && !isActive) {
+      if (idleTime >= currentTimeout && !currentlyActive) {
         setActive(true);
       }
     }, 1000);
@@ -45,5 +60,5 @@ export function useIdleDetector() {
         clearInterval(checkIntervalRef.current);
       }
     };
-  }, [enabled, idleTimeout, isActive, setActive, updateActivity, lastActivity]);
+  }, [enabled, setActive, updateActivity]);
 }

@@ -102,12 +102,60 @@ export interface TelegramWebhookInfo {
 const API_BASE = "/api/v1";
 
 class ApiClient {
+  // Mutex for token refresh to prevent race conditions
+  private refreshPromise: Promise<boolean> | null = null;
+
+  private async refreshTokens(): Promise<boolean> {
+    const { refreshToken, setTokens, logout, kioskEnabled } = useAuthStore.getState();
+
+    if (!refreshToken) {
+      return false;
+    }
+
+    try {
+      const refreshResponse = await fetch(`${API_BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (refreshResponse.ok) {
+        const data = await refreshResponse.json();
+        setTokens(data.data.accessToken, data.data.refreshToken);
+        return true;
+      } else if (!kioskEnabled) {
+        logout();
+        return false;
+      }
+      return false;
+    } catch {
+      if (!kioskEnabled) {
+        logout();
+      }
+      return false;
+    }
+  }
+
+  private async ensureValidTokens(): Promise<boolean> {
+    // If a refresh is already in progress, wait for it
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    // Start a new refresh and store the promise
+    this.refreshPromise = this.refreshTokens().finally(() => {
+      this.refreshPromise = null;
+    });
+
+    return this.refreshPromise;
+  }
+
   private async fetch<T>(
     path: string,
     options: RequestInit = {},
     skipAuth = false
   ): Promise<T> {
-    const { accessToken, refreshToken, apiKey, setTokens, logout, kioskEnabled } =
+    const { accessToken, refreshToken, apiKey, kioskEnabled } =
       useAuthStore.getState();
 
     const headers: HeadersInit = {
@@ -133,32 +181,18 @@ class ApiClient {
 
     // Handle token refresh (only if we have tokens and aren't in pure kiosk mode)
     if (response.status === 401 && refreshToken && !skipAuth) {
-      try {
-        const refreshResponse = await fetch(`${API_BASE}/auth/refresh`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refreshToken }),
+      const refreshed = await this.ensureValidTokens();
+
+      if (refreshed) {
+        // Get the new access token and retry
+        const { accessToken: newAccessToken } = useAuthStore.getState();
+        (headers as Record<string, string>).Authorization = `Bearer ${newAccessToken}`;
+        response = await fetch(`${API_BASE}${path}`, {
+          ...options,
+          headers,
         });
-
-        if (refreshResponse.ok) {
-          const data = await refreshResponse.json();
-          setTokens(data.data.accessToken, data.data.refreshToken);
-
-          // Retry original request
-          (headers as Record<string, string>).Authorization = `Bearer ${data.data.accessToken}`;
-          response = await fetch(`${API_BASE}${path}`, {
-            ...options,
-            headers,
-          });
-        } else if (!kioskEnabled) {
-          logout();
-          throw new Error("Session expired");
-        }
-      } catch {
-        if (!kioskEnabled) {
-          logout();
-          throw new Error("Session expired");
-        }
+      } else if (!kioskEnabled) {
+        throw new Error("Session expired");
       }
     }
 
@@ -232,7 +266,7 @@ class ApiClient {
 
   async updateCalendar(
     id: string,
-    data: Partial<Pick<Calendar, "color" | "isVisible" | "syncEnabled" | "isPrimary" | "showOnDashboard">> & { visibility?: Partial<Calendar["visibility"]> }
+    data: Partial<Pick<Calendar, "color" | "isVisible" | "syncEnabled" | "isPrimary" | "isFavorite" | "showOnDashboard">> & { visibility?: Partial<Calendar["visibility"]> }
   ): Promise<Calendar> {
     return this.fetch<Calendar>(`/calendars/${id}`, {
       method: "PATCH",
@@ -1824,6 +1858,174 @@ class ApiClient {
     return this.fetch("/remarkable/sync", { method: "POST" });
   }
 
+  // reMarkable Templates
+  async getRemarkableTemplates(): Promise<RemarkableTemplate[]> {
+    return this.fetch("/remarkable/templates");
+  }
+
+  async getRemarkableTemplate(id: string): Promise<RemarkableTemplate> {
+    return this.fetch(`/remarkable/templates/${id}`);
+  }
+
+  async createRemarkableTemplate(data: {
+    name: string;
+    templateType: string;
+    folderPath: string;
+    config: Record<string, unknown>;
+  }): Promise<RemarkableTemplate> {
+    return this.fetch("/remarkable/templates", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateRemarkableTemplate(
+    id: string,
+    data: Partial<{
+      name: string;
+      folderPath: string;
+      config: Record<string, unknown>;
+      isActive: boolean;
+      mergeFields: RemarkableMergeField[];
+    }>
+  ): Promise<RemarkableTemplate> {
+    return this.fetch(`/remarkable/templates/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteRemarkableTemplate(id: string): Promise<void> {
+    await this.fetch(`/remarkable/templates/${id}`, { method: "DELETE" });
+  }
+
+  async previewRemarkableTemplate(id: string, date?: string): Promise<Blob> {
+    const { accessToken, apiKey } = useAuthStore.getState();
+    const headers: HeadersInit = {};
+    if (apiKey) {
+      headers["x-api-key"] = apiKey;
+    } else if (accessToken) {
+      headers["Authorization"] = `Bearer ${accessToken}`;
+    }
+    const params = date ? `?date=${date}` : "";
+    const response = await fetch(`${API_BASE}/remarkable/templates/${id}/preview${params}`, {
+      headers,
+    });
+    if (!response.ok) {
+      throw new Error("Failed to generate preview");
+    }
+    return response.blob();
+  }
+
+  getRemarkableTemplatePreviewUrl(id: string, date?: string): string {
+    const params = date ? `?date=${date}` : "";
+    return `${API_BASE}/remarkable/templates/${id}/preview${params}`;
+  }
+
+  async pushRemarkableTemplate(id: string, date?: string): Promise<{
+    documentId: string;
+    filename: string;
+    message: string;
+  }> {
+    return this.fetch(`/remarkable/templates/${id}/push`, {
+      method: "POST",
+      body: JSON.stringify({ date }),
+    });
+  }
+
+  async uploadRemarkablePdfTemplate(templateId: string, pdfBase64: string): Promise<void> {
+    await this.fetch("/remarkable/templates/upload-pdf", {
+      method: "POST",
+      body: JSON.stringify({ templateId, pdfBase64 }),
+    });
+  }
+
+  // reMarkable Schedules
+  async getRemarkableSchedules(): Promise<RemarkableSchedule[]> {
+    return this.fetch("/remarkable/schedules");
+  }
+
+  async createRemarkableSchedule(data: {
+    templateId?: string;
+    scheduleType: string;
+    pushTime?: string;
+    pushDay?: number;
+  }): Promise<RemarkableSchedule> {
+    return this.fetch("/remarkable/schedules", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateRemarkableSchedule(
+    id: string,
+    data: Partial<{
+      enabled: boolean;
+      pushTime: string;
+      pushDay: number;
+    }>
+  ): Promise<RemarkableSchedule> {
+    return this.fetch(`/remarkable/schedules/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteRemarkableSchedule(id: string): Promise<void> {
+    await this.fetch(`/remarkable/schedules/${id}`, { method: "DELETE" });
+  }
+
+  // reMarkable Folders
+  async getRemarkableFolders(): Promise<RemarkableFolder[]> {
+    return this.fetch("/remarkable/folders");
+  }
+
+  async getRemarkableFolderTree(): Promise<{
+    name: string;
+    path: string;
+    children: Array<{ name: string; path: string; children: unknown[]; documentCount?: number }>;
+  }> {
+    return this.fetch("/remarkable/folders/tree");
+  }
+
+  async getRemarkableFolderSuggestions(): Promise<string[]> {
+    return this.fetch("/remarkable/folders/suggestions");
+  }
+
+  async createRemarkableFolder(path: string): Promise<{ path: string; created: boolean }> {
+    return this.fetch("/remarkable/folders", {
+      method: "POST",
+      body: JSON.stringify({ path }),
+    });
+  }
+
+  // reMarkable Confirmations
+  async getRemarkableConfirmationSettings(): Promise<RemarkableConfirmationSettings> {
+    return this.fetch("/remarkable/confirmations/settings");
+  }
+
+  async updateRemarkableConfirmationSettings(
+    data: Partial<RemarkableConfirmationSettings>
+  ): Promise<RemarkableConfirmationSettings> {
+    return this.fetch("/remarkable/confirmations/settings", {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getRemarkableConfirmations(): Promise<RemarkableConfirmation[]> {
+    return this.fetch("/remarkable/confirmations");
+  }
+
+  async sendRemarkableConfirmation(noteId: string): Promise<{
+    confirmationDocumentId: string;
+    message: string;
+  }> {
+    return this.fetch(`/remarkable/notes/${noteId}/confirm`, {
+      method: "POST",
+    });
+  }
+
   // Telegram
 
   async connectTelegram(botToken: string): Promise<{
@@ -1903,6 +2105,60 @@ class ApiClient {
 
   async deleteTelegramWebhook(): Promise<{ message: string }> {
     return this.fetch("/telegram/webhook", { method: "DELETE" });
+  }
+
+  // Capacities
+
+  async getCapacitiesStatus(): Promise<{
+    connected: boolean;
+    defaultSpaceId?: string;
+    lastSyncAt?: string | null;
+    spaces?: Array<{ id: string; title: string; icon?: string; isDefault?: boolean }>;
+  }> {
+    return this.fetch("/capacities/status");
+  }
+
+  async connectCapacities(apiToken: string): Promise<{
+    connected: boolean;
+    message: string;
+    spaces: Array<{ id: string; title: string; icon?: string }>;
+  }> {
+    return this.fetch("/capacities/connect", {
+      method: "POST",
+      body: JSON.stringify({ apiToken }),
+    });
+  }
+
+  async disconnectCapacities(): Promise<{ message: string }> {
+    return this.fetch("/capacities/disconnect", { method: "DELETE" });
+  }
+
+  async testCapacitiesConnection(): Promise<{ connected: boolean; message: string }> {
+    return this.fetch("/capacities/test", { method: "POST" });
+  }
+
+  async getCapacitiesSpaces(): Promise<
+    Array<{ id: string; title: string; icon?: string; isDefault?: boolean }>
+  > {
+    return this.fetch("/capacities/spaces");
+  }
+
+  async setCapacitiesDefaultSpace(spaceId: string): Promise<{ message: string }> {
+    return this.fetch(`/capacities/spaces/${spaceId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ isDefault: true }),
+    });
+  }
+
+  async saveToCapacitiesDailyNote(params: {
+    spaceId?: string;
+    mdText: string;
+    noTimeStamp?: boolean;
+  }): Promise<{ success: boolean }> {
+    return this.fetch("/capacities/daily-note", {
+      method: "POST",
+      body: JSON.stringify(params),
+    });
   }
 }
 
@@ -2084,6 +2340,64 @@ export interface RemarkableAgendaSettings {
   notesLines: number;
   templateStyle: string;
   lastPushAt: string | null;
+}
+
+export interface RemarkableTemplate {
+  id: string;
+  name: string;
+  templateType: "weekly_planner" | "habit_tracker" | "custom_agenda" | "user_designed";
+  config: Record<string, unknown>;
+  folderPath: string;
+  isActive: boolean;
+  hasPdfTemplate?: boolean;
+  mergeFields?: RemarkableMergeField[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RemarkableMergeField {
+  name: string;
+  type: "date" | "events" | "weather" | "text" | "custom";
+  x: number;
+  y: number;
+  fontSize?: number;
+  format?: string;
+}
+
+export interface RemarkableSchedule {
+  id: string;
+  templateId: string | null;
+  templateName?: string;
+  templateType?: string | null;
+  scheduleType: "daily" | "weekly" | "monthly" | "manual";
+  enabled: boolean;
+  pushTime: string | null;
+  pushDay: number | null;
+  lastPushAt: string | null;
+  nextPushAt: string | null;
+  createdAt: string;
+}
+
+export interface RemarkableFolder {
+  id: string;
+  name: string;
+  path: string;
+  parentPath: string | null;
+  documentCount?: number;
+}
+
+export interface RemarkableConfirmation {
+  id: string;
+  documentId: string;
+  confirmationType: string;
+  confirmationDocumentId: string | null;
+  eventsConfirmed: Array<{ title: string; startTime: string; eventId?: string }>;
+  createdAt: string;
+}
+
+export interface RemarkableConfirmationSettings {
+  enabled: boolean;
+  folderPath: string;
 }
 
 export interface RemarkableNote {

@@ -54,8 +54,8 @@ function NextWeekWidget({
   onSelectEvent?: (event: CalendarEvent) => void;
 }) {
   return (
-    <div className="flex flex-col h-full">
-      <div className="px-3 py-2 border-b border-white bg-muted h-16 flex flex-col justify-center">
+    <div className="flex flex-col h-full min-h-0">
+      <div className="px-3 py-2 border-b border-white bg-muted h-16 flex flex-col justify-center shrink-0">
         <p className="text-2xl font-bold text-foreground">Next Week</p>
         <p className="text-xs text-muted-foreground">
           {isSameMonth(nextWeekData.start, nextWeekData.end)
@@ -63,7 +63,7 @@ function NextWeekWidget({
             : `${format(nextWeekData.start, "MMMM d")} - ${format(nextWeekData.end, "MMMM d")}`}
         </p>
       </div>
-      <div className="flex-1 p-2 space-y-1 overflow-auto min-h-[120px]">
+      <div className="flex-1 p-2 space-y-1 overflow-y-auto min-h-0">
         {nextWeekData.events.length === 0 ? (
           <p className="text-xs text-muted-foreground text-center py-4">
             No events
@@ -566,7 +566,7 @@ export function WeekCellWidget({
   onSelectEvent,
 }: WeekCellWidgetProps) {
   return (
-    <div className="flex flex-col border-r border-b border-white overflow-hidden bg-card">
+    <div className="flex flex-col border-r border-b border-white bg-card min-h-0">
       {mode === "next-week" && (
         <NextWeekWidget
           nextWeekData={nextWeekData}
