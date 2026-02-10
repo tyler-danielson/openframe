@@ -1,32 +1,38 @@
 /**
  * reMarkable Cloud Client
- * Wrapper around the reMarkable cloud API for authentication and document management.
+ * Wrapper around rmapi CLI tool (https://github.com/juruen/rmapi)
  *
  * Authentication flow:
  * 1. User gets a one-time code from my.remarkable.com/device/desktop/connect
- * 2. We register as a device using this code to get a device token (long-lived)
- * 3. We exchange the device token for a user token (short-lived, ~24hr)
- * 4. User token is refreshed automatically before expiry
+ * 2. We pass the code to rmapi which stores the token in ~/.rmapi
+ * 3. All subsequent calls use rmapi commands
+ *
+ * Note: This is a single-account implementation (one reMarkable account per server)
  */
 
 import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
 import { remarkableConfig } from "@openframe/database/schema";
+import { exec, spawn } from "child_process";
+import { promisify } from "util";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 
-// reMarkable API endpoints
-const REMARKABLE_AUTH_HOST = "https://webapp-prod.cloud.remarkable.engineering";
-const REMARKABLE_SYNC_HOST = "https://internal.cloud.remarkable.com";
+const execAsync = promisify(exec);
 
-// Device description for registration
-const DEVICE_DESC = "desktop-windows";
-const DEVICE_ID = "OpenFrame-Calendar";
+// Path to rmapi config file
+const RMAPI_CONFIG = path.join(os.homedir(), ".rmapi");
+
+// Temp directory for file operations
+const TEMP_DIR = path.join(os.tmpdir(), "openframe-remarkable");
 
 export interface RemarkableDocument {
   id: string;
   version: number;
   name: string;
   type: "DocumentType" | "CollectionType"; // Document or folder
-  parent: string; // Parent folder ID, empty for root
+  parent: string; // Parent folder ID or path
   lastModified: string;
   pinned: boolean;
 }
@@ -39,76 +45,106 @@ export interface RemarkableClient {
   refreshTokenIfNeeded(): Promise<void>;
   getDocuments(folderPath?: string): Promise<RemarkableDocument[]>;
   downloadDocument(documentId: string): Promise<Buffer>;
+  downloadDocumentWithAnnotations(docPath: string): Promise<Buffer>;
   uploadPdf(pdfBuffer: Buffer, name: string, folderPath: string): Promise<string>;
   createFolder(name: string, parentPath?: string): Promise<string>;
   getUserToken(): Promise<string | null>;
 }
 
+// Ensure temp directory exists
+if (!fs.existsSync(TEMP_DIR)) {
+  fs.mkdirSync(TEMP_DIR, { recursive: true });
+}
+
+/**
+ * Execute an rmapi command and return the output
+ */
+async function runRmapi(args: string[], timeoutMs = 30000): Promise<string> {
+  const command = `rmapi ${args.map(a => a.includes(" ") ? `"${a}"` : a).join(" ")}`;
+
+  try {
+    const { stdout, stderr } = await execAsync(command, {
+      timeout: timeoutMs,
+      encoding: "utf-8",
+    });
+
+    if (stderr && !stderr.includes("Refreshing tree")) {
+      console.warn("[rmapi] stderr:", stderr);
+    }
+
+    return stdout.trim();
+  } catch (err: unknown) {
+    const error = err as { code?: number; killed?: boolean; stderr?: string; message?: string };
+    if (error.killed) {
+      throw new Error(`rmapi command timed out after ${timeoutMs}ms`);
+    }
+    // rmapi returns exit code 1 on errors
+    if (error.stderr) {
+      throw new Error(`rmapi error: ${error.stderr}`);
+    }
+    throw new Error(`rmapi error: ${error.message || "Unknown error"}`);
+  }
+}
+
+/**
+ * Check if rmapi is installed and configured
+ */
+async function isRmapiConfigured(): Promise<boolean> {
+  // Check if config file exists
+  if (!fs.existsSync(RMAPI_CONFIG)) {
+    return false;
+  }
+
+  // Try to run a simple command to verify authentication
+  try {
+    await runRmapi(["version"], 10000);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Parse rmapi ls output into document objects
+ * Output format: "[d]    folder_name" or "[f]    file_name"
+ */
+function parseLsOutput(output: string, parentPath: string): RemarkableDocument[] {
+  const lines = output.split("\n").filter(line => line.trim());
+  const docs: RemarkableDocument[] = [];
+
+  for (const line of lines) {
+    const match = line.match(/^\[([df])\]\s+(.+)$/);
+    if (match && match[2]) {
+      const isFolder = match[1] === "d";
+      const name = match[2].trim();
+
+      docs.push({
+        id: parentPath ? `${parentPath}/${name}` : `/${name}`,
+        version: 1,
+        name,
+        type: isFolder ? "CollectionType" : "DocumentType",
+        parent: parentPath || "/",
+        lastModified: new Date().toISOString(),
+        pinned: false,
+      });
+    }
+  }
+
+  return docs;
+}
+
 /**
  * Get or create the reMarkable client for a user
+ * Note: This is a single-account implementation - userId is tracked in DB but
+ * all users share the same rmapi connection.
  */
 export function getRemarkableClient(
   fastify: FastifyInstance,
   userId: string
 ): RemarkableClient {
-  let cachedUserToken: string | null = null;
-  let cachedTokenExpiry: Date | null = null;
 
   /**
-   * Register as a device using one-time code
-   * Returns a long-lived device token
-   */
-  async function registerDevice(oneTimeCode: string): Promise<string> {
-    const response = await fetch(`${REMARKABLE_AUTH_HOST}/token/json/2/device/new`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        code: oneTimeCode,
-        deviceDesc: DEVICE_DESC,
-        deviceID: DEVICE_ID,
-      }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Failed to register device: ${response.status} ${text}`);
-    }
-
-    // Response is the device token as plain text
-    const deviceToken = await response.text();
-    return deviceToken.trim();
-  }
-
-  /**
-   * Exchange device token for user token
-   * User tokens are short-lived (~24 hours)
-   */
-  async function exchangeForUserToken(deviceToken: string): Promise<{ token: string; expiresAt: Date }> {
-    const response = await fetch(`${REMARKABLE_AUTH_HOST}/token/json/2/user/new`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${deviceToken}`,
-      },
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Failed to get user token: ${response.status} ${text}`);
-    }
-
-    const userToken = await response.text();
-
-    // User tokens typically expire in 24 hours
-    // We'll refresh 1 hour before expiry to be safe
-    const expiresAt = new Date(Date.now() + 23 * 60 * 60 * 1000);
-
-    return { token: userToken.trim(), expiresAt };
-  }
-
-  /**
-   * Get the current user's reMarkable config
+   * Get the current user's reMarkable config from DB
    */
   async function getConfig() {
     const [config] = await fastify.db
@@ -150,106 +186,92 @@ export function getRemarkableClient(
     }
   }
 
-  /**
-   * Get list of all folders, returning a map of path -> ID
-   */
-  async function getFolderMap(userToken: string): Promise<Map<string, string>> {
-    const response = await fetch(`${REMARKABLE_SYNC_HOST}/sync/v2/signed-urls/downloads`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${userToken}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to get document list: ${response.status}`);
-    }
-
-    const data = await response.json() as { docs: RemarkableDocument[] };
-    const folderMap = new Map<string, string>();
-
-    // Build folder paths
-    const folders = data.docs.filter(d => d.type === "CollectionType");
-
-    function buildPath(folder: RemarkableDocument): string {
-      if (!folder.parent) {
-        return "/" + folder.name;
-      }
-      const parentFolder = folders.find(f => f.id === folder.parent);
-      if (parentFolder) {
-        return buildPath(parentFolder) + "/" + folder.name;
-      }
-      return "/" + folder.name;
-    }
-
-    for (const folder of folders) {
-      const path = buildPath(folder);
-      folderMap.set(path, folder.id);
-    }
-
-    return folderMap;
-  }
-
   return {
     isConnected(): boolean {
-      // This is a sync check - real check done via testConnection
-      return true;
+      return fs.existsSync(RMAPI_CONFIG);
     },
 
     async connect(oneTimeCode: string): Promise<void> {
-      fastify.log.info("Registering with reMarkable cloud...");
+      fastify.log.info("Connecting to reMarkable cloud via rmapi...");
 
-      // Register as device
-      const deviceToken = await registerDevice(oneTimeCode);
+      // rmapi expects the code to be entered interactively
+      // We need to use spawn to pipe the code to stdin
+      return new Promise((resolve, reject) => {
+        const proc = spawn("rmapi", [], {
+          stdio: ["pipe", "pipe", "pipe"],
+        });
 
-      // Get initial user token
-      const { token: userToken, expiresAt } = await exchangeForUserToken(deviceToken);
+        let stdout = "";
+        let stderr = "";
 
-      // Save to database
-      await saveConfig({
-        deviceToken,
-        userToken,
-        userTokenExpiresAt: expiresAt,
-        isConnected: true,
+        proc.stdout.on("data", (data) => {
+          stdout += data.toString();
+          // When rmapi asks for the code, send it
+          if (stdout.includes("Enter one-time code")) {
+            proc.stdin.write(oneTimeCode + "\n");
+          }
+          // When we see successful auth, exit
+          if (stdout.includes("ReMarkable Cloud") || stdout.includes("rmapi>")) {
+            proc.stdin.write("quit\n");
+          }
+        });
+
+        proc.stderr.on("data", (data) => {
+          stderr += data.toString();
+        });
+
+        proc.on("close", async (code) => {
+          if (fs.existsSync(RMAPI_CONFIG)) {
+            // Save to database that we're connected
+            await saveConfig({
+              deviceToken: "rmapi", // We use rmapi's stored token
+              isConnected: true,
+            });
+            fastify.log.info("Successfully connected to reMarkable cloud via rmapi");
+            resolve();
+          } else {
+            reject(new Error(`Failed to connect: ${stderr || "rmapi config not created"}`));
+          }
+        });
+
+        proc.on("error", (err) => {
+          reject(new Error(`Failed to spawn rmapi: ${err.message}. Is rmapi installed?`));
+        });
+
+        // Timeout after 60 seconds
+        setTimeout(() => {
+          proc.kill();
+          reject(new Error("Connection timed out"));
+        }, 60000);
       });
-
-      // Cache the token
-      cachedUserToken = userToken;
-      cachedTokenExpiry = expiresAt;
-
-      fastify.log.info("Successfully connected to reMarkable cloud");
     },
 
     async disconnect(): Promise<void> {
+      // Remove rmapi config
+      if (fs.existsSync(RMAPI_CONFIG)) {
+        fs.unlinkSync(RMAPI_CONFIG);
+      }
+
+      // Remove from database
       const config = await getConfig();
       if (config) {
         await fastify.db
           .delete(remarkableConfig)
           .where(eq(remarkableConfig.userId, userId));
       }
-      cachedUserToken = null;
-      cachedTokenExpiry = null;
+
       fastify.log.info("Disconnected from reMarkable cloud");
     },
 
     async testConnection(): Promise<boolean> {
       try {
-        await this.refreshTokenIfNeeded();
-        const userToken = await this.getUserToken();
-
-        if (!userToken) {
+        if (!fs.existsSync(RMAPI_CONFIG)) {
           return false;
         }
 
-        // Try to list documents as a connection test
-        const response = await fetch(`${REMARKABLE_SYNC_HOST}/sync/v2/signed-urls/downloads`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${userToken}`,
-          },
-        });
-
-        return response.ok;
+        // Try listing root directory
+        await runRmapi(["ls", "/"], 15000);
+        return true;
       } catch (error) {
         fastify.log.error({ err: error }, "reMarkable connection test failed");
         return false;
@@ -257,254 +279,188 @@ export function getRemarkableClient(
     },
 
     async refreshTokenIfNeeded(): Promise<void> {
-      const config = await getConfig();
-      if (!config) {
-        throw new Error("reMarkable not connected");
-      }
-
-      // Check if cached token is still valid
-      if (cachedUserToken && cachedTokenExpiry && cachedTokenExpiry > new Date()) {
-        return;
-      }
-
-      // Check if DB token is still valid (with 1 hour buffer)
-      const bufferTime = new Date(Date.now() + 60 * 60 * 1000);
-      if (config.userToken && config.userTokenExpiresAt && config.userTokenExpiresAt > bufferTime) {
-        cachedUserToken = config.userToken;
-        cachedTokenExpiry = config.userTokenExpiresAt;
-        return;
-      }
-
-      // Need to refresh
-      fastify.log.info("Refreshing reMarkable user token...");
-      const { token: userToken, expiresAt } = await exchangeForUserToken(config.deviceToken);
-
-      await saveConfig({
-        deviceToken: config.deviceToken,
-        userToken,
-        userTokenExpiresAt: expiresAt,
-      });
-
-      cachedUserToken = userToken;
-      cachedTokenExpiry = expiresAt;
-      fastify.log.info("reMarkable user token refreshed");
+      // rmapi handles token refresh automatically
+      // Nothing to do here
     },
 
     async getDocuments(folderPath?: string): Promise<RemarkableDocument[]> {
-      await this.refreshTokenIfNeeded();
-      const userToken = await this.getUserToken();
+      const targetPath = folderPath || "/";
 
-      if (!userToken) {
-        throw new Error("No user token available");
+      fastify.log.info({ folderPath: targetPath }, "Listing reMarkable documents");
+
+      try {
+        const output = await runRmapi(["ls", targetPath], 30000);
+        const docs = parseLsOutput(output, targetPath === "/" ? "" : targetPath);
+
+        fastify.log.info({ count: docs.length }, "Found reMarkable documents");
+        return docs;
+      } catch (err) {
+        fastify.log.error({ err, folderPath: targetPath }, "Failed to list documents");
+        throw err;
       }
-
-      const response = await fetch(`${REMARKABLE_SYNC_HOST}/sync/v2/signed-urls/downloads`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${userToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to get documents: ${response.status}`);
-      }
-
-      const data = await response.json() as { docs: RemarkableDocument[] };
-
-      if (!folderPath) {
-        return data.docs;
-      }
-
-      // Filter by folder path
-      const folderMap = await getFolderMap(userToken);
-      const folderId = folderMap.get(folderPath);
-
-      if (!folderId) {
-        return [];
-      }
-
-      return data.docs.filter(d => d.parent === folderId && d.type === "DocumentType");
     },
 
     async downloadDocument(documentId: string): Promise<Buffer> {
-      await this.refreshTokenIfNeeded();
-      const userToken = await this.getUserToken();
+      // documentId is the full path like "/folder/document"
+      const docName = path.basename(documentId);
+      const outputPath = path.join(TEMP_DIR, `${docName}.zip`);
 
-      if (!userToken) {
-        throw new Error("No user token available");
-      }
+      fastify.log.info({ documentId, outputPath }, "Downloading reMarkable document");
 
-      // Get download URL for the document
-      const urlResponse = await fetch(
-        `${REMARKABLE_SYNC_HOST}/sync/v2/signed-urls/downloads?doc=${documentId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${userToken}`,
-          },
+      try {
+        // rmapi get downloads to current directory, so we need to cd first
+        await execAsync(`cd "${TEMP_DIR}" && rmapi get "${documentId}"`, {
+          timeout: 60000,
+        });
+
+        // Find the downloaded file (rmapi creates a .zip file)
+        const zipPath = path.join(TEMP_DIR, `${docName}.zip`);
+
+        if (!fs.existsSync(zipPath)) {
+          throw new Error(`Downloaded file not found: ${zipPath}`);
         }
-      );
 
-      if (!urlResponse.ok) {
-        throw new Error(`Failed to get download URL: ${urlResponse.status}`);
+        const buffer = fs.readFileSync(zipPath);
+
+        // Clean up
+        fs.unlinkSync(zipPath);
+
+        return buffer;
+      } catch (err) {
+        fastify.log.error({ err, documentId }, "Failed to download document");
+        throw err;
       }
+    },
 
-      const urlData = await urlResponse.json() as { url: string };
+    async downloadDocumentWithAnnotations(docPath: string): Promise<Buffer> {
+      // Use rmapi geta to download with annotations as PDF
+      const docName = path.basename(docPath);
+      const safeName = docName.replace(/[^a-zA-Z0-9-_]/g, "_");
 
-      // Download the document
-      const docResponse = await fetch(urlData.url);
-      if (!docResponse.ok) {
-        throw new Error(`Failed to download document: ${docResponse.status}`);
+      fastify.log.info({ docPath }, "Downloading reMarkable document with annotations");
+
+      try {
+        // rmapi geta downloads to current directory as PDF
+        await execAsync(`cd "${TEMP_DIR}" && rmapi geta "${docPath}"`, {
+          timeout: 120000, // 2 minutes for PDF generation
+        });
+
+        // Find the downloaded PDF file
+        const pdfPath = path.join(TEMP_DIR, `${docName}.pdf`);
+
+        // Sometimes rmapi uses slightly different naming
+        let actualPath = pdfPath;
+        if (!fs.existsSync(pdfPath)) {
+          // Try to find any PDF that was just created
+          const files = fs.readdirSync(TEMP_DIR);
+          const pdfFiles = files.filter(f => f.endsWith(".pdf"));
+          if (pdfFiles.length > 0) {
+            // Get most recently modified
+            const sorted = pdfFiles
+              .map(f => ({ name: f, mtime: fs.statSync(path.join(TEMP_DIR, f)).mtime }))
+              .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+            const mostRecent = sorted[0];
+            if (mostRecent) {
+              actualPath = path.join(TEMP_DIR, mostRecent.name);
+            } else {
+              throw new Error(`Downloaded PDF not found in ${TEMP_DIR}`);
+            }
+          } else {
+            throw new Error(`Downloaded PDF not found in ${TEMP_DIR}`);
+          }
+        }
+
+        const buffer = fs.readFileSync(actualPath);
+
+        // Clean up
+        fs.unlinkSync(actualPath);
+
+        fastify.log.info({ size: buffer.length }, "Downloaded document with annotations");
+        return buffer;
+      } catch (err) {
+        fastify.log.error({ err, docPath }, "Failed to download document with annotations");
+        throw err;
       }
-
-      const arrayBuffer = await docResponse.arrayBuffer();
-      return Buffer.from(arrayBuffer);
     },
 
     async uploadPdf(pdfBuffer: Buffer, name: string, folderPath: string): Promise<string> {
-      await this.refreshTokenIfNeeded();
-      const userToken = await this.getUserToken();
+      const safeName = name.replace(/[^a-zA-Z0-9-_. ]/g, "_");
+      const tempFile = path.join(TEMP_DIR, safeName);
 
-      if (!userToken) {
-        throw new Error("No user token available");
-      }
+      fastify.log.info({ name: safeName, folderPath }, "Uploading PDF to reMarkable");
 
-      // Generate a document ID
-      const documentId = crypto.randomUUID();
+      try {
+        // Write PDF to temp file
+        fs.writeFileSync(tempFile, pdfBuffer);
 
-      // Get or create the folder
-      const folderMap = await getFolderMap(userToken);
-      let parentId = "";
-
-      if (folderPath && folderPath !== "/") {
-        let folderId = folderMap.get(folderPath);
-        if (!folderId) {
-          // Create the folder path
-          folderId = await this.createFolder(folderPath);
+        // Ensure target folder exists
+        if (folderPath && folderPath !== "/") {
+          try {
+            await this.createFolder(folderPath);
+          } catch {
+            // Folder might already exist, continue
+          }
         }
-        parentId = folderId;
+
+        // Upload using rmapi put
+        const destination = folderPath && folderPath !== "/"
+          ? `${folderPath}/${safeName}`
+          : `/${safeName}`;
+
+        await runRmapi(["put", tempFile, folderPath || "/"], 60000);
+
+        // Clean up temp file
+        fs.unlinkSync(tempFile);
+
+        // Update last sync time
+        const config = await getConfig();
+        if (config) {
+          await saveConfig({
+            deviceToken: config.deviceToken,
+            lastSyncAt: new Date(),
+          });
+        }
+
+        fastify.log.info({ destination }, "Successfully uploaded PDF to reMarkable");
+        return destination;
+      } catch (err) {
+        // Clean up temp file on error
+        if (fs.existsSync(tempFile)) {
+          fs.unlinkSync(tempFile);
+        }
+        fastify.log.error({ err, name, folderPath }, "Failed to upload PDF");
+        throw err;
       }
-
-      // Request upload URL
-      const uploadUrlResponse = await fetch(`${REMARKABLE_SYNC_HOST}/sync/v2/signed-urls/uploads`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${userToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          docID: documentId,
-          docType: "pdf",
-        }),
-      });
-
-      if (!uploadUrlResponse.ok) {
-        throw new Error(`Failed to get upload URL: ${uploadUrlResponse.status}`);
-      }
-
-      const uploadData = await uploadUrlResponse.json() as { url: string };
-
-      // Upload the PDF - convert Buffer to Uint8Array for fetch compatibility
-      const uploadResponse = await fetch(uploadData.url, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/pdf",
-        },
-        body: new Uint8Array(pdfBuffer),
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error(`Failed to upload PDF: ${uploadResponse.status}`);
-      }
-
-      // Register the document in the metadata
-      const metadataResponse = await fetch(`${REMARKABLE_SYNC_HOST}/sync/v2/docs`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${userToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          id: documentId,
-          type: "DocumentType",
-          name: name,
-          parent: parentId,
-          version: 1,
-          pinned: false,
-        }),
-      });
-
-      if (!metadataResponse.ok) {
-        throw new Error(`Failed to register document metadata: ${metadataResponse.status}`);
-      }
-
-      // Update last sync time
-      await saveConfig({
-        deviceToken: (await getConfig())!.deviceToken,
-        lastSyncAt: new Date(),
-      });
-
-      return documentId;
     },
 
-    async createFolder(folderPath: string, parentPath?: string): Promise<string> {
-      await this.refreshTokenIfNeeded();
-      const userToken = await this.getUserToken();
+    async createFolder(folderPath: string, _parentPath?: string): Promise<string> {
+      fastify.log.info({ folderPath }, "Creating reMarkable folder");
 
-      if (!userToken) {
-        throw new Error("No user token available");
-      }
+      try {
+        // rmapi mkdir creates the full path
+        await runRmapi(["mkdir", folderPath], 30000);
 
-      // Parse the folder path and create each level if needed
-      const parts = folderPath.split("/").filter(p => p);
-      const folderMap = await getFolderMap(userToken);
-
-      let currentPath = "";
-      let parentId = "";
-
-      for (const part of parts) {
-        currentPath += "/" + part;
-
-        let folderId = folderMap.get(currentPath);
-        if (!folderId) {
-          // Create this folder level
-          folderId = crypto.randomUUID();
-
-          const response = await fetch(`${REMARKABLE_SYNC_HOST}/sync/v2/docs`, {
-            method: "PUT",
-            headers: {
-              Authorization: `Bearer ${userToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              id: folderId,
-              type: "CollectionType",
-              name: part,
-              parent: parentId,
-              version: 1,
-              pinned: false,
-            }),
-          });
-
-          if (!response.ok) {
-            throw new Error(`Failed to create folder ${part}: ${response.status}`);
-          }
-
-          folderMap.set(currentPath, folderId);
+        fastify.log.info({ folderPath }, "Successfully created folder");
+        return folderPath;
+      } catch (err) {
+        // Folder might already exist
+        const errorMsg = (err as Error).message || "";
+        if (errorMsg.includes("already exists") || errorMsg.includes("entry exists")) {
+          fastify.log.info({ folderPath }, "Folder already exists");
+          return folderPath;
         }
-
-        parentId = folderId;
+        fastify.log.error({ err, folderPath }, "Failed to create folder");
+        throw err;
       }
-
-      return parentId;
     },
 
     async getUserToken(): Promise<string | null> {
-      if (cachedUserToken && cachedTokenExpiry && cachedTokenExpiry > new Date()) {
-        return cachedUserToken;
+      // rmapi manages tokens internally
+      // Return a placeholder if configured
+      if (fs.existsSync(RMAPI_CONFIG)) {
+        return "rmapi-managed";
       }
-
-      const config = await getConfig();
-      return config?.userToken ?? null;
+      return null;
     },
   };
 }

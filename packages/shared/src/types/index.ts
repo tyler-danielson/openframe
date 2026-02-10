@@ -494,6 +494,23 @@ export interface PresetFeed {
   category: string;
 }
 
+// AI Briefing types
+export interface DailyBriefing {
+  summary: string;        // "Good morning! You have 3 meetings today..."
+  highlights: string[];   // Bullet points
+  generatedAt: string;
+}
+
+// Email types
+export interface EmailHighlight {
+  id: string;
+  from: string;           // "John Smith" or "john@example.com"
+  subject: string;
+  snippet: string;        // Preview text
+  receivedAt: string;
+  isUnread: boolean;
+}
+
 // Sports types
 export type SportsProvider = "espn";
 export type GameStatus = "scheduled" | "in_progress" | "halftime" | "final" | "postponed" | "cancelled";
@@ -788,4 +805,121 @@ export interface Recipe {
 export interface RecipeUploadToken {
   token: string;
   expiresAt: Date;
+}
+
+// ============ Family Profile Types ============
+
+export interface FamilyProfile {
+  id: string;
+  userId: string;
+  name: string;
+  icon: string | null;
+  color: string | null;
+  isDefault: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface PlannerLayoutConfig {
+  gridColumns: number;          // Default: 12
+  gridRows: number;             // Default: 12
+  pageSize: string;             // Device preset ID (e.g., "remarkable2", "kindle-scribe", "letter", "a4")
+  orientation: "portrait" | "landscape";
+  widgets: PlannerWidgetInstance[];
+  backgroundColor?: string;
+
+  // Layout mode - "grid" for backward compat, "columns" for new live editor
+  layoutMode?: "grid" | "columns";
+
+  // Column-based layout structure (used when layoutMode === "columns")
+  columns?: ColumnLayout;
+}
+
+// Column-based layout types for the live editor
+export interface ColumnLayout {
+  sections: LayoutSection[];
+}
+
+export interface LayoutSection {
+  id: string;
+  direction: "horizontal" | "vertical";
+  children: LayoutChild[];
+}
+
+export interface LayoutChild {
+  id: string;
+  type: "section" | "widget";
+  flex: number;              // Flex ratio (default 1)
+  widgetId?: string;         // When type === "widget"
+  section?: LayoutSection;   // When type === "section" (nested)
+}
+
+export interface PlannerWidgetInstance {
+  id: string;
+  type: PlannerWidgetType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  config: Record<string, unknown>;
+}
+
+export type PlannerWidgetType =
+  | "calendar-day"      // Single day schedule
+  | "calendar-week"     // Week view
+  | "calendar-month"    // Month grid
+  | "tasks"             // Task list
+  | "news-headlines"    // News ticker/list
+  | "weather"           // Weather forecast
+  | "notes"             // Blank notes area with lines
+  | "text"              // Static text/header
+  | "divider"           // Visual separator
+  | "habits"            // Habit tracker grid
+  | "ai-briefing"       // AI-generated daily briefing
+  | "email-highlights"; // Gmail email highlights
+
+export interface ProfileCalendar {
+  id: string;
+  profileId: string;
+  calendarId: string;
+  isVisible: boolean;
+}
+
+export interface ProfileNewsFeed {
+  id: string;
+  profileId: string;
+  newsFeedId: string;
+  isVisible: boolean;
+}
+
+export interface ProfilePlannerConfig {
+  id: string;
+  profileId: string;
+  layoutConfig: PlannerLayoutConfig;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type RemarkableScheduleType = "daily" | "weekly" | "monthly" | "manual";
+
+export interface ProfileRemarkableSettings {
+  id: string;
+  profileId: string;
+  enabled: boolean;
+  folderPath: string;
+  scheduleType: RemarkableScheduleType;
+  pushTime: string;
+  pushDay: number | null;
+  timezone: string;
+  lastPushAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface PlannerTemplate {
+  id: string;
+  name: string;
+  description: string;
+  thumbnail?: string;
+  config: PlannerLayoutConfig;
 }

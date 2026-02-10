@@ -39,6 +39,11 @@ import type {
   ImportResult,
   Recipe,
   RecipeIngredient,
+  FamilyProfile,
+  PlannerLayoutConfig,
+  ProfileRemarkableSettings,
+  DailyBriefing,
+  EmailHighlight,
 } from "@openframe/shared";
 
 // API Key types
@@ -250,6 +255,28 @@ class ApiClient {
   // Server Info (IP addresses)
   async getServerInfo(): Promise<{ hostname: string; port: number; addresses: string[] }> {
     return this.fetch<{ hostname: string; port: number; addresses: string[] }>("/health/info");
+  }
+
+  // Health check (for connection monitoring, no auth required)
+  async healthCheck(): Promise<{ status: string; timestamp: string }> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const response = await fetch(`${API_BASE}/health`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error("Server unavailable");
+      }
+
+      return response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
   }
 
   // Calendars
@@ -685,12 +712,17 @@ class ApiClient {
       name?: string;
       isActive?: boolean;
       colorScheme?: ColorScheme;
+      displayMode?: KioskDisplayMode;
+      homePage?: string;
+      selectedCalendarIds?: string[] | null;
+      enabledFeatures?: KioskEnabledFeatures | null;
       screensaverEnabled?: boolean;
       screensaverTimeout?: number;
       screensaverInterval?: number;
       screensaverLayout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
       screensaverTransition?: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
       screensaverLayoutConfig?: Record<string, unknown>;
+      startFullscreen?: boolean;
     }
   ): Promise<Kiosk> {
     return this.fetch<Kiosk>(`/kiosks/${id}`, {
@@ -1508,6 +1540,96 @@ class ApiClient {
     });
   }
 
+  async getSpotifyShows(limit = 20, offset = 0, accountId?: string): Promise<{
+    items: {
+      added_at: string;
+      show: {
+        id: string;
+        name: string;
+        description: string;
+        images: { url: string }[];
+        publisher: string;
+        uri: string;
+      };
+    }[];
+    total: number;
+  }> {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (accountId) params.set('accountId', accountId);
+    return this.fetch(`/spotify/shows?${params}`);
+  }
+
+  async getSpotifyEpisodes(limit = 20, offset = 0, accountId?: string): Promise<{
+    items: {
+      added_at: string;
+      episode: {
+        id: string;
+        name: string;
+        description: string;
+        images: { url: string }[];
+        duration_ms: number;
+        release_date: string;
+        uri: string;
+        show: {
+          id: string;
+          name: string;
+          description: string;
+          images: { url: string }[];
+          publisher: string;
+          uri: string;
+        };
+        resume_point?: { fully_played: boolean; resume_position_ms: number };
+      };
+    }[];
+    total: number;
+  }> {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (accountId) params.set('accountId', accountId);
+    return this.fetch(`/spotify/episodes?${params}`);
+  }
+
+  async getSpotifyAlbums(limit = 20, offset = 0, accountId?: string): Promise<{
+    items: {
+      added_at: string;
+      album: {
+        id: string;
+        name: string;
+        images: { url: string; width: number; height: number }[];
+        uri: string;
+        artists?: { id: string; name: string }[];
+      };
+    }[];
+    total: number;
+  }> {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (accountId) params.set('accountId', accountId);
+    return this.fetch(`/spotify/albums?${params}`);
+  }
+
+  async getSpotifyTracks(limit = 20, offset = 0, accountId?: string): Promise<{
+    items: {
+      added_at: string;
+      track: {
+        id: string;
+        name: string;
+        uri: string;
+        duration_ms: number;
+        artists: { id: string; name: string }[];
+        album: {
+          id: string;
+          name: string;
+          images: { url: string; width: number; height: number }[];
+          uri: string;
+        };
+      };
+    }[];
+    total: number;
+  }> {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (accountId) params.set('accountId', accountId);
+    return this.fetch(`/spotify/tracks?${params}`);
+  }
+
   // Weather
 
   async getWeatherStatus(): Promise<{ configured: boolean }> {
@@ -1927,6 +2049,10 @@ class ApiClient {
     return this.fetch("/remarkable/sync", { method: "POST" });
   }
 
+  async getRemarkableRecentDocuments(limit = 10): Promise<RemarkableRecentDocument[]> {
+    return this.fetch(`/remarkable/documents/recent?limit=${limit}`);
+  }
+
   // reMarkable Templates
   async getRemarkableTemplates(): Promise<RemarkableTemplate[]> {
     return this.fetch("/remarkable/templates");
@@ -2332,9 +2458,180 @@ class ApiClient {
     const { accessToken } = useAuthStore.getState();
     return `${API_BASE}/recipes/image/${path}?token=${accessToken}`;
   }
+
+  // Family Profiles
+  async getProfiles(): Promise<FamilyProfile[]> {
+    return this.fetch<FamilyProfile[]>("/profiles");
+  }
+
+  async getProfile(id: string): Promise<ProfileWithSettings> {
+    return this.fetch<ProfileWithSettings>(`/profiles/${id}`);
+  }
+
+  async createProfile(data: {
+    name: string;
+    icon?: string;
+    color?: string;
+    isDefault?: boolean;
+  }): Promise<FamilyProfile> {
+    return this.fetch<FamilyProfile>("/profiles", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateProfile(
+    id: string,
+    data: { name?: string; icon?: string; color?: string }
+  ): Promise<FamilyProfile> {
+    return this.fetch<FamilyProfile>(`/profiles/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteProfile(id: string): Promise<void> {
+    await this.fetch(`/profiles/${id}`, { method: "DELETE" });
+  }
+
+  async setDefaultProfile(id: string): Promise<FamilyProfile> {
+    return this.fetch<FamilyProfile>(`/profiles/${id}/default`, {
+      method: "POST",
+    });
+  }
+
+  async getProfileCalendars(profileId: string): Promise<ProfileCalendarVisibility[]> {
+    return this.fetch<ProfileCalendarVisibility[]>(`/profiles/${profileId}/calendars`);
+  }
+
+  async updateProfileCalendars(
+    profileId: string,
+    calendars: Array<{ calendarId: string; isVisible: boolean }>
+  ): Promise<void> {
+    await this.fetch(`/profiles/${profileId}/calendars`, {
+      method: "PATCH",
+      body: JSON.stringify({ calendars }),
+    });
+  }
+
+  async getProfileNews(profileId: string): Promise<ProfileNewsFeedVisibility[]> {
+    return this.fetch<ProfileNewsFeedVisibility[]>(`/profiles/${profileId}/news`);
+  }
+
+  async updateProfileNews(
+    profileId: string,
+    feeds: Array<{ feedId: string; isVisible: boolean }>
+  ): Promise<void> {
+    await this.fetch(`/profiles/${profileId}/news`, {
+      method: "PATCH",
+      body: JSON.stringify({ feeds }),
+    });
+  }
+
+  async getProfilePlanner(profileId: string): Promise<PlannerLayoutConfig> {
+    return this.fetch<PlannerLayoutConfig>(`/profiles/${profileId}/planner`);
+  }
+
+  async updateProfilePlanner(
+    profileId: string,
+    layoutConfig: PlannerLayoutConfig
+  ): Promise<PlannerLayoutConfig> {
+    return this.fetch<PlannerLayoutConfig>(`/profiles/${profileId}/planner`, {
+      method: "PATCH",
+      body: JSON.stringify({ layoutConfig }),
+    });
+  }
+
+  async getProfileRemarkable(profileId: string): Promise<ProfileRemarkableSettings> {
+    return this.fetch<ProfileRemarkableSettings>(`/profiles/${profileId}/remarkable`);
+  }
+
+  async updateProfileRemarkable(
+    profileId: string,
+    settings: Partial<ProfileRemarkableSettings>
+  ): Promise<ProfileRemarkableSettings> {
+    return this.fetch<ProfileRemarkableSettings>(`/profiles/${profileId}/remarkable`, {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    });
+  }
+
+  async previewProfilePlanner(
+    profileId: string,
+    date?: string
+  ): Promise<{ message: string; profileId: string }> {
+    return this.fetch(`/profiles/${profileId}/preview`, {
+      method: "POST",
+      body: JSON.stringify({ date }),
+    });
+  }
+
+  async pushProfilePlanner(
+    profileId: string,
+    date?: string
+  ): Promise<{ message: string; profileId: string; folderPath: string }> {
+    return this.fetch(`/profiles/${profileId}/push`, {
+      method: "POST",
+      body: JSON.stringify({ date }),
+    });
+  }
+
+  // AI Briefing
+  async getBriefingStatus(): Promise<{ configured: boolean; error?: string }> {
+    return this.fetch<{ configured: boolean; error?: string }>("/briefing/status");
+  }
+
+  async getDailyBriefing(): Promise<DailyBriefing> {
+    return this.fetch<DailyBriefing>("/briefing/daily");
+  }
+
+  // Gmail
+  async getGmailStatus(): Promise<{
+    connected: boolean;
+    hasGmailScope: boolean;
+    error?: string;
+  }> {
+    return this.fetch<{ connected: boolean; hasGmailScope: boolean; error?: string }>("/gmail/status");
+  }
+
+  async getGmailHighlights(limit?: number): Promise<EmailHighlight[]> {
+    const params = limit ? `?limit=${limit}` : "";
+    return this.fetch<EmailHighlight[]>(`/gmail/highlights${params}`);
+  }
+}
+
+// Family Profile types
+export interface ProfileWithSettings extends FamilyProfile {
+  plannerConfig?: PlannerLayoutConfig | null;
+  remarkableSettings?: ProfileRemarkableSettings | null;
+}
+
+export interface ProfileCalendarVisibility {
+  calendar: Calendar;
+  isVisible: boolean;
+}
+
+export interface ProfileNewsFeedVisibility {
+  feed: NewsFeed;
+  isVisible: boolean;
 }
 
 // Kiosk types
+export type KioskDisplayMode = "full" | "screensaver-only" | "calendar-only" | "dashboard-only";
+
+export interface KioskEnabledFeatures {
+  calendar?: boolean;
+  dashboard?: boolean;
+  tasks?: boolean;
+  photos?: boolean;
+  spotify?: boolean;
+  iptv?: boolean;
+  cameras?: boolean;
+  homeassistant?: boolean;
+  map?: boolean;
+  recipes?: boolean;
+}
+
 export interface Kiosk {
   id: string;
   userId: string;
@@ -2342,12 +2639,17 @@ export interface Kiosk {
   name: string;
   isActive: boolean;
   colorScheme: ColorScheme;
+  displayMode: KioskDisplayMode;
+  homePage: string | null;
+  selectedCalendarIds: string[] | null;
+  enabledFeatures: KioskEnabledFeatures | null;
   screensaverEnabled: boolean;
   screensaverTimeout: number;
   screensaverInterval: number;
   screensaverLayout: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
   screensaverTransition: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
   screensaverLayoutConfig: Record<string, unknown> | null;
+  startFullscreen: boolean;
   lastAccessedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -2356,12 +2658,17 @@ export interface Kiosk {
 export interface KioskConfig {
   name: string;
   colorScheme: ColorScheme;
+  displayMode: KioskDisplayMode;
+  homePage: string | null;
+  selectedCalendarIds: string[] | null;
+  enabledFeatures: KioskEnabledFeatures | null;
   screensaverEnabled: boolean;
   screensaverTimeout: number;
   screensaverInterval: number;
   screensaverLayout: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
   screensaverTransition: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
   screensaverLayoutConfig: Record<string, unknown> | null;
+  startFullscreen: boolean;
 }
 
 // Spotify account type
@@ -2592,6 +2899,14 @@ export interface RemarkableParsedEvent {
   created: boolean;
   eventId?: string;
   error?: string;
+}
+
+export interface RemarkableRecentDocument {
+  id: string;
+  name: string;
+  folderPath: string;
+  lastModified: string;
+  pinned: boolean;
 }
 
 export const api = new ApiClient();

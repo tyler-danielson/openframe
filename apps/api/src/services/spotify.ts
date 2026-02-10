@@ -54,6 +54,37 @@ export interface SpotifyPlaylist {
   uri: string;
 }
 
+export interface SpotifyShow {
+  id: string;
+  name: string;
+  description: string;
+  images: { url: string }[];
+  publisher: string;
+  uri: string;
+}
+
+export interface SpotifyEpisode {
+  id: string;
+  name: string;
+  description: string;
+  images: { url: string }[];
+  duration_ms: number;
+  release_date: string;
+  uri: string;
+  show: SpotifyShow;
+  resume_point?: { fully_played: boolean; resume_position_ms: number };
+}
+
+export interface SpotifySavedAlbum {
+  added_at: string;
+  album: SpotifyAlbum;
+}
+
+export interface SpotifySavedTrack {
+  added_at: string;
+  track: SpotifyTrack;
+}
+
 export interface SpotifyAccount {
   id: string;
   accountName: string | null;
@@ -363,6 +394,50 @@ export class SpotifyService {
     const response = await this.spotifyFetch<boolean[]>(
       `/me/tracks/contains?ids=${trackIds.join(",")}`
     );
+    return response;
+  }
+
+  async getSavedShows(
+    limit = 20,
+    offset = 0
+  ): Promise<{ items: { added_at: string; show: SpotifyShow }[]; total: number }> {
+    const response = await this.spotifyFetch<{
+      items: { added_at: string; show: SpotifyShow }[];
+      total: number;
+    }>(`/me/shows?limit=${limit}&offset=${offset}`);
+    return response;
+  }
+
+  async getSavedEpisodes(
+    limit = 20,
+    offset = 0
+  ): Promise<{ items: { added_at: string; episode: SpotifyEpisode }[]; total: number }> {
+    const response = await this.spotifyFetch<{
+      items: { added_at: string; episode: SpotifyEpisode }[];
+      total: number;
+    }>(`/me/episodes?limit=${limit}&offset=${offset}`);
+    return response;
+  }
+
+  async getSavedAlbums(
+    limit = 20,
+    offset = 0
+  ): Promise<{ items: SpotifySavedAlbum[]; total: number }> {
+    const response = await this.spotifyFetch<{
+      items: SpotifySavedAlbum[];
+      total: number;
+    }>(`/me/albums?limit=${limit}&offset=${offset}`);
+    return response;
+  }
+
+  async getSavedTracks(
+    limit = 20,
+    offset = 0
+  ): Promise<{ items: SpotifySavedTrack[]; total: number }> {
+    const response = await this.spotifyFetch<{
+      items: SpotifySavedTrack[];
+      total: number;
+    }>(`/me/tracks?limit=${limit}&offset=${offset}`);
     return response;
   }
 

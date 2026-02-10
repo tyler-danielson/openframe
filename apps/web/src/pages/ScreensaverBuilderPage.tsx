@@ -8,7 +8,7 @@ import { AddBlockModal } from "../components/builder/AddBlockModal";
 import { EditBlockModal } from "../components/builder/EditBlockModal";
 import { BlockLayersPanel } from "../components/builder/BlockLayersPanel";
 import { BuilderProvider } from "../contexts/BuilderContext";
-import { useScreensaverStore, ASPECT_RATIO_PRESETS, DEFAULT_LAYOUT_CONFIG, type CanvasSizeMode, type AspectRatioPreset, type ScreensaverLayoutConfig, type BuilderWidgetType } from "../stores/screensaver";
+import { useScreensaverStore, ASPECT_RATIO_PRESETS, GRID_PRESETS, DEFAULT_LAYOUT_CONFIG, type CanvasSizeMode, type AspectRatioPreset, type ScreensaverLayoutConfig, type BuilderWidgetType } from "../stores/screensaver";
 import { WIDGET_REGISTRY } from "../lib/widgets/registry";
 import { api } from "../services/api";
 
@@ -19,7 +19,7 @@ export function ScreensaverBuilderPage() {
   const queryClient = useQueryClient();
 
   const [showGrid, setShowGrid] = useState(true);
-  const [liveMode, setLiveMode] = useState(false); // Live data in editor canvas
+  const [liveMode, setLiveMode] = useState(true); // Live data in editor canvas
   const [previewMode, setPreviewMode] = useState(false); // Full-screen preview
   const [showExitHint, setShowExitHint] = useState(true);
   const [pushStatus, setPushStatus] = useState<"idle" | "pushing" | "success">("idle");
@@ -221,6 +221,17 @@ export function ScreensaverBuilderPage() {
   // Handler for adding widgets from modal
   const handleAddWidgetFromModal = useCallback((type: BuilderWidgetType) => {
     const definition = WIDGET_REGISTRY[type];
+
+    // Scale widget size based on current grid density relative to base 16x9 grid
+    // This ensures widgets maintain a reasonable visual size regardless of grid fineness
+    const baseColumns = 16;
+    const baseRows = 9;
+    const scaleX = layoutConfig.gridColumns / baseColumns;
+    const scaleY = layoutConfig.gridRows / baseRows;
+
+    const scaledWidth = Math.max(1, Math.round(definition.defaultSize.width * scaleX));
+    const scaledHeight = Math.max(1, Math.round(definition.defaultSize.height * scaleY));
+
     if (isKioskMode) {
       // In kiosk mode, we need to update local state directly
       const newWidget = {
@@ -228,8 +239,8 @@ export function ScreensaverBuilderPage() {
         type,
         x: 0,
         y: 0,
-        width: definition.defaultSize.width,
-        height: definition.defaultSize.height,
+        width: scaledWidth,
+        height: scaledHeight,
         config: { ...definition.defaultConfig },
       };
       const newConfig = {
@@ -244,12 +255,12 @@ export function ScreensaverBuilderPage() {
         type,
         x: 0,
         y: 0,
-        width: definition.defaultSize.width,
-        height: definition.defaultSize.height,
+        width: scaledWidth,
+        height: scaledHeight,
         config: { ...definition.defaultConfig },
       });
     }
-  }, [isKioskMode, localLayoutConfig]);
+  }, [isKioskMode, localLayoutConfig, layoutConfig.gridColumns, layoutConfig.gridRows]);
 
   // Render the main builder UI
   const renderBuilderUI = () => (
@@ -407,12 +418,46 @@ export function ScreensaverBuilderPage() {
               {(layoutConfig.canvasSizeMode === "pixels" ||
                 (layoutConfig.canvasSizeMode === "aspectRatio" && layoutConfig.aspectRatio === "custom")) && (
                 <>
+                  <select
+                    value={`${layoutConfig.canvasWidth}x${layoutConfig.canvasHeight}`}
+                    onChange={(e) => {
+                      if (e.target.value === "custom") return;
+                      const [w, h] = e.target.value.split("x").map(Number);
+                      setLayoutConfig({ canvasWidth: w, canvasHeight: h });
+                    }}
+                    className="rounded border border-border bg-background px-1.5 py-0.5 text-xs"
+                  >
+                    <option value="1920x1080">1080p (1920×1080)</option>
+                    <option value="2560x1440">1440p (2560×1440)</option>
+                    <option value="3840x2160">4K (3840×2160)</option>
+                    <option value="1280x720">720p (1280×720)</option>
+                    <option value="1024x768">XGA (1024×768)</option>
+                    <option value="1280x800">WXGA (1280×800)</option>
+                    <option value="1366x768">HD (1366×768)</option>
+                    <option value="2560x1080">UW 1080p (2560×1080)</option>
+                    <option value="3440x1440">UW 1440p (3440×1440)</option>
+                    <option value="1080x1920">Portrait 1080p</option>
+                    <option value="1440x2560">Portrait 1440p</option>
+                    {![
+                      "1920x1080", "2560x1440", "3840x2160", "1280x720", "1024x768",
+                      "1280x800", "1366x768", "2560x1080", "3440x1440", "1080x1920", "1440x2560"
+                    ].includes(`${layoutConfig.canvasWidth}x${layoutConfig.canvasHeight}`) && (
+                      <option value={`${layoutConfig.canvasWidth}x${layoutConfig.canvasHeight}`}>
+                        Custom ({layoutConfig.canvasWidth}×{layoutConfig.canvasHeight})
+                      </option>
+                    )}
+                  </select>
                   <input
                     type="number"
                     value={layoutConfig.canvasWidth}
-                    onChange={(e) =>
-                      setLayoutConfig({ canvasWidth: Math.max(320, Math.min(7680, parseInt(e.target.value) || 1920)) })
-                    }
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      setLayoutConfig({ canvasWidth: isNaN(val) ? 0 : val });
+                    }}
+                    onBlur={(e) => {
+                      const val = parseInt(e.target.value) || 1920;
+                      setLayoutConfig({ canvasWidth: Math.max(320, Math.min(7680, val)) });
+                    }}
                     className="w-14 rounded border border-border bg-background px-1.5 py-0.5 text-center text-xs"
                     min={320}
                     max={7680}
@@ -421,9 +466,14 @@ export function ScreensaverBuilderPage() {
                   <input
                     type="number"
                     value={layoutConfig.canvasHeight}
-                    onChange={(e) =>
-                      setLayoutConfig({ canvasHeight: Math.max(240, Math.min(4320, parseInt(e.target.value) || 1080)) })
-                    }
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      setLayoutConfig({ canvasHeight: isNaN(val) ? 0 : val });
+                    }}
+                    onBlur={(e) => {
+                      const val = parseInt(e.target.value) || 1080;
+                      setLayoutConfig({ canvasHeight: Math.max(240, Math.min(4320, val)) });
+                    }}
                     className="w-14 rounded border border-border bg-background px-1.5 py-0.5 text-center text-xs"
                     min={240}
                     max={4320}
@@ -438,36 +488,53 @@ export function ScreensaverBuilderPage() {
             <div className="flex items-center gap-1.5">
               <Settings className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-xs text-muted-foreground">Grid:</span>
-              <input
-                type="number"
-                value={layoutConfig.gridColumns}
-                onChange={(e) =>
-                  setLayoutConfig({ gridColumns: Math.max(1, Math.min(24, parseInt(e.target.value) || 12)) })
-                }
-                className="w-11 rounded border border-border bg-background px-1.5 py-0.5 text-center text-xs"
-                min={1}
-                max={24}
-              />
-              <span className="text-xs text-muted-foreground">×</span>
-              <input
-                type="number"
-                value={layoutConfig.gridRows}
-                onChange={(e) =>
-                  setLayoutConfig({ gridRows: Math.max(1, Math.min(16, parseInt(e.target.value) || 8)) })
-                }
-                className="w-11 rounded border border-border bg-background px-1.5 py-0.5 text-center text-xs"
-                min={1}
-                max={16}
-              />
+              <select
+                value={`${layoutConfig.gridColumns}x${layoutConfig.gridRows}`}
+                onChange={(e) => {
+                  const preset = GRID_PRESETS.find(p => `${p.columns}x${p.rows}` === e.target.value);
+                  if (preset) {
+                    const oldColumns = layoutConfig.gridColumns;
+                    const oldRows = layoutConfig.gridRows;
+                    const newColumns = preset.columns;
+                    const newRows = preset.rows;
+
+                    // Scale widget positions proportionally to maintain visual locations
+                    const scaleX = newColumns / oldColumns;
+                    const scaleY = newRows / oldRows;
+
+                    const scaledWidgets = (layoutConfig.widgets || []).map(widget => ({
+                      ...widget,
+                      x: Math.round(widget.x * scaleX),
+                      y: Math.round(widget.y * scaleY),
+                      width: Math.max(1, Math.round(widget.width * scaleX)),
+                      height: Math.max(1, Math.round(widget.height * scaleY)),
+                    }));
+
+                    setLayoutConfig({
+                      gridColumns: newColumns,
+                      gridRows: newRows,
+                      widgets: scaledWidgets,
+                    });
+                  }
+                }}
+                className="rounded border border-border bg-background px-1.5 py-0.5 text-xs"
+              >
+                {GRID_PRESETS.map((preset) => (
+                  <option key={preset.id} value={`${preset.columns}x${preset.rows}`}>
+                    {preset.label} ({preset.description})
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-muted-foreground">Gap:</span>
               <input
                 type="number"
                 value={layoutConfig.gridGap}
-                onChange={(e) =>
-                  setLayoutConfig({ gridGap: Math.max(0, Math.min(32, parseInt(e.target.value) || 8)) })
-                }
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  setLayoutConfig({ gridGap: Math.max(0, Math.min(32, isNaN(val) ? 0 : val)) });
+                }}
                 className="w-11 rounded border border-border bg-background px-1.5 py-0.5 text-center text-xs"
                 min={0}
                 max={32}

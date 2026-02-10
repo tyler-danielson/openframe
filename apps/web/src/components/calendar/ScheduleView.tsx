@@ -11,7 +11,10 @@ function getEventStartDate(event: CalendarEvent): Date {
       ? event.startTime
       : event.startTime.toISOString();
     const datePart = isoString.slice(0, 10);
-    const [year, month, day] = datePart.split('-').map(Number);
+    const parts = datePart.split('-').map(Number);
+    const year = parts[0] ?? 1970;
+    const month = parts[1] ?? 1;
+    const day = parts[2] ?? 1;
     return new Date(year, month - 1, day);
   }
   return new Date(event.startTime);
@@ -23,7 +26,10 @@ function getEventEndDate(event: CalendarEvent): Date {
       ? event.endTime
       : event.endTime.toISOString();
     const datePart = isoString.slice(0, 10);
-    const [year, month, day] = datePart.split('-').map(Number);
+    const parts = datePart.split('-').map(Number);
+    const year = parts[0] ?? 1970;
+    const month = parts[1] ?? 1;
+    const day = parts[2] ?? 1;
     return new Date(year, month - 1, day);
   }
   return new Date(event.endTime);
@@ -368,8 +374,11 @@ export function ScheduleView({
               className={`flex-1 border-r border-white p-1 space-y-0.5 min-h-[28px] ${isTodayAllDay ? 'bg-primary/5' : 'bg-card'}`}
             >
               {dayAllDayEvents.map((event) => {
+                const isHoliday = event.calendarId === "federal-holidays";
                 const cal = calendarMap.get(event.calendarId);
-                const bgColor = hexToPasstel(cal?.color ?? "#3B82F6", 0.3);
+                const eventColor = isHoliday ? "#9333EA" : (cal?.color ?? "#3B82F6");
+                const eventIcon = isHoliday ? "🇺🇸" : cal?.icon;
+                const bgColor = hexToPasstel(eventColor, 0.3);
                 return (
                   <button
                     key={event.id}
@@ -380,8 +389,8 @@ export function ScheduleView({
                     className="w-full text-left text-xs px-2 py-1 rounded-md hover:opacity-80 transition-opacity"
                     style={{ backgroundColor: bgColor }}
                   >
-                    <span className="font-medium text-foreground truncate block">
-                      {cal?.icon && <span className="mr-1">{cal.icon}</span>}
+                    <span className={`font-medium truncate block ${isHoliday ? "text-purple-600 dark:text-purple-400" : "text-foreground"}`}>
+                      {eventIcon && <span className="mr-1">{eventIcon}</span>}
                       {event.title}
                     </span>
                   </button>
@@ -452,11 +461,14 @@ export function ScheduleView({
 
               {/* Events */}
               {dayTimedEvents.map((event) => {
+                const isHoliday = event.calendarId === "federal-holidays";
                 const cal = calendarMap.get(event.calendarId);
+                const eventColor = isHoliday ? "#9333EA" : (cal?.color ?? "#3B82F6");
+                const eventIcon = isHoliday ? "🇺🇸" : (cal?.icon ?? "📅");
                 const style = getEventStyle(event);
                 const startTime = new Date(event.startTime);
                 const endTime = new Date(event.endTime);
-                const bgColor = hexToPasstel(cal?.color ?? "#3B82F6", 0.3);
+                const bgColor = hexToPasstel(eventColor, 0.3);
                 const columnInfo = eventColumns.get(event.id) ?? { column: 0, totalColumns: 1 };
                 const columnWidth = 100 / columnInfo.totalColumns;
                 const leftOffset = columnInfo.column * columnWidth;
@@ -477,8 +489,8 @@ export function ScheduleView({
                     }}
                   >
                     <div className="h-full flex flex-col">
-                      <p className="text-xs font-semibold text-foreground truncate">
-                        {cal?.icon && <span className="mr-1">{cal.icon}</span>}
+                      <p className={`text-xs font-semibold truncate ${isHoliday ? "text-purple-600 dark:text-purple-400" : "text-foreground"}`}>
+                        {eventIcon && <span className="mr-1">{eventIcon}</span>}
                         {event.title}
                       </p>
                       <p className="text-sm text-muted-foreground">
@@ -489,9 +501,9 @@ export function ScheduleView({
                       <div className="flex justify-end">
                         <div
                           className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-medium"
-                          style={{ backgroundColor: cal?.color ?? "#3B82F6" }}
+                          style={{ backgroundColor: eventColor }}
                         >
-                          {cal?.icon ?? "📅"}
+                          {eventIcon}
                         </div>
                       </div>
                     </div>

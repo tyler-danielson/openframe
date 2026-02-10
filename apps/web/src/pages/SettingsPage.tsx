@@ -2,9 +2,10 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
-import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette } from "lucide-react";
+import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Tablet, Link2, Unlink, QrCode } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import type { Camera } from "@openframe/shared";
-import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk } from "../services/api";
+import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskEnabledFeatures } from "../services/api";
 import { useAuthStore } from "../stores/auth";
 import { useCalendarStore, type WeekCellWidget } from "../stores/calendar";
 import { useScreensaverStore, type ScreensaverLayout, type ScreensaverTransition, type ClockPosition, type ClockSize, type InfoPaneWidget, type InfoPaneWidgetConfig, type WidgetSize, type WidgetGridSize, LIST_WIDGETS, DEFAULT_WIDGET_CONFIGS, type CompositeWidgetId, type CompositeWidgetConfig, type SubItemConfig, DEFAULT_COMPOSITE_CONFIGS, DEFAULT_SUB_ITEMS } from "../stores/screensaver";
@@ -25,8 +26,9 @@ import { CalendarAccountsList } from "../components/settings/CalendarAccountsLis
 import { CalendarListForAccount } from "../components/settings/CalendarListForAccount";
 import { AddAccountModal } from "../components/settings/AddAccountModal";
 import { HACalendarModal } from "../components/settings/HACalendarModal";
+import { HandwritingCanvas } from "../components/ui/HandwritingCanvas";
 import type { CalendarProvider } from "@openframe/shared";
-import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed } from "@openframe/shared";
+import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings } from "@openframe/shared";
 
 // Parent tabs for URL routing
 type SettingsTab = "account" | "calendars" | "tasks" | "entertainment" | "appearance" | "ai" | "automations" | "cameras" | "homeassistant" | "kiosks" | "system";
@@ -1117,17 +1119,61 @@ function KioskSettings() {
   );
 }
 
+// Display mode options
+const DISPLAY_MODE_OPTIONS: { value: KioskDisplayMode; label: string; description: string }[] = [
+  { value: "full", label: "Full App", description: "Full navigation with all enabled features" },
+  { value: "screensaver-only", label: "Screensaver Only", description: "Only shows the screensaver, no app UI" },
+  { value: "calendar-only", label: "Calendar Only", description: "Only calendar page with screensaver overlay" },
+  { value: "dashboard-only", label: "Dashboard Only", description: "Only dashboard page with screensaver overlay" },
+];
+
+// Home page options
+const HOME_PAGE_OPTIONS = [
+  { value: "calendar", label: "Calendar" },
+  { value: "dashboard", label: "Dashboard" },
+  { value: "tasks", label: "Tasks" },
+  { value: "photos", label: "Photos" },
+  { value: "spotify", label: "Spotify" },
+  { value: "iptv", label: "Live TV" },
+  { value: "cameras", label: "Cameras" },
+  { value: "homeassistant", label: "Home Assistant" },
+  { value: "map", label: "Map" },
+  { value: "recipes", label: "Recipes" },
+];
+
+// Feature options
+const FEATURE_OPTIONS: { key: keyof KioskEnabledFeatures; label: string; icon: React.ReactNode }[] = [
+  { key: "calendar", label: "Calendar", icon: <Calendar className="h-4 w-4" /> },
+  { key: "dashboard", label: "Dashboard", icon: <LayoutGrid className="h-4 w-4" /> },
+  { key: "tasks", label: "Tasks", icon: <ListTodo className="h-4 w-4" /> },
+  { key: "photos", label: "Photos", icon: <ImageIcon className="h-4 w-4" /> },
+  { key: "spotify", label: "Spotify", icon: <Music className="h-4 w-4" /> },
+  { key: "iptv", label: "Live TV", icon: <Tv className="h-4 w-4" /> },
+  { key: "cameras", label: "Cameras", icon: <Video className="h-4 w-4" /> },
+  { key: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" /> },
+  { key: "map", label: "Map", icon: <MapPin className="h-4 w-4" /> },
+  { key: "recipes", label: "Recipes", icon: <Settings className="h-4 w-4" /> },
+];
+
 function KiosksSettings() {
   const queryClient = useQueryClient();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingKiosk, setEditingKiosk] = useState<string | null>(null);
+  const [expandedKiosk, setExpandedKiosk] = useState<string | null>(null);
   const [formName, setFormName] = useState("");
   const [formColorScheme, setFormColorScheme] = useState<ColorScheme>("default");
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const [showQrKiosk, setShowQrKiosk] = useState<{ token: string; name: string } | null>(null);
 
   const { data: kiosks = [], isLoading } = useQuery({
     queryKey: ["kiosks"],
     queryFn: () => api.getKiosks(),
+  });
+
+  // Fetch calendars for calendar selection
+  const { data: calendars = [] } = useQuery({
+    queryKey: ["calendars"],
+    queryFn: () => api.getCalendars(),
   });
 
   const createKiosk = useMutation({
@@ -1140,7 +1186,7 @@ function KiosksSettings() {
   });
 
   const updateKiosk = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { name?: string; isActive?: boolean; colorScheme?: ColorScheme } }) =>
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof api.updateKiosk>[1] }) =>
       api.updateKiosk(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["kiosks"] });
@@ -1326,6 +1372,17 @@ function KiosksSettings() {
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedKiosk(expandedKiosk === kiosk.id ? null : kiosk.id)}
+                              className="p-1 -ml-1 text-muted-foreground hover:text-foreground rounded"
+                            >
+                              {expandedKiosk === kiosk.id ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
+                            </button>
                             <h4 className="font-medium">{kiosk.name}</h4>
                             {kiosk.colorScheme && kiosk.colorScheme !== "default" && (
                               <span
@@ -1334,13 +1391,18 @@ function KiosksSettings() {
                                 title={COLOR_SCHEMES.find(s => s.value === kiosk.colorScheme)?.label || kiosk.colorScheme}
                               />
                             )}
+                            {kiosk.displayMode && kiosk.displayMode !== "full" && (
+                              <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary">
+                                {DISPLAY_MODE_OPTIONS.find(o => o.value === kiosk.displayMode)?.label}
+                              </span>
+                            )}
                             {!kiosk.isActive && (
                               <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
                                 Disabled
                               </span>
                             )}
                           </div>
-                          <div className="mt-2 flex items-center gap-2">
+                          <div className="mt-2 flex items-center gap-2 ml-5">
                             <code className="text-xs bg-muted px-2 py-1 rounded font-mono truncate max-w-md">
                               {window.location.origin}/kiosk/{kiosk.token}
                             </code>
@@ -1358,9 +1420,17 @@ function KiosksSettings() {
                                 "Copy URL"
                               )}
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowQrKiosk({ token: kiosk.token, name: kiosk.name })}
+                              className="text-xs text-primary hover:text-primary/80 flex items-center gap-1"
+                            >
+                              <QrCode className="h-3 w-3" />
+                              QR Code
+                            </button>
                           </div>
                           {kiosk.lastAccessedAt && (
-                            <p className="text-xs text-muted-foreground mt-2">
+                            <p className="text-xs text-muted-foreground mt-2 ml-5">
                               Last accessed: {new Date(kiosk.lastAccessedAt).toLocaleString()}
                             </p>
                           )}
@@ -1432,6 +1502,194 @@ function KiosksSettings() {
                           </button>
                         </div>
                       </div>
+
+                      {/* Expanded Configuration Section */}
+                      {expandedKiosk === kiosk.id && (
+                        <div className="mt-3 pt-3 border-t-2 border-primary/30 space-y-3 ml-5">
+                          {/* Display Mode & Home Page Row */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {/* Display Mode */}
+                            <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
+                              <label className="text-xs font-semibold text-primary uppercase tracking-wide">Display Mode</label>
+                              <select
+                                value={kiosk.displayMode || "full"}
+                                onChange={(e) => updateKiosk.mutate({
+                                  id: kiosk.id,
+                                  data: { displayMode: e.target.value as KioskDisplayMode }
+                                })}
+                                className="mt-1 w-full rounded-md border border-primary/30 bg-background px-2 py-1.5 text-sm"
+                              >
+                                {DISPLAY_MODE_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Home Page (only for full mode) */}
+                            {(kiosk.displayMode === "full" || !kiosk.displayMode) && (
+                              <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
+                                <label className="text-xs font-semibold text-primary uppercase tracking-wide">Home Page</label>
+                                <select
+                                  value={kiosk.homePage || "calendar"}
+                                  onChange={(e) => updateKiosk.mutate({
+                                    id: kiosk.id,
+                                    data: { homePage: e.target.value }
+                                  })}
+                                  className="mt-1 w-full rounded-md border border-primary/30 bg-background px-2 py-1.5 text-sm"
+                                >
+                                  {HOME_PAGE_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Start in Fullscreen */}
+                          <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
+                            <label className="flex items-center gap-3 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={kiosk.startFullscreen ?? false}
+                                onChange={(e) => updateKiosk.mutate({
+                                  id: kiosk.id,
+                                  data: { startFullscreen: e.target.checked }
+                                })}
+                                className="rounded border-primary/30 h-4 w-4"
+                              />
+                              <div>
+                                <span className="text-xs font-semibold text-primary uppercase tracking-wide">Start in Fullscreen</span>
+                                <p className="text-xs text-muted-foreground mt-0.5">Automatically enter fullscreen mode when kiosk loads</p>
+                              </div>
+                            </label>
+                          </div>
+
+                          {/* Calendar Selection */}
+                          <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <label className="text-xs font-semibold text-primary uppercase tracking-wide">Calendars</label>
+                              {kiosk.selectedCalendarIds && kiosk.selectedCalendarIds.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => updateKiosk.mutate({
+                                    id: kiosk.id,
+                                    data: { selectedCalendarIds: null }
+                                  })}
+                                  className="text-[10px] text-muted-foreground hover:text-foreground"
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                              {calendars.map((cal) => {
+                                const isSelected = kiosk.selectedCalendarIds?.includes(cal.id) ?? false;
+                                return (
+                                  <label
+                                    key={cal.id}
+                                    className={`flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors text-xs ${
+                                      isSelected ? "border-primary bg-primary/10" : "border-border/60 hover:bg-muted/50"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={(e) => {
+                                        const currentIds = kiosk.selectedCalendarIds || [];
+                                        const newIds = e.target.checked
+                                          ? [...currentIds, cal.id]
+                                          : currentIds.filter((id) => id !== cal.id);
+                                        updateKiosk.mutate({
+                                          id: kiosk.id,
+                                          data: { selectedCalendarIds: newIds.length > 0 ? newIds : null }
+                                        });
+                                      }}
+                                      className="rounded border-border h-3 w-3"
+                                    />
+                                    <span
+                                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                      style={{ backgroundColor: cal.color || "#3B82F6" }}
+                                    />
+                                    <span className="truncate">{cal.name}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Feature Toggles (only for full mode) */}
+                          {(kiosk.displayMode === "full" || !kiosk.displayMode) && (
+                            <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
+                              <label className="text-xs font-semibold text-primary uppercase tracking-wide">Enabled Features</label>
+                              <div className="mt-1.5 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-1.5">
+                                {FEATURE_OPTIONS.map((feature) => {
+                                  const isEnabled = kiosk.enabledFeatures?.[feature.key] !== false;
+                                  return (
+                                    <label
+                                      key={feature.key}
+                                      className={`flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors text-xs ${
+                                        isEnabled ? "border-primary bg-primary/10" : "border-border/60 hover:bg-muted/50 opacity-50"
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isEnabled}
+                                        onChange={(e) => {
+                                          const currentFeatures = kiosk.enabledFeatures || {};
+                                          const newFeatures = {
+                                            ...currentFeatures,
+                                            [feature.key]: e.target.checked
+                                          };
+                                          updateKiosk.mutate({
+                                            id: kiosk.id,
+                                            data: { enabledFeatures: newFeatures }
+                                          });
+                                        }}
+                                        className="rounded border-border h-3 w-3"
+                                      />
+                                      <span className="text-primary">{feature.icon}</span>
+                                      <span className="truncate">{feature.label}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Color Scheme */}
+                          <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
+                            <label className="text-xs font-semibold text-primary uppercase tracking-wide">Color Scheme</label>
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                              {COLOR_SCHEMES.map((scheme) => (
+                                <button
+                                  key={scheme.value}
+                                  type="button"
+                                  onClick={() => updateKiosk.mutate({
+                                    id: kiosk.id,
+                                    data: { colorScheme: scheme.value }
+                                  })}
+                                  className={`flex items-center gap-1.5 px-2 py-1 rounded-md border-2 transition-all text-xs ${
+                                    kiosk.colorScheme === scheme.value
+                                      ? "border-primary bg-primary/10"
+                                      : "border-border hover:border-primary/40"
+                                  }`}
+                                  title={scheme.label}
+                                >
+                                  <div
+                                    className="w-4 h-4 rounded-full shadow-sm"
+                                    style={{ backgroundColor: scheme.accent }}
+                                  />
+                                  <span>{scheme.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
@@ -1478,18 +1736,420 @@ function KiosksSettings() {
           </ul>
         </CardContent>
       </Card>
+
+      {/* QR Code Modal */}
+      <AnimatePresence>
+        {showQrKiosk && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            onClick={() => setShowQrKiosk(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-card rounded-lg shadow-xl p-6 max-w-sm w-full mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-semibold text-lg">{showQrKiosk.name}</h3>
+                <button
+                  onClick={() => setShowQrKiosk(null)}
+                  className="p-1 hover:bg-muted rounded-md"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="flex flex-col items-center gap-4">
+                <div className="bg-white p-4 rounded-lg">
+                  <QRCodeSVG
+                    value={`${window.location.origin}/kiosk/${showQrKiosk.token}`}
+                    size={200}
+                    level="M"
+                  />
+                </div>
+                <p className="text-sm text-muted-foreground text-center">
+                  Scan this QR code to open the kiosk on another device
+                </p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
+// Icons for each settings category
+const CATEGORY_ICONS: Record<string, React.ReactNode> = {
+  home: <MapPin className="h-5 w-5" />,
+  weather: <Cloud className="h-5 w-5" />,
+  google: <Globe className="h-5 w-5" />,
+  spotify: <Music className="h-5 w-5" />,
+  telegram: <MessageCircle className="h-5 w-5" />,
+  homeassistant: <Home className="h-5 w-5" />,
+  handwriting: <PenTool className="h-5 w-5" />,
+};
+
+// localStorage store keys for client settings
+const CLIENT_STORE_KEYS = {
+  calendar: "calendar-store",
+  screensaver: "screensaver-store",
+  tasks: "tasks-store",
+  durationAlerts: "duration-alerts-storage",
+} as const;
+
+function RemarkableSettingsCard() {
+  const queryClient = useQueryClient();
+
+  // Fetch reMarkable status
+  const { data: status, isLoading } = useQuery({
+    queryKey: ["remarkable", "status"],
+    queryFn: () => api.getRemarkableStatus(),
+  });
+
+  // Disconnect mutation
+  const disconnect = useMutation({
+    mutationFn: () => api.disconnectRemarkable(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["remarkable"] });
+    },
+  });
+
+  const isConnected = status?.connected === true;
+
+  return (
+    <Card className="col-span-full mb-4 border-2 border-primary/40">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Tablet className="h-5 w-5" />
+          reMarkable
+        </CardTitle>
+        <CardDescription>
+          Connect your reMarkable tablet to sync calendars and planners
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+          {/* Status */}
+          <div className="flex items-center gap-3 flex-1">
+            {isLoading ? (
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            ) : isConnected ? (
+              <>
+                <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                  <CheckCircle className="h-5 w-5" />
+                  <span className="font-medium">Connected</span>
+                </div>
+                {status?.lastSyncAt && (
+                  <span className="text-sm text-muted-foreground">
+                    Last sync: {new Date(status.lastSyncAt).toLocaleDateString()}
+                  </span>
+                )}
+              </>
+            ) : (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <XCircle className="h-5 w-5" />
+                <span>Not connected</span>
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            {isConnected && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => disconnect.mutate()}
+                disabled={disconnect.isPending}
+              >
+                {disconnect.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Unlink className="h-4 w-4 mr-2" />
+                )}
+                Disconnect
+              </Button>
+            )}
+            <Link to="/remarkable">
+              <Button variant={isConnected ? "outline" : "default"} size="sm">
+                {isConnected ? (
+                  <>
+                    <Settings className="h-4 w-4 mr-2" />
+                    Manage
+                  </>
+                ) : (
+                  <>
+                    <Link2 className="h-4 w-4 mr-2" />
+                    Connect Device
+                  </>
+                )}
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function BackupRestoreCard() {
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [importStatus, setImportStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const response = await api.exportSettings();
+
+      // Add client-side settings from localStorage
+      const exportData: ExportedSettings = {
+        ...response,
+        clientSettings: {
+          calendar: getLocalStorageState(CLIENT_STORE_KEYS.calendar),
+          screensaver: getLocalStorageState(CLIENT_STORE_KEYS.screensaver),
+          tasks: getLocalStorageState(CLIENT_STORE_KEYS.tasks),
+          durationAlerts: getLocalStorageState(CLIENT_STORE_KEYS.durationAlerts),
+        },
+      };
+
+      // Download file
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `openframe-settings-${new Date().toISOString().split("T")[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Export failed:", error);
+      setImportStatus({ type: "error", message: "Failed to export settings" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!selectedFile) return;
+    setIsImporting(true);
+    setImportStatus(null);
+
+    try {
+      const text = await selectedFile.text();
+      const settings: ExportedSettings = JSON.parse(text);
+
+      // Validate version
+      if (settings.version !== "1.0") {
+        throw new Error("Unsupported export file version");
+      }
+
+      // Import server settings
+      const result = await api.importSettings(settings);
+
+      // Apply client settings to localStorage
+      if (settings.clientSettings?.calendar) {
+        setLocalStorageState(CLIENT_STORE_KEYS.calendar, settings.clientSettings.calendar);
+      }
+      if (settings.clientSettings?.screensaver) {
+        setLocalStorageState(CLIENT_STORE_KEYS.screensaver, settings.clientSettings.screensaver);
+      }
+      if (settings.clientSettings?.tasks) {
+        setLocalStorageState(CLIENT_STORE_KEYS.tasks, settings.clientSettings.tasks);
+      }
+      if (settings.clientSettings?.durationAlerts) {
+        setLocalStorageState(CLIENT_STORE_KEYS.durationAlerts, settings.clientSettings.durationAlerts);
+      }
+
+      // Calculate total imported
+      const total = Object.values(result.imported).reduce((a, b) => a + b, 0);
+      const errorCount = result.errors.length;
+
+      if (errorCount > 0) {
+        setImportStatus({
+          type: "success",
+          message: `Imported ${total} items with ${errorCount} errors. Refresh to apply changes.`,
+        });
+      } else {
+        setImportStatus({
+          type: "success",
+          message: `Successfully imported ${total} items. Refresh to apply changes.`,
+        });
+      }
+    } catch (error) {
+      console.error("Import failed:", error);
+      setImportStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Failed to import settings",
+      });
+    } finally {
+      setIsImporting(false);
+      setSelectedFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  return (
+    <Card className="col-span-full mb-6 border-2 border-primary/40">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <HardDrive className="h-5 w-5" />
+          Backup & Restore
+        </CardTitle>
+        <CardDescription>
+          Export settings to a file or restore from a backup. Passwords and API keys are never included in exports.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col sm:flex-row gap-6">
+          {/* Export Section */}
+          <div className="flex-1">
+            <p className="text-sm text-muted-foreground mb-3">
+              Download all display settings, kiosk configs, camera settings, and other configurations.
+            </p>
+            <Button onClick={handleExport} disabled={isExporting}>
+              {isExporting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export Settings
+                </>
+              )}
+            </Button>
+          </div>
+
+          {/* Divider */}
+          <div className="hidden sm:block w-px bg-border" />
+          <div className="sm:hidden h-px bg-border" />
+
+          {/* Import Section */}
+          <div className="flex-1">
+            <p className="text-sm text-muted-foreground mb-3">
+              Restore settings from a previously exported file. Existing settings with matching names will be updated.
+            </p>
+            <input
+              type="file"
+              accept=".json"
+              ref={fileInputRef}
+              onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+              className="hidden"
+            />
+            <div className="flex gap-2 flex-wrap">
+              <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                <Upload className="h-4 w-4 mr-2" />
+                Select File
+              </Button>
+              {selectedFile && (
+                <>
+                  <span className="text-sm text-muted-foreground self-center truncate max-w-[150px]">
+                    {selectedFile.name}
+                  </span>
+                  <Button onClick={handleImport} disabled={isImporting}>
+                    {isImporting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Importing...
+                      </>
+                    ) : (
+                      "Import"
+                    )}
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Status Message */}
+        {importStatus && (
+          <div
+            className={`mt-4 p-3 rounded-md flex items-center gap-2 ${
+              importStatus.type === "success"
+                ? "bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300"
+                : "bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300"
+            }`}
+          >
+            {importStatus.type === "success" ? (
+              <CheckCircle className="h-4 w-4 flex-shrink-0" />
+            ) : (
+              <XCircle className="h-4 w-4 flex-shrink-0" />
+            )}
+            <span className="text-sm">{importStatus.message}</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// Helper functions for localStorage state management
+function getLocalStorageState(key: string): Record<string, unknown> | null {
+  try {
+    const stored = localStorage.getItem(key);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    return parsed.state ?? parsed;
+  } catch {
+    return null;
+  }
+}
+
+function setLocalStorageState(key: string, state: Record<string, unknown>): void {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      // Preserve the Zustand persist structure
+      if (parsed.state !== undefined) {
+        localStorage.setItem(key, JSON.stringify({ ...parsed, state: { ...parsed.state, ...state } }));
+      } else {
+        localStorage.setItem(key, JSON.stringify({ ...parsed, ...state }));
+      }
+    } else {
+      localStorage.setItem(key, JSON.stringify({ state }));
+    }
+  } catch (error) {
+    console.error("Failed to set localStorage state:", error);
+  }
+}
+
 function SystemSettings() {
   const queryClient = useQueryClient();
-  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+  // Start with all sections collapsed except "home" (Home Location)
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
+    new Set(["weather", "google", "spotify", "telegram", "homeassistant", "handwriting"])
+  );
   const [formValues, setFormValues] = useState<Record<string, Record<string, string>>>({});
   const [saveStatus, setSaveStatus] = useState<Record<string, "idle" | "saving" | "saved" | "error">>({});
   const [locationSearch, setLocationSearch] = useState("");
   const [locationStatus, setLocationStatus] = useState<"idle" | "searching" | "success" | "error">("idle");
   const [locationError, setLocationError] = useState<string | null>(null);
+
+  const toggleCategory = (category: string) => {
+    setCollapsedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) {
+        next.delete(category);
+      } else {
+        next.add(category);
+      }
+      return next;
+    });
+  };
 
   // Fetch setting definitions
   const { data: definitions = [], isLoading: isLoadingDefs, error: defsError } = useQuery({
@@ -1575,11 +2235,12 @@ function SystemSettings() {
 
     try {
       const result = await api.geocodeAddress(locationSearch);
-      // Update the form values for weather
+      // Update the form values for home location
       setFormValues((prev) => ({
         ...prev,
-        weather: {
-          ...prev.weather,
+        home: {
+          ...prev.home,
+          address: result.formattedAddress,
           latitude: result.latitude,
           longitude: result.longitude,
         },
@@ -1587,54 +2248,57 @@ function SystemSettings() {
       setLocationStatus("success");
       setLocationSearch(result.formattedAddress);
       // Reset save status since we have new values
-      setSaveStatus((prev) => ({ ...prev, weather: "idle" }));
+      setSaveStatus((prev) => ({ ...prev, home: "idle" }));
     } catch (err) {
       setLocationStatus("error");
       setLocationError(err instanceof Error ? err.message : "Failed to lookup location");
     }
   };
 
-  return (
-    <Card className="border-2 border-primary/40">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Settings className="h-5 w-5" />
-          System Settings
-        </CardTitle>
-        <CardDescription>
-          Configure API keys and integrations. Secrets are encrypted and stored securely in the database.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {definitions.map((categoryDef) => (
-          <div
-            key={categoryDef.category}
-            className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
-          >
+  // Split definitions into 3 columns
+  const column1: typeof definitions = [];
+  const column2: typeof definitions = [];
+  const column3: typeof definitions = [];
+  definitions.forEach((def, idx) => {
+    if (idx % 3 === 0) column1.push(def);
+    else if (idx % 3 === 1) column2.push(def);
+    else column3.push(def);
+  });
+
+  const renderSection = (categoryDef: typeof definitions[0]) => {
+    const icon = CATEGORY_ICONS[categoryDef.category] || <Settings className="h-5 w-5" />;
+    const isCollapsed = collapsedCategories.has(categoryDef.category);
+
+    return (
+      <div
+        key={categoryDef.category}
+        className="rounded-lg border-2 border-primary bg-primary/5 dark:bg-primary/10"
+      >
             <button
               type="button"
-              onClick={() =>
-                setExpandedCategory(
-                  expandedCategory === categoryDef.category ? null : categoryDef.category
-                )
-              }
-              className="flex w-full items-center justify-between p-4 text-left"
+              onClick={() => toggleCategory(categoryDef.category)}
+              className="flex w-full items-center justify-between p-4 text-left hover:bg-primary/10 dark:hover:bg-primary/20 rounded-t-lg"
             >
-              <div>
-                <h4 className="font-medium text-gray-900 dark:text-gray-100">{categoryDef.label}</h4>
-                <p className="text-sm text-gray-600 dark:text-gray-400">{categoryDef.description}</p>
+              <div className="flex items-center gap-3">
+                <span className="text-primary">
+                  {icon}
+                </span>
+                <div>
+                  <h4 className="font-medium text-lg text-primary dark:text-primary">{categoryDef.label}</h4>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">{categoryDef.description}</p>
+                </div>
               </div>
-              {expandedCategory === categoryDef.category ? (
-                <ChevronUp className="h-5 w-5 text-gray-500" />
-              ) : (
+              {isCollapsed ? (
                 <ChevronDown className="h-5 w-5 text-gray-500" />
+              ) : (
+                <ChevronUp className="h-5 w-5 text-gray-500" />
               )}
             </button>
 
-            {expandedCategory === categoryDef.category && (
+            {!isCollapsed && (
               <div className="border-t border-gray-200 dark:border-gray-700 p-4 space-y-4">
-                {/* Location lookup for weather category */}
-                {categoryDef.category === "weather" && (
+                {/* Location lookup for home category */}
+                {categoryDef.category === "home" && (
                   <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 p-4 mb-4">
                     <label className="block text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">
                       Lookup Location
@@ -1706,6 +2370,19 @@ function SystemSettings() {
                   </div>
                 ))}
 
+                {/* Handwriting recognition - link to AI tab */}
+                {categoryDef.category === "handwriting" && (
+                  <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 p-4 mt-4">
+                    <p className="text-sm text-blue-800 dark:text-blue-200">
+                      For advanced configuration, testing, and API key management, visit the{" "}
+                      <Link to="/settings?tab=ai" className="font-medium underline hover:text-blue-600 dark:hover:text-blue-400">
+                        AI Settings
+                      </Link>{" "}
+                      tab.
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between pt-2">
                   <div className="text-sm">
                     {saveStatus[categoryDef.category] === "saved" && (
@@ -1735,52 +2412,47 @@ function SystemSettings() {
                     )}
                   </Button>
                 </div>
-              </div>
-            )}
-          </div>
-        ))}
-
-        {isLoading && (
-          <div className="text-center py-8 text-gray-600 dark:text-gray-400">
-            <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin opacity-50" />
-            <p>Loading settings...</p>
-          </div>
-        )}
-
-        {error && !isLoading && (
-          <div className="text-center py-8 text-red-600 dark:text-red-400">
-            <XCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>Failed to load settings</p>
-            <p className="text-sm mt-2">{error instanceof Error ? error.message : "Unknown error"}</p>
-          </div>
-        )}
-
-        {!isLoading && !error && definitions.length === 0 && (
-          <div className="text-center py-8 text-gray-600 dark:text-gray-400">
-            <Settings className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>No settings configured</p>
-          </div>
-        )}
-
-        <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 p-4 mt-4">
-          <h4 className="font-medium text-blue-900 dark:text-blue-100">About System Settings</h4>
-          <ul className="mt-2 space-y-1 text-sm text-blue-800 dark:text-blue-200">
-            <li className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
-              API keys and secrets are encrypted before storing in the database
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
-              Settings configured here override any environment variables
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
-              Changes take effect immediately (some features may need a page refresh)
-            </li>
-          </ul>
+            </div>
+          )}
         </div>
-      </CardContent>
-    </Card>
+      );
+  };
+
+  if (isLoading) {
+    return (
+      <div className="col-span-full text-center py-8 text-gray-600 dark:text-gray-400">
+        <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin opacity-50" />
+        <p>Loading settings...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="col-span-full text-center py-8 text-red-600 dark:text-red-400">
+        <XCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
+        <p>Failed to load settings</p>
+        <p className="text-sm mt-2">{error instanceof Error ? error.message : "Unknown error"}</p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Column 1 */}
+      <div className="flex flex-col gap-4">
+        {column1.map(renderSection)}
+      </div>
+      {/* Column 2 */}
+      <div className="flex flex-col gap-4">
+        {column2.map(renderSection)}
+      </div>
+      {/* Column 3 */}
+      <div className="flex flex-col gap-4">
+        {column3.map(renderSection)}
+        <ApiKeysSettings />
+      </div>
+    </>
   );
 }
 
@@ -2088,9 +2760,9 @@ function IptvChannelManager() {
             className="rounded-md border border-border bg-background px-3 py-2 text-sm min-w-[150px]"
           >
             <option value="">All Categories</option>
-            {categories.map((cat: { id: string; name: string; channelCount: number }) => (
+            {categories.map((cat) => (
               <option key={cat.id} value={cat.id}>
-                {cat.name} ({cat.channelCount})
+                {cat.name} ({cat.channelCount ?? 0})
               </option>
             ))}
           </select>
@@ -2146,7 +2818,7 @@ function IptvChannelManager() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {displayedChannels.map((channel: { id: string; name: string; categoryName?: string; logoUrl?: string }) => {
+                {displayedChannels.map((channel) => {
                   const isFav = favoriteIds.has(channel.id);
                   return (
                     <tr key={channel.id} className="hover:bg-muted/50">
@@ -2187,6 +2859,366 @@ function IptvChannelManager() {
   );
 }
 
+// Camera Troubleshooting Component
+function CameraTroubleshooting({ cameras }: { cameras: Camera[] }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [testRtspUrl, setTestRtspUrl] = useState("");
+  const [testUsername, setTestUsername] = useState("");
+  const [testPassword, setTestPassword] = useState("");
+  const [testResult, setTestResult] = useState<{
+    registered: boolean;
+    ready: boolean;
+    sourceType: string | null;
+    tracks: string[];
+    error: string | null;
+  } | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>("");
+
+  // Fetch MediaMTX paths
+  const { data: paths = [], isLoading: isLoadingPaths, refetch: refetchPaths } = useQuery({
+    queryKey: ["mediamtx", "paths"],
+    queryFn: () => api.getMediaMTXPaths(),
+    enabled: isExpanded,
+    refetchInterval: isExpanded ? 5000 : false,
+  });
+
+  // Get stream status for a specific camera
+  const { data: streamStatus, isLoading: isLoadingStatus, refetch: refetchStatus } = useQuery({
+    queryKey: ["camera", "stream-status", selectedCameraId],
+    queryFn: () => api.getCameraStreamStatus(selectedCameraId),
+    enabled: !!selectedCameraId && isExpanded,
+  });
+
+  const handleTestRtsp = async () => {
+    if (!testRtspUrl.trim()) return;
+    setIsTesting(true);
+    setTestResult(null);
+    try {
+      const result = await api.testRtspUrl({
+        rtspUrl: testRtspUrl.trim(),
+        username: testUsername.trim() || undefined,
+        password: testPassword || undefined,
+      });
+      setTestResult(result);
+    } catch (error) {
+      setTestResult({
+        registered: false,
+        ready: false,
+        sourceType: null,
+        tracks: [],
+        error: `Test failed: ${(error as Error).message}`,
+      });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const handleStartStream = async (cameraId: string) => {
+    try {
+      await api.startCameraStream(cameraId);
+      refetchPaths();
+      if (selectedCameraId === cameraId) {
+        refetchStatus();
+      }
+    } catch (error) {
+      console.error("Failed to start stream:", error);
+    }
+  };
+
+  const handleFillFromCamera = (camera: Camera) => {
+    setTestRtspUrl(camera.rtspUrl || "");
+    setTestUsername(camera.username || "");
+    setTestPassword("");
+    setTestResult(null);
+  };
+
+  return (
+    <Card className="border-2 border-amber-500/40">
+      <CardHeader
+        className="cursor-pointer hover:bg-muted/50 transition-colors"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Camera Troubleshooting
+            </CardTitle>
+            <CardDescription>
+              Test RTSP connections and diagnose camera issues
+            </CardDescription>
+          </div>
+          <ChevronRight className={`h-5 w-5 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+        </div>
+      </CardHeader>
+      {isExpanded && (
+        <CardContent className="space-y-6">
+          {/* Test RTSP URL */}
+          <div className="space-y-4">
+            <h4 className="font-medium">Test RTSP URL</h4>
+            <p className="text-sm text-muted-foreground">
+              Test if MediaMTX can connect to an RTSP stream. This helps diagnose connection issues.
+            </p>
+
+            {cameras.length > 0 && (
+              <div className="flex gap-2 flex-wrap">
+                <span className="text-sm text-muted-foreground">Quick fill from camera:</span>
+                {cameras.filter(c => c.rtspUrl).map((camera) => (
+                  <button
+                    key={camera.id}
+                    onClick={() => handleFillFromCamera(camera)}
+                    className="text-xs px-2 py-1 rounded bg-muted hover:bg-muted/80 text-foreground"
+                  >
+                    {camera.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="grid gap-3">
+              <div>
+                <label className="text-sm font-medium">RTSP URL</label>
+                <input
+                  type="text"
+                  value={testRtspUrl}
+                  onChange={(e) => setTestRtspUrl(e.target.value)}
+                  placeholder="rtsp://192.168.1.100:554/stream"
+                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono"
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="text-sm font-medium">Username (optional)</label>
+                  <input
+                    type="text"
+                    value={testUsername}
+                    onChange={(e) => setTestUsername(e.target.value)}
+                    placeholder="admin"
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Password (optional)</label>
+                  <input
+                    type="password"
+                    value={testPassword}
+                    onChange={(e) => setTestPassword(e.target.value)}
+                    placeholder="password"
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <Button
+                onClick={handleTestRtsp}
+                disabled={isTesting || !testRtspUrl.trim()}
+                className="w-fit"
+              >
+                {isTesting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Test Connection
+              </Button>
+            </div>
+
+            {testResult && (
+              <div className={`rounded-lg border p-4 ${
+                testResult.ready
+                  ? "border-green-500/30 bg-green-500/10"
+                  : testResult.error
+                  ? "border-red-500/30 bg-red-500/10"
+                  : "border-amber-500/30 bg-amber-500/10"
+              }`}>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">Status:</span>
+                    {testResult.ready ? (
+                      <span className="text-green-600 dark:text-green-400 flex items-center gap-1">
+                        <Check className="h-4 w-4" /> Stream Ready
+                      </span>
+                    ) : testResult.registered ? (
+                      <span className="text-amber-600 dark:text-amber-400">Registered but not ready</span>
+                    ) : (
+                      <span className="text-red-600 dark:text-red-400">Failed to register</span>
+                    )}
+                  </div>
+                  {testResult.sourceType && (
+                    <div><span className="font-medium">Source Type:</span> {testResult.sourceType}</div>
+                  )}
+                  {testResult.tracks.length > 0 && (
+                    <div><span className="font-medium">Tracks:</span> {testResult.tracks.join(", ")}</div>
+                  )}
+                  {testResult.error && (
+                    <div className="text-red-600 dark:text-red-400">
+                      <span className="font-medium">Error:</span> {testResult.error}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Registered Streams */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="font-medium">Registered Streams in MediaMTX</h4>
+              <Button variant="outline" size="sm" onClick={() => refetchPaths()}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${isLoadingPaths ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+            </div>
+
+            {isLoadingPaths ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : paths.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
+                No streams registered. Start a camera stream to see it here.
+              </div>
+            ) : (
+              <div className="rounded-lg border border-border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium">Path</th>
+                      <th className="text-left px-3 py-2 font-medium">Status</th>
+                      <th className="text-left px-3 py-2 font-medium">Source</th>
+                      <th className="text-left px-3 py-2 font-medium">Readers</th>
+                      <th className="text-left px-3 py-2 font-medium">Data</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {paths.map((path) => (
+                      <tr key={path.name} className="hover:bg-muted/30">
+                        <td className="px-3 py-2 font-mono text-xs">{path.name}</td>
+                        <td className="px-3 py-2">
+                          {path.ready ? (
+                            <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
+                              <span className="h-2 w-2 rounded-full bg-green-500" />
+                              Ready
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                              <span className="h-2 w-2 rounded-full bg-amber-500" />
+                              Waiting
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground">{path.sourceType || "-"}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{path.readers}</td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {path.bytesReceived > 0 ? `${(path.bytesReceived / 1024 / 1024).toFixed(2)} MB` : "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Camera Stream Status */}
+          {cameras.length > 0 && (
+            <div className="space-y-4">
+              <h4 className="font-medium">Check Camera Stream Status</h4>
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <label className="text-sm font-medium">Select Camera</label>
+                  <select
+                    value={selectedCameraId}
+                    onChange={(e) => setSelectedCameraId(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">-- Select a camera --</option>
+                    {cameras.filter(c => c.rtspUrl).map((camera) => (
+                      <option key={camera.id} value={camera.id}>{camera.name}</option>
+                    ))}
+                  </select>
+                </div>
+                {selectedCameraId && (
+                  <Button
+                    variant="outline"
+                    onClick={() => handleStartStream(selectedCameraId)}
+                  >
+                    <Play className="h-4 w-4 mr-2" />
+                    Start Stream
+                  </Button>
+                )}
+              </div>
+
+              {selectedCameraId && streamStatus && (
+                <div className="rounded-lg border border-border p-4 space-y-2 text-sm">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <span className="font-medium">MediaMTX Available:</span>{" "}
+                      {streamStatus.mediamtxAvailable ? (
+                        <span className="text-green-600 dark:text-green-400">Yes</span>
+                      ) : (
+                        <span className="text-red-600 dark:text-red-400">No</span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="font-medium">Stream Ready:</span>{" "}
+                      {streamStatus.streamReady ? (
+                        <span className="text-green-600 dark:text-green-400">Yes</span>
+                      ) : (
+                        <span className="text-amber-600 dark:text-amber-400">No</span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="font-medium">Has RTSP URL:</span>{" "}
+                      {streamStatus.hasRtspUrl ? "Yes" : "No"}
+                    </div>
+                  </div>
+                  {streamStatus.webrtcUrl && (
+                    <div className="pt-2 border-t border-border">
+                      <span className="font-medium">WebRTC URL:</span>{" "}
+                      <code className="text-xs bg-muted px-1 py-0.5 rounded">{streamStatus.webrtcUrl}</code>
+                    </div>
+                  )}
+                  {streamStatus.hlsUrl && (
+                    <div>
+                      <span className="font-medium">HLS URL:</span>{" "}
+                      <code className="text-xs bg-muted px-1 py-0.5 rounded">{streamStatus.hlsUrl}</code>
+                    </div>
+                  )}
+                </div>
+              )}
+              {selectedCameraId && isLoadingStatus && (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Common Issues */}
+          <div className="rounded-lg border border-border p-4 space-y-3">
+            <h4 className="font-medium">Common Issues</h4>
+            <ul className="text-sm text-muted-foreground space-y-2">
+              <li className="flex gap-2">
+                <span className="text-amber-500">1.</span>
+                <span><strong>Stream not ready:</strong> Check if the camera is online and the RTSP URL is correct. Some cameras need specific stream paths like <code className="bg-muted px-1 rounded">/h264Preview_01_main</code></span>
+              </li>
+              <li className="flex gap-2">
+                <span className="text-amber-500">2.</span>
+                <span><strong>Authentication failed:</strong> Verify username/password. Some cameras require credentials in the URL itself.</span>
+              </li>
+              <li className="flex gap-2">
+                <span className="text-amber-500">3.</span>
+                <span><strong>Connection timeout:</strong> Check if the camera IP is reachable from the server. Firewall rules may block port 554.</span>
+              </li>
+              <li className="flex gap-2">
+                <span className="text-amber-500">4.</span>
+                <span><strong>Reolink cameras:</strong> Use format <code className="bg-muted px-1 rounded">rtsp://user:pass@IP:554/h264Preview_01_main</code></span>
+              </li>
+            </ul>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
 function CamerasSettings() {
   const queryClient = useQueryClient();
   const [showAddForm, setShowAddForm] = useState(false);
@@ -2200,10 +3232,76 @@ function CamerasSettings() {
   const [formUsername, setFormUsername] = useState("");
   const [formPassword, setFormPassword] = useState("");
 
+  // MediaMTX config state
+  const [mediamtxApiUrl, setMediamtxApiUrl] = useState("");
+  const [mediamtxHost, setMediamtxHost] = useState("");
+  const [mediamtxWebrtcPort, setMediamtxWebrtcPort] = useState("");
+  const [mediamtxHlsPort, setMediamtxHlsPort] = useState("");
+  const [mediamtxTestResult, setMediamtxTestResult] = useState<{ available: boolean; message: string } | null>(null);
+  const [mediamtxTesting, setMediamtxTesting] = useState(false);
+
   const { data: cameras = [], isLoading } = useQuery({
     queryKey: ["cameras"],
     queryFn: () => api.getCameras(),
   });
+
+  // MediaMTX configuration
+  const { data: mediamtxConfig, isLoading: isLoadingMediamtx } = useQuery({
+    queryKey: ["mediamtx", "config"],
+    queryFn: () => api.getMediaMTXConfig(),
+  });
+
+  const { data: mediamtxStatus } = useQuery({
+    queryKey: ["mediamtx", "status"],
+    queryFn: () => api.getMediaMTXStatus(),
+    refetchInterval: 10000, // Check every 10 seconds
+  });
+
+  // Initialize MediaMTX form when config loads
+  useEffect(() => {
+    if (mediamtxConfig) {
+      setMediamtxApiUrl(mediamtxConfig.apiUrl);
+      setMediamtxHost(mediamtxConfig.host);
+      setMediamtxWebrtcPort(mediamtxConfig.webrtcPort);
+      setMediamtxHlsPort(mediamtxConfig.hlsPort);
+    }
+  }, [mediamtxConfig]);
+
+  const saveMediamtxConfig = useMutation({
+    mutationFn: (data: { apiUrl: string; host: string; webrtcPort: string; hlsPort: string }) =>
+      api.saveMediaMTXConfig(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mediamtx"] });
+    },
+  });
+
+  const handleTestMediamtx = async () => {
+    setMediamtxTesting(true);
+    setMediamtxTestResult(null);
+    try {
+      const result = await api.getMediaMTXStatus(mediamtxApiUrl);
+      setMediamtxTestResult({
+        available: result.available,
+        message: result.available ? "Connected successfully!" : "Could not connect to MediaMTX",
+      });
+    } catch (error) {
+      setMediamtxTestResult({
+        available: false,
+        message: `Connection failed: ${(error as Error).message}`,
+      });
+    } finally {
+      setMediamtxTesting(false);
+    }
+  };
+
+  const handleSaveMediamtx = () => {
+    saveMediamtxConfig.mutate({
+      apiUrl: mediamtxApiUrl,
+      host: mediamtxHost,
+      webrtcPort: mediamtxWebrtcPort,
+      hlsPort: mediamtxHlsPort,
+    });
+  };
 
   // Check HA connection and get enabled HA cameras
   const { data: haConfig } = useQuery({
@@ -2412,6 +3510,141 @@ function CamerasSettings() {
 
   return (
     <>
+      {/* MediaMTX Configuration */}
+      <Card className="border-2 border-primary/40">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                MediaMTX Streaming Server
+                {mediamtxStatus?.available ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/20 px-2.5 py-1 text-xs font-medium text-green-600 dark:text-green-400">
+                    <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                    Connected
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/20 px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-400">
+                    <span className="h-2 w-2 rounded-full bg-red-500" />
+                    Not Connected
+                  </span>
+                )}
+              </CardTitle>
+              <CardDescription>
+                MediaMTX converts RTSP camera streams to WebRTC/HLS for browser playback
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {isLoadingMediamtx ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label className="text-sm font-medium">MediaMTX API URL</label>
+                  <input
+                    type="url"
+                    value={mediamtxApiUrl}
+                    onChange={(e) => setMediamtxApiUrl(e.target.value)}
+                    placeholder="http://localhost:9997"
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    The URL of the MediaMTX API endpoint (default: http://localhost:9997)
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Host</label>
+                  <input
+                    type="text"
+                    value={mediamtxHost}
+                    onChange={(e) => setMediamtxHost(e.target.value)}
+                    placeholder="localhost"
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Host for WebRTC/HLS URLs (use your server IP for remote access)
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">WebRTC Port</label>
+                  <input
+                    type="text"
+                    value={mediamtxWebrtcPort}
+                    onChange={(e) => setMediamtxWebrtcPort(e.target.value)}
+                    placeholder="8889"
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">HLS Port</label>
+                  <input
+                    type="text"
+                    value={mediamtxHlsPort}
+                    onChange={(e) => setMediamtxHlsPort(e.target.value)}
+                    placeholder="8888"
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              {mediamtxTestResult && (
+                <div
+                  className={`rounded-lg border p-3 text-sm font-medium ${
+                    mediamtxTestResult.available
+                      ? "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-300"
+                      : "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300"
+                  }`}
+                >
+                  {mediamtxTestResult.message}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handleTestMediamtx}
+                  disabled={mediamtxTesting || !mediamtxApiUrl}
+                >
+                  {mediamtxTesting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Test Connection
+                </Button>
+                <Button
+                  onClick={handleSaveMediamtx}
+                  disabled={saveMediamtxConfig.isPending}
+                >
+                  {saveMediamtxConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save Configuration
+                </Button>
+              </div>
+
+              {!mediamtxStatus?.available && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+                  <h4 className="font-medium text-amber-700 dark:text-amber-300">MediaMTX Not Running</h4>
+                  <p className="mt-1 text-sm text-amber-600 dark:text-amber-400">
+                    MediaMTX is required for RTSP to WebRTC conversion. Start it with Docker:
+                  </p>
+                  <pre className="mt-2 overflow-x-auto rounded bg-black/10 dark:bg-white/10 p-2 text-xs text-foreground font-mono">
+                    docker run -d --name mediamtx -p 8554:8554 -p 8889:8889 -p 8888:8888 -p 9997:9997 bluenviron/mediamtx
+                  </pre>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Troubleshooting Section */}
+      {mediamtxStatus?.available && (
+        <CameraTroubleshooting cameras={cameras} />
+      )}
+
       <Card className="border-2 border-primary/40">
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -2585,15 +3818,118 @@ const HANDWRITING_PROVIDERS: { value: HandwritingProvider; label: string; descri
   { value: "google_vision", label: "Google Cloud Vision", description: "Best pure OCR accuracy for document-style text.", price: "~$0.0015/image" },
 ];
 
+interface HandwritingTestModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+function HandwritingTestModal({ isOpen, onClose }: HandwritingTestModalProps) {
+  const [testResult, setTestResult] = useState<{ text: string; provider: string } | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+
+  const handleRecognized = async (text: string) => {
+    // The HandwritingCanvas already did the recognition, so we just need to get the provider info
+    // We'll use a workaround: call the API directly to get the result with provider info
+    setTestResult({ text, provider: "current" });
+  };
+
+  const handleClose = () => {
+    setTestResult(null);
+    setTestError(null);
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-2xl mx-4 overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Test Handwriting Recognition</h2>
+          <button
+            onClick={handleClose}
+            className="p-2 hover:bg-muted rounded-lg transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-6">
+          {!testResult ? (
+            <HandwritingCanvas
+              onRecognized={handleRecognized}
+              onCancel={handleClose}
+              placeholder="Write something here to test recognition..."
+              className="h-64"
+            />
+          ) : (
+            <div className="space-y-4">
+              {/* Success Result */}
+              <div className="rounded-lg bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700 p-4">
+                <div className="flex items-center gap-2 text-green-800 dark:text-green-200 mb-3">
+                  <CheckCircle className="h-5 w-5" />
+                  <span className="font-medium text-lg">Recognition Successful</span>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm text-green-700 dark:text-green-300 font-medium mb-1">
+                      Recognized Text:
+                    </p>
+                    <p className="bg-white dark:bg-gray-800 rounded-lg p-3 text-gray-900 dark:text-gray-100 font-mono border border-green-200 dark:border-green-800">
+                      {testResult.text || "(empty)"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setTestResult(null)}
+                >
+                  Try Again
+                </Button>
+                <Button onClick={handleClose}>
+                  Done
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {testError && (
+            <div className="mt-4 rounded-lg bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 p-4">
+              <div className="flex items-center gap-2 text-red-800 dark:text-red-200">
+                <XCircle className="h-5 w-5" />
+                <span className="font-medium">Recognition failed:</span>
+              </div>
+              <p className="text-sm text-red-700 dark:text-red-300 mt-1">{testError}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HandwritingSettings() {
   const queryClient = useQueryClient();
   const [selectedProvider, setSelectedProvider] = useState<HandwritingProvider>("tesseract");
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [showTestModal, setShowTestModal] = useState(false);
 
   // Fetch current settings
   const { data: settings = [], isLoading } = useQuery({
     queryKey: ["system-settings"],
     queryFn: () => api.getAllSettings(),
+  });
+
+  // Fetch provider configuration status
+  const { data: providerStatus } = useQuery({
+    queryKey: ["handwriting-provider"],
+    queryFn: () => api.getHandwritingProvider(),
   });
 
   // Initialize selected provider from settings
@@ -2621,6 +3957,19 @@ function HandwritingSettings() {
 
   const selectedProviderInfo = HANDWRITING_PROVIDERS.find((p) => p.value === selectedProvider);
 
+  // Check if a provider is configured
+  const isProviderConfigured = (providerValue: HandwritingProvider): boolean => {
+    if (!providerStatus?.configured) return providerValue === "tesseract";
+    const configMap: Record<HandwritingProvider, boolean> = {
+      tesseract: true, // Always available
+      openai: providerStatus.configured.openai,
+      claude: providerStatus.configured.claude,
+      gemini: providerStatus.configured.gemini,
+      google_vision: providerStatus.configured.google_vision,
+    };
+    return configMap[providerValue] ?? false;
+  };
+
   return (
     <Card className="border-2 border-primary/40">
       <CardHeader>
@@ -2644,88 +3993,110 @@ function HandwritingSettings() {
               <label className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
                 Recognition Provider
               </label>
-              <select
-                value={selectedProvider}
-                onChange={(e) => {
-                  setSelectedProvider(e.target.value as HandwritingProvider);
-                  setSaveStatus("idle");
-                }}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-gray-100 focus:border-primary focus:outline-none"
-              >
-                {HANDWRITING_PROVIDERS.map((provider) => (
-                  <option key={provider.value} value={provider.value}>
-                    {provider.label} ({provider.price})
-                  </option>
-                ))}
-              </select>
+              <div className="space-y-2">
+                {HANDWRITING_PROVIDERS.map((provider) => {
+                  const isConfigured = isProviderConfigured(provider.value);
+                  const isSelected = selectedProvider === provider.value;
+                  const needsApiKey = provider.value !== "tesseract" && !isConfigured;
+
+                  return (
+                    <button
+                      key={provider.value}
+                      type="button"
+                      onClick={() => {
+                        setSelectedProvider(provider.value);
+                        setSaveStatus("idle");
+                      }}
+                      className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
+                        isSelected
+                          ? "border-primary bg-primary/10 dark:bg-primary/20"
+                          : "border-border bg-card hover:border-primary/50"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        {/* Selection indicator */}
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                          isSelected
+                            ? "border-primary bg-primary"
+                            : "border-muted-foreground/50"
+                        }`}>
+                          {isSelected && (
+                            <div className="w-2.5 h-2.5 rounded-full bg-white" />
+                          )}
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <h4 className="font-semibold text-foreground text-base">
+                                {provider.label}
+                              </h4>
+                              <p className="text-sm text-primary font-medium">
+                                {provider.price}
+                              </p>
+                            </div>
+                            {/* Configuration status */}
+                            <div className="flex-shrink-0">
+                              {isConfigured ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-600 dark:text-green-400">
+                                  <CheckCircle className="h-3 w-3" />
+                                  Ready
+                                </span>
+                              ) : needsApiKey ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-amber-600 dark:text-amber-400">
+                                  <Key className="h-3 w-3" />
+                                  Needs Key
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {provider.description}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            {/* Provider Info Box */}
-            {selectedProviderInfo && (
-              <div className={`rounded-lg border p-4 ${
-                selectedProvider === "tesseract"
-                  ? "border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950"
-                  : selectedProvider === "gemini"
-                  ? "border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950"
-                  : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
-              }`}>
+            {/* Warning if selected provider needs API key */}
+            {selectedProvider !== "tesseract" && !isProviderConfigured(selectedProvider) && (
+              <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 p-4">
                 <div className="flex items-start gap-3">
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${
-                    selectedProvider === "tesseract"
-                      ? "bg-green-600/20"
-                      : selectedProvider === "gemini"
-                      ? "bg-blue-600/20"
-                      : "bg-gray-600/20"
-                  }`}>
-                    <Pencil className={`h-4 w-4 ${
-                      selectedProvider === "tesseract"
-                        ? "text-green-700 dark:text-green-400"
-                        : selectedProvider === "gemini"
-                        ? "text-blue-700 dark:text-blue-400"
-                        : "text-gray-700 dark:text-gray-400"
-                    }`} />
-                  </div>
+                  <Key className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className={`font-medium ${
-                      selectedProvider === "tesseract"
-                        ? "text-green-900 dark:text-green-100"
-                        : selectedProvider === "gemini"
-                        ? "text-blue-900 dark:text-blue-100"
-                        : "text-gray-900 dark:text-gray-100"
-                    }`}>
-                      {selectedProviderInfo.label}
+                    <p className="font-medium text-amber-800 dark:text-amber-200">
+                      API Key Required
                     </p>
-                    <p className={`text-sm ${
-                      selectedProvider === "tesseract"
-                        ? "text-green-700 dark:text-green-300"
-                        : selectedProvider === "gemini"
-                        ? "text-blue-700 dark:text-blue-300"
-                        : "text-gray-600 dark:text-gray-400"
-                    }`}>
-                      {selectedProviderInfo.description}
-                    </p>
-                    <p className={`text-xs mt-1 ${
-                      selectedProvider === "tesseract"
-                        ? "text-green-600 dark:text-green-400"
-                        : selectedProvider === "gemini"
-                        ? "text-blue-600 dark:text-blue-400"
-                        : "text-gray-500 dark:text-gray-500"
-                    }`}>
-                      Cost: {selectedProviderInfo.price}
+                    <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                      To use {selectedProviderInfo?.label}, configure your API key in{" "}
+                      <strong>Settings → System → {selectedProvider === "gemini" || selectedProvider === "google_vision" ? "Google APIs" : selectedProvider === "openai" ? "OpenAI" : "Anthropic"}</strong>.
                     </p>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Note about API Keys */}
-            {selectedProvider !== "tesseract" && (
-              <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 p-3">
-                <p className="text-sm text-amber-800 dark:text-amber-200">
-                  Configure your API key in the <strong>API Keys</strong> section on the right.
-                </p>
-              </div>
-            )}
+            {/* Test Recognition */}
+            <div className="rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950 p-4">
+              <label className="block text-sm font-medium text-purple-900 dark:text-purple-100 mb-2">
+                Test Recognition
+              </label>
+              <p className="text-xs text-purple-700 dark:text-purple-300 mb-3">
+                Draw something to test the current provider and see the recognized text.
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => setShowTestModal(true)}
+                className="border-purple-300 dark:border-purple-700 hover:bg-purple-100 dark:hover:bg-purple-900"
+              >
+                <PenTool className="h-4 w-4 mr-2" />
+                Test Recognition
+              </Button>
+            </div>
 
             {/* Save Button */}
             <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
@@ -2757,6 +4128,12 @@ function HandwritingSettings() {
                 )}
               </Button>
             </div>
+
+            {/* Test Modal */}
+            <HandwritingTestModal
+              isOpen={showTestModal}
+              onClose={() => setShowTestModal(false)}
+            />
 
             {/* Info Box */}
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-4">
@@ -2824,11 +4201,12 @@ function AIProviderKeys() {
   const [testStatus, setTestStatus] = useState<Record<string, "idle" | "testing" | "success" | "error">>({});
   const [testErrors, setTestErrors] = useState<Record<string, string>>({});
 
+  // Provider config: category and key name for the new location
   const providers = [
-    { id: "openai", name: "OpenAI", keyName: "openai_api_key", placeholder: "sk-...", color: "purple", testName: "openai", link: "https://platform.openai.com/api-keys" },
-    { id: "anthropic", name: "Anthropic", keyName: "anthropic_api_key", placeholder: "sk-ant-...", color: "orange", testName: "claude", link: "https://console.anthropic.com/settings/keys" },
-    { id: "gemini", name: "Google Gemini", keyName: "gemini_api_key", placeholder: "AIza...", color: "blue", testName: "gemini", link: "https://aistudio.google.com/app/apikey" },
-    { id: "google_vision", name: "Google Cloud Vision", keyName: "google_vision_api_key", placeholder: "AIza...", color: "red", testName: "google_vision", link: "https://console.cloud.google.com/apis/credentials" },
+    { id: "openai", name: "OpenAI", category: "openai", keyName: "api_key", placeholder: "sk-...", color: "purple", testName: "openai", link: "https://platform.openai.com/api-keys" },
+    { id: "anthropic", name: "Anthropic", category: "anthropic", keyName: "api_key", placeholder: "sk-ant-...", color: "orange", testName: "claude", link: "https://console.anthropic.com/settings/keys" },
+    { id: "gemini", name: "Google Gemini", category: "google", keyName: "gemini_api_key", placeholder: "AIza...", color: "blue", testName: "gemini", link: "https://aistudio.google.com/app/apikey" },
+    { id: "google_vision", name: "Google Cloud Vision", category: "google", keyName: "vision_api_key", placeholder: "AIza...", color: "red", testName: "google_vision", link: "https://console.cloud.google.com/apis/credentials" },
   ];
 
   // Fetch current settings
@@ -2837,38 +4215,43 @@ function AIProviderKeys() {
     queryFn: () => api.getAllSettings(),
   });
 
-  const getSettingValue = (keyName: string): string => {
-    if (formValues[keyName] !== undefined) {
-      return formValues[keyName];
+  const getSettingValue = (category: string, keyName: string): string => {
+    const formKey = `${category}.${keyName}`;
+    if (formValues[formKey] !== undefined) {
+      return formValues[formKey];
     }
-    const setting = settings.find((s) => s.category === "handwriting" && s.key === keyName);
+    const setting = settings.find((s) => s.category === category && s.key === keyName);
     return setting?.value || "";
   };
 
-  const handleInputChange = (keyName: string, value: string) => {
-    setFormValues((prev) => ({ ...prev, [keyName]: value }));
-    setSaveStatus((prev) => ({ ...prev, [keyName]: "idle" }));
+  const handleInputChange = (category: string, keyName: string, value: string) => {
+    const formKey = `${category}.${keyName}`;
+    setFormValues((prev) => ({ ...prev, [formKey]: value }));
+    setSaveStatus((prev) => ({ ...prev, [formKey]: "idle" }));
   };
 
   const saveKey = useMutation({
-    mutationFn: async (keyName: string) => {
-      const value = formValues[keyName];
+    mutationFn: async ({ category, keyName }: { category: string; keyName: string }) => {
+      const formKey = `${category}.${keyName}`;
+      const value = formValues[formKey];
       if (value === "••••••••") return;
-      await api.updateCategorySettings("handwriting", { [keyName]: value || null });
+      await api.updateCategorySettings(category, { [keyName]: value || null });
     },
-    onSuccess: (_, keyName) => {
+    onSuccess: (_, { category, keyName }) => {
+      const formKey = `${category}.${keyName}`;
       queryClient.invalidateQueries({ queryKey: ["system-settings"] });
       queryClient.invalidateQueries({ queryKey: ["handwriting-provider"] });
-      setSaveStatus((prev) => ({ ...prev, [keyName]: "saved" }));
+      setSaveStatus((prev) => ({ ...prev, [formKey]: "saved" }));
       setFormValues((prev) => {
         const newValues = { ...prev };
-        delete newValues[keyName];
+        delete newValues[formKey];
         return newValues;
       });
-      setTimeout(() => setSaveStatus((prev) => ({ ...prev, [keyName]: "idle" })), 2000);
+      setTimeout(() => setSaveStatus((prev) => ({ ...prev, [formKey]: "idle" })), 2000);
     },
-    onError: (_, keyName) => {
-      setSaveStatus((prev) => ({ ...prev, [keyName]: "error" }));
+    onError: (_, { category, keyName }) => {
+      const formKey = `${category}.${keyName}`;
+      setSaveStatus((prev) => ({ ...prev, [formKey]: "error" }));
     },
   });
 
@@ -2915,9 +4298,10 @@ function AIProviderKeys() {
       <CardContent className="space-y-4">
         {providers.map((provider) => {
           const colors = getColorClasses(provider.color);
-          const currentValue = getSettingValue(provider.keyName);
+          const formKey = `${provider.category}.${provider.keyName}`;
+          const currentValue = getSettingValue(provider.category, provider.keyName);
           const isConfigured = currentValue && currentValue !== "" && currentValue !== "••••••••";
-          const providerSaveStatus = saveStatus[provider.keyName] || "idle";
+          const providerSaveStatus = saveStatus[formKey] || "idle";
           const providerTestStatus = testStatus[provider.id] || "idle";
           const providerTestError = testErrors[provider.id] || "";
 
@@ -2965,10 +4349,10 @@ function AIProviderKeys() {
                   </button>
                   <button
                     onClick={() => {
-                      setSaveStatus((prev) => ({ ...prev, [provider.keyName]: "saving" }));
-                      saveKey.mutate(provider.keyName);
+                      setSaveStatus((prev) => ({ ...prev, [formKey]: "saving" }));
+                      saveKey.mutate({ category: provider.category, keyName: provider.keyName });
                     }}
-                    disabled={providerSaveStatus === "saving" || formValues[provider.keyName] === undefined}
+                    disabled={providerSaveStatus === "saving" || formValues[formKey] === undefined}
                     className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {providerSaveStatus === "saving" ? "..." : "Save"}
@@ -2979,8 +4363,8 @@ function AIProviderKeys() {
               {/* API Key Input */}
               <input
                 type="password"
-                value={formValues[provider.keyName] ?? currentValue}
-                onChange={(e) => handleInputChange(provider.keyName, e.target.value)}
+                value={formValues[formKey] ?? currentValue}
+                onChange={(e) => handleInputChange(provider.category, provider.keyName, e.target.value)}
                 placeholder={provider.placeholder}
                 className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-primary focus:outline-none"
               />
@@ -4599,6 +5983,7 @@ function HomeAssistantSettings() {
 // API Keys Settings
 function ApiKeysSettings() {
   const queryClient = useQueryClient();
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
   const [createdKey, setCreatedKey] = useState<string | null>(null);
@@ -4654,24 +6039,30 @@ function ApiKeysSettings() {
   };
 
   return (
-    <Card className="border-2 border-primary/40">
-      <CardHeader>
-        <div className="flex items-center justify-between">
+    <div className="rounded-lg border-2 border-primary bg-primary/5 dark:bg-primary/10">
+      <button
+        type="button"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+        className="flex w-full items-center justify-between p-4 text-left hover:bg-primary/10 dark:hover:bg-primary/20 rounded-t-lg"
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-primary">
+            <Key className="h-5 w-5" />
+          </span>
           <div>
-            <CardTitle>API Keys</CardTitle>
-            <CardDescription>
-              Manage API keys for kiosk devices, automation tools (n8n, Home Assistant, etc.)
-            </CardDescription>
+            <h4 className="font-medium text-lg text-primary dark:text-primary">API Keys</h4>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Manage API keys for kiosk devices, automation tools</p>
           </div>
-          {!showCreateForm && !createdKey && (
-            <Button variant="outline" size="sm" onClick={() => setShowCreateForm(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Key
-            </Button>
-          )}
         </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
+        {isCollapsed ? (
+          <ChevronDown className="h-5 w-5 text-gray-500" />
+        ) : (
+          <ChevronUp className="h-5 w-5 text-gray-500" />
+        )}
+      </button>
+
+      {!isCollapsed && (
+        <div className="border-t border-gray-200 dark:border-gray-700 p-4 space-y-4">
         {/* Newly created key display */}
         {createdKey && (
           <div className="rounded-lg border-2 border-green-600 bg-green-100 dark:bg-green-950 p-4 space-y-3">
@@ -4810,18 +6201,18 @@ function ApiKeysSettings() {
           </div>
         )}
 
-        {/* Help text */}
-        <div className="rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 p-4 text-sm space-y-2">
-          <p className="font-medium text-blue-800 dark:text-blue-300">How to use API keys for kiosk devices:</p>
-          <ol className="list-decimal list-inside space-y-1 text-blue-700 dark:text-blue-400">
-            <li>Create an API key with a descriptive name (e.g., "Kitchen Kiosk")</li>
-            <li>Copy the kiosk URL shown after creation</li>
-            <li>Open that URL on your kiosk device - it will auto-authenticate</li>
-            <li>Bookmark the page or set it as the homepage</li>
-          </ol>
+          {/* Help text */}
+          <div className="rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 p-4 text-sm space-y-2">
+            <p className="font-medium text-blue-800 dark:text-blue-300">How to use API keys:</p>
+            <ol className="list-decimal list-inside space-y-1 text-blue-700 dark:text-blue-400">
+              <li>Create an API key with a descriptive name (e.g., "Kitchen Kiosk")</li>
+              <li>Copy the kiosk URL shown after creation</li>
+              <li>Open that URL on your kiosk device - it will auto-authenticate</li>
+            </ol>
+          </div>
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </div>
   );
 }
 
@@ -5708,7 +7099,7 @@ export function SettingsPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const user = useAuthStore((state) => state.user);
-  const { weekStartsOn, setWeekStartsOn, familyName, setFamilyName, homeAddress, setHomeAddress, dayStartHour, setDayStartHour, dayEndHour, setDayEndHour, tickerSpeed, setTickerSpeed, weekCellWidget, setWeekCellWidget } = useCalendarStore();
+  const { weekStartsOn, setWeekStartsOn, familyName, setFamilyName, homeAddress, setHomeAddress, dayStartHour, setDayStartHour, dayEndHour, setDayEndHour, tickerSpeed, setTickerSpeed, weekCellWidget, setWeekCellWidget, showDriveTimeOnNext, setShowDriveTimeOnNext, showWeekNumbers, setShowWeekNumbers, defaultEventDuration, setDefaultEventDuration, autoRefreshInterval, setAutoRefreshInterval } = useCalendarStore();
   const {
     enabled: screensaverEnabled,
     setEnabled: setScreensaverEnabled,
@@ -6656,6 +8047,91 @@ export function SettingsPage() {
                           <option value="home-control">Home Control</option>
                         </select>
                       </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="font-medium">Show drive time on next event</p>
+                          <p className="text-sm text-muted-foreground">
+                            Display driving time from home on the "up next" event
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={showDriveTimeOnNext}
+                          onClick={() => setShowDriveTimeOnNext(!showDriveTimeOnNext)}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors min-w-[44px] ${
+                            showDriveTimeOnNext ? "bg-primary" : "bg-muted"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              showDriveTimeOnNext ? "translate-x-6" : "translate-x-1"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="font-medium">Show week numbers</p>
+                          <p className="text-sm text-muted-foreground">
+                            Display week numbers in calendar views
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={showWeekNumbers}
+                          onClick={() => setShowWeekNumbers(!showWeekNumbers)}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors min-w-[44px] ${
+                            showWeekNumbers ? "bg-primary" : "bg-muted"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              showWeekNumbers ? "translate-x-6" : "translate-x-1"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                          <p className="font-medium">Default event duration</p>
+                          <p className="text-sm text-muted-foreground">
+                            Duration for new events
+                          </p>
+                        </div>
+                        <select
+                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
+                          value={defaultEventDuration}
+                          onChange={(e) => setDefaultEventDuration(Number(e.target.value))}
+                        >
+                          <option value={15}>15 minutes</option>
+                          <option value={30}>30 minutes</option>
+                          <option value={60}>1 hour</option>
+                          <option value={90}>1.5 hours</option>
+                          <option value={120}>2 hours</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                          <p className="font-medium">Auto-refresh interval</p>
+                          <p className="text-sm text-muted-foreground">
+                            How often to refresh calendar data
+                          </p>
+                        </div>
+                        <select
+                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
+                          value={autoRefreshInterval}
+                          onChange={(e) => setAutoRefreshInterval(Number(e.target.value))}
+                        >
+                          <option value={0}>Disabled</option>
+                          <option value={1}>1 minute</option>
+                          <option value={5}>5 minutes</option>
+                          <option value={10}>10 minutes</option>
+                          <option value={15}>15 minutes</option>
+                          <option value={30}>30 minutes</option>
+                        </select>
+                      </div>
                     </CardContent>
                   </Card>
 
@@ -7148,9 +8624,15 @@ export function SettingsPage() {
 
           {/* System Settings Tab */}
           {activeTab === "system" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <SystemSettings />
-              <ApiKeysSettings />
+            <div className="space-y-4">
+              {/* reMarkable Settings Card - Full Width */}
+              <RemarkableSettingsCard />
+              {/* Backup & Restore Card - Full Width */}
+              <BackupRestoreCard />
+              {/* System Settings Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
+                <SystemSettings />
+              </div>
             </div>
           )}
         </div>

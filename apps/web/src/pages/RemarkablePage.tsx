@@ -17,18 +17,31 @@ import {
   FolderOpen,
   Calendar,
   PenTool,
+  Layout,
+  ClipboardList,
+  Folder,
+  FileCheck,
+  AlertCircle,
 } from "lucide-react";
-import { api, type RemarkableNote, type RemarkableAgendaSettings } from "../services/api";
+import { api, type RemarkableNote, type RemarkableAgendaSettings, type RemarkableRecentDocument } from "../services/api";
 import { Button } from "../components/ui/Button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/Card";
 import { ConnectionWizard } from "../components/remarkable/ConnectionWizard";
 import { RemarkableSettings } from "../components/remarkable/RemarkableSettings";
 import { AgendaPreview } from "../components/remarkable/AgendaPreview";
+import { TemplateManager } from "../components/remarkable/TemplateManager";
+import { ScheduleManager } from "../components/remarkable/ScheduleManager";
+import { FolderBrowser } from "../components/remarkable/FolderBrowser";
+import { ConfirmationSettings } from "../components/remarkable/ConfirmationSettings";
 
 export function RemarkablePage() {
   const queryClient = useQueryClient();
   const [showSettings, setShowSettings] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showSchedules, setShowSchedules] = useState(false);
+  const [showFolders, setShowFolders] = useState(false);
+  const [showConfirmations, setShowConfirmations] = useState(false);
   const [previewDate, setPreviewDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
   // Fetch reMarkable status
@@ -45,6 +58,18 @@ export function RemarkablePage() {
   const { data: notes = [], isLoading: isLoadingNotes } = useQuery({
     queryKey: ["remarkable", "notes"],
     queryFn: () => api.getRemarkableNotes(true),
+    enabled: status?.connected === true,
+  });
+
+  // Fetch recent documents from device
+  const {
+    data: recentDocs = [],
+    isLoading: isLoadingRecentDocs,
+    refetch: refetchRecentDocs,
+    error: recentDocsError,
+  } = useQuery({
+    queryKey: ["remarkable", "recent-documents"],
+    queryFn: () => api.getRemarkableRecentDocuments(10),
     enabled: status?.connected === true,
   });
 
@@ -125,6 +150,14 @@ export function RemarkablePage() {
             <Button
               variant="outline"
               size="sm"
+              onClick={() => setShowFolders(true)}
+            >
+              <Folder className="h-4 w-4 mr-2" />
+              Folders
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setShowSettings(true)}
             >
               <Settings className="h-4 w-4 mr-2" />
@@ -189,6 +222,94 @@ export function RemarkablePage() {
           </CardContent>
         )}
       </Card>
+
+      {/* Recent Files Section - Shows after connection to verify it's working */}
+      {isConnected && (
+        <Card className="mb-6">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <FileCheck className="h-5 w-5" />
+                  Recent Files on Device
+                </CardTitle>
+                <CardDescription>
+                  Your most recently edited files on reMarkable
+                </CardDescription>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => refetchRecentDocs()}
+                disabled={isLoadingRecentDocs}
+              >
+                {isLoadingRecentDocs ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {isLoadingRecentDocs ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : recentDocsError ? (
+              <div className="text-center py-6">
+                <AlertCircle className="h-10 w-10 mx-auto mb-2 text-amber-500" />
+                <p className="text-amber-600 font-medium">File listing temporarily unavailable</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  reMarkable's servers returned an error. Your connection is still valid -
+                  push and sync features should work normally.
+                </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Try again later or check{" "}
+                  <a href="https://status.remarkable.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                    reMarkable's status page
+                  </a>
+                </p>
+              </div>
+            ) : recentDocs.length === 0 ? (
+              <div className="text-center py-6 text-muted-foreground">
+                <FileText className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                <p>No documents found on your device</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {recentDocs.map((doc: RemarkableRecentDocument) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{doc.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {doc.folderPath}
+                          {doc.lastModified && (
+                            <> &middot; {format(new Date(doc.lastModified), "PPp")}</>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    {doc.pinned && (
+                      <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded flex-shrink-0">
+                        Pinned
+                      </span>
+                    )}
+                  </div>
+                ))}
+                <p className="text-xs text-muted-foreground text-center pt-2">
+                  Showing your {recentDocs.length} most recently edited files
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Main Content - Only show when connected */}
       {isConnected && (
@@ -269,6 +390,55 @@ export function RemarkablePage() {
             </CardContent>
           </Card>
 
+          {/* Templates & Schedules Section */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            {/* Templates Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Layout className="h-5 w-5" />
+                  Templates
+                </CardTitle>
+                <CardDescription>
+                  Create custom templates for weekly planners, habit trackers, and more
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowTemplates(true)}
+                  className="w-full"
+                >
+                  <Layout className="h-4 w-4 mr-2" />
+                  Manage Templates
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Schedules Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ClipboardList className="h-5 w-5" />
+                  Schedules
+                </CardTitle>
+                <CardDescription>
+                  Automate when templates are pushed to your device
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowSchedules(true)}
+                  className="w-full"
+                >
+                  <Clock className="h-4 w-4 mr-2" />
+                  Manage Schedules
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+
           {/* Handwritten Notes Section */}
           <Card>
             <CardHeader>
@@ -283,6 +453,14 @@ export function RemarkablePage() {
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowConfirmations(true)}
+                    title="Two-way sync settings"
+                  >
+                    <Settings className="h-4 w-4" />
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
@@ -404,6 +582,26 @@ export function RemarkablePage() {
           onDateChange={setPreviewDate}
           onClose={() => setShowPreview(false)}
         />
+      )}
+
+      {/* Template Manager Modal */}
+      {showTemplates && (
+        <TemplateManager onClose={() => setShowTemplates(false)} />
+      )}
+
+      {/* Schedule Manager Modal */}
+      {showSchedules && (
+        <ScheduleManager onClose={() => setShowSchedules(false)} />
+      )}
+
+      {/* Folder Browser Modal */}
+      {showFolders && (
+        <FolderBrowser onClose={() => setShowFolders(false)} />
+      )}
+
+      {/* Confirmation Settings Modal */}
+      {showConfirmations && (
+        <ConfirmationSettings onClose={() => setShowConfirmations(false)} />
       )}
     </div>
   );

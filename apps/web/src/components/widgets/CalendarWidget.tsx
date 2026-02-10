@@ -54,14 +54,27 @@ export function CalendarWidget({ config, style, isBuilder }: CalendarWidgetProps
     enabled: !isBuilder,
   });
 
-  // Use config calendar IDs if specified, otherwise fall back to screensaver-visible calendars
+  // Use config calendar IDs if specified, otherwise fall back to visible calendars
   const activeCalendarIds = useMemo(() => {
     if (configCalendarIds.length > 0) {
       return configCalendarIds;
     }
-    // Fall back to all screensaver-visible calendars
+    // Fall back to: 1) screensaver-visible calendars, 2) favorite calendars, 3) all visible calendars
+    const screensaverVisible = calendars.filter(
+      (cal: Calendar) => cal.isVisible && cal.visibility?.screensaver
+    );
+    if (screensaverVisible.length > 0) {
+      return screensaverVisible.map((cal: Calendar) => cal.id);
+    }
+    const favorites = calendars.filter(
+      (cal: Calendar) => cal.isVisible && cal.isFavorite
+    );
+    if (favorites.length > 0) {
+      return favorites.map((cal: Calendar) => cal.id);
+    }
+    // Ultimate fallback: all visible calendars
     return calendars
-      .filter((cal: Calendar) => cal.isVisible && (cal.visibility?.screensaver ?? false))
+      .filter((cal: Calendar) => cal.isVisible)
       .map((cal: Calendar) => cal.id);
   }, [calendars, configCalendarIds]);
 
@@ -116,7 +129,7 @@ export function CalendarWidget({ config, style, isBuilder }: CalendarWidgetProps
   }, [events, maxItems, showUpcomingOnly, hideBlankEvents, hideDuplicates]);
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
-  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset];
+  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset as Exclude<FontSizePreset, "custom">];
 
   // Calculate custom font sizes if using custom mode
   const getCustomFontSize = (scale: number) => {

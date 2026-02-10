@@ -19,6 +19,9 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       // Get Google OAuth token
       const [token] = await fastify.db
@@ -149,6 +152,9 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const lists = await fastify.db
         .select()
@@ -189,6 +195,9 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const query = taskQuerySchema.parse(request.query);
 
       // Get user's task lists
@@ -293,6 +302,9 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const input = createTaskSchema.parse(request.body);
 
       // Verify user owns the task list
@@ -349,6 +361,9 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
       const input = updateTaskSchema.parse(request.body);
 
@@ -427,6 +442,9 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [existingTask] = await fastify.db
@@ -491,6 +509,9 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [task] = await fastify.db

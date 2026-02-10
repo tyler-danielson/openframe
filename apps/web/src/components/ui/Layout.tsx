@@ -23,12 +23,17 @@ import {
   Play,
   PenTool,
   ChefHat,
+  Users,
 } from "lucide-react";
-import { api } from "../../services/api";
+import { api, type KioskEnabledFeatures } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
 import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import { useScreensaverStore } from "../../stores/screensaver";
 import { cn } from "../../lib/utils";
+
+interface LayoutProps {
+  kioskEnabledFeatures?: KioskEnabledFeatures | null;
+}
 
 // Media sub-items (base paths, will be prefixed in component)
 const mediaItemsBase = [
@@ -36,7 +41,7 @@ const mediaItemsBase = [
   { path: "iptv", icon: Tv, label: "Live TV" },
 ];
 
-export function Layout() {
+export function Layout({ kioskEnabledFeatures }: LayoutProps = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -157,25 +162,58 @@ export function Layout() {
     }
   };
 
+  // Helper to check if a feature is enabled
+  const isFeatureEnabled = useCallback((feature: keyof KioskEnabledFeatures) => {
+    if (!kioskEnabledFeatures) return true; // No restrictions
+    return kioskEnabledFeatures[feature] !== false;
+  }, [kioskEnabledFeatures]);
+
   // Build nav items based on authentication status (with kiosk prefix if needed)
-  const navItems = useMemo(() => [
-    { to: buildPath("calendar"), icon: Calendar, label: "Calendar" },
-    { to: buildPath("tasks"), icon: ListTodo, label: "Tasks" },
-    { to: buildPath("dashboard"), icon: LayoutDashboard, label: "Dashboard" },
-    { to: buildPath("photos"), icon: Image, label: "Photos" },
-    // Media is handled separately with submenu
-    { to: buildPath("cameras"), icon: Camera, label: "Cameras" },
-    { to: buildPath("homeassistant"), icon: Home, label: "Home Assistant" },
-    { to: buildPath("map"), icon: MapPin, label: "Map" },
-    { to: buildPath("recipes"), icon: ChefHat, label: "Recipes" },
-    // Only show reMarkable and settings if authenticated AND not accessing via kiosk URL
-    ...(isAuthenticated && !basePath
-      ? [
-          { to: "/remarkable", icon: PenTool, label: "reMarkable" },
-          { to: "/settings", icon: Settings, label: "Settings" },
-        ]
-      : []),
-  ], [buildPath, isAuthenticated, basePath]);
+  const navItems = useMemo(() => {
+    const items = [
+      { to: buildPath("calendar"), icon: Calendar, label: "Calendar", feature: "calendar" as const },
+      { to: buildPath("tasks"), icon: ListTodo, label: "Tasks", feature: "tasks" as const },
+      { to: buildPath("dashboard"), icon: LayoutDashboard, label: "Dashboard", feature: "dashboard" as const },
+      { to: buildPath("photos"), icon: Image, label: "Photos", feature: "photos" as const },
+      // Media is handled separately with submenu
+      { to: buildPath("cameras"), icon: Camera, label: "Cameras", feature: "cameras" as const },
+      { to: buildPath("homeassistant"), icon: Home, label: "Home Assistant", feature: "homeassistant" as const },
+      { to: buildPath("map"), icon: MapPin, label: "Map", feature: "map" as const },
+      { to: buildPath("recipes"), icon: ChefHat, label: "Recipes", feature: "recipes" as const },
+    ];
+
+    // Filter items based on enabled features (only if kioskEnabledFeatures is provided)
+    const filteredItems = kioskEnabledFeatures
+      ? items.filter(item => isFeatureEnabled(item.feature))
+      : items;
+
+    // Only show reMarkable, profiles, and settings if authenticated AND not accessing via kiosk URL
+    if (isAuthenticated && !basePath) {
+      filteredItems.push(
+        { to: "/remarkable", icon: PenTool, label: "reMarkable", feature: undefined as any },
+        { to: "/profiles", icon: Users, label: "Family", feature: undefined as any },
+        { to: "/settings", icon: Settings, label: "Settings", feature: undefined as any },
+      );
+    }
+
+    return filteredItems;
+  }, [buildPath, isAuthenticated, basePath, kioskEnabledFeatures, isFeatureEnabled]);
+
+  // Check if media features are enabled
+  const showMedia = useMemo(() => {
+    if (!kioskEnabledFeatures) return true;
+    return isFeatureEnabled("spotify") || isFeatureEnabled("iptv");
+  }, [kioskEnabledFeatures, isFeatureEnabled]);
+
+  // Filter media items based on enabled features
+  const filteredMediaItems = useMemo(() => {
+    if (!kioskEnabledFeatures) return mediaItems;
+    return mediaItems.filter(item => {
+      if (item.label === "Spotify") return isFeatureEnabled("spotify");
+      if (item.label === "Live TV") return isFeatureEnabled("iptv");
+      return true;
+    });
+  }, [mediaItems, kioskEnabledFeatures, isFeatureEnabled]);
 
   return (
     <div className="flex h-screen bg-background">
@@ -212,12 +250,9 @@ export function Layout() {
           <X className="h-5 w-5 text-foreground" />
         </button>
 
-        <div className="mb-8 flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Calendar className="h-6 w-6" />
-        </div>
-
         <nav className="flex flex-1 flex-col items-center gap-2">
-          {navItems.slice(0, 4).map((item) => (
+          {/* First 4 nav items (before media) */}
+          {navItems.filter(item => ["Calendar", "Tasks", "Dashboard", "Photos"].includes(item.label)).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -236,21 +271,24 @@ export function Layout() {
             </NavLink>
           ))}
 
-          {/* Media button with submenu */}
-          <button
-            onClick={() => setIsMediaMenuOpen(!isMediaMenuOpen)}
-            className={cn(
-              "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
-              isMediaRoute || isMediaMenuOpen
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            )}
-            title="Media"
-          >
-            <Play className="h-5 w-5" />
-          </button>
+          {/* Media button with submenu - only show if media features are enabled */}
+          {showMedia && (
+            <button
+              onClick={() => setIsMediaMenuOpen(!isMediaMenuOpen)}
+              className={cn(
+                "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+                isMediaRoute || isMediaMenuOpen
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              )}
+              title="Media"
+            >
+              <Play className="h-5 w-5" />
+            </button>
+          )}
 
-          {navItems.slice(4).map((item) => (
+          {/* Remaining nav items (after media) */}
+          {navItems.filter(item => !["Calendar", "Tasks", "Dashboard", "Photos"].includes(item.label)).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -333,10 +371,10 @@ export function Layout() {
       </aside>
 
       {/* Media Submenu - appears to the right of sidebar */}
-      {isMediaMenuOpen && (
+      {isMediaMenuOpen && showMedia && (
         <aside className="fixed lg:relative z-40 lg:z-auto h-full flex w-16 flex-col items-center border-r border-border bg-card/95 backdrop-blur-sm py-4 left-16 lg:left-auto">
           <div className="flex flex-col items-center gap-2 mt-[72px]">
-            {mediaItems.map((item) => (
+            {filteredMediaItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}

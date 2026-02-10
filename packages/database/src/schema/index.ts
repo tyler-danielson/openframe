@@ -10,6 +10,14 @@ import {
   pgEnum,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
+import type {
+  PlannerLayoutConfig,
+  PlannerWidgetInstance,
+  PlannerWidgetType,
+} from "@openframe/shared";
+
+// Re-export shared types for convenience
+export type { PlannerLayoutConfig, PlannerWidgetInstance, PlannerWidgetType };
 
 // Enums
 export const oauthProviderEnum = pgEnum("oauth_provider", [
@@ -395,6 +403,28 @@ export const screensaverTransitionEnum = pgEnum("screensaver_transition", [
   "zoom",
 ]);
 
+// Kiosk display mode enum
+export const kioskDisplayModeEnum = pgEnum("kiosk_display_mode", [
+  "full",              // Full app with navigation
+  "screensaver-only",  // Only screensaver, no app UI
+  "calendar-only",     // Only calendar page
+  "dashboard-only",    // Only dashboard page
+]);
+
+// Kiosk enabled features type
+export interface KioskEnabledFeatures {
+  calendar?: boolean;
+  dashboard?: boolean;
+  tasks?: boolean;
+  photos?: boolean;
+  spotify?: boolean;
+  iptv?: boolean;
+  cameras?: boolean;
+  homeassistant?: boolean;
+  map?: boolean;
+  recipes?: boolean;
+}
+
 // Kiosk configuration
 export const kioskConfig = pgTable("kiosk_config", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -433,6 +463,11 @@ export const kiosks = pgTable(
     isActive: boolean("is_active").default(true).notNull(),
     // Color scheme
     colorScheme: colorSchemeEnum("color_scheme").default("default").notNull(),
+    // Display mode settings
+    displayMode: kioskDisplayModeEnum("display_mode").default("full").notNull(),
+    homePage: text("home_page").default("calendar"),
+    selectedCalendarIds: text("selected_calendar_ids").array(),
+    enabledFeatures: jsonb("enabled_features").$type<KioskEnabledFeatures>(),
     // Screensaver settings
     screensaverEnabled: boolean("screensaver_enabled").default(true).notNull(),
     screensaverTimeout: integer("screensaver_timeout").default(300).notNull(), // seconds
@@ -444,6 +479,7 @@ export const kiosks = pgTable(
       .default("fade")
       .notNull(),
     screensaverLayoutConfig: jsonb("screensaver_layout_config"), // Custom builder layout config
+    startFullscreen: boolean("start_fullscreen").default(false).notNull(), // Auto-enter fullscreen on load
     lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -1819,3 +1855,158 @@ export const recipeUploadTokensRelations = relations(recipeUploadTokens, ({ one 
 // Type exports for recipes
 export type Recipe = typeof recipes.$inferSelect;
 export type RecipeUploadToken = typeof recipeUploadTokens.$inferSelect;
+
+// ============ Family Profiles ============
+
+// Family profiles table
+export const familyProfiles = pgTable(
+  "family_profiles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    icon: text("icon"),
+    color: text("color"),
+    isDefault: boolean("is_default").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("family_profiles_user_idx").on(table.userId)]
+);
+
+// Per-profile calendar visibility
+export const profileCalendars = pgTable(
+  "profile_calendars",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => familyProfiles.id, { onDelete: "cascade" }),
+    calendarId: uuid("calendar_id")
+      .notNull()
+      .references(() => calendars.id, { onDelete: "cascade" }),
+    isVisible: boolean("is_visible").default(true).notNull(),
+  },
+  (table) => [
+    index("profile_calendars_profile_idx").on(table.profileId),
+    index("profile_calendars_calendar_idx").on(table.calendarId),
+  ]
+);
+
+// Per-profile news feed selection
+export const profileNewsFeeds = pgTable(
+  "profile_news_feeds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => familyProfiles.id, { onDelete: "cascade" }),
+    newsFeedId: uuid("news_feed_id")
+      .notNull()
+      .references(() => newsFeeds.id, { onDelete: "cascade" }),
+    isVisible: boolean("is_visible").default(true).notNull(),
+  },
+  (table) => [
+    index("profile_news_feeds_profile_idx").on(table.profileId),
+    index("profile_news_feeds_feed_idx").on(table.newsFeedId),
+  ]
+);
+
+// Per-profile planner layout (widget-based)
+export const profilePlannerConfig = pgTable("profile_planner_config", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  profileId: uuid("profile_id")
+    .notNull()
+    .unique()
+    .references(() => familyProfiles.id, { onDelete: "cascade" }),
+  layoutConfig: jsonb("layout_config").$type<PlannerLayoutConfig>(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+// Per-profile reMarkable settings
+export const profileRemarkableSettings = pgTable("profile_remarkable_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  profileId: uuid("profile_id")
+    .notNull()
+    .unique()
+    .references(() => familyProfiles.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").default(true).notNull(),
+  folderPath: text("folder_path").default("/Calendar"),
+  scheduleType: remarkableScheduleTypeEnum("schedule_type").default("daily"),
+  pushTime: text("push_time").default("06:00"),
+  pushDay: integer("push_day"),
+  timezone: text("timezone").default("America/New_York"),
+  lastPushAt: timestamp("last_push_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+// Family profile relations
+export const familyProfilesRelations = relations(familyProfiles, ({ one, many }) => ({
+  user: one(users, {
+    fields: [familyProfiles.userId],
+    references: [users.id],
+  }),
+  calendars: many(profileCalendars),
+  newsFeeds: many(profileNewsFeeds),
+  plannerConfig: one(profilePlannerConfig),
+  remarkableSettings: one(profileRemarkableSettings),
+}));
+
+export const profileCalendarsRelations = relations(profileCalendars, ({ one }) => ({
+  profile: one(familyProfiles, {
+    fields: [profileCalendars.profileId],
+    references: [familyProfiles.id],
+  }),
+  calendar: one(calendars, {
+    fields: [profileCalendars.calendarId],
+    references: [calendars.id],
+  }),
+}));
+
+export const profileNewsFeedsRelations = relations(profileNewsFeeds, ({ one }) => ({
+  profile: one(familyProfiles, {
+    fields: [profileNewsFeeds.profileId],
+    references: [familyProfiles.id],
+  }),
+  newsFeed: one(newsFeeds, {
+    fields: [profileNewsFeeds.newsFeedId],
+    references: [newsFeeds.id],
+  }),
+}));
+
+export const profilePlannerConfigRelations = relations(profilePlannerConfig, ({ one }) => ({
+  profile: one(familyProfiles, {
+    fields: [profilePlannerConfig.profileId],
+    references: [familyProfiles.id],
+  }),
+}));
+
+export const profileRemarkableSettingsRelations = relations(profileRemarkableSettings, ({ one }) => ({
+  profile: one(familyProfiles, {
+    fields: [profileRemarkableSettings.profileId],
+    references: [familyProfiles.id],
+  }),
+}));
+
+// Type exports for family profiles
+export type FamilyProfile = typeof familyProfiles.$inferSelect;
+export type ProfileCalendar = typeof profileCalendars.$inferSelect;
+export type ProfileNewsFeed = typeof profileNewsFeeds.$inferSelect;
+export type ProfilePlannerConfig = typeof profilePlannerConfig.$inferSelect;
+export type ProfileRemarkableSettings = typeof profileRemarkableSettings.$inferSelect;

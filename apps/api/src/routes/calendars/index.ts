@@ -26,6 +26,9 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const query = calendarQuerySchema.parse(request.query);
 
       let dbQuery = fastify.db
@@ -91,6 +94,9 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [calendar] = await fastify.db
@@ -151,6 +157,9 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
       const updates = request.body as Partial<{
         color: string;
@@ -213,6 +222,9 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
       const { fullSync } = syncCalendarSchema.parse(request.body ?? {});
 
@@ -226,14 +238,15 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.notFound("Calendar not found");
       }
 
-      // Get OAuth token for the provider
+      // Get OAuth token for the provider (only google/microsoft have OAuth)
+      const oauthProvider = calendar.provider === "caldav" ? "google" : calendar.provider as "google" | "microsoft";
       const [oauthToken] = await fastify.db
         .select()
         .from(oauthTokens)
         .where(
           and(
             eq(oauthTokens.userId, user.id),
-            eq(oauthTokens.provider, calendar.provider === "caldav" ? "google" : calendar.provider)
+            eq(oauthTokens.provider, oauthProvider)
           )
         )
         .limit(1);
@@ -279,6 +292,9 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       // Get all OAuth tokens
       const tokens = await fastify.db
@@ -321,6 +337,9 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { url, name } = request.body as { url: string; name?: string };
 
       // Normalize webcal:// URLs to https://
@@ -435,6 +454,9 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [deleted] = await fastify.db

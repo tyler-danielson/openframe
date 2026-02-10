@@ -33,6 +33,9 @@ import { capacitiesRoutes } from "./routes/capacities/index.js";
 import { telegramRoutes } from "./routes/telegram/index.js";
 import { kiosksRoutes } from "./routes/kiosks/index.js";
 import { recipeRoutes } from "./routes/recipes/index.js";
+import { profileRoutes } from "./routes/profiles/index.js";
+import { gmailRoutes } from "./routes/gmail/index.js";
+import { briefingRoutes } from "./routes/briefing/index.js";
 import type { Config } from "./config.js";
 
 export async function buildApp(config: Config): Promise<FastifyInstance> {
@@ -69,7 +72,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   });
 
   await app.register(rateLimit, {
-    max: 100,
+    max: 500,
     timeWindow: "1 minute",
   });
 
@@ -144,6 +147,9 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(telegramRoutes, { prefix: "/api/v1/telegram" });
   await app.register(kiosksRoutes, { prefix: "/api/v1/kiosks" });
   await app.register(recipeRoutes, { prefix: "/api/v1/recipes" });
+  await app.register(profileRoutes, { prefix: "/api/v1/profiles" });
+  await app.register(gmailRoutes, { prefix: "/api/v1/gmail" });
+  await app.register(briefingRoutes, { prefix: "/api/v1/briefing" });
 
   // Error handler
   app.setErrorHandler((error: FastifyError, _request, reply) => {

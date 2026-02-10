@@ -58,8 +58,9 @@ export function SpotifyWidget({ config, style, isBuilder }: SpotifyWidgetProps) 
   });
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
-  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset];
-  const albumSize = isCustom ? "w-14 h-14" : ALBUM_SIZE_CLASSES[preset];
+  const presetKey = preset as Exclude<FontSizePreset, "custom">;
+  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[presetKey];
+  const albumSize = isCustom ? "w-14 h-14" : ALBUM_SIZE_CLASSES[presetKey];
 
   // Calculate custom font sizes if using custom mode
   const getCustomFontSize = (scale: number) => {

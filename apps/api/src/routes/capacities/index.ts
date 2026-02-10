@@ -42,6 +42,9 @@ export const capacitiesRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("Not authenticated");
+      }
       const { apiToken } = request.body;
 
       if (!apiToken || apiToken.trim().length === 0) {
@@ -88,6 +91,9 @@ export const capacitiesRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       await CapacitiesService.disconnect(fastify, user.id);
 
@@ -112,6 +118,9 @@ export const capacitiesRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const config = await CapacitiesService.getConfig(fastify, user.id);
 
@@ -162,6 +171,9 @@ export const capacitiesRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const config = await CapacitiesService.getConfig(fastify, user.id);
       if (!config) {
@@ -224,6 +236,9 @@ export const capacitiesRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id: spaceId } = request.params;
       const { isDefault } = request.body;
 
@@ -266,6 +281,9 @@ export const capacitiesRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id: spaceId } = request.params;
 
       const config = await CapacitiesService.getConfig(fastify, user.id);
@@ -320,6 +338,9 @@ export const capacitiesRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { spaceId, searchTerm, structureId } = request.body;
 
       const config = await CapacitiesService.getConfig(fastify, user.id);
@@ -380,6 +401,9 @@ export const capacitiesRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { spaceId, mdText, noTimeStamp } = request.body;
 
       const config = await CapacitiesService.getConfig(fastify, user.id);
@@ -464,6 +488,9 @@ export const capacitiesRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { spaceId, url, title, mdText, tags } = request.body;
 
       const config = await CapacitiesService.getConfig(fastify, user.id);
@@ -513,6 +540,9 @@ export const capacitiesRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const isConnected = await CapacitiesService.testConnection(
         fastify,

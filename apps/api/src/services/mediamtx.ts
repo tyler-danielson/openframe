@@ -112,8 +112,8 @@ class MediaMTXService {
       source: rtspUrl,
       sourceProtocol: "tcp",
       sourceOnDemand: true,
-      sourceOnDemandStartTimeout: "10s",
-      sourceOnDemandCloseAfter: "10s",
+      sourceOnDemandStartTimeout: "30s",
+      sourceOnDemandCloseAfter: "60s",
       ...options,
     };
 
@@ -260,6 +260,44 @@ class MediaMTXService {
     const pathName = this.getPathName(cameraId);
     const path = await this.getPath(pathName);
     return path?.ready ?? false;
+  }
+
+  /**
+   * Get detailed stream status for diagnostics
+   */
+  async getStreamStatus(cameraId: string): Promise<{
+    pathRegistered: boolean;
+    streamReady: boolean;
+    readyTime: string | null;
+    readers: number;
+    bytesReceived: number;
+    sourceType: string | null;
+    tracks: string[];
+  }> {
+    const pathName = this.getPathName(cameraId);
+    const path = await this.getPath(pathName);
+
+    if (!path) {
+      return {
+        pathRegistered: false,
+        streamReady: false,
+        readyTime: null,
+        readers: 0,
+        bytesReceived: 0,
+        sourceType: null,
+        tracks: [],
+      };
+    }
+
+    return {
+      pathRegistered: true,
+      streamReady: path.ready,
+      readyTime: path.readyTime,
+      readers: path.readers?.length ?? 0,
+      bytesReceived: path.bytesReceived,
+      sourceType: path.source?.type ?? null,
+      tracks: path.tracks,
+    };
   }
 }
 

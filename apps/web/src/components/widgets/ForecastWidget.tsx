@@ -64,7 +64,7 @@ export function ForecastWidget({ config, style, isBuilder }: ForecastWidgetProps
   });
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
-  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset];
+  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset as Exclude<FontSizePreset, "custom">];
 
   // Calculate custom font sizes if using custom mode
   const getCustomFontSize = (scale: number) => {
@@ -184,9 +184,9 @@ export function ForecastWidget({ config, style, isBuilder }: ForecastWidgetProps
               className={cn(sizeClasses?.temp, "font-light")}
               style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.temp) } : undefined}
             >
-              <span>H: {weather.temp_max}°</span>
+              <span>H: {weather.temp_max}°{weather.units === "metric" ? "C" : "F"}</span>
               <span className="opacity-50 mx-2">|</span>
-              <span>L: {weather.temp_min}°</span>
+              <span>L: {weather.temp_min}°{weather.units === "metric" ? "C" : "F"}</span>
             </div>
           )}
           <div

@@ -23,7 +23,7 @@ export function TextWidget({ config, style }: TextWidgetProps) {
   const fontWeight = config.fontWeight as "normal" | "medium" | "bold" ?? "normal";
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
-  const fontSizeClass = isCustom ? "" : FONT_SIZE_CLASSES[preset];
+  const fontSizeClass = isCustom ? "" : FONT_SIZE_CLASSES[preset as Exclude<FontSizePreset, "custom">];
 
   const alignmentClass = {
     left: "text-left",

@@ -40,7 +40,7 @@ export function ClockWidget({ config, style, isBuilder }: ClockWidgetProps) {
   }, []);
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
-  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset];
+  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset as Exclude<FontSizePreset, "custom">];
 
   const timeFormat: Intl.DateTimeFormatOptions = showSeconds
     ? { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: !format24h }

@@ -6,7 +6,7 @@
 
 import type { FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, gte, lte, inArray } from "drizzle-orm";
 import { getIptvCacheService } from "../services/iptv-cache.js";
 import { getAutomationEngine } from "../services/automation-engine.js";
 import { getNewsCacheService } from "../services/news-cache.js";
@@ -20,11 +20,23 @@ import {
   remarkableDocuments,
   calendars,
   events,
+  familyProfiles,
+  profileRemarkableSettings,
+  profilePlannerConfig,
+  profileCalendars,
+  profileNewsFeeds,
+  newsFeeds,
+  newsArticles,
+  taskLists,
+  tasks,
 } from "@openframe/database/schema";
 import { getRemarkableClient } from "../services/remarkable/client.js";
 import { syncGoogleCalendars } from "../services/calendar-sync/google.js";
 import { oauthTokens, users } from "@openframe/database/schema";
 import { generateAgendaPdf, getAgendaFilename, type AgendaEvent } from "../services/remarkable/agenda-generator.js";
+import { generatePlannerPdf, type CalendarEvent, type TaskItem, type NewsItem, type WeatherData, type PlannerGeneratorOptions } from "../services/planner-generator.js";
+import type { PlannerLayoutConfig } from "@openframe/shared";
+import { getCategorySettings } from "../routes/settings/index.js";
 import { syncRemarkableDocuments } from "../services/remarkable/note-processor.js";
 import { startOfDay, endOfDay, format, parse } from "date-fns";
 import {
@@ -61,6 +73,9 @@ const REMARKABLE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 // reMarkable agenda check interval (1 minute - to check if push time reached)
 const REMARKABLE_AGENDA_CHECK_INTERVAL_MS = 60 * 1000;
+
+// Profile planner check interval (1 minute - to check if push time reached)
+const PROFILE_PLANNER_CHECK_INTERVAL_MS = 60 * 1000;
 
 // Calendar sync interval (2 minutes)
 const CALENDAR_SYNC_INTERVAL_MS = 2 * 60 * 1000;
@@ -117,10 +132,13 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
   let newsInterval: NodeJS.Timeout | null = null;
   let remarkableNoteInterval: NodeJS.Timeout | null = null;
   let remarkableAgendaInterval: NodeJS.Timeout | null = null;
+  let profilePlannerInterval: NodeJS.Timeout | null = null;
   let calendarSyncInterval: NodeJS.Timeout | null = null;
   let currentSportsPollingInterval = SPORTS_POLL_IDLE;
   // Track which users have already pushed agenda today
   const agendaPushedToday = new Map<string, string>(); // userId -> dateString
+  // Track which profiles have already pushed planner today
+  const profilePlannerPushedToday = new Map<string, string>(); // profileId -> dateString
 
   // Start the IPTV cache refresh scheduler
   const startIptvCacheScheduler = () => {
@@ -634,6 +652,455 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     }, STARTUP_DELAY_MS + 25000); // Start 25 seconds after IPTV
   };
 
+  // Start profile planner push scheduler (new widget-based system)
+  const startProfilePlannerScheduler = () => {
+    /**
+     * Helper to gather all data needed for planner PDF generation (similar to profiles route)
+     */
+    async function gatherPlannerData(
+      userId: string,
+      profileId: string,
+      date: Date,
+      layoutConfig: PlannerLayoutConfig
+    ): Promise<PlannerGeneratorOptions> {
+      const dayStart = startOfDay(date);
+      const dayEnd = endOfDay(date);
+
+      // Check which widget types are in the layout
+      const widgetTypes = new Set(layoutConfig.widgets.map(w => w.type));
+      const needsEvents = widgetTypes.has("calendar-day") || widgetTypes.has("calendar-week") || widgetTypes.has("calendar-month");
+      const needsTasks = widgetTypes.has("tasks");
+      const needsNews = widgetTypes.has("news-headlines");
+      const needsWeather = widgetTypes.has("weather");
+
+      // Get calendar events if needed
+      let calendarEvents: CalendarEvent[] = [];
+      if (needsEvents) {
+        const calendarSettings = await fastify.db
+          .select()
+          .from(profileCalendars)
+          .where(eq(profileCalendars.profileId, profileId));
+
+        const userCalendars = await fastify.db
+          .select()
+          .from(calendars)
+          .where(eq(calendars.userId, userId));
+
+        const visibleCalendarIds = calendarSettings.length > 0
+          ? calendarSettings.filter(s => s.isVisible).map(s => s.calendarId)
+          : userCalendars.map(c => c.id);
+
+        const calendarMap = new Map(userCalendars.map(c => [c.id, c]));
+
+        if (visibleCalendarIds.length > 0) {
+          const allEvents = await fastify.db
+            .select()
+            .from(events)
+            .where(
+              and(
+                inArray(events.calendarId, visibleCalendarIds),
+                lte(events.startTime, dayEnd),
+                gte(events.endTime, dayStart)
+              )
+            );
+
+          calendarEvents = allEvents.map(e => ({
+            id: e.id,
+            title: e.title,
+            startTime: e.startTime,
+            endTime: e.endTime,
+            isAllDay: e.isAllDay,
+            location: e.location ?? undefined,
+            description: e.description ?? undefined,
+            calendarName: calendarMap.get(e.calendarId)?.name,
+            color: calendarMap.get(e.calendarId)?.color ?? undefined,
+          }));
+        }
+      }
+
+      // Get tasks if needed
+      let taskItems: TaskItem[] = [];
+      if (needsTasks) {
+        const userTaskLists = await fastify.db
+          .select()
+          .from(taskLists)
+          .where(and(eq(taskLists.userId, userId), eq(taskLists.isVisible, true)));
+
+        if (userTaskLists.length > 0) {
+          const listIds = userTaskLists.map(l => l.id);
+          const allTasks = await fastify.db
+            .select()
+            .from(tasks)
+            .where(
+              and(
+                inArray(tasks.taskListId, listIds),
+                eq(tasks.status, "needsAction")
+              )
+            );
+
+          taskItems = allTasks
+            .filter(t => !t.dueDate || t.dueDate <= dayEnd)
+            .map(t => ({
+              id: t.id,
+              title: t.title,
+              dueDate: t.dueDate ?? undefined,
+              completed: t.status === "completed",
+            }));
+        }
+      }
+
+      // Get news if needed
+      let newsItems: NewsItem[] = [];
+      if (needsNews) {
+        const feedSettings = await fastify.db
+          .select()
+          .from(profileNewsFeeds)
+          .where(eq(profileNewsFeeds.profileId, profileId));
+
+        const userFeeds = await fastify.db
+          .select()
+          .from(newsFeeds)
+          .where(eq(newsFeeds.userId, userId));
+
+        const visibleFeedIds = feedSettings.length > 0
+          ? feedSettings.filter(s => s.isVisible).map(s => s.newsFeedId)
+          : userFeeds.filter(f => f.isActive).map(f => f.id);
+
+        if (visibleFeedIds.length > 0) {
+          const articles = await fastify.db
+            .select()
+            .from(newsArticles)
+            .where(inArray(newsArticles.feedId, visibleFeedIds))
+            .orderBy(newsArticles.publishedAt)
+            .limit(10);
+
+          const feedMap = new Map(userFeeds.map(f => [f.id, f]));
+          newsItems = articles.map(a => ({
+            id: a.id,
+            title: a.title,
+            source: feedMap.get(a.feedId)?.name,
+            publishedAt: a.publishedAt ?? undefined,
+          }));
+        }
+      }
+
+      // Get weather if needed
+      let weatherData: WeatherData | undefined;
+      if (needsWeather) {
+        try {
+          const weatherSettings = await getCategorySettings(fastify.db, "weather");
+          const homeSettings = await getCategorySettings(fastify.db, "home");
+
+          const apiKey = weatherSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
+          const lat = homeSettings.latitude || process.env.OPENWEATHERMAP_LAT;
+          const lon = homeSettings.longitude || process.env.OPENWEATHERMAP_LON;
+          const units = (weatherSettings.units || "imperial") as "imperial" | "metric";
+
+          if (apiKey && lat && lon) {
+            const currentResponse = await fetch(
+              `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=${units}`
+            );
+
+            if (currentResponse.ok) {
+              const currentData = await currentResponse.json() as {
+                main: { temp: number };
+                weather: Array<{ description: string; icon: string }>;
+              };
+
+              const forecastResponse = await fetch(
+                `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=${units}`
+              );
+
+              const forecast: WeatherData["forecast"] = [];
+              if (forecastResponse.ok) {
+                const forecastData = await forecastResponse.json() as {
+                  list: Array<{
+                    dt: number;
+                    main: { temp_min: number; temp_max: number };
+                    weather: Array<{ icon: string }>;
+                  }>;
+                };
+
+                const dailyData = new Map<string, { high: number; low: number; icon: string; date: Date }>();
+                for (const item of forecastData.list) {
+                  const itemDate = new Date(item.dt * 1000);
+                  const dayKey = format(itemDate, "yyyy-MM-dd");
+
+                  const existing = dailyData.get(dayKey);
+                  if (existing) {
+                    existing.high = Math.max(existing.high, item.main.temp_max);
+                    existing.low = Math.min(existing.low, item.main.temp_min);
+                  } else {
+                    dailyData.set(dayKey, {
+                      date: itemDate,
+                      high: item.main.temp_max,
+                      low: item.main.temp_min,
+                      icon: item.weather[0]?.icon || "01d",
+                    });
+                  }
+                }
+
+                forecast.push(...Array.from(dailyData.values()).slice(0, 5));
+              }
+
+              weatherData = {
+                current: {
+                  temp: Math.round(currentData.main.temp),
+                  description: currentData.weather[0]?.description || "Unknown",
+                  icon: currentData.weather[0]?.icon || "01d",
+                },
+                forecast,
+              };
+            }
+          }
+        } catch (err) {
+          fastify.log.error({ err }, "Failed to fetch weather for scheduled planner");
+        }
+      }
+
+      return {
+        date,
+        events: calendarEvents,
+        tasks: taskItems,
+        news: newsItems,
+        weather: weatherData,
+      };
+    }
+
+    const checkProfilePlannerPush = async () => {
+      try {
+        const now = new Date();
+        const todayStr = format(now, "yyyy-MM-dd");
+        const currentTime = format(now, "HH:mm");
+
+        // Get all profile remarkable settings with enabled = true and scheduleType = daily
+        const allSettings = await fastify.db
+          .select()
+          .from(profileRemarkableSettings)
+          .where(eq(profileRemarkableSettings.enabled, true));
+
+        for (const settings of allSettings) {
+          // Check if already pushed today
+          if (profilePlannerPushedToday.get(settings.profileId) === todayStr) {
+            continue;
+          }
+
+          // Check schedule type and timing
+          if (settings.scheduleType === "manual") {
+            continue; // Manual mode - don't auto-push
+          }
+
+          // For daily schedule, check if current time >= push time
+          const pushTime = settings.pushTime || "06:00";
+          if (settings.scheduleType === "daily" && currentTime >= pushTime) {
+            // Get the profile to find the user
+            const [profile] = await fastify.db
+              .select()
+              .from(familyProfiles)
+              .where(eq(familyProfiles.id, settings.profileId))
+              .limit(1);
+
+            if (!profile) {
+              continue;
+            }
+
+            // Check if reMarkable is connected for this user
+            const [rmConfig] = await fastify.db
+              .select()
+              .from(remarkableConfig)
+              .where(
+                and(
+                  eq(remarkableConfig.userId, profile.userId),
+                  eq(remarkableConfig.isConnected, true)
+                )
+              )
+              .limit(1);
+
+            if (!rmConfig) {
+              continue;
+            }
+
+            // Get the planner config
+            const [plannerConfig] = await fastify.db
+              .select()
+              .from(profilePlannerConfig)
+              .where(eq(profilePlannerConfig.profileId, settings.profileId))
+              .limit(1);
+
+            if (!plannerConfig || !plannerConfig.layoutConfig) {
+              continue;
+            }
+
+            const layoutConfig = plannerConfig.layoutConfig as PlannerLayoutConfig;
+
+            // Skip if no widgets configured
+            if (!layoutConfig.widgets || layoutConfig.widgets.length === 0) {
+              continue;
+            }
+
+            try {
+              fastify.log.info(
+                { profileId: settings.profileId, profileName: profile.name },
+                "Pushing scheduled profile planner to reMarkable..."
+              );
+
+              // Gather planner data
+              const plannerData = await gatherPlannerData(
+                profile.userId,
+                settings.profileId,
+                now,
+                layoutConfig
+              );
+
+              // Generate PDF
+              const { buffer, filename } = await generatePlannerPdf(layoutConfig, plannerData);
+
+              // Upload to reMarkable
+              const folderPath = settings.folderPath || "/Calendar";
+              const client = getRemarkableClient(fastify, profile.userId);
+              const documentId = await client.uploadPdf(buffer, filename, folderPath);
+
+              // Track the document
+              await fastify.db.insert(remarkableDocuments).values({
+                userId: profile.userId,
+                documentId,
+                documentVersion: 1,
+                documentName: filename,
+                documentType: "pdf",
+                folderPath,
+                isAgenda: true,
+                isProcessed: false,
+              });
+
+              // Update last push time
+              await fastify.db
+                .update(profileRemarkableSettings)
+                .set({ lastPushAt: now, updatedAt: now })
+                .where(eq(profileRemarkableSettings.id, settings.id));
+
+              // Mark as pushed today
+              profilePlannerPushedToday.set(settings.profileId, todayStr);
+
+              fastify.log.info(
+                { profileId: settings.profileId, profileName: profile.name, documentId },
+                "Profile planner pushed to reMarkable"
+              );
+            } catch (err) {
+              fastify.log.error(
+                { err, profileId: settings.profileId },
+                "Failed to push profile planner to reMarkable"
+              );
+            }
+          }
+
+          // Weekly schedule - check day of week
+          if (settings.scheduleType === "weekly" && settings.pushDay !== null) {
+            const currentDayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+            const weeklyPushTime = settings.pushTime || "06:00";
+            if (currentDayOfWeek === settings.pushDay && currentTime >= weeklyPushTime) {
+              // Same logic as daily, but only on the specified day
+              const [profile] = await fastify.db
+                .select()
+                .from(familyProfiles)
+                .where(eq(familyProfiles.id, settings.profileId))
+                .limit(1);
+
+              if (!profile) continue;
+
+              const [rmConfig] = await fastify.db
+                .select()
+                .from(remarkableConfig)
+                .where(
+                  and(
+                    eq(remarkableConfig.userId, profile.userId),
+                    eq(remarkableConfig.isConnected, true)
+                  )
+                )
+                .limit(1);
+
+              if (!rmConfig) continue;
+
+              const [plannerConfig] = await fastify.db
+                .select()
+                .from(profilePlannerConfig)
+                .where(eq(profilePlannerConfig.profileId, settings.profileId))
+                .limit(1);
+
+              if (!plannerConfig || !plannerConfig.layoutConfig) continue;
+
+              const layoutConfig = plannerConfig.layoutConfig as PlannerLayoutConfig;
+              if (!layoutConfig.widgets || layoutConfig.widgets.length === 0) continue;
+
+              try {
+                fastify.log.info(
+                  { profileId: settings.profileId, profileName: profile.name },
+                  "Pushing weekly scheduled profile planner to reMarkable..."
+                );
+
+                const plannerData = await gatherPlannerData(
+                  profile.userId,
+                  settings.profileId,
+                  now,
+                  layoutConfig
+                );
+
+                const { buffer, filename } = await generatePlannerPdf(layoutConfig, plannerData);
+                const weeklyFolderPath = settings.folderPath || "/Calendar";
+                const client = getRemarkableClient(fastify, profile.userId);
+                const documentId = await client.uploadPdf(buffer, filename, weeklyFolderPath);
+
+                await fastify.db.insert(remarkableDocuments).values({
+                  userId: profile.userId,
+                  documentId,
+                  documentVersion: 1,
+                  documentName: filename,
+                  documentType: "pdf",
+                  folderPath: weeklyFolderPath,
+                  isAgenda: true,
+                  isProcessed: false,
+                });
+
+                await fastify.db
+                  .update(profileRemarkableSettings)
+                  .set({ lastPushAt: now, updatedAt: now })
+                  .where(eq(profileRemarkableSettings.id, settings.id));
+
+                profilePlannerPushedToday.set(settings.profileId, todayStr);
+
+                fastify.log.info(
+                  { profileId: settings.profileId, profileName: profile.name, documentId },
+                  "Weekly profile planner pushed to reMarkable"
+                );
+              } catch (err) {
+                fastify.log.error(
+                  { err, profileId: settings.profileId },
+                  "Failed to push weekly profile planner to reMarkable"
+                );
+              }
+            }
+          }
+        }
+
+        // Clean up old entries
+        for (const [profileId, dateStr] of profilePlannerPushedToday.entries()) {
+          if (dateStr !== todayStr) {
+            profilePlannerPushedToday.delete(profileId);
+          }
+        }
+      } catch (error) {
+        fastify.log.error({ err: error }, "Profile planner scheduler error");
+      }
+    };
+
+    // Start checking after startup delay
+    setTimeout(async () => {
+      fastify.log.info("Starting profile planner scheduler (1 min interval)...");
+      await checkProfilePlannerPush();
+
+      profilePlannerInterval = setInterval(checkProfilePlannerPush, PROFILE_PLANNER_CHECK_INTERVAL_MS);
+    }, STARTUP_DELAY_MS + 30000); // Start 30 seconds after IPTV
+  };
+
   // Start scheduler when server is ready
   fastify.addHook("onReady", async () => {
     startIptvCacheScheduler();
@@ -644,6 +1111,7 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     startCalendarSyncScheduler();
     startRemarkableNoteScheduler();
     startRemarkableAgendaScheduler();
+    startProfilePlannerScheduler();
   });
 
   // Clean up on server close
@@ -687,6 +1155,11 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
       clearInterval(remarkableAgendaInterval);
       remarkableAgendaInterval = null;
       fastify.log.info("reMarkable agenda scheduler stopped");
+    }
+    if (profilePlannerInterval) {
+      clearInterval(profilePlannerInterval);
+      profilePlannerInterval = null;
+      fastify.log.info("Profile planner scheduler stopped");
     }
   });
 };

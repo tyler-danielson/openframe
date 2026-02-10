@@ -65,7 +65,7 @@ export function WeatherWidget({ config, style, isBuilder }: WeatherWidgetProps) 
   });
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
-  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset];
+  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset as Exclude<FontSizePreset, "custom">];
 
   // Calculate custom font sizes if using custom mode
   const getCustomFontSize = (scale: number) => {
@@ -146,7 +146,7 @@ export function WeatherWidget({ config, style, isBuilder }: WeatherWidgetProps) 
           className={cn(sizeClasses?.temp, "font-light")}
           style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.temp) } : undefined}
         >
-          {weather.temp}°F
+          {weather.temp}°{weather.units === "metric" ? "C" : "F"}
         </div>
       </div>
       {showDescription && (
@@ -163,7 +163,7 @@ export function WeatherWidget({ config, style, isBuilder }: WeatherWidgetProps) 
           style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.detail) } : undefined}
         >
           {showHumidity && <span>Humidity: {weather.humidity}%</span>}
-          {showWind && <span>Wind: {weather.wind_speed} mph</span>}
+          {showWind && <span>Wind: {weather.wind_speed} {weather.units === "metric" ? "km/h" : "mph"}</span>}
         </div>
       )}
     </div>

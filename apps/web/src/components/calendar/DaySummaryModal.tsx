@@ -65,14 +65,20 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
             ) : (
               <div className="space-y-3">
                 {sortedEvents.map((event) => {
-                  const calendarColor = (event as CalendarEvent & { calendar?: { color: string } })
-                    .calendar?.color ?? "#3B82F6";
+                  const isHoliday = event.calendarId === "federal-holidays";
+                  const calendarColor = isHoliday
+                    ? "#9333EA"
+                    : ((event as CalendarEvent & { calendar?: { color: string } }).calendar?.color ?? "#3B82F6");
 
                   return (
                     <button
                       key={event.id}
                       onClick={() => handleEventClick(event)}
-                      className="w-full text-left p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+                      className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                        isHoliday
+                          ? "border-purple-500/40 bg-purple-500/5 hover:bg-purple-500/10"
+                          : "border-border hover:bg-muted/50"
+                      }`}
                     >
                       <div className="flex items-start gap-3">
                         {/* Color indicator */}
@@ -83,7 +89,10 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
 
                         <div className="flex-1 min-w-0">
                           {/* Event title */}
-                          <h3 className="font-medium truncate">{event.title}</h3>
+                          <h3 className={`font-medium truncate ${isHoliday ? "text-purple-600 dark:text-purple-400" : ""}`}>
+                            {isHoliday && <span className="mr-1">🇺🇸</span>}
+                            {event.title}
+                          </h3>
 
                           {/* Time */}
                           <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">

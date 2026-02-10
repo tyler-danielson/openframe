@@ -12,9 +12,13 @@ import { HAEntityWidget } from "./HAEntityWidget";
 import { HAGaugeWidget } from "./HAGaugeWidget";
 import { HAGraphWidget } from "./HAGraphWidget";
 import { HACameraWidget } from "./HACameraWidget";
+import { HAMapWidget } from "./HAMapWidget";
 import { TextWidget } from "./TextWidget";
 import { ImageWidget } from "./ImageWidget";
 import { PhotoAlbumWidget } from "./PhotoAlbumWidget";
+import { FullscreenToggleWidget } from "./FullscreenToggleWidget";
+import { DayScheduleWidget } from "./DayScheduleWidget";
+import { NewsWidget } from "./NewsWidget";
 
 interface WidgetRendererProps {
   widget: WidgetInstance;
@@ -55,12 +59,20 @@ export function WidgetRenderer({ widget, isBuilder = false }: WidgetRendererProp
       return <HAGraphWidget {...commonProps} />;
     case "ha-camera":
       return <HACameraWidget {...commonProps} />;
+    case "ha-map":
+      return <HAMapWidget {...commonProps} />;
     case "text":
       return <TextWidget {...commonProps} />;
     case "image":
       return <ImageWidget {...commonProps} />;
     case "photo-album":
       return <PhotoAlbumWidget {...commonProps} />;
+    case "fullscreen-toggle":
+      return <FullscreenToggleWidget {...commonProps} />;
+    case "day-schedule":
+      return <DayScheduleWidget {...commonProps} />;
+    case "news":
+      return <NewsWidget {...commonProps} />;
     default:
       return (
         <div className="flex h-full items-center justify-center bg-black/40 text-white/50 p-4">

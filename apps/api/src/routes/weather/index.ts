@@ -11,6 +11,7 @@ interface WeatherData {
   icon: string;
   wind_speed: number;
   city: string;
+  units: "imperial" | "metric";
 }
 
 interface ForecastDay {
@@ -19,6 +20,7 @@ interface ForecastDay {
   temp_max: number;
   description: string;
   icon: string;
+  units: "imperial" | "metric";
 }
 
 interface HourlyForecast {
@@ -31,6 +33,7 @@ interface HourlyForecast {
   pop: number; // Probability of precipitation (0-100%)
   rain?: number; // Rain volume in mm
   snow?: number; // Snow volume in mm
+  units: "imperial" | "metric";
 }
 
 interface OpenWeatherResponse {
@@ -108,6 +111,7 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
                   icon: { type: "string" },
                   wind_speed: { type: "number" },
                   city: { type: "string" },
+                  units: { type: "string" },
                 },
               },
             },
@@ -116,19 +120,21 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      // Try database settings first, fall back to env vars
-      const dbSettings = await getCategorySettings(fastify.db, "weather");
+      // Get weather settings and home location settings
+      const weatherSettings = await getCategorySettings(fastify.db, "weather");
+      const homeSettings = await getCategorySettings(fastify.db, "home");
 
-      const apiKey = dbSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
-      const lat = dbSettings.latitude || process.env.OPENWEATHERMAP_LAT;
-      const lon = dbSettings.longitude || process.env.OPENWEATHERMAP_LON;
-      const units = dbSettings.units || "imperial";
+      const apiKey = weatherSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
+      const lat = homeSettings.latitude || process.env.OPENWEATHERMAP_LAT;
+      const lon = homeSettings.longitude || process.env.OPENWEATHERMAP_LON;
+      const units = weatherSettings.units || "imperial";
 
-      if (!apiKey || !lat || !lon) {
-        return reply.status(400).send({
-          success: false,
-          error: "Weather API not configured. Configure in Settings → System Settings → Weather.",
-        });
+      if (!apiKey) {
+        throw fastify.httpErrors.badRequest("Weather API not configured. Configure in Settings → System Settings → Weather.");
+      }
+
+      if (!lat || !lon) {
+        throw fastify.httpErrors.badRequest("Home location not configured. Configure in Settings → System Settings → Home Location.");
       }
 
       // Check cache
@@ -157,6 +163,7 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
           icon: data.weather[0]?.icon || "01d",
           wind_speed: Math.round(data.wind.speed),
           city: data.name,
+          units: units as "imperial" | "metric",
         };
 
         // Update cache
@@ -164,11 +171,8 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
 
         return { success: true, data: weatherData };
       } catch (error) {
-        fastify.log.error("Failed to fetch weather:", error);
-        return reply.status(500).send({
-          success: false,
-          error: "Failed to fetch weather data",
-        });
+        fastify.log.error({ err: error }, "Failed to fetch weather");
+        throw fastify.httpErrors.internalServerError("Failed to fetch weather data");
       }
     }
   );
@@ -195,6 +199,7 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
                     temp_max: { type: "number" },
                     description: { type: "string" },
                     icon: { type: "string" },
+                    units: { type: "string" },
                   },
                 },
               },
@@ -204,19 +209,21 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      // Try database settings first, fall back to env vars
-      const dbSettings = await getCategorySettings(fastify.db, "weather");
+      // Get weather settings and home location settings
+      const weatherSettings = await getCategorySettings(fastify.db, "weather");
+      const homeSettings = await getCategorySettings(fastify.db, "home");
 
-      const apiKey = dbSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
-      const lat = dbSettings.latitude || process.env.OPENWEATHERMAP_LAT;
-      const lon = dbSettings.longitude || process.env.OPENWEATHERMAP_LON;
-      const units = dbSettings.units || "imperial";
+      const apiKey = weatherSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
+      const lat = homeSettings.latitude || process.env.OPENWEATHERMAP_LAT;
+      const lon = homeSettings.longitude || process.env.OPENWEATHERMAP_LON;
+      const units = (weatherSettings.units || "imperial") as "imperial" | "metric";
 
-      if (!apiKey || !lat || !lon) {
-        return reply.status(400).send({
-          success: false,
-          error: "Weather API not configured",
-        });
+      if (!apiKey) {
+        throw fastify.httpErrors.badRequest("Weather API not configured");
+      }
+
+      if (!lat || !lon) {
+        throw fastify.httpErrors.badRequest("Home location not configured");
       }
 
       // Check cache
@@ -254,6 +261,7 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
               temp_max: Math.round(item.main.temp_max),
               description: item.weather[0]?.description || "Unknown",
               icon: item.weather[0]?.icon || "01d",
+              units,
             });
           }
         }
@@ -265,11 +273,8 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
 
         return { success: true, data: forecast };
       } catch (error) {
-        fastify.log.error("Failed to fetch forecast:", error);
-        return reply.status(500).send({
-          success: false,
-          error: "Failed to fetch forecast data",
-        });
+        fastify.log.error({ err: error }, "Failed to fetch forecast");
+        throw fastify.httpErrors.internalServerError("Failed to fetch forecast data");
       }
     }
   );
@@ -300,6 +305,7 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
                     pop: { type: "number" },
                     rain: { type: "number" },
                     snow: { type: "number" },
+                    units: { type: "string" },
                   },
                 },
               },
@@ -309,18 +315,21 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const dbSettings = await getCategorySettings(fastify.db, "weather");
+      // Get weather settings and home location settings
+      const weatherSettings = await getCategorySettings(fastify.db, "weather");
+      const homeSettings = await getCategorySettings(fastify.db, "home");
 
-      const apiKey = dbSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
-      const lat = dbSettings.latitude || process.env.OPENWEATHERMAP_LAT;
-      const lon = dbSettings.longitude || process.env.OPENWEATHERMAP_LON;
-      const units = dbSettings.units || "imperial";
+      const apiKey = weatherSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
+      const lat = homeSettings.latitude || process.env.OPENWEATHERMAP_LAT;
+      const lon = homeSettings.longitude || process.env.OPENWEATHERMAP_LON;
+      const units = (weatherSettings.units || "imperial") as "imperial" | "metric";
 
-      if (!apiKey || !lat || !lon) {
-        return reply.status(400).send({
-          success: false,
-          error: "Weather API not configured",
-        });
+      if (!apiKey) {
+        throw fastify.httpErrors.badRequest("Weather API not configured");
+      }
+
+      if (!lat || !lon) {
+        throw fastify.httpErrors.badRequest("Home location not configured");
       }
 
       // Check cache
@@ -364,6 +373,7 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
             pop: Math.round(item.pop * 100), // Convert 0-1 to percentage
             rain: item.rain?.["3h"],
             snow: item.snow?.["3h"],
+            units,
           }));
 
         // Update cache
@@ -371,11 +381,8 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
 
         return { success: true, data: hourlyData };
       } catch (error) {
-        fastify.log.error("Failed to fetch hourly forecast:", error);
-        return reply.status(500).send({
-          success: false,
-          error: "Failed to fetch hourly forecast data",
-        });
+        fastify.log.error({ err: error }, "Failed to fetch hourly forecast");
+        throw fastify.httpErrors.internalServerError("Failed to fetch hourly forecast data");
       }
     }
   );
@@ -390,12 +397,13 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
-      // Check database settings first
-      const dbSettings = await getCategorySettings(fastify.db, "weather");
+      // Check weather settings and home location settings
+      const weatherSettings = await getCategorySettings(fastify.db, "weather");
+      const homeSettings = await getCategorySettings(fastify.db, "home");
 
-      const apiKey = dbSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
-      const lat = dbSettings.latitude || process.env.OPENWEATHERMAP_LAT;
-      const lon = dbSettings.longitude || process.env.OPENWEATHERMAP_LON;
+      const apiKey = weatherSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
+      const lat = homeSettings.latitude || process.env.OPENWEATHERMAP_LAT;
+      const lon = homeSettings.longitude || process.env.OPENWEATHERMAP_LON;
 
       return {
         success: true,

@@ -8,6 +8,7 @@ import {
   CloudSun,
   Calendar,
   CalendarClock,
+  CalendarDays,
   CheckSquare,
   Trophy,
   Music,
@@ -15,10 +16,13 @@ import {
   Gauge,
   LineChart,
   Camera,
+  Map,
   Type,
   Image,
   Images,
   Shapes,
+  Maximize,
+  Newspaper,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import {
@@ -41,6 +45,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   CloudSun,
   Calendar,
   CalendarClock,
+  CalendarDays,
   CheckSquare,
   Trophy,
   Music,
@@ -48,10 +53,13 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Gauge,
   LineChart,
   Camera,
+  Map,
   Type,
   Image,
   Images,
   Shapes,
+  Maximize,
+  Newspaper,
 };
 
 export function AddBlockModal({ isOpen, onClose, onAddWidget }: AddBlockModalProps) {

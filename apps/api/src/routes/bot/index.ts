@@ -18,6 +18,9 @@ export const botRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const today = new Date();
       const start = startOfDay(today);
       const end = endOfDay(today);
@@ -113,6 +116,9 @@ export const botRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { days = 7 } = request.query as { days?: number };
 
       const today = new Date();
@@ -228,6 +234,9 @@ export const botRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const body = request.body as {
         title: string;
         date: string;

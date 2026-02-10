@@ -196,6 +196,9 @@ export const automationRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("Not authenticated");
+      }
       const { prompt } = request.body as { prompt: string };
 
       // Get AI provider settings
@@ -309,6 +312,9 @@ export const automationRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const automations = await fastify.db
         .select()
@@ -348,6 +354,9 @@ export const automationRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const body = request.body as {
         name: string;
         description?: string;
@@ -409,6 +418,9 @@ export const automationRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
       const body = request.body as Partial<{
         name: string;
@@ -476,6 +488,9 @@ export const automationRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       // Verify ownership
@@ -523,6 +538,9 @@ export const automationRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       // Get automation
@@ -571,6 +589,9 @@ export const automationRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const engine = getAutomationEngine(fastify);
       const notifications = engine.getNotifications(user.id);
 
@@ -601,6 +622,9 @@ export const automationRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { notificationId } = request.params as { notificationId: string };
       const engine = getAutomationEngine(fastify);
       engine.dismissNotification(user.id, notificationId);
@@ -625,6 +649,9 @@ export const automationRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const engine = getAutomationEngine(fastify);
       engine.clearNotifications(user.id);
 

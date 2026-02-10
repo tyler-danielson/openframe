@@ -12,6 +12,7 @@ import {
   CloudSun,
   Calendar,
   CalendarClock,
+  CalendarDays,
   CheckSquare,
   Trophy,
   Music,
@@ -19,10 +20,13 @@ import {
   Gauge,
   LineChart,
   Camera,
+  Map,
   Type,
   Image,
   Images,
   Shapes,
+  Maximize,
+  Newspaper,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { type FontSizePreset } from "../../stores/screensaver";
@@ -45,6 +49,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   CloudSun,
   Calendar,
   CalendarClock,
+  CalendarDays,
   CheckSquare,
   Trophy,
   Music,
@@ -52,10 +57,13 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Gauge,
   LineChart,
   Camera,
+  Map,
   Type,
   Image,
   Images,
   Shapes,
+  Maximize,
+  Newspaper,
 };
 
 type TabId = "setup" | "style" | "advanced";
@@ -1180,6 +1188,238 @@ export function EditBlockModal({ isOpen, onClose, widgetId }: EditBlockModalProp
                 />
               </label>
             )}
+          </>
+        );
+
+      case "fullscreen-toggle":
+        return (
+          <>
+            <label className="block">
+              <span className="text-sm">Button Style</span>
+              <select
+                value={config.buttonStyle as string ?? "icon"}
+                onChange={(e) => handleConfigChange("buttonStyle", e.target.value)}
+                className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+              >
+                <option value="icon">Icon Only</option>
+                <option value="text">Text Only</option>
+                <option value="both">Icon and Text</option>
+              </select>
+            </label>
+            {(config.buttonStyle === "text" || config.buttonStyle === "both") && (
+              <label className="block">
+                <span className="text-sm">Button Label</span>
+                <input
+                  type="text"
+                  value={config.label as string ?? "Fullscreen"}
+                  onChange={(e) => handleConfigChange("label", e.target.value)}
+                  className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                  placeholder="Fullscreen"
+                />
+              </label>
+            )}
+            <label className="block">
+              <span className="text-sm">Icon Size</span>
+              <select
+                value={config.iconSize as string ?? "medium"}
+                onChange={(e) => handleConfigChange("iconSize", e.target.value)}
+                className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+              >
+                <option value="small">Small</option>
+                <option value="medium">Medium</option>
+                <option value="large">Large</option>
+              </select>
+            </label>
+          </>
+        );
+
+      case "day-schedule":
+        const dayScheduleViewMode = (config.viewMode as string) ?? "fixed";
+        return (
+          <>
+            <CalendarConfigFields config={config} handleConfigChange={handleConfigChange} />
+
+            {/* View Mode */}
+            <label className="block">
+              <span className="text-sm">View Mode</span>
+              <select
+                value={dayScheduleViewMode}
+                onChange={(e) => handleConfigChange("viewMode", e.target.value)}
+                className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+              >
+                <option value="fixed">Fixed Hours</option>
+                <option value="rolling">Rolling Window</option>
+              </select>
+            </label>
+
+            {/* Fixed mode options */}
+            {dayScheduleViewMode === "fixed" && (
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-sm">Start Hour</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={23}
+                    value={config.startHour as number ?? 6}
+                    onChange={(e) => handleConfigChange("startHour", parseInt(e.target.value) || 6)}
+                    className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-sm">End Hour</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={23}
+                    value={config.endHour as number ?? 22}
+                    onChange={(e) => handleConfigChange("endHour", parseInt(e.target.value) || 22)}
+                    className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                  />
+                </label>
+              </div>
+            )}
+
+            {/* Rolling mode options */}
+            {dayScheduleViewMode === "rolling" && (
+              <>
+                <label className="block">
+                  <span className="text-sm">Look Back</span>
+                  <p className="text-xs text-muted-foreground mb-1">How far before current time to show</p>
+                  <select
+                    value={config.rollingOffsetMinutes as number ?? 60}
+                    onChange={(e) => handleConfigChange("rollingOffsetMinutes", parseInt(e.target.value))}
+                    className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                  >
+                    <option value={0}>Current time (no offset)</option>
+                    <option value={15}>15 minutes</option>
+                    <option value={30}>30 minutes</option>
+                    <option value={60}>1 hour</option>
+                    <option value={120}>2 hours</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-sm">Window Duration</span>
+                  <p className="text-xs text-muted-foreground mb-1">Total hours to display</p>
+                  <select
+                    value={config.rollingDurationHours as number ?? 8}
+                    onChange={(e) => handleConfigChange("rollingDurationHours", parseInt(e.target.value))}
+                    className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+                  >
+                    <option value={4}>4 hours</option>
+                    <option value={6}>6 hours</option>
+                    <option value={8}>8 hours</option>
+                    <option value={10}>10 hours</option>
+                    <option value={12}>12 hours</option>
+                  </select>
+                </label>
+              </>
+            )}
+
+            <label className="flex items-center justify-between">
+              <span className="text-sm">Show Current Time</span>
+              <input
+                type="checkbox"
+                checked={config.showCurrentTime as boolean ?? true}
+                onChange={(e) => handleConfigChange("showCurrentTime", e.target.checked)}
+                className="rounded"
+              />
+            </label>
+            <label className="flex items-center justify-between">
+              <span className="text-sm">Show Hour Labels</span>
+              <input
+                type="checkbox"
+                checked={config.showHourLabels as boolean ?? true}
+                onChange={(e) => handleConfigChange("showHourLabels", e.target.checked)}
+                className="rounded"
+              />
+            </label>
+          </>
+        );
+
+      case "news":
+        return (
+          <>
+            <label className="block">
+              <span className="text-sm">Max Items</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={config.maxItems as number ?? 5}
+                onChange={(e) => handleConfigChange("maxItems", parseInt(e.target.value) || 5)}
+                className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="flex items-center justify-between">
+              <span className="text-sm">Show Images</span>
+              <input
+                type="checkbox"
+                checked={config.showImages as boolean ?? true}
+                onChange={(e) => handleConfigChange("showImages", e.target.checked)}
+                className="rounded"
+              />
+            </label>
+            <label className="flex items-center justify-between">
+              <span className="text-sm">Show Source</span>
+              <input
+                type="checkbox"
+                checked={config.showSource as boolean ?? true}
+                onChange={(e) => handleConfigChange("showSource", e.target.checked)}
+                className="rounded"
+              />
+            </label>
+            <label className="flex items-center justify-between">
+              <span className="text-sm">Show Time</span>
+              <input
+                type="checkbox"
+                checked={config.showTime as boolean ?? true}
+                onChange={(e) => handleConfigChange("showTime", e.target.checked)}
+                className="rounded"
+              />
+            </label>
+          </>
+        );
+
+      case "ha-map":
+        return (
+          <>
+            <label className="flex items-center justify-between">
+              <span className="text-sm">Show Zones</span>
+              <input
+                type="checkbox"
+                checked={config.showZones as boolean ?? true}
+                onChange={(e) => handleConfigChange("showZones", e.target.checked)}
+                className="rounded"
+              />
+            </label>
+            <label className="flex items-center justify-between">
+              <span className="text-sm">Show Device Names</span>
+              <input
+                type="checkbox"
+                checked={config.showDeviceNames as boolean ?? true}
+                onChange={(e) => handleConfigChange("showDeviceNames", e.target.checked)}
+                className="rounded"
+              />
+            </label>
+            <label className="flex items-center justify-between">
+              <span className="text-sm">Dark Mode</span>
+              <input
+                type="checkbox"
+                checked={config.darkMode as boolean ?? true}
+                onChange={(e) => handleConfigChange("darkMode", e.target.checked)}
+                className="rounded"
+              />
+            </label>
+            <label className="flex items-center justify-between">
+              <span className="text-sm">Auto Fit Bounds</span>
+              <input
+                type="checkbox"
+                checked={config.autoFitBounds as boolean ?? true}
+                onChange={(e) => handleConfigChange("autoFitBounds", e.target.checked)}
+                className="rounded"
+              />
+            </label>
           </>
         );
 

@@ -27,6 +27,10 @@ interface CalendarState {
   weekMode: WeekMode;
   monthMode: MonthMode;
   weekCellWidget: WeekCellWidget;
+  showDriveTimeOnNext: boolean;
+  showWeekNumbers: boolean;
+  defaultEventDuration: number;
+  autoRefreshInterval: number;
 
   setCalendars: (calendars: Calendar[]) => void;
   setCurrentDate: (date: Date) => void;
@@ -42,6 +46,10 @@ interface CalendarState {
   setWeekMode: (mode: WeekMode) => void;
   setMonthMode: (mode: MonthMode) => void;
   setWeekCellWidget: (widget: WeekCellWidget) => void;
+  setShowDriveTimeOnNext: (show: boolean) => void;
+  setShowWeekNumbers: (show: boolean) => void;
+  setDefaultEventDuration: (minutes: number) => void;
+  setAutoRefreshInterval: (minutes: number) => void;
   navigateToday: () => void;
   navigatePrevious: () => void;
   navigateNext: () => void;
@@ -66,6 +74,10 @@ export const useCalendarStore = create<CalendarState>()(
       weekMode: "current" as WeekMode,
       monthMode: "current" as MonthMode,
       weekCellWidget: "next-week" as WeekCellWidget,
+      showDriveTimeOnNext: true,
+      showWeekNumbers: false,
+      defaultEventDuration: 60,
+      autoRefreshInterval: 5,
 
   setCalendars: (calendars) => {
     const visibleIds = calendars
@@ -103,6 +115,10 @@ export const useCalendarStore = create<CalendarState>()(
   setWeekMode: (mode) => set({ weekMode: mode }),
   setMonthMode: (mode) => set({ monthMode: mode }),
   setWeekCellWidget: (widget) => set({ weekCellWidget: widget }),
+  setShowDriveTimeOnNext: (show) => set({ showDriveTimeOnNext: show }),
+  setShowWeekNumbers: (show) => set({ showWeekNumbers: show }),
+  setDefaultEventDuration: (minutes) => set({ defaultEventDuration: minutes }),
+  setAutoRefreshInterval: (minutes) => set({ autoRefreshInterval: minutes }),
 
   navigateToday: () => set({ currentDate: new Date() }),
 
@@ -158,7 +174,7 @@ export const useCalendarStore = create<CalendarState>()(
     }),
     {
       name: "calendar-store",
-      partialize: (state) => ({ view: state.view, weekStartsOn: state.weekStartsOn, familyName: state.familyName, homeAddress: state.homeAddress, timeFormat: state.timeFormat, dayStartHour: state.dayStartHour, dayEndHour: state.dayEndHour, tickerSpeed: state.tickerSpeed, weekMode: state.weekMode, monthMode: state.monthMode, weekCellWidget: state.weekCellWidget }),
+      partialize: (state) => ({ view: state.view, weekStartsOn: state.weekStartsOn, familyName: state.familyName, homeAddress: state.homeAddress, timeFormat: state.timeFormat, dayStartHour: state.dayStartHour, dayEndHour: state.dayEndHour, tickerSpeed: state.tickerSpeed, weekMode: state.weekMode, monthMode: state.monthMode, weekCellWidget: state.weekCellWidget, showDriveTimeOnNext: state.showDriveTimeOnNext, showWeekNumbers: state.showWeekNumbers, defaultEventDuration: state.defaultEventDuration, autoRefreshInterval: state.autoRefreshInterval }),
     }
   )
 );

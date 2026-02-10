@@ -64,7 +64,7 @@ services:
       HOME_ASSISTANT_URL: ${HOME_ASSISTANT_URL}
       HOME_ASSISTANT_TOKEN: ${HOME_ASSISTANT_TOKEN}
       FRONTEND_URL: http://localhost:3000
-      MEDIAMTX_API_URL: ${MEDIAMTX_API_URL:-http://localhost:9997}
+      MEDIAMTX_API_URL: ${MEDIAMTX_API_URL:-http://mediamtx:9997}
       MEDIAMTX_HOST: ${MEDIAMTX_HOST:-localhost}
       MEDIAMTX_WEBRTC_PORT: ${MEDIAMTX_WEBRTC_PORT:-8889}
       MEDIAMTX_HLS_PORT: ${MEDIAMTX_HLS_PORT:-8888}
@@ -103,11 +103,16 @@ services:
     image: bluenviron/mediamtx:latest
     container_name: openframe-mediamtx
     restart: unless-stopped
-    network_mode: host
     environment:
       MTX_PROTOCOLS: tcp
     volumes:
       - ./mediamtx.yml:/mediamtx.yml
+    ports:
+      - "8554:8554"      # RTSP
+      - "8888:8888"      # HLS
+      - "8889:8889"      # WebRTC
+      - "9997:9997"      # API
+      - "8189:8189/udp"  # WebRTC ICE
     profiles:
       - cameras
 

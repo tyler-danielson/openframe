@@ -242,8 +242,8 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Get handwriting settings
-      const settings = await getCategorySettings(fastify.db, "handwriting");
-      const provider = (settings.provider as HandwritingProvider) || "tesseract";
+      const handwritingSettings = await getCategorySettings(fastify.db, "handwriting");
+      const provider = (handwritingSettings.provider as HandwritingProvider) || "tesseract";
 
       // If provider is tesseract, tell client to use local recognition
       if (provider === "tesseract") {
@@ -253,16 +253,21 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      // Get API keys from their respective categories
+      const openaiSettings = await getCategorySettings(fastify.db, "openai");
+      const anthropicSettings = await getCategorySettings(fastify.db, "anthropic");
+      const googleSettings = await getCategorySettings(fastify.db, "google");
+
       try {
         let text: string;
 
         switch (provider) {
           case "openai": {
-            const apiKey = settings.openai_api_key;
+            const apiKey = openaiSettings.api_key;
             if (!apiKey) {
               return reply.status(400).send({
                 success: false,
-                error: "OpenAI API key not configured",
+                error: "OpenAI API key not configured. Add it in Settings → System → OpenAI.",
               });
             }
             text = await recognizeWithOpenAI(imageData, apiKey);
@@ -270,11 +275,11 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
           }
 
           case "claude": {
-            const apiKey = settings.anthropic_api_key;
+            const apiKey = anthropicSettings.api_key;
             if (!apiKey) {
               return reply.status(400).send({
                 success: false,
-                error: "Anthropic API key not configured",
+                error: "Anthropic API key not configured. Add it in Settings → System → Anthropic.",
               });
             }
             text = await recognizeWithClaude(imageData, apiKey);
@@ -282,11 +287,11 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
           }
 
           case "gemini": {
-            const apiKey = settings.gemini_api_key;
+            const apiKey = googleSettings.gemini_api_key;
             if (!apiKey) {
               return reply.status(400).send({
                 success: false,
-                error: "Gemini API key not configured",
+                error: "Gemini API key not configured. Add it in Settings → System → Google APIs.",
               });
             }
             text = await recognizeWithGemini(imageData, apiKey);
@@ -294,11 +299,11 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
           }
 
           case "google_vision": {
-            const apiKey = settings.google_vision_api_key;
+            const apiKey = googleSettings.vision_api_key;
             if (!apiKey) {
               return reply.status(400).send({
                 success: false,
-                error: "Google Vision API key not configured",
+                error: "Google Vision API key not configured. Add it in Settings → System → Google APIs.",
               });
             }
             text = await recognizeWithGoogleVision(imageData, apiKey);
@@ -340,14 +345,19 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
-      const settings = await getCategorySettings(fastify.db, "handwriting");
-      const provider = settings.provider || "tesseract";
+      const handwritingSettings = await getCategorySettings(fastify.db, "handwriting");
+      const provider = handwritingSettings.provider || "tesseract";
+
+      // Get API keys from their respective categories
+      const openaiSettings = await getCategorySettings(fastify.db, "openai");
+      const anthropicSettings = await getCategorySettings(fastify.db, "anthropic");
+      const googleSettings = await getCategorySettings(fastify.db, "google");
 
       // Check which API keys are configured
-      const hasOpenAI = !!settings.openai_api_key;
-      const hasClaude = !!settings.anthropic_api_key;
-      const hasGemini = !!settings.gemini_api_key;
-      const hasGoogleVision = !!settings.google_vision_api_key;
+      const hasOpenAI = !!openaiSettings.api_key;
+      const hasClaude = !!anthropicSettings.api_key;
+      const hasGemini = !!googleSettings.gemini_api_key;
+      const hasGoogleVision = !!googleSettings.vision_api_key;
 
       return {
         success: true,
@@ -394,7 +404,10 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
         };
       }
 
-      const settings = await getCategorySettings(fastify.db, "handwriting");
+      // Get API keys from their respective categories
+      const openaiSettings = await getCategorySettings(fastify.db, "openai");
+      const anthropicSettings = await getCategorySettings(fastify.db, "anthropic");
+      const googleSettings = await getCategorySettings(fastify.db, "google");
 
       // Create a simple test image (1x1 white pixel PNG)
       const testImageData = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -402,11 +415,11 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         switch (provider) {
           case "openai": {
-            const apiKey = settings.openai_api_key;
+            const apiKey = openaiSettings.api_key;
             if (!apiKey) {
               return reply.status(400).send({
                 success: false,
-                error: "OpenAI API key not configured",
+                error: "OpenAI API key not configured. Add it in Settings → System → OpenAI.",
               });
             }
             // Just verify the API key works by making a minimal request
@@ -415,11 +428,11 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
           }
 
           case "claude": {
-            const apiKey = settings.anthropic_api_key;
+            const apiKey = anthropicSettings.api_key;
             if (!apiKey) {
               return reply.status(400).send({
                 success: false,
-                error: "Anthropic API key not configured",
+                error: "Anthropic API key not configured. Add it in Settings → System → Anthropic.",
               });
             }
             await recognizeWithClaude(testImageData, apiKey);
@@ -427,11 +440,11 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
           }
 
           case "gemini": {
-            const apiKey = settings.gemini_api_key;
+            const apiKey = googleSettings.gemini_api_key;
             if (!apiKey) {
               return reply.status(400).send({
                 success: false,
-                error: "Gemini API key not configured",
+                error: "Gemini API key not configured. Add it in Settings → System → Google APIs.",
               });
             }
             await recognizeWithGemini(testImageData, apiKey);
@@ -439,11 +452,11 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
           }
 
           case "google_vision": {
-            const apiKey = settings.google_vision_api_key;
+            const apiKey = googleSettings.vision_api_key;
             if (!apiKey) {
               return reply.status(400).send({
                 success: false,
-                error: "Google Vision API key not configured",
+                error: "Google Vision API key not configured. Add it in Settings → System → Google APIs.",
               });
             }
             await recognizeWithGoogleVision(testImageData, apiKey);

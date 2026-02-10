@@ -129,7 +129,7 @@ export const healthRoutes: FastifyPluginAsync = async (fastify) => {
 
       return {
         hostname: os.hostname(),
-        port: fastify.config.port,
+        port: Number(process.env.PORT) || 3001,
         addresses,
       };
     }

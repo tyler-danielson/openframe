@@ -151,6 +151,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const [config] = await fastify.db
         .select()
@@ -193,6 +196,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const [config] = await fastify.db
         .select()
@@ -238,6 +244,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { url, accessToken } = request.body as {
         url: string;
         accessToken: string;
@@ -315,6 +324,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       await fastify.db
         .delete(homeAssistantConfig)
@@ -344,6 +356,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const rooms = await fastify.db
         .select()
@@ -381,6 +396,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const body = request.body as {
         name: string;
         temperatureSensorId?: string;
@@ -434,6 +452,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
       const body = request.body as {
         name?: string;
@@ -498,6 +519,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [room] = await fastify.db
@@ -552,6 +576,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { roomIds } = request.body as { roomIds: string[] };
 
       // Update sort order for each room
@@ -597,6 +624,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
       const body = request.body as { roomId?: string | null };
 
@@ -661,6 +691,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const [config] = await fastify.db
         .select()
@@ -710,6 +743,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { entityId } = request.params as { entityId: string };
 
       const [config] = await fastify.db
@@ -757,6 +793,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const [config] = await fastify.db
         .select()
@@ -829,6 +868,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const [config] = await fastify.db
         .select()
@@ -896,6 +938,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { domain, service } = request.params as {
         domain: string;
         service: string;
@@ -963,6 +1008,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const query = request.query as { roomId?: string; unassigned?: boolean };
 
       let whereClause;
@@ -1016,6 +1064,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const body = request.body as {
         entityId: string;
         displayName?: string;
@@ -1085,6 +1136,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
       const body = request.body as {
         displayName?: string | null;
@@ -1149,6 +1203,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [entity] = await fastify.db
@@ -1196,6 +1253,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { entityId } = request.params as { entityId: string };
 
       const [config] = await fastify.db
@@ -1253,7 +1313,12 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { entityId } = request.params as { entityId: string };
+
+      console.log(`[HA Camera] Starting stream for ${entityId}`);
 
       const [config] = await fastify.db
         .select()
@@ -1265,22 +1330,32 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("Home Assistant not configured");
       }
 
+      // Create abort controller for client disconnect
+      const abortController = new AbortController();
+      request.raw.on("close", () => {
+        console.log(`[HA Camera] Client disconnected for ${entityId}`);
+        abortController.abort();
+      });
+
       try {
         const baseUrl = config.url.replace(/\/+$/, "");
-        const response = await fetch(
-          `${baseUrl}/api/camera_proxy_stream/${entityId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${config.accessToken}`,
-            },
-          }
-        );
+        const streamUrl = `${baseUrl}/api/camera_proxy_stream/${entityId}`;
+        console.log(`[HA Camera] Fetching stream from: ${streamUrl}`);
+
+        const response = await fetch(streamUrl, {
+          headers: {
+            Authorization: `Bearer ${config.accessToken}`,
+          },
+          signal: abortController.signal,
+        });
 
         if (!response.ok) {
+          console.error(`[HA Camera] Stream fetch failed: ${response.status} ${response.statusText}`);
           return reply.status(response.status).send("Failed to connect to camera stream");
         }
 
         const contentType = response.headers.get("content-type") ?? "multipart/x-mixed-replace";
+        console.log(`[HA Camera] Stream started, content-type: ${contentType}`);
 
         // Stream the response
         reply.raw.writeHead(200, {
@@ -1292,24 +1367,47 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
         // Pipe the stream
         if (response.body) {
           const reader = response.body.getReader();
+          let bytesReceived = 0;
           const pump = async () => {
             try {
               while (true) {
                 const { done, value } = await reader.read();
-                if (done) break;
-                reply.raw.write(value);
+                if (done) {
+                  console.log(`[HA Camera] Stream ended for ${entityId}, total bytes: ${bytesReceived}`);
+                  break;
+                }
+                bytesReceived += value.length;
+                if (!reply.raw.writableEnded) {
+                  reply.raw.write(value);
+                } else {
+                  console.log(`[HA Camera] Response already ended for ${entityId}`);
+                  break;
+                }
               }
-            } catch {
-              // Stream closed
+            } catch (error) {
+              if ((error as Error).name !== "AbortError") {
+                console.error(`[HA Camera] Stream error for ${entityId}:`, error);
+              }
             } finally {
-              reply.raw.end();
+              if (!reply.raw.writableEnded) {
+                reply.raw.end();
+              }
             }
           };
           pump();
+        } else {
+          console.error(`[HA Camera] No response body for ${entityId}`);
+          reply.raw.end();
         }
       } catch (error) {
-        console.error("Failed to proxy HA camera stream:", error);
-        return reply.internalServerError("Failed to connect to camera stream");
+        if ((error as Error).name === "AbortError") {
+          console.log(`[HA Camera] Stream aborted for ${entityId}`);
+        } else {
+          console.error(`[HA Camera] Failed to proxy stream for ${entityId}:`, error);
+        }
+        if (!reply.sent) {
+          return reply.internalServerError("Failed to connect to camera stream");
+        }
       }
     }
   );
@@ -1327,6 +1425,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const [config] = await fastify.db
         .select()
@@ -1407,6 +1508,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const [config] = await fastify.db
         .select()
@@ -1478,6 +1582,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { entityIds } = request.body as { entityIds: string[] };
 
       // Update sort order for each entity
@@ -1512,6 +1619,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const timers = await fastify.db
         .select()
@@ -1550,6 +1660,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const body = request.body as {
         entityId: string;
         action: "turn_on" | "turn_off";
@@ -1613,6 +1726,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [timer] = await fastify.db
@@ -1653,6 +1769,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const [config] = await fastify.db
         .select()
@@ -1730,6 +1849,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { entityId, name } = request.body as { entityId: string; name?: string };
 
       const [config] = await fastify.db
@@ -1838,6 +1960,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [config] = await fastify.db
@@ -1880,7 +2005,7 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
 
 // Helper function to sync events from a Home Assistant calendar
 async function syncHACalendar(
-  db: typeof import("@openframe/database").db,
+  db: import("@openframe/database").Database,
   haUrl: string,
   haToken: string,
   calendarId: string,
@@ -1923,7 +2048,7 @@ async function syncHACalendar(
     .where(eq(events.calendarId, calendarId));
 
   const existingByExternalId = new Map(
-    existingEvents.map(e => [e.externalId, e])
+    existingEvents.map((e: typeof existingEvents[number]) => [e.externalId, e])
   );
 
   const processedIds = new Set<string>();

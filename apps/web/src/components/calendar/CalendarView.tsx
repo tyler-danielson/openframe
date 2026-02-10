@@ -17,7 +17,10 @@ function getEventDate(dateValue: Date | string, isAllDay: boolean): Date {
       ? dateValue
       : dateValue.toISOString();
     const datePart = isoString.slice(0, 10);
-    const [year, month, day] = datePart.split('-').map(Number);
+    const parts = datePart.split('-').map(Number);
+    const year = parts[0] ?? 1970;
+    const month = parts[1] ?? 1;
+    const day = parts[2] ?? 1;
     return new Date(year, month - 1, day);
   }
   return new Date(dateValue);
@@ -233,12 +236,13 @@ export function CalendarView({
 
   // Custom event component for month view
   const MonthEvent = useCallback(({ event }: { event: CalendarDisplayEvent }) => {
+    const isHoliday = event.resource.calendarId === "federal-holidays";
     const calendar = calendars.find(c => c.id === event.resource.calendarId);
-    const calendarColor = calendar?.color ?? "#3B82F6";
-    const calendarIcon = calendar?.icon ?? "📅";
+    const calendarColor = isHoliday ? "#9333EA" : (calendar?.color ?? "#3B82F6");
+    const calendarIcon = isHoliday ? "🇺🇸" : (calendar?.icon ?? "📅");
 
     return (
-      <div className="flex items-center gap-1 w-full overflow-hidden">
+      <div className={`flex items-center gap-1 w-full overflow-hidden ${isHoliday ? "font-medium" : ""}`}>
         <span className="truncate flex-1 text-xs">{event.title}</span>
         <div
           className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[8px] flex-shrink-0"
@@ -423,18 +427,22 @@ export function CalendarView({
 
   const eventStyleGetter = useCallback(
     (event: CalendarDisplayEvent) => {
-      const calendarColor = (event.resource as CalendarEvent & { calendar?: { color: string } })
-        .calendar?.color ?? "#3B82F6";
+      const isHoliday = event.resource.calendarId === "federal-holidays";
+      const holidayColor = "#9333EA"; // Purple for federal holidays
+      const calendarColor = isHoliday
+        ? holidayColor
+        : ((event.resource as CalendarEvent & { calendar?: { color: string } }).calendar?.color ?? "#3B82F6");
 
       // Use subtle styling for month view
       if (view === "month") {
         return {
           style: {
-            backgroundColor: "hsl(var(--muted) / 0.5)",
-            border: "1px solid hsl(var(--border) / 0.5)",
+            backgroundColor: isHoliday ? "rgba(147, 51, 234, 0.15)" : "hsl(var(--muted) / 0.5)",
+            border: isHoliday ? "1px solid rgba(147, 51, 234, 0.4)" : "1px solid hsl(var(--border) / 0.5)",
             borderLeft: `3px solid ${calendarColor}`,
-            color: "hsl(var(--foreground))",
+            color: isHoliday ? "#9333EA" : "hsl(var(--foreground))",
             borderRadius: "4px",
+            fontWeight: isHoliday ? 500 : undefined,
           },
         };
       }

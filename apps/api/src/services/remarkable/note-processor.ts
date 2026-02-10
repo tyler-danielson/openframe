@@ -259,6 +259,33 @@ async function recognizeHandwriting(
 
 // OpenAI GPT-4o Vision
 async function recognizeWithOpenAI(imageDataUrl: string, apiKey: string): Promise<string> {
+  // Check if it's a PDF or image
+  const isPdf = imageDataUrl.startsWith("data:application/pdf");
+
+  // For PDFs, we need to use the file input approach
+  // For images, we can use image_url directly
+  const contentParts = isPdf
+    ? [
+        {
+          type: "text" as const,
+          text: "Extract all handwritten text from this PDF document. Return each line of text on a separate line. Focus on recognizing event-like entries (appointments, meetings, tasks with times).",
+        },
+        {
+          type: "image_url" as const,
+          image_url: { url: imageDataUrl },
+        },
+      ]
+    : [
+        {
+          type: "text" as const,
+          text: "Extract all handwritten text from this image. Return each line of text on a separate line. Focus on recognizing event-like entries (appointments, meetings, tasks with times).",
+        },
+        {
+          type: "image_url" as const,
+          image_url: { url: imageDataUrl },
+        },
+      ];
+
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -270,19 +297,10 @@ async function recognizeWithOpenAI(imageDataUrl: string, apiKey: string): Promis
       messages: [
         {
           role: "user",
-          content: [
-            {
-              type: "text",
-              text: "Extract all handwritten text from this image. Return each line of text on a separate line. Focus on recognizing event-like entries (appointments, meetings, tasks with times).",
-            },
-            {
-              type: "image_url",
-              image_url: { url: imageDataUrl },
-            },
-          ],
+          content: contentParts,
         },
       ],
-      max_tokens: 500,
+      max_tokens: 1000,
     }),
   });
 
@@ -300,11 +318,32 @@ async function recognizeWithOpenAI(imageDataUrl: string, apiKey: string): Promis
 
 // Anthropic Claude Vision
 async function recognizeWithClaude(imageDataUrl: string, apiKey: string): Promise<string> {
-  const base64Match = imageDataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+  // Support both image and PDF formats
+  const base64Match = imageDataUrl.match(/^data:(image\/\w+|application\/pdf);base64,(.+)$/);
   if (!base64Match) {
-    throw new Error("Invalid image data URL format");
+    throw new Error("Invalid data URL format");
   }
-  const [, mediaType, base64Data] = base64Match;
+  const [, mimeType, base64Data] = base64Match;
+
+  // Determine content type for Claude API
+  const isPdf = mimeType === "application/pdf";
+  const contentBlock = isPdf
+    ? {
+        type: "document" as const,
+        source: {
+          type: "base64" as const,
+          media_type: "application/pdf" as const,
+          data: base64Data,
+        },
+      }
+    : {
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type: mimeType as "image/png" | "image/jpeg" | "image/gif" | "image/webp",
+          data: base64Data,
+        },
+      };
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -314,23 +353,16 @@ async function recognizeWithClaude(imageDataUrl: string, apiKey: string): Promis
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-3-haiku-20240307",
-      max_tokens: 500,
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
       messages: [
         {
           role: "user",
           content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: `image/${mediaType}`,
-                data: base64Data,
-              },
-            },
+            contentBlock,
             {
               type: "text",
-              text: "Extract all handwritten text from this image. Return each line of text on a separate line. Focus on recognizing event-like entries (appointments, meetings, tasks with times).",
+              text: "Extract all handwritten text from this document. Return each line of text on a separate line. Focus on recognizing event-like entries (appointments, meetings, tasks with times).",
             },
           ],
         },
@@ -353,14 +385,15 @@ async function recognizeWithClaude(imageDataUrl: string, apiKey: string): Promis
 
 // Google Gemini Vision
 async function recognizeWithGemini(imageDataUrl: string, apiKey: string): Promise<string> {
-  const base64Match = imageDataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+  // Support both image and PDF formats
+  const base64Match = imageDataUrl.match(/^data:(image\/\w+|application\/pdf);base64,(.+)$/);
   if (!base64Match) {
-    throw new Error("Invalid image data URL format");
+    throw new Error("Invalid data URL format");
   }
-  const [, mediaType, base64Data] = base64Match;
+  const [, mimeType, base64Data] = base64Match;
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -369,11 +402,11 @@ async function recognizeWithGemini(imageDataUrl: string, apiKey: string): Promis
           {
             parts: [
               {
-                text: "Extract all handwritten text from this image. Return each line of text on a separate line. Focus on recognizing event-like entries (appointments, meetings, tasks with times).",
+                text: "Extract all handwritten text from this document. Return each line of text on a separate line. Focus on recognizing event-like entries (appointments, meetings, tasks with times).",
               },
               {
                 inline_data: {
-                  mime_type: `image/${mediaType}`,
+                  mime_type: mimeType,
                   data: base64Data,
                 },
               },
@@ -474,13 +507,14 @@ export async function processRemarkableNote(
     throw new Error("Document not found in database");
   }
 
-  // Download the document
-  fastify.log.info({ documentId }, "Downloading document from reMarkable...");
-  const docBuffer = await client.downloadDocument(documentId);
+  // Download the document with annotations as PDF
+  // rmapi's "geta" command renders handwritten notes into the PDF
+  fastify.log.info({ documentId }, "Downloading document from reMarkable with annotations...");
+  const docBuffer = await client.downloadDocumentWithAnnotations(documentId);
 
-  // The document is a ZIP file containing PDF/images
-  // For now, we'll convert the buffer to base64 for OCR
-  const imageDataUrl = `data:image/png;base64,${docBuffer.toString("base64")}`;
+  // The document is now a PDF with annotations rendered
+  // Convert to base64 for OCR processing
+  const imageDataUrl = `data:application/pdf;base64,${docBuffer.toString("base64")}`;
 
   // Run handwriting recognition
   fastify.log.info({ documentId }, "Running handwriting recognition...");

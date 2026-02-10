@@ -28,6 +28,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const servers = await fastify.db
         .select()
@@ -91,6 +94,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { name, serverUrl, username, password } = request.body as {
         name: string;
         serverUrl: string;
@@ -157,6 +163,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [server] = await fastify.db
@@ -195,6 +204,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [server] = await fastify.db
@@ -311,6 +323,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { serverId } = request.query as { serverId?: string };
 
       // Get user's servers
@@ -377,6 +392,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { serverId, categoryId, search } = request.query as {
         serverId?: string;
         categoryId?: string;
@@ -466,6 +484,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       // Get channel and verify ownership
@@ -525,6 +546,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       // Get channel and verify ownership
@@ -588,6 +612,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const favorites = await fastify.db
         .select({
@@ -640,6 +667,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { channelId } = request.params as { channelId: string };
 
       // Verify channel belongs to user's server
@@ -704,6 +734,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { channelId } = request.params as { channelId: string };
 
       const result = await fastify.db
@@ -740,6 +773,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { limit = 20 } = request.query as { limit?: number };
 
       // Get user's favorites for marking
@@ -810,6 +846,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { channelId } = request.params as { channelId: string };
 
       // Verify channel belongs to user's server
@@ -857,6 +896,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { serverId, categoryId } = request.query as {
         serverId?: string;
         categoryId?: string;
@@ -952,6 +994,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const cacheService = getIptvCacheService(fastify);
 
       try {
@@ -988,6 +1033,9 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const cacheService = getIptvCacheService(fastify);
       const cachedData = cacheService.getCachedData(user.id);
       const isValid = cacheService.isCacheValid(user.id);

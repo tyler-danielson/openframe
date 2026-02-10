@@ -64,10 +64,7 @@ export async function mapsRoutes(fastify: FastifyInstance) {
 
       const apiKey = process.env.GOOGLE_MAPS_API_KEY;
       if (!apiKey) {
-        return reply.status(503).send({
-          success: false,
-          error: "Google Maps API key not configured",
-        });
+        throw fastify.httpErrors.serviceUnavailable("Google Maps API key not configured");
       }
 
       try {
@@ -92,18 +89,12 @@ export async function mapsRoutes(fastify: FastifyInstance) {
         };
 
         if (data.status !== "OK") {
-          return reply.status(400).send({
-            success: false,
-            error: `Distance Matrix API error: ${data.status}`,
-          });
+          throw fastify.httpErrors.badRequest(`Distance Matrix API error: ${data.status}`);
         }
 
         const element = data.rows?.[0]?.elements?.[0];
         if (!element || element.status !== "OK") {
-          return reply.status(400).send({
-            success: false,
-            error: `Could not calculate distance: ${element?.status ?? "No results"}`,
-          });
+          throw fastify.httpErrors.badRequest(`Could not calculate distance: ${element?.status ?? "No results"}`);
         }
 
         return {
@@ -115,11 +106,8 @@ export async function mapsRoutes(fastify: FastifyInstance) {
           },
         };
       } catch (error) {
-        console.error("Distance Matrix API error:", error);
-        return reply.status(500).send({
-          success: false,
-          error: "Failed to calculate distance",
-        });
+        fastify.log.error({ err: error }, "Distance Matrix API error");
+        throw fastify.httpErrors.internalServerError("Failed to calculate distance");
       }
     }
   );
@@ -170,10 +158,7 @@ export async function mapsRoutes(fastify: FastifyInstance) {
 
       const apiKey = process.env.GOOGLE_MAPS_API_KEY;
       if (!apiKey) {
-        return reply.status(503).send({
-          success: false,
-          error: "Google Maps API key not configured",
-        });
+        throw fastify.httpErrors.serviceUnavailable("Google Maps API key not configured");
       }
 
       try {
@@ -195,10 +180,7 @@ export async function mapsRoutes(fastify: FastifyInstance) {
         };
 
         if (data.status !== "OK" && data.status !== "ZERO_RESULTS") {
-          return reply.status(400).send({
-            success: false,
-            error: `Places API error: ${data.status}`,
-          });
+          throw fastify.httpErrors.badRequest(`Places API error: ${data.status}`);
         }
 
         return {
@@ -206,11 +188,8 @@ export async function mapsRoutes(fastify: FastifyInstance) {
           data: data.predictions ?? [],
         };
       } catch (error) {
-        console.error("Places Autocomplete API error:", error);
-        return reply.status(500).send({
-          success: false,
-          error: "Failed to search places",
-        });
+        fastify.log.error({ err: error }, "Places Autocomplete API error");
+        throw fastify.httpErrors.internalServerError("Failed to search places");
       }
     }
   );

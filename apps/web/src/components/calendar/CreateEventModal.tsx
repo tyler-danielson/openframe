@@ -9,9 +9,10 @@ import { PlacesAutocomplete } from "../ui/PlacesAutocomplete";
 import { TouchDatePicker } from "../ui/TouchDatePicker";
 import { TouchTimePicker } from "../ui/TouchTimePicker";
 import { api } from "../../services/api";
+import { useCalendarStore } from "../../stores/calendar";
 
 // Round time up to the next 30-minute interval
-function getRoundedTime(): { startTime: Date; endTime: Date } {
+function getRoundedTime(durationMinutes: number = 60): { startTime: Date; endTime: Date } {
   const now = new Date();
   const minutes = now.getMinutes();
 
@@ -27,9 +28,9 @@ function getRoundedTime(): { startTime: Date; endTime: Date } {
     startTime.setHours(startTime.getHours() + 1);
   }
 
-  // End time is 1 hour after start
+  // End time is based on the duration setting
   const endTime = new Date(startTime);
-  endTime.setHours(endTime.getHours() + 1);
+  endTime.setMinutes(endTime.getMinutes() + durationMinutes);
 
   return { startTime, endTime };
 }
@@ -42,6 +43,7 @@ interface CreateEventModalProps {
 
 export function CreateEventModal({ open, onClose, calendars }: CreateEventModalProps) {
   const queryClient = useQueryClient();
+  const defaultEventDuration = useCalendarStore((state) => state.defaultEventDuration);
 
   // Filter to only editable calendars
   const editableCalendars = calendars.filter((c) => !c.isReadOnly && c.syncEnabled);
@@ -49,7 +51,7 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
 
   const [title, setTitle] = useState("");
   const [calendarId, setCalendarId] = useState(defaultCalendar?.id ?? "");
-  const initialTimes = getRoundedTime();
+  const initialTimes = getRoundedTime(defaultEventDuration);
   const [startDate, setStartDate] = useState(format(initialTimes.startTime, "yyyy-MM-dd"));
   const [startTime, setStartTime] = useState(format(initialTimes.startTime, "HH:mm"));
   const [endDate, setEndDate] = useState(format(initialTimes.endTime, "yyyy-MM-dd"));
@@ -74,7 +76,7 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
   // Reset form when modal opens
   useEffect(() => {
     if (open) {
-      const { startTime: roundedStart, endTime: roundedEnd } = getRoundedTime();
+      const { startTime: roundedStart, endTime: roundedEnd } = getRoundedTime(defaultEventDuration);
       setTitle("");
       setStartDate(format(roundedStart, "yyyy-MM-dd"));
       setStartTime(format(roundedStart, "HH:mm"));
@@ -91,7 +93,7 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
         setCalendarId(defaultCalendar.id);
       }
     }
-  }, [open, defaultCalendar]);
+  }, [open, defaultCalendar, defaultEventDuration]);
 
   const createEvent = useMutation({
     mutationFn: (data: {

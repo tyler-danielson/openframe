@@ -30,6 +30,9 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const query = eventQuerySchema.parse(request.query);
 
       // Get user's calendars (all of them, filtering will be done by calendarIds param)
@@ -113,6 +116,9 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [event] = await fastify.db
@@ -179,6 +185,9 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const input = createEventSchema.parse(request.body);
 
       // Verify user owns the calendar
@@ -249,6 +258,9 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const input = quickEventSchema.parse(request.body);
 
       // Get default calendar if not specified
@@ -316,6 +328,9 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
       const body = request.body as Partial<{
         title: string;
@@ -403,6 +418,9 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [event] = await fastify.db

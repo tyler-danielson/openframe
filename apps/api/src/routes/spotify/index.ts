@@ -32,6 +32,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const accounts = await SpotifyService.getAllAccounts(fastify.db, user.id);
 
@@ -96,6 +99,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const accounts = await SpotifyService.getAllAccounts(fastify.db, user.id);
 
       // Fetch Spotify user info for each account
@@ -155,6 +161,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
       const { accountName, isPrimary, icon, defaultDeviceId, favoriteDeviceIds } = request.body as {
         accountName?: string;
@@ -227,6 +236,7 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         "streaming",
         "user-library-read",
         "user-library-modify",
+        "user-read-playback-position",  // For podcast resume position
       ];
 
       const url = new URL("https://accounts.spotify.com/authorize");
@@ -442,6 +452,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId } = request.query as { accountId?: string };
 
       if (accountId) {
@@ -482,6 +495,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId } = request.query as { accountId?: string };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
@@ -513,6 +529,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId } = request.query as { accountId?: string };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
@@ -553,6 +572,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId } = request.query as { accountId?: string };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
       const body = request.body as {
@@ -587,6 +609,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId } = request.query as { accountId?: string };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
@@ -615,6 +640,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId } = request.query as { accountId?: string };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
@@ -643,6 +671,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId } = request.query as { accountId?: string };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
@@ -678,6 +709,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId } = request.query as { accountId?: string };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
       const { positionMs } = request.body as { positionMs: number };
@@ -714,6 +748,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId } = request.query as { accountId?: string };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
       const { volumePercent } = request.body as { volumePercent: number };
@@ -750,6 +787,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId } = request.query as { accountId?: string };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
       const { state } = request.body as { state: boolean };
@@ -786,6 +826,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId } = request.query as { accountId?: string };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
       const { state } = request.body as { state: "off" | "track" | "context" };
@@ -823,6 +866,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId } = request.query as { accountId?: string };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
       const { deviceId, play } = request.body as {
@@ -857,6 +903,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId, limit, offset } = request.query as {
         accountId?: string;
         limit?: number;
@@ -893,6 +942,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId, limit } = request.query as { accountId?: string; limit?: number };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
@@ -928,6 +980,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId, q, types, limit } = request.query as {
         accountId?: string;
         q: string;
@@ -967,6 +1022,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId, ids } = request.query as { accountId?: string; ids: string };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
 
@@ -1006,6 +1064,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId } = request.query as { accountId?: string };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
       const { trackId } = request.body as { trackId: string };
@@ -1042,6 +1103,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { accountId } = request.query as { accountId?: string };
       const spotify = new SpotifyService(fastify.db, user.id, accountId);
       const { trackId } = request.body as { trackId: string };
@@ -1049,6 +1113,166 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
       await spotify.unsaveTrack(trackId);
 
       return { success: true };
+    }
+  );
+
+  // Get saved shows (podcasts)
+  fastify.get(
+    "/shows",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Get user's saved shows (podcasts)",
+        tags: ["Spotify"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+            limit: { type: "number", default: 20 },
+            offset: { type: "number", default: 0 },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+      const { accountId, limit, offset } = request.query as {
+        accountId?: string;
+        limit?: number;
+        offset?: number;
+      };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
+
+      const shows = await spotify.getSavedShows(limit, offset);
+
+      return {
+        success: true,
+        data: shows,
+      };
+    }
+  );
+
+  // Get saved episodes
+  fastify.get(
+    "/episodes",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Get user's saved episodes",
+        tags: ["Spotify"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+            limit: { type: "number", default: 20 },
+            offset: { type: "number", default: 0 },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+      const { accountId, limit, offset } = request.query as {
+        accountId?: string;
+        limit?: number;
+        offset?: number;
+      };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
+
+      const episodes = await spotify.getSavedEpisodes(limit, offset);
+
+      return {
+        success: true,
+        data: episodes,
+      };
+    }
+  );
+
+  // Get saved albums
+  fastify.get(
+    "/albums",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Get user's saved albums",
+        tags: ["Spotify"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+            limit: { type: "number", default: 20 },
+            offset: { type: "number", default: 0 },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+      const { accountId, limit, offset } = request.query as {
+        accountId?: string;
+        limit?: number;
+        offset?: number;
+      };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
+
+      const albums = await spotify.getSavedAlbums(limit, offset);
+
+      return {
+        success: true,
+        data: albums,
+      };
+    }
+  );
+
+  // Get saved/liked tracks
+  fastify.get(
+    "/tracks",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Get user's saved/liked tracks",
+        tags: ["Spotify"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+            limit: { type: "number", default: 20 },
+            offset: { type: "number", default: 0 },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+      const { accountId, limit, offset } = request.query as {
+        accountId?: string;
+        limit?: number;
+        offset?: number;
+      };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
+
+      const tracks = await spotify.getSavedTracks(limit, offset);
+
+      return {
+        success: true,
+        data: tracks,
+      };
     }
   );
 };

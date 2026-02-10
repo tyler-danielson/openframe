@@ -34,7 +34,7 @@ export function HAGraphWidget({ config, style, isBuilder }: HAGraphWidgetProps) 
   const entity = entityId ? getEntityState(entityId) : undefined;
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
-  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset];
+  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset as Exclude<FontSizePreset, "custom">];
 
   // Calculate custom font sizes if using custom mode
   const getCustomFontSize = (scale: number) => {

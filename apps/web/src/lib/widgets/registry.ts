@@ -38,6 +38,8 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showHours: true,
       showMinutes: true,
       showSeconds: false,
+      eventId: "",           // Selected event ID (takes precedence over targetDate)
+      displayMode: "full",   // "full" | "days"
     },
   },
   weather: {
@@ -247,6 +249,65 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       transitionDuration: 1000,  // ms
       fit: "cover",              // "cover" | "contain"
       shuffle: true,
+    },
+  },
+  "fullscreen-toggle": {
+    name: "Fullscreen Toggle",
+    icon: "Maximize",
+    category: "custom",
+    defaultSize: { width: 1, height: 1 },
+    minSize: { width: 1, height: 1 },
+    maxSize: { width: 99, height: 99 },
+    defaultConfig: {
+      buttonStyle: "icon",      // "icon" | "text" | "both"
+      label: "Fullscreen",
+      iconSize: "medium",       // "small" | "medium" | "large"
+    },
+  },
+  "day-schedule": {
+    name: "Day Schedule",
+    icon: "CalendarDays",
+    category: "schedule",
+    defaultSize: { width: 4, height: 4 },
+    minSize: { width: 2, height: 2 },
+    maxSize: { width: 99, height: 99 },
+    defaultConfig: {
+      calendarIds: [],          // Empty = all screensaver-visible calendars
+      viewMode: "fixed",        // "fixed" | "rolling"
+      startHour: 6,             // 6 AM (for fixed mode)
+      endHour: 22,              // 10 PM (for fixed mode)
+      rollingOffsetMinutes: 60, // Minutes before current time (for rolling mode)
+      rollingDurationHours: 8,  // Total hours to display (for rolling mode)
+      showCurrentTime: true,
+      showHourLabels: true,
+    },
+  },
+  news: {
+    name: "News Headlines",
+    icon: "Newspaper",
+    category: "schedule",
+    defaultSize: { width: 4, height: 3 },
+    minSize: { width: 2, height: 2 },
+    maxSize: { width: 99, height: 99 },
+    defaultConfig: {
+      maxItems: 5,
+      showImages: true,
+      showSource: true,
+      showTime: true,
+    },
+  },
+  "ha-map": {
+    name: "HA Map",
+    icon: "Map",
+    category: "homeassistant",
+    defaultSize: { width: 4, height: 4 },
+    minSize: { width: 2, height: 2 },
+    maxSize: { width: 99, height: 99 },
+    defaultConfig: {
+      showZones: true,
+      showDeviceNames: true,
+      darkMode: true,
+      autoFitBounds: true,
     },
   },
 };

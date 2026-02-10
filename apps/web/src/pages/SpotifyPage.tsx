@@ -20,6 +20,10 @@ import {
   ChevronDown,
   User,
   History,
+  Podcast,
+  Radio,
+  Disc,
+  Heart,
 } from "lucide-react";
 import { api, type SpotifyAccount } from "../services/api";
 import { Button } from "../components/ui/Button";
@@ -57,6 +61,7 @@ export function SpotifyPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(undefined);
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [libraryView, setLibraryView] = useState<"playlists" | "podcasts" | "episodes" | "albums" | "liked">("playlists");
   const [timeFade, setTimeFade] = useState(true);
 
   const { familyName, timeFormat, cycleTimeFormat } = useCalendarStore();
@@ -159,7 +164,35 @@ export function SpotifyPage() {
   const { data: playlists } = useQuery({
     queryKey: ["spotify-playlists", accountIdForApi],
     queryFn: () => api.getSpotifyPlaylists(50, 0, accountIdForApi),
-    enabled: status?.connected === true,
+    enabled: status?.connected === true && !searchQuery,
+  });
+
+  // Get podcasts (shows)
+  const { data: shows } = useQuery({
+    queryKey: ["spotify-shows", accountIdForApi],
+    queryFn: () => api.getSpotifyShows(50, 0, accountIdForApi),
+    enabled: status?.connected === true && libraryView === "podcasts" && !searchQuery,
+  });
+
+  // Get saved episodes
+  const { data: episodes } = useQuery({
+    queryKey: ["spotify-episodes", accountIdForApi],
+    queryFn: () => api.getSpotifyEpisodes(50, 0, accountIdForApi),
+    enabled: status?.connected === true && libraryView === "episodes" && !searchQuery,
+  });
+
+  // Get saved albums
+  const { data: albums } = useQuery({
+    queryKey: ["spotify-albums", accountIdForApi],
+    queryFn: () => api.getSpotifyAlbums(50, 0, accountIdForApi),
+    enabled: status?.connected === true && libraryView === "albums" && !searchQuery,
+  });
+
+  // Get liked tracks
+  const { data: likedTracks } = useQuery({
+    queryKey: ["spotify-liked-tracks", accountIdForApi],
+    queryFn: () => api.getSpotifyTracks(50, 0, accountIdForApi),
+    enabled: status?.connected === true && libraryView === "liked" && !searchQuery,
   });
 
   // Get recently played tracks for search boosting
@@ -681,7 +714,7 @@ export function SpotifyPage() {
             )}
           </div>
 
-          {/* Right Column - Playlists & Search */}
+          {/* Right Column - Library & Search */}
           <div className="flex-1 min-w-0 flex flex-col">
             {/* Search Toggle & Input */}
             <div className="mb-4">
@@ -700,7 +733,34 @@ export function SpotifyPage() {
               </div>
             </div>
 
-            {/* Search Results or Playlists */}
+            {/* Library Toggle */}
+            {!searchQuery && (
+              <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
+                {([
+                  { id: "playlists", label: "Playlists", icon: ListMusic },
+                  { id: "podcasts", label: "Podcasts", icon: Podcast },
+                  { id: "episodes", label: "New Episodes", icon: Radio },
+                  { id: "albums", label: "Albums", icon: Disc },
+                  { id: "liked", label: "Liked Songs", icon: Heart },
+                ] as const).map((view) => (
+                  <button
+                    key={view.id}
+                    onClick={() => setLibraryView(view.id)}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors shrink-0",
+                      libraryView === view.id
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    )}
+                  >
+                    <view.icon className="h-4 w-4" />
+                    {view.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Search Results or Library Content */}
             <div className="flex-1 overflow-auto">
               {showSearch && searchQuery.length > 2 ? (
                 <div className="space-y-4">
@@ -742,7 +802,7 @@ export function SpotifyPage() {
                                   <div className="flex items-center gap-1.5">
                                     <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{track.name}</p>
                                     {recentTrackIds.has(track.id) && (
-                                      <History className="h-3 w-3 text-green-500 shrink-0" title="Recently played" />
+                                      <History className="h-3 w-3 text-green-500 shrink-0" />
                                     )}
                                   </div>
                                   <p className="truncate text-xs text-gray-600 dark:text-gray-400">
@@ -794,39 +854,227 @@ export function SpotifyPage() {
                   )}
                 </div>
               ) : (
-                /* Playlists Grid */
-                <div>
-                  <h3 className="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">Your Playlists</h3>
-                  <div className="grid gap-2 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                    {playlists?.items?.map((playlist) => (
-                      <button
-                        key={playlist.id}
-                        onClick={() => playMutation.mutate({ contextUri: playlist.uri })}
-                        className="flex flex-col items-center gap-2 rounded-lg border border-border bg-white dark:bg-gray-800 p-3 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-center"
-                      >
-                        <div className="h-16 w-16 shrink-0 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
-                          {playlist.images?.[0]?.url ? (
-                            <img
-                              src={playlist.images[0].url}
-                              alt={playlist.name}
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center">
-                              <ListMusic className="h-8 w-8 text-gray-500 dark:text-gray-400" />
+                <>
+                  {/* Playlists View */}
+                  {libraryView === "playlists" && (
+                    <div>
+                      <h3 className="mb-2 text-sm font-medium text-primary">Your Playlists</h3>
+                      <div className="grid gap-2 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                        {playlists?.items?.map((playlist) => (
+                          <button
+                            key={playlist.id}
+                            onClick={() => playMutation.mutate({ contextUri: playlist.uri })}
+                            className="flex flex-col items-center gap-2 rounded-lg border border-border bg-white dark:bg-gray-800 p-3 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-center"
+                          >
+                            <div className="h-16 w-16 shrink-0 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
+                              {playlist.images?.[0]?.url ? (
+                                <img
+                                  src={playlist.images[0].url}
+                                  alt={playlist.name}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center">
+                                  <ListMusic className="h-8 w-8 text-gray-500 dark:text-gray-400" />
+                                </div>
+                              )}
                             </div>
-                          )}
+                            <div className="w-full min-w-0">
+                              <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{playlist.name}</p>
+                              <p className="text-xs text-gray-600 dark:text-gray-400">
+                                {playlist.tracks.total} tracks
+                              </p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                      {(!playlists?.items || playlists.items.length === 0) && (
+                        <div className="text-center text-muted-foreground py-8">
+                          No playlists found
                         </div>
-                        <div className="w-full min-w-0">
-                          <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{playlist.name}</p>
-                          <p className="text-xs text-gray-600 dark:text-gray-400">
-                            {playlist.tracks.total} tracks
-                          </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Podcasts View */}
+                  {libraryView === "podcasts" && (
+                    <div>
+                      <h3 className="mb-2 text-sm font-medium text-primary">Your Podcasts</h3>
+                      <div className="grid gap-2 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                        {shows?.items?.map((item) => (
+                          <button
+                            key={item.show.id}
+                            onClick={() => playMutation.mutate({ contextUri: item.show.uri })}
+                            className="flex flex-col items-center gap-2 rounded-lg border border-border bg-white dark:bg-gray-800 p-3 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-center"
+                          >
+                            <div className="h-16 w-16 shrink-0 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
+                              {item.show.images?.[0]?.url ? (
+                                <img
+                                  src={item.show.images[0].url}
+                                  alt={item.show.name}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center">
+                                  <Podcast className="h-8 w-8 text-gray-500 dark:text-gray-400" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="w-full min-w-0">
+                              <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{item.show.name}</p>
+                              <p className="truncate text-xs text-gray-600 dark:text-gray-400">
+                                {item.show.publisher}
+                              </p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                      {(!shows?.items || shows.items.length === 0) && (
+                        <div className="text-center text-muted-foreground py-8">
+                          No podcasts found. Subscribe to shows on Spotify to see them here.
                         </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Episodes View */}
+                  {libraryView === "episodes" && (
+                    <div>
+                      <h3 className="mb-2 text-sm font-medium text-primary">New Episodes</h3>
+                      <div className="space-y-2">
+                        {episodes?.items?.map((item) => (
+                          <button
+                            key={item.episode.id}
+                            onClick={() => playMutation.mutate({ uris: [item.episode.uri] })}
+                            className="flex w-full items-center gap-3 rounded-lg border border-border bg-white dark:bg-gray-800 p-3 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left"
+                          >
+                            <div className="h-14 w-14 shrink-0 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
+                              {item.episode.images?.[0]?.url ? (
+                                <img
+                                  src={item.episode.images[0].url}
+                                  alt={item.episode.name}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center">
+                                  <Radio className="h-6 w-6 text-gray-500 dark:text-gray-400" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{item.episode.name}</p>
+                              <p className="truncate text-xs text-gray-600 dark:text-gray-400">
+                                {item.episode.show.name}
+                              </p>
+                              <div className="flex items-center gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                <span>{item.episode.release_date}</span>
+                                <span>·</span>
+                                <span>{Math.round(item.episode.duration_ms / 60000)} min</span>
+                                {item.episode.resume_point && !item.episode.resume_point.fully_played && (
+                                  <>
+                                    <span>·</span>
+                                    <span className="text-green-500">
+                                      {Math.round(item.episode.resume_point.resume_position_ms / 60000)} min left
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            <Play className="h-5 w-5 text-gray-500 dark:text-gray-400 shrink-0" />
+                          </button>
+                        ))}
+                      </div>
+                      {(!episodes?.items || episodes.items.length === 0) && (
+                        <div className="text-center text-muted-foreground py-8">
+                          No saved episodes found. Save episodes on Spotify to see them here.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Albums View */}
+                  {libraryView === "albums" && (
+                    <div>
+                      <h3 className="mb-2 text-sm font-medium text-primary">Your Albums</h3>
+                      <div className="grid gap-2 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                        {albums?.items?.map((item) => (
+                          <button
+                            key={item.album.id}
+                            onClick={() => playMutation.mutate({ contextUri: item.album.uri })}
+                            className="flex flex-col items-center gap-2 rounded-lg border border-border bg-white dark:bg-gray-800 p-3 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-center"
+                          >
+                            <div className="h-16 w-16 shrink-0 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
+                              {item.album.images?.[0]?.url ? (
+                                <img
+                                  src={item.album.images[0].url}
+                                  alt={item.album.name}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center">
+                                  <Disc className="h-8 w-8 text-gray-500 dark:text-gray-400" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="w-full min-w-0">
+                              <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{item.album.name}</p>
+                              <p className="truncate text-xs text-gray-600 dark:text-gray-400">
+                                {item.album.artists?.map((a) => a.name).join(", ")}
+                              </p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                      {(!albums?.items || albums.items.length === 0) && (
+                        <div className="text-center text-muted-foreground py-8">
+                          No saved albums found. Save albums on Spotify to see them here.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Liked Songs View */}
+                  {libraryView === "liked" && (
+                    <div>
+                      <h3 className="mb-2 text-sm font-medium text-primary">Liked Songs</h3>
+                      <div className="space-y-1">
+                        {likedTracks?.items?.map((item) => (
+                          <button
+                            key={item.track.id}
+                            onClick={() => playMutation.mutate({ uris: [item.track.uri] })}
+                            className="flex w-full items-center gap-3 rounded-lg border border-border bg-white dark:bg-gray-800 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left"
+                          >
+                            <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
+                              {item.track.album?.images?.[0]?.url ? (
+                                <img
+                                  src={item.track.album.images[0].url}
+                                  alt={item.track.album.name}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center">
+                                  <Music className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{item.track.name}</p>
+                              <p className="truncate text-xs text-gray-600 dark:text-gray-400">
+                                {item.track.artists?.map((a) => a.name).join(", ")}
+                              </p>
+                            </div>
+                            <Heart className="h-4 w-4 text-green-500 shrink-0 fill-green-500" />
+                          </button>
+                        ))}
+                      </div>
+                      {(!likedTracks?.items || likedTracks.items.length === 0) && (
+                        <div className="text-center text-muted-foreground py-8">
+                          No liked songs found. Like songs on Spotify to see them here.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>

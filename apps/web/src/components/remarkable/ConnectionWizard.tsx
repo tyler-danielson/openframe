@@ -57,15 +57,15 @@ export function ConnectionWizard({ onSuccess }: ConnectionWizardProps) {
             id="code"
             type="text"
             value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase().slice(0, 8))}
-            placeholder="ABCD1234"
-            className="w-full px-3 py-2 border border-input rounded-md bg-background text-center text-lg font-mono tracking-widest uppercase"
+            onChange={(e) => setCode(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8))}
+            placeholder="abcd1234"
+            className="w-full px-3 py-2 border border-input rounded-md bg-background text-center text-lg font-mono tracking-widest lowercase"
             maxLength={8}
             autoComplete="off"
             autoFocus
           />
           <p className="text-xs text-muted-foreground mt-1">
-            8 characters, letters and numbers
+            8 characters, lowercase letters and numbers
           </p>
         </div>
 

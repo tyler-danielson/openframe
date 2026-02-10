@@ -5,7 +5,7 @@ import {
   DEFAULT_LAYOUT_CONFIG,
 } from "../stores/screensaver";
 
-interface BuilderContextValue {
+export interface BuilderContextValue {
   layoutConfig: ScreensaverLayoutConfig;
   selectedWidgetId: string | null;
   gridSnap: boolean;

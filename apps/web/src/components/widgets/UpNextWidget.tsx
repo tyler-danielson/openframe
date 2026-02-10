@@ -109,7 +109,7 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
   }, [events, hideBlankEvents, hideAllDayEvents, hideDuplicates]);
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
-  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset];
+  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset as Exclude<FontSizePreset, "custom">];
 
   const getCustomFontSize = (scale: number) => {
     if (!customValue) return undefined;

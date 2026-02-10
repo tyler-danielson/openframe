@@ -143,28 +143,38 @@ export function BuilderCanvas({ showGrid, previewMode, liveMode = false, onWidge
       const y = e.clientY - rect.top;
       const gridPos = pixelToGrid(x, y);
 
+      // Scale widget size based on current grid density relative to base 16x9 grid
+      const baseColumns = 16;
+      const baseRows = 9;
+      const scaleX = gridColumns / baseColumns;
+      const scaleY = gridRows / baseRows;
+
       const widgetType = e.dataTransfer.types.includes("widgettype")
         ? (e.dataTransfer.getData("widgetType") as BuilderWidgetType)
         : null;
 
       if (widgetType) {
         const definition = WIDGET_REGISTRY[widgetType];
+        const scaledWidth = Math.max(1, Math.round(definition.defaultSize.width * scaleX));
+        const scaledHeight = Math.max(1, Math.round(definition.defaultSize.height * scaleY));
         setDropPreview({
           x: gridPos.x,
           y: gridPos.y,
-          width: definition.defaultSize.width,
-          height: definition.defaultSize.height,
+          width: scaledWidth,
+          height: scaledHeight,
         });
       } else {
+        const defaultWidth = Math.max(1, Math.round(2 * scaleX));
+        const defaultHeight = Math.max(1, Math.round(2 * scaleY));
         setDropPreview({
           x: gridPos.x,
           y: gridPos.y,
-          width: 2,
-          height: 2,
+          width: defaultWidth,
+          height: defaultHeight,
         });
       }
     },
-    [pixelToGrid]
+    [pixelToGrid, gridColumns, gridRows]
   );
 
   // Handle drop
@@ -175,12 +185,22 @@ export function BuilderCanvas({ showGrid, previewMode, liveMode = false, onWidge
       if (!widgetType || !dropPreview) return;
 
       const definition = WIDGET_REGISTRY[widgetType];
+
+      // Scale widget size based on current grid density relative to base 16x9 grid
+      const baseColumns = 16;
+      const baseRows = 9;
+      const scaleX = gridColumns / baseColumns;
+      const scaleY = gridRows / baseRows;
+
+      const scaledWidth = Math.max(1, Math.round(definition.defaultSize.width * scaleX));
+      const scaledHeight = Math.max(1, Math.round(definition.defaultSize.height * scaleY));
+
       addWidget({
         type: widgetType,
-        x: Math.min(dropPreview.x, gridColumns - definition.defaultSize.width),
-        y: Math.min(dropPreview.y, gridRows - definition.defaultSize.height),
-        width: definition.defaultSize.width,
-        height: definition.defaultSize.height,
+        x: Math.min(dropPreview.x, gridColumns - scaledWidth),
+        y: Math.min(dropPreview.y, gridRows - scaledHeight),
+        width: scaledWidth,
+        height: scaledHeight,
         config: { ...definition.defaultConfig },
       });
 

@@ -1,13 +1,16 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, addWeeks, addDays, format, isSameDay } from "date-fns";
-import { ChevronLeft, ChevronRight, Plus, X, Droplets, Wind, Thermometer, PenTool } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, X, Droplets, Wind, Thermometer, PenTool, WifiOff } from "lucide-react";
 import { api, type WeatherData, type WeatherForecast, type HourlyForecast } from "../services/api";
 import { useCalendarStore } from "../stores/calendar";
 import { CalendarView, EventModal, CreateEventModal, HandwritingOverlay, DaySummaryModal } from "../components/calendar";
 import { SportsScoreBadge } from "../components/sports";
 import { Button } from "../components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/Select";
+import { offlineCache, CACHE_KEYS, CACHE_MAX_AGES } from "../lib/offlineCache";
+import { getFederalHolidaysInRange } from "../data/federalHolidays";
+import { useKiosk } from "../contexts/KioskContext";
 import type { CalendarEvent, SportsGame, FavoriteSportsTeam, CalendarVisibility } from "@openframe/shared";
 
 // Weather detail info for popup
@@ -368,6 +371,7 @@ export function CalendarPage() {
     setWeekMode,
     monthMode,
     setMonthMode,
+    autoRefreshInterval,
   } = useCalendarStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -378,30 +382,84 @@ export function CalendarPage() {
   const [drawingTargetDate, setDrawingTargetDate] = useState<Date | null>(null);
   const [daySummaryDate, setDaySummaryDate] = useState<Date | null>(null);
   const [selectedGame, setSelectedGame] = useState<SportsGame | null>(null);
+  const [weatherCacheAge, setWeatherCacheAge] = useState<number | null>(null);
 
-  // Fetch weather data
+  // Try to get kiosk context (may not exist if not in kiosk mode)
+  let isOfflineMode = false;
+  try {
+    const kioskContext = useKiosk();
+    isOfflineMode = kioskContext.isOfflineMode;
+  } catch {
+    // Not in kiosk mode, ignore
+  }
+
+  // Fetch weather data with caching
   const { data: weather } = useQuery({
     queryKey: ["weather-current"],
-    queryFn: () => api.getCurrentWeather(),
-    refetchInterval: 10 * 60 * 1000, // Refresh every 10 minutes
+    queryFn: async () => {
+      try {
+        const data = await api.getCurrentWeather();
+        // Cache for offline use
+        offlineCache.set(CACHE_KEYS.WEATHER_CURRENT, data);
+        setWeatherCacheAge(null);
+        return data;
+      } catch (error) {
+        // Try to use cached data when fetch fails
+        const cached = offlineCache.getStale<WeatherData>(CACHE_KEYS.WEATHER_CURRENT);
+        if (cached) {
+          setWeatherCacheAge(cached.age);
+          return cached.data;
+        }
+        throw error;
+      }
+    },
+    refetchInterval: isOfflineMode ? false : 10 * 60 * 1000, // Pause when offline
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
 
-  // Fetch weather forecast
+  // Fetch weather forecast with caching
   const { data: forecast } = useQuery({
     queryKey: ["weather-forecast"],
-    queryFn: () => api.getWeatherForecast(),
-    refetchInterval: 30 * 60 * 1000, // Refresh every 30 minutes
+    queryFn: async () => {
+      try {
+        const data = await api.getWeatherForecast();
+        // Cache for offline use
+        offlineCache.set(CACHE_KEYS.WEATHER_FORECAST, data);
+        return data;
+      } catch (error) {
+        // Try to use cached data when fetch fails
+        const cached = offlineCache.getStale<WeatherForecast[]>(CACHE_KEYS.WEATHER_FORECAST);
+        if (cached) {
+          return cached.data;
+        }
+        throw error;
+      }
+    },
+    refetchInterval: isOfflineMode ? false : 30 * 60 * 1000,
     staleTime: 15 * 60 * 1000,
     retry: false,
   });
 
-  // Fetch hourly forecast for header
+  // Fetch hourly forecast for header with caching
   const { data: hourlyForecast } = useQuery({
     queryKey: ["weather-hourly"],
-    queryFn: () => api.getHourlyForecast(),
-    refetchInterval: 30 * 60 * 1000,
+    queryFn: async () => {
+      try {
+        const data = await api.getHourlyForecast();
+        // Cache for offline use
+        offlineCache.set(CACHE_KEYS.WEATHER_HOURLY, data);
+        return data;
+      } catch (error) {
+        // Try to use cached data when fetch fails
+        const cached = offlineCache.getStale<HourlyForecast[]>(CACHE_KEYS.WEATHER_HOURLY);
+        if (cached) {
+          return cached.data;
+        }
+        throw error;
+      }
+    },
+    refetchInterval: isOfflineMode ? false : 30 * 60 * 1000,
     staleTime: 15 * 60 * 1000,
     retry: false,
   });
@@ -503,13 +561,13 @@ export function CalendarPage() {
     }
   }, [calendarsData, setCalendars]);
 
-  // Fetch events (refresh every 2 minutes)
+  // Fetch events (refresh based on autoRefreshInterval setting, 0 = disabled)
   const { data: rawCalendarEvents = [] } = useQuery({
     queryKey: ["events", dateRange.start.toISOString(), dateRange.end.toISOString(), selectedCalendarIds],
     queryFn: () => api.getEvents(dateRange.start, dateRange.end, selectedCalendarIds),
     enabled: selectedCalendarIds.length > 0,
-    refetchInterval: 2 * 60 * 1000, // 2 minutes
-    staleTime: 60 * 1000, // 1 minute
+    refetchInterval: autoRefreshInterval > 0 ? autoRefreshInterval * 60 * 1000 : false,
+    staleTime: autoRefreshInterval > 0 ? Math.min(autoRefreshInterval * 60 * 1000 / 2, 60 * 1000) : 60 * 1000,
   });
 
   // Fetch favorite teams for visibility settings
@@ -518,13 +576,13 @@ export function CalendarPage() {
     queryFn: () => api.getFavoriteTeams(),
   });
 
-  // Fetch sports events (refresh every 2 minutes)
+  // Fetch sports events (refresh based on autoRefreshInterval setting, 0 = disabled)
   const { data: rawSportsEvents = [] } = useQuery({
     queryKey: ["sports-events", dateRange.start.toISOString(), dateRange.end.toISOString()],
     queryFn: () => api.getSportsEvents(dateRange.start, dateRange.end),
     enabled: favoriteTeams.length > 0,
-    refetchInterval: 2 * 60 * 1000, // 2 minutes
-    staleTime: 60 * 1000, // 1 minute
+    refetchInterval: autoRefreshInterval > 0 ? autoRefreshInterval * 60 * 1000 : false,
+    staleTime: autoRefreshInterval > 0 ? Math.min(autoRefreshInterval * 60 * 1000 / 2, 60 * 1000) : 60 * 1000,
   });
 
   // Map calendar IDs to their visibility settings
@@ -555,6 +613,29 @@ export function CalendarPage() {
     }
   };
 
+  // Generate federal holiday events for the current date range
+  const holidayEvents = useMemo((): CalendarEvent[] => {
+    const holidays = getFederalHolidaysInRange(dateRange.start, dateRange.end);
+    return holidays.map(holiday => ({
+      id: `holiday-${holiday.date.toISOString()}`,
+      calendarId: "federal-holidays",
+      externalId: `holiday-${holiday.date.toISOString()}`,
+      title: holiday.name,
+      description: holiday.isObserved && holiday.actualDate
+        ? `Observed (actual date: ${format(holiday.actualDate, "MMMM d")})`
+        : null,
+      location: null,
+      startTime: holiday.date,
+      endTime: holiday.date,
+      isAllDay: true,
+      status: "confirmed" as const,
+      recurrenceRule: null,
+      recurringEventId: null,
+      attendees: [],
+      reminders: [],
+    }));
+  }, [dateRange.start, dateRange.end]);
+
   // Combine and filter all events based on visibility settings for current view
   const rawEvents = useMemo(() => {
     // Filter sports events based on team visibility
@@ -565,12 +646,16 @@ export function CalendarPage() {
       const visibility = teamVisibility.get(teamDbId);
       return isVisibleForView(visibility, view);
     });
-    return [...rawCalendarEvents, ...filteredSportsEvents];
-  }, [rawCalendarEvents, rawSportsEvents, teamVisibility, view]);
+    return [...rawCalendarEvents, ...filteredSportsEvents, ...holidayEvents];
+  }, [rawCalendarEvents, rawSportsEvents, teamVisibility, view, holidayEvents]);
 
   // Filter calendar events based on calendar visibility settings for current view
   const events = useMemo(() => {
     return rawEvents.filter(event => {
+      // Holiday events are always visible
+      if (event.calendarId === "federal-holidays") {
+        return true;
+      }
       // Sports events don't have calendarId visibility - they use team visibility (already filtered above)
       if (!event.calendarId || event.calendarId.startsWith("sports-")) {
         return true; // Sports events already filtered in rawEvents
@@ -585,7 +670,11 @@ export function CalendarPage() {
 
   // Filter events for popup (day summary modal) based on popup visibility
   const popupEvents = useMemo(() => {
-    return [...rawCalendarEvents, ...rawSportsEvents].filter(event => {
+    return [...rawCalendarEvents, ...rawSportsEvents, ...holidayEvents].filter(event => {
+      // Holiday events always show in popup
+      if (event.calendarId === "federal-holidays") {
+        return true;
+      }
       // Check sports team popup visibility
       if (event.calendarId?.startsWith("sports-")) {
         const teamDbId = event.calendarId.replace("sports-", "");
@@ -597,7 +686,7 @@ export function CalendarPage() {
       if (!visibility) return true;
       return visibility.popup;
     });
-  }, [rawCalendarEvents, rawSportsEvents, teamVisibility, calendarVisibility]);
+  }, [rawCalendarEvents, rawSportsEvents, holidayEvents, teamVisibility, calendarVisibility]);
 
   // Delete event mutation
   const deleteEvent = useMutation({
@@ -724,20 +813,37 @@ export function CalendarPage() {
         <div className="grid grid-cols-[auto_1fr] grid-rows-[auto_auto] gap-x-4 gap-y-0 border-b border-border px-4 pt-0.5 pb-2">
           {/* Row 1, Left: Weather */}
           <div className="flex items-center gap-[clamp(0.5rem,1vw,1rem)]">
+            {/* Offline indicator */}
+            {isOfflineMode && (
+              <div className="flex items-center gap-1 text-muted-foreground" title="Offline - showing cached data">
+                <WifiOff className="h-4 w-4" />
+              </div>
+            )}
             {/* Current weather */}
             {weather && (
-              <button
-                onClick={() => handleWeatherClick(new Date())}
-                className="flex items-center gap-[clamp(0.25rem,0.5vw,0.5rem)] text-muted-foreground hover:text-foreground transition-colors"
-                title={weather.description}
-              >
-                <span className="text-[clamp(1.5rem,3vw,2.5rem)]">{getWeatherIcon(weather.icon)}</span>
-                <span className="text-[clamp(1.25rem,2.5vw,2rem)] font-semibold">{weather.temp}°</span>
-              </button>
+              <div className="flex flex-col items-start">
+                <button
+                  onClick={() => handleWeatherClick(new Date())}
+                  className={`flex items-center gap-[clamp(0.25rem,0.5vw,0.5rem)] hover:text-foreground transition-colors ${
+                    weatherCacheAge && weatherCacheAge > 60 * 60 * 1000 ? "text-muted-foreground/60" : "text-muted-foreground"
+                  }`}
+                  title={weather.description}
+                >
+                  <span className="text-[clamp(1.5rem,3vw,2.5rem)]">{getWeatherIcon(weather.icon)}</span>
+                  <span className="text-[clamp(1.25rem,2.5vw,2rem)] font-semibold">{weather.temp}°</span>
+                </button>
+                {weatherCacheAge !== null && (
+                  <span className="text-[0.65rem] text-muted-foreground/60 -mt-1">
+                    {weatherCacheAge > 60 * 60 * 1000 ? "Stale" : "Cached"} {Math.round(weatherCacheAge / 60000)}m ago
+                  </span>
+                )}
+              </div>
             )}
             {/* Hourly forecast */}
             {hourlyForecast && hourlyForecast.length > 0 && (
-              <div className="flex items-center gap-[clamp(0.5rem,1vw,1rem)] text-muted-foreground">
+              <div className={`flex items-center gap-[clamp(0.5rem,1vw,1rem)] ${
+                weatherCacheAge && weatherCacheAge > 60 * 60 * 1000 ? "text-muted-foreground/60" : "text-muted-foreground"
+              }`}>
                 {hourlyForecast.slice(0, 4).map((hour, i) => (
                   <div key={i} className="flex flex-col items-center text-[clamp(0.625rem,1.25vw,0.875rem)] leading-tight">
                     <div className="flex items-center gap-0.5">

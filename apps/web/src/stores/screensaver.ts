@@ -25,10 +25,14 @@ export type BuilderWidgetType =
   | "ha-gauge"
   | "ha-graph"
   | "ha-camera"
+  | "ha-map"
   | "text"
   | "image"
   | "countdown"
-  | "photo-album";
+  | "photo-album"
+  | "fullscreen-toggle"
+  | "day-schedule"
+  | "news";
 
 export type FontSizePreset = "xs" | "sm" | "md" | "lg" | "xl" | "custom";
 
@@ -88,9 +92,19 @@ export interface ScreensaverLayoutConfig {
   canvasHeight: number; // Default: 1080
 }
 
+// Grid presets following 16:9 aspect ratio
+export const GRID_PRESETS = [
+  { id: "16x9", label: "16×9", columns: 16, rows: 9, description: "Standard" },
+  { id: "32x18", label: "32×18", columns: 32, rows: 18, description: "Fine" },
+  { id: "64x36", label: "64×36", columns: 64, rows: 36, description: "Very Fine" },
+  { id: "128x72", label: "128×72", columns: 128, rows: 72, description: "Ultra Fine" },
+] as const;
+
+export type GridPreset = typeof GRID_PRESETS[number]["id"];
+
 export const DEFAULT_LAYOUT_CONFIG: ScreensaverLayoutConfig = {
-  gridColumns: 12,
-  gridRows: 8,
+  gridColumns: 16,
+  gridRows: 9,
   gridGap: 8,
   backgroundColor: "#000000",
   widgets: [],
@@ -591,11 +605,11 @@ export const useScreensaverStore = create<ScreensaverState>()(
             synced: true,
           };
           // Load layoutConfig if available from server (only if it has widgets)
-          if (settings.layoutConfig && Array.isArray((settings.layoutConfig as ScreensaverLayoutConfig).widgets)) {
+          if (settings.layoutConfig && Array.isArray((settings.layoutConfig as unknown as ScreensaverLayoutConfig).widgets)) {
             // Merge with defaults to ensure all required properties exist
             updates.layoutConfig = {
               ...DEFAULT_LAYOUT_CONFIG,
-              ...(settings.layoutConfig as ScreensaverLayoutConfig),
+              ...(settings.layoutConfig as unknown as ScreensaverLayoutConfig),
             };
           }
           set(updates);
@@ -617,7 +631,7 @@ export const useScreensaverStore = create<ScreensaverState>()(
             layout: state.layout,
             transition: state.transition,
             colorScheme: state.colorScheme,
-            layoutConfig: state.layoutConfig,
+            layoutConfig: state.layoutConfig as unknown as Record<string, unknown>,
           });
           console.log("[Screensaver] Saved successfully");
         } catch (error) {

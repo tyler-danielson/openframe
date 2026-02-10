@@ -11,6 +11,16 @@ logDestinations: [stdout]
 api: yes
 apiAddress: :9997
 
+# Allow API access from any IP (authentication handled by OpenFrame)
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: api
+      - action: read
+      - action: publish
+
 # Metrics (optional)
 metrics: no
 
@@ -18,7 +28,6 @@ metrics: no
 rtsp: yes
 rtspAddress: :8554
 protocols: [tcp]
-rtspDisableServerMediaChannel: yes
 
 # RTMP (disabled - not needed)
 rtmp: no
@@ -53,16 +62,8 @@ pathDefaults:
   # Source settings
   source: publisher
   sourceOnDemand: yes
-  sourceOnDemandStartTimeout: 10s
-  sourceOnDemandCloseAfter: 10s
-
-  # Disable authentication (handled by OpenFrame API)
-  publishUser: ""
-  publishPass: ""
-  publishIPs: []
-  readUser: ""
-  readPass: ""
-  readIPs: []
+  sourceOnDemandStartTimeout: 30s
+  sourceOnDemandCloseAfter: 60s
 
   # Transcode settings (none - direct passthrough)
   runOnDemand: ""

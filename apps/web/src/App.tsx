@@ -21,6 +21,9 @@ import { ScreensaverBuilderPage } from "./pages/ScreensaverBuilderPage";
 import { KioskDisplayPage } from "./pages/KioskDisplayPage";
 import { RecipesPage } from "./pages/RecipesPage";
 import { MobileRecipeUploadPage } from "./pages/MobileRecipeUploadPage";
+import { ProfilesPage } from "./pages/ProfilesPage";
+import { PlannerBuilderPage } from "./pages/PlannerBuilderPage";
+import { ProfileSettingsPage } from "./pages/ProfileSettingsPage";
 import { Toaster } from "./components/ui/Toaster";
 import { Screensaver } from "./components/Screensaver";
 import { NowPlaying } from "./components/spotify/NowPlaying";
@@ -170,7 +173,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <Toaster>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
@@ -224,13 +227,35 @@ export default function App() {
               </SettingsProtectedRoute>
             }
           />
+          <Route
+            path="profiles"
+            element={
+              <SettingsProtectedRoute>
+                <ProfilesPage />
+              </SettingsProtectedRoute>
+            }
+          />
+          <Route
+            path="profiles/:profileId/planner"
+            element={
+              <SettingsProtectedRoute>
+                <PlannerBuilderPage />
+              </SettingsProtectedRoute>
+            }
+          />
+          <Route
+            path="profiles/:profileId/settings"
+            element={
+              <SettingsProtectedRoute>
+                <ProfileSettingsPage />
+              </SettingsProtectedRoute>
+            }
+          />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      <Toaster>
-        <DurationAlertMonitor />
-      </Toaster>
+      <DurationAlertMonitor />
       {(isAuthenticated || kioskEnabled) && (
         <>
           <DurationAlertBanner />
@@ -238,6 +263,6 @@ export default function App() {
           {!isSettingsPage && <NowPlaying />}
         </>
       )}
-    </>
+    </Toaster>
   );
 }

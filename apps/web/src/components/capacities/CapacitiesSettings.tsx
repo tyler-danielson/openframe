@@ -52,7 +52,7 @@ export function CapacitiesSettings({ onClose }: CapacitiesSettingsProps) {
   });
 
   // Test connection mutation
-  const testMutation = useMutation({
+  const testMutation = useMutation<{ connected: boolean; message: string }, Error>({
     mutationFn: () => api.testCapacitiesConnection(),
   });
 
@@ -283,9 +283,7 @@ export function CapacitiesSettings({ onClose }: CapacitiesSettingsProps) {
                       >
                         <div className="flex items-center gap-3">
                           <span className="text-xl">
-                            {typeof space.icon === "string"
-                              ? space.icon
-                              : space.icon?.name || "📁"}
+                            {space.icon || "📁"}
                           </span>
                           <span className="font-medium">{space.title}</span>
                           {space.isDefault && (

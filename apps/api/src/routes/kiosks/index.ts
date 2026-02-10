@@ -203,6 +203,32 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
               type: "string",
               enum: ["default", "homio", "ocean", "forest", "sunset", "lavender"],
             },
+            displayMode: {
+              type: "string",
+              enum: ["full", "screensaver-only", "calendar-only", "dashboard-only"],
+            },
+            homePage: { type: "string" },
+            selectedCalendarIds: {
+              type: "array",
+              items: { type: "string" },
+              nullable: true,
+            },
+            enabledFeatures: {
+              type: "object",
+              properties: {
+                calendar: { type: "boolean" },
+                dashboard: { type: "boolean" },
+                tasks: { type: "boolean" },
+                photos: { type: "boolean" },
+                spotify: { type: "boolean" },
+                iptv: { type: "boolean" },
+                cameras: { type: "boolean" },
+                homeassistant: { type: "boolean" },
+                map: { type: "boolean" },
+                recipes: { type: "boolean" },
+              },
+              nullable: true,
+            },
             screensaverEnabled: { type: "boolean" },
             screensaverTimeout: { type: "number", minimum: 30, maximum: 3600 },
             screensaverInterval: { type: "number", minimum: 3, maximum: 300 },
@@ -215,6 +241,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
               enum: ["fade", "slide-left", "slide-right", "slide-up", "slide-down", "zoom"],
             },
             screensaverLayoutConfig: { type: "object" },
+            startFullscreen: { type: "boolean" },
           },
         },
       },
@@ -230,24 +257,34 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         name?: string;
         isActive?: boolean;
         colorScheme?: string;
+        displayMode?: string;
+        homePage?: string;
+        selectedCalendarIds?: string[] | null;
+        enabledFeatures?: Record<string, boolean> | null;
         screensaverEnabled?: boolean;
         screensaverTimeout?: number;
         screensaverInterval?: number;
         screensaverLayout?: string;
         screensaverTransition?: string;
         screensaverLayoutConfig?: Record<string, unknown>;
+        startFullscreen?: boolean;
       };
 
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (body.name !== undefined) updates.name = body.name;
       if (body.isActive !== undefined) updates.isActive = body.isActive;
       if (body.colorScheme !== undefined) updates.colorScheme = body.colorScheme;
+      if (body.displayMode !== undefined) updates.displayMode = body.displayMode;
+      if (body.homePage !== undefined) updates.homePage = body.homePage;
+      if (body.selectedCalendarIds !== undefined) updates.selectedCalendarIds = body.selectedCalendarIds;
+      if (body.enabledFeatures !== undefined) updates.enabledFeatures = body.enabledFeatures;
       if (body.screensaverEnabled !== undefined) updates.screensaverEnabled = body.screensaverEnabled;
       if (body.screensaverTimeout !== undefined) updates.screensaverTimeout = body.screensaverTimeout;
       if (body.screensaverInterval !== undefined) updates.screensaverInterval = body.screensaverInterval;
       if (body.screensaverLayout !== undefined) updates.screensaverLayout = body.screensaverLayout;
       if (body.screensaverTransition !== undefined) updates.screensaverTransition = body.screensaverTransition;
       if (body.screensaverLayoutConfig !== undefined) updates.screensaverLayoutConfig = body.screensaverLayoutConfig;
+      if (body.startFullscreen !== undefined) updates.startFullscreen = body.startFullscreen;
 
       const [kiosk] = await fastify.db
         .update(kiosks)
@@ -444,6 +481,10 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         data: {
           name: kiosk.name,
           colorScheme: kiosk.colorScheme,
+          displayMode: kiosk.displayMode,
+          homePage: kiosk.homePage,
+          selectedCalendarIds: kiosk.selectedCalendarIds,
+          enabledFeatures: kiosk.enabledFeatures,
           screensaverEnabled: kiosk.screensaverEnabled,
           screensaverTimeout: kiosk.screensaverTimeout,
           screensaverInterval: kiosk.screensaverInterval,
@@ -675,7 +716,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.forbidden("Kiosk is disabled");
       }
 
-      // Get visible calendars with screensaver visibility enabled
+      // Get visible calendars
       const userCalendars = await fastify.db
         .select()
         .from(calendars)
@@ -686,13 +727,23 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
           )
         );
 
-      // Filter to only those with screensaver visibility
-      const screensaverCalendars = userCalendars.filter((cal) => {
-        const visibility = cal.visibility as { screensaver?: boolean } | null;
-        return visibility?.screensaver === true;
-      });
+      // Filter calendars based on kiosk-specific selection or screensaver visibility
+      let filteredCalendars = userCalendars;
 
-      if (screensaverCalendars.length === 0) {
+      if (kiosk.selectedCalendarIds && kiosk.selectedCalendarIds.length > 0) {
+        // Use kiosk-specific calendar selection
+        filteredCalendars = userCalendars.filter((cal) =>
+          kiosk.selectedCalendarIds!.includes(cal.id)
+        );
+      } else {
+        // Fall back to screensaver visibility setting
+        filteredCalendars = userCalendars.filter((cal) => {
+          const visibility = cal.visibility as { screensaver?: boolean } | null;
+          return visibility?.screensaver === true;
+        });
+      }
+
+      if (filteredCalendars.length === 0) {
         return {
           success: true,
           data: [],
@@ -700,7 +751,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Get events from those calendars
-      const calendarIds = screensaverCalendars.map((c) => c.id);
+      const calendarIds = filteredCalendars.map((c) => c.id);
       const now = new Date();
       const startDate = start ? new Date(start) : now;
       const endDate = end ? new Date(end) : new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);

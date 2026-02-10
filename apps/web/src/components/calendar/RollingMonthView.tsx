@@ -1,5 +1,5 @@
 import { useMemo, useRef, useCallback } from "react";
-import { format, addDays, isSameDay, isToday, startOfWeek } from "date-fns";
+import { format, addDays, isSameDay, isToday, startOfWeek, getWeek } from "date-fns";
 import type { CalendarEvent } from "@openframe/shared";
 import { cn } from "../../lib/utils";
 import { useCalendarStore } from "../../stores/calendar";
@@ -14,7 +14,10 @@ function getEventStartDate(event: CalendarEvent): Date {
       : event.startTime.toISOString();
     // Extract YYYY-MM-DD and create a local midnight date
     const datePart = isoString.slice(0, 10);
-    const [year, month, day] = datePart.split('-').map(Number);
+    const parts = datePart.split('-').map(Number);
+    const year = parts[0] ?? 1970;
+    const month = parts[1] ?? 1;
+    const day = parts[2] ?? 1;
     return new Date(year, month - 1, day); // Local midnight
   }
   return new Date(event.startTime);
@@ -26,7 +29,10 @@ function getEventEndDate(event: CalendarEvent): Date {
       ? event.endTime
       : event.endTime.toISOString();
     const datePart = isoString.slice(0, 10);
-    const [year, month, day] = datePart.split('-').map(Number);
+    const parts = datePart.split('-').map(Number);
+    const year = parts[0] ?? 1970;
+    const month = parts[1] ?? 1;
+    const day = parts[2] ?? 1;
     return new Date(year, month - 1, day);
   }
   return new Date(event.endTime);
@@ -97,6 +103,7 @@ export function RollingMonthView({
   onWeatherClick,
 }: RollingMonthViewProps) {
   const weekStartsOn = useCalendarStore((state) => state.weekStartsOn);
+  const showWeekNumbers = useCalendarStore((state) => state.showWeekNumbers);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressStartPosRef = useRef<{ x: number; y: number } | null>(null);
   const didLongPressRef = useRef(false);
@@ -245,11 +252,12 @@ export function RollingMonthView({
     return nextEvent?.id ?? null;
   }, [eventsByDay]);
 
-  const renderDay = (day: Date) => {
+  const renderDay = (day: Date, isFirstOfRow: boolean = false) => {
     const dateKey = format(day, "yyyy-MM-dd");
     const dayEvents = eventsByDay.get(dateKey) ?? [];
     const isCurrentDay = isToday(day);
     const dayWeather = getWeatherForDay(day);
+    const weekNumber = getWeek(day, { weekStartsOn });
 
     return (
       <div
@@ -265,6 +273,11 @@ export function RollingMonthView({
         {/* Day header */}
         <div className="px-2 py-1 border-b border-border bg-muted/50 flex items-center justify-between">
           <div className="flex items-center gap-1">
+            {showWeekNumbers && isFirstOfRow && (
+              <span className="text-[10px] font-normal text-muted-foreground bg-muted-foreground/10 px-1 py-0.5 rounded">
+                W{weekNumber}
+              </span>
+            )}
             <span className="text-xs text-muted-foreground">{format(day, "EEE")}</span>
             <span
               className={cn(
@@ -300,7 +313,10 @@ export function RollingMonthView({
             </p>
           ) : (
             dayEvents.map((event) => {
+              const isHoliday = event.calendarId === "federal-holidays";
               const cal = calendarMap.get(event.calendarId);
+              const eventColor = isHoliday ? "#9333EA" : (cal?.color ?? "#3B82F6");
+              const eventIcon = isHoliday ? "🇺🇸" : (cal?.icon ?? "📅");
               const isNextEvent = event.id === nextEventId;
               return (
                 <div key={event.id}>
@@ -313,15 +329,21 @@ export function RollingMonthView({
                       onSelectEvent?.(event);
                     }}
                     className={cn(
-                      "w-full text-left rounded px-1.5 py-1 text-[11px] hover:bg-muted/80 transition-colors bg-muted/50",
+                      "w-full text-left rounded px-1.5 py-1 text-[11px] hover:bg-muted/80 transition-colors",
+                      isHoliday ? "bg-purple-500/10" : "bg-muted/50",
                       isNextEvent
                         ? "border-2 border-primary/60"
-                        : "border border-border/50"
+                        : isHoliday
+                          ? "border border-purple-500/40"
+                          : "border border-border/50"
                     )}
                   >
                     <div className="flex items-center gap-1">
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate text-foreground">{event.title}</p>
+                        <p className={cn(
+                          "font-medium truncate",
+                          isHoliday ? "text-purple-600 dark:text-purple-400" : "text-foreground"
+                        )}>{event.title}</p>
                         {!event.isAllDay && (
                           <p className="text-muted-foreground text-[10px]">
                             {formatTime(new Date(event.startTime))}
@@ -330,9 +352,9 @@ export function RollingMonthView({
                       </div>
                       <div
                         className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[8px] flex-shrink-0"
-                        style={{ backgroundColor: cal?.color ?? "#3B82F6" }}
+                        style={{ backgroundColor: eventColor }}
                       >
-                        {cal?.icon ?? "📅"}
+                        {eventIcon}
                       </div>
                     </div>
                   </button>
@@ -350,7 +372,7 @@ export function RollingMonthView({
       {/* Week rows */}
       {weeks.map((week, weekIndex) => (
         <div key={weekIndex} className="flex-1 grid grid-cols-7">
-          {week.map(renderDay)}
+          {week.map((day, dayIndex) => renderDay(day, dayIndex === 0))}
         </div>
       ))}
     </div>

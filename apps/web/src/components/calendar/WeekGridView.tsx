@@ -1,9 +1,10 @@
-import { useMemo, useRef, useCallback } from "react";
-import { format, startOfWeek, endOfWeek, addDays, addWeeks, isToday } from "date-fns";
+import { useMemo, useRef, useCallback, useState, useEffect } from "react";
+import { format, startOfWeek, endOfWeek, addDays, addWeeks, isToday, getWeek } from "date-fns";
 import type { CalendarEvent } from "@openframe/shared";
 import { cn } from "../../lib/utils";
 import { useCalendarStore } from "../../stores/calendar";
 import { WeekCellWidget } from "./WeekCellWidget";
+import { api } from "../../services/api";
 
 // For all-day events, we need to parse the date as a local date (ignoring timezone)
 // because all-day events are conceptually "date-only" and stored as midnight UTC
@@ -106,9 +107,18 @@ export function WeekGridView({
   const weekStartsOn = useCalendarStore((state) => state.weekStartsOn);
   const weekMode = useCalendarStore((state) => state.weekMode);
   const weekCellWidget = useCalendarStore((state) => state.weekCellWidget);
+  const showDriveTimeOnNext = useCalendarStore((state) => state.showDriveTimeOnNext);
+  const showWeekNumbers = useCalendarStore((state) => state.showWeekNumbers);
+  const homeAddress = useCalendarStore((state) => state.homeAddress);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressStartPosRef = useRef<{ x: number; y: number } | null>(null);
   const didLongPressRef = useRef(false);
+
+  // State for drive time on "up next" event
+  const [nextEventDriveTime, setNextEventDriveTime] = useState<{
+    duration: string;
+    durationInTraffic: string | null;
+  } | null>(null);
 
   // Long-press handlers for day cells
   const handleDayPointerDown = useCallback((date: Date, e: React.PointerEvent) => {
@@ -236,23 +246,58 @@ export function WeekGridView({
   const bottomRow = weekDays.slice(4); // Thu, Fri, Sat
 
   // Find the next upcoming event (first event that starts after now)
-  const nextEventId = useMemo(() => {
+  const nextEvent = useMemo(() => {
     const now = new Date();
-    let nextEvent: CalendarEvent | null = null;
+    let foundEvent: CalendarEvent | null = null;
 
     for (const dayEvents of eventsByDay.values()) {
       for (const event of dayEvents) {
         const eventStart = getEventStartDate(event);
         if (eventStart > now) {
-          if (!nextEvent || eventStart < getEventStartDate(nextEvent)) {
-            nextEvent = event;
+          if (!foundEvent || eventStart < getEventStartDate(foundEvent)) {
+            foundEvent = event;
           }
         }
       }
     }
 
-    return nextEvent?.id ?? null;
+    return foundEvent;
   }, [eventsByDay]);
+
+  const nextEventId = nextEvent?.id ?? null;
+
+  // Fetch drive time for next event if enabled and event has location
+  useEffect(() => {
+    if (!showDriveTimeOnNext || !homeAddress || !nextEvent?.location) {
+      setNextEventDriveTime(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function fetchDriveTime() {
+      try {
+        const result = await api.getDrivingDistance(homeAddress, nextEvent!.location!);
+        if (!cancelled) {
+          setNextEventDriveTime({
+            duration: result.duration.text,
+            durationInTraffic: result.durationInTraffic?.text ?? null,
+          });
+        }
+      } catch (error) {
+        console.error("Failed to fetch drive time for next event:", error);
+        if (!cancelled) {
+          setNextEventDriveTime(null);
+        }
+      }
+    }
+
+    fetchDriveTime();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showDriveTimeOnNext, homeAddress, nextEvent?.id, nextEvent?.location]);
 
   // Calculate next week's date range and events
   const nextWeekData = useMemo(() => {
@@ -281,11 +326,12 @@ export function WeekGridView({
     };
   }, [events, currentDate, weekStartsOn, weekMode]);
 
-  const renderDay = (day: Date) => {
+  const renderDay = (day: Date, showWeekNumber: boolean = false) => {
     const dateKey = format(day, "yyyy-MM-dd");
     const dayEvents = eventsByDay.get(dateKey) ?? [];
     const isCurrentDay = isToday(day);
     const dayWeather = getWeatherForDay(day);
+    const weekNumber = getWeek(day, { weekStartsOn });
 
     return (
       <div
@@ -302,6 +348,11 @@ export function WeekGridView({
         <div className="px-3 py-2 border-b border-white bg-muted h-16 flex flex-col justify-center shrink-0">
           <div className="flex items-center justify-between">
             <p className="text-2xl font-bold text-foreground flex items-center gap-2">
+              {showWeekNumbers && showWeekNumber && (
+                <span className="text-xs font-normal text-muted-foreground bg-muted-foreground/10 px-1.5 py-0.5 rounded">
+                  W{weekNumber}
+                </span>
+              )}
               <span>{format(day, "EEE")}</span>
               <span
                 className={cn(
@@ -335,12 +386,24 @@ export function WeekGridView({
             </p>
           ) : (
             dayEvents.map((event) => {
+              const isHoliday = event.calendarId === "federal-holidays";
               const cal = calendarMap.get(event.calendarId);
+              const eventColor = isHoliday ? "#9333EA" : (cal?.color ?? "#3B82F6");
+              const eventIcon = isHoliday ? "🇺🇸" : (cal?.icon ?? "📅");
               const isNextEvent = event.id === nextEventId;
               return (
                 <div key={event.id}>
                   {isNextEvent && (
-                    <p className="text-[10px] text-muted-foreground italic mb-0.5 ml-1">up next</p>
+                    <div className="mb-0.5 ml-1">
+                      <p className="text-[10px] text-muted-foreground italic">up next</p>
+                      {nextEventDriveTime && (
+                        <p className="text-[10px] text-muted-foreground">
+                          🚗 {nextEventDriveTime.durationInTraffic
+                            ? `${nextEventDriveTime.durationInTraffic} in traffic`
+                            : nextEventDriveTime.duration}
+                        </p>
+                      )}
+                    </div>
                   )}
                   <button
                     onClick={(e) => {
@@ -348,15 +411,21 @@ export function WeekGridView({
                       onSelectEvent?.(event);
                     }}
                     className={cn(
-                      "w-full text-left rounded-md px-2 py-2 text-xs hover:bg-muted/80 transition-colors bg-muted/50",
+                      "w-full text-left rounded-md px-2 py-2 text-xs hover:bg-muted/80 transition-colors",
+                      isHoliday ? "bg-purple-500/10" : "bg-muted/50",
                       isNextEvent
                         ? "border-2 border-primary/60"
-                        : "border border-border/50"
+                        : isHoliday
+                          ? "border border-purple-500/40"
+                          : "border border-border/50"
                     )}
                   >
                   <div className="flex items-center gap-2">
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate text-foreground">{event.title}</p>
+                      <p className={cn(
+                        "font-medium truncate",
+                        isHoliday ? "text-purple-600 dark:text-purple-400" : "text-foreground"
+                      )}>{event.title}</p>
                       {!event.isAllDay && (
                         <p className="text-muted-foreground">
                           {formatTime(new Date(event.startTime))} - {formatTime(new Date(event.endTime))}
@@ -365,9 +434,9 @@ export function WeekGridView({
                     </div>
                     <div
                       className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] flex-shrink-0"
-                      style={{ backgroundColor: cal?.color ?? "#3B82F6" }}
+                      style={{ backgroundColor: eventColor }}
                     >
-                      {cal?.icon ?? "📅"}
+                      {eventIcon}
                     </div>
                     </div>
                   </button>
@@ -384,12 +453,12 @@ export function WeekGridView({
     <div className="h-full flex flex-col border-t border-l border-white">
       {/* Top row - 4 days */}
       <div className="flex-1 grid grid-cols-4 min-h-0">
-        {topRow.map(renderDay)}
+        {topRow.map((day, index) => renderDay(day, index === 0))}
       </div>
 
       {/* Bottom row - 3 days + Configurable Widget */}
       <div className="flex-1 grid grid-cols-4 min-h-0">
-        {bottomRow.map(renderDay)}
+        {bottomRow.map((day, index) => renderDay(day, index === 0))}
         <WeekCellWidget
           mode={weekCellWidget}
           nextWeekData={nextWeekData}

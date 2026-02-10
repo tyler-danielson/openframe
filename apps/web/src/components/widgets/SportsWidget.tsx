@@ -69,7 +69,7 @@ export function SportsWidget({ config, style, isBuilder }: SportsWidgetProps) {
     .slice(0, maxItems);
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
-  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset];
+  const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset as Exclude<FontSizePreset, "custom">];
 
   // Calculate custom font sizes if using custom mode
   const getCustomFontSize = (scale: number) => {

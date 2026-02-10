@@ -1,8 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import { eq, and, asc } from "drizzle-orm";
-import { cameras } from "@openframe/database/schema";
+import { cameras, systemSettings } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
-import { mediamtx } from "../../services/mediamtx.js";
+import { mediamtx, MediaMTXService } from "../../services/mediamtx.js";
 
 export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
   // List cameras
@@ -18,6 +18,9 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const userCameras = await fastify.db
         .select()
@@ -67,6 +70,9 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [camera] = await fastify.db
@@ -134,6 +140,9 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const body = request.body as {
         name: string;
         rtspUrl?: string;
@@ -234,6 +243,9 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
       const body = request.body as {
         name?: string;
@@ -330,6 +342,9 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { order } = request.body as { order: string[] };
 
       // Verify all cameras belong to user
@@ -378,6 +393,9 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [existing] = await fastify.db
@@ -432,6 +450,9 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [camera] = await fastify.db
@@ -470,6 +491,9 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [camera] = await fastify.db
@@ -533,6 +557,9 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [camera] = await fastify.db
@@ -647,7 +674,119 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
   // MediaMTX Stream Management Endpoints
   // ============================================
 
-  // Check MediaMTX availability
+  // Get MediaMTX configuration
+  fastify.get(
+    "/mediamtx/config",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Get MediaMTX configuration",
+        tags: ["Cameras"],
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async () => {
+      // Get stored config from systemSettings
+      const [apiUrlSetting] = await fastify.db
+        .select()
+        .from(systemSettings)
+        .where(and(eq(systemSettings.category, "mediamtx"), eq(systemSettings.key, "apiUrl")))
+        .limit(1);
+
+      const [webrtcPortSetting] = await fastify.db
+        .select()
+        .from(systemSettings)
+        .where(and(eq(systemSettings.category, "mediamtx"), eq(systemSettings.key, "webrtcPort")))
+        .limit(1);
+
+      const [hlsPortSetting] = await fastify.db
+        .select()
+        .from(systemSettings)
+        .where(and(eq(systemSettings.category, "mediamtx"), eq(systemSettings.key, "hlsPort")))
+        .limit(1);
+
+      const [hostSetting] = await fastify.db
+        .select()
+        .from(systemSettings)
+        .where(and(eq(systemSettings.category, "mediamtx"), eq(systemSettings.key, "host")))
+        .limit(1);
+
+      return {
+        success: true,
+        data: {
+          apiUrl: apiUrlSetting?.value || process.env.MEDIAMTX_API_URL || "http://localhost:9997",
+          webrtcPort: webrtcPortSetting?.value || process.env.MEDIAMTX_WEBRTC_PORT || "8889",
+          hlsPort: hlsPortSetting?.value || process.env.MEDIAMTX_HLS_PORT || "8888",
+          host: hostSetting?.value || process.env.MEDIAMTX_HOST || "localhost",
+        },
+      };
+    }
+  );
+
+  // Save MediaMTX configuration
+  fastify.post(
+    "/mediamtx/config",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Save MediaMTX configuration",
+        tags: ["Cameras"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          properties: {
+            apiUrl: { type: "string" },
+            webrtcPort: { type: "string" },
+            hlsPort: { type: "string" },
+            host: { type: "string" },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const body = request.body as {
+        apiUrl?: string;
+        webrtcPort?: string;
+        hlsPort?: string;
+        host?: string;
+      };
+
+      const settings = [
+        { key: "apiUrl", value: body.apiUrl },
+        { key: "webrtcPort", value: body.webrtcPort },
+        { key: "hlsPort", value: body.hlsPort },
+        { key: "host", value: body.host },
+      ];
+
+      for (const setting of settings) {
+        if (setting.value === undefined) continue;
+
+        const [existing] = await fastify.db
+          .select()
+          .from(systemSettings)
+          .where(and(eq(systemSettings.category, "mediamtx"), eq(systemSettings.key, setting.key)))
+          .limit(1);
+
+        if (existing) {
+          await fastify.db
+            .update(systemSettings)
+            .set({ value: setting.value, updatedAt: new Date() })
+            .where(eq(systemSettings.id, existing.id));
+        } else {
+          await fastify.db.insert(systemSettings).values({
+            category: "mediamtx",
+            key: setting.key,
+            value: setting.value,
+            isSecret: false,
+          });
+        }
+      }
+
+      return { success: true };
+    }
+  );
+
+  // Check MediaMTX availability (with optional custom URL for testing)
   fastify.get(
     "/mediamtx/status",
     {
@@ -656,9 +795,28 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
         description: "Check if MediaMTX streaming server is available",
         tags: ["Cameras"],
         security: [{ bearerAuth: [] }, { apiKey: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            testUrl: { type: "string" },
+          },
+        },
       },
     },
-    async () => {
+    async (request) => {
+      const { testUrl } = request.query as { testUrl?: string };
+
+      // If testUrl provided, test that specific URL
+      if (testUrl) {
+        const testService = new MediaMTXService(testUrl);
+        const available = await testService.isAvailable();
+        return {
+          success: true,
+          data: { available, testedUrl: testUrl },
+        };
+      }
+
+      // Otherwise use the configured/default service
       const available = await mediamtx.isAvailable();
       return {
         success: true,
@@ -687,6 +845,9 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [camera] = await fastify.db
@@ -735,6 +896,9 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [camera] = await fastify.db
@@ -783,7 +947,12 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
+
+      console.log(`[Camera] Starting stream for camera ${id}`);
 
       const [camera] = await fastify.db
         .select()
@@ -796,11 +965,16 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       if (!camera.rtspUrl) {
+        console.log(`[Camera] No RTSP URL configured for ${camera.name}`);
         return reply.badRequest("Camera does not have an RTSP URL configured");
       }
 
+      console.log(`[Camera] RTSP URL: ${camera.rtspUrl.replace(/\/\/.*:.*@/, "//***:***@")}`);
+
       // Check if MediaMTX is available
       const available = await mediamtx.isAvailable();
+      console.log(`[Camera] MediaMTX available: ${available}`);
+
       if (!available) {
         return reply.serviceUnavailable("MediaMTX streaming server is not available");
       }
@@ -813,6 +987,10 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
           camera.password
         );
 
+        console.log(`[Camera] Registered with MediaMTX: ${result.pathName}`);
+        console.log(`[Camera] WebRTC URL: ${result.webrtcUrl}`);
+        console.log(`[Camera] HLS URL: ${result.hlsUrl}`);
+
         return {
           success: true,
           data: {
@@ -822,7 +1000,7 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
           },
         };
       } catch (error) {
-        console.error("Failed to register camera with MediaMTX:", error);
+        console.error(`[Camera] Failed to register with MediaMTX:`, error);
         return reply.internalServerError("Failed to start stream");
       }
     }
@@ -848,6 +1026,9 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [camera] = await fastify.db
@@ -876,7 +1057,7 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     {
       onRequest: [fastify.authenticateKioskOrAny],
       schema: {
-        description: "Check if camera stream is active in MediaMTX",
+        description: "Check if camera stream is active in MediaMTX with detailed diagnostics",
         tags: ["Cameras"],
         security: [{ bearerAuth: [] }, { apiKey: [] }],
         params: {
@@ -890,6 +1071,9 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [camera] = await fastify.db
@@ -908,25 +1092,222 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
           success: true,
           data: {
             mediamtxAvailable: false,
+            pathRegistered: false,
             streamReady: false,
             hasRtspUrl: !!camera.rtspUrl,
+            hasMjpegUrl: !!camera.mjpegUrl,
+            error: "MediaMTX streaming server is not reachable",
           },
         };
       }
 
-      const streamReady = camera.rtspUrl ? await mediamtx.isStreamReady(camera.id) : false;
       const urls = camera.rtspUrl ? mediamtx.getStreamUrls(camera.id) : null;
+
+      if (!camera.rtspUrl) {
+        return {
+          success: true,
+          data: {
+            mediamtxAvailable: true,
+            pathRegistered: false,
+            streamReady: false,
+            hasRtspUrl: false,
+            hasMjpegUrl: !!camera.mjpegUrl,
+            webrtcUrl: null,
+            hlsUrl: null,
+          },
+        };
+      }
+
+      const streamStatus = await mediamtx.getStreamStatus(camera.id);
+
+      console.log(`[Camera] Stream status for ${camera.name}:`, {
+        pathRegistered: streamStatus.pathRegistered,
+        streamReady: streamStatus.streamReady,
+        readers: streamStatus.readers,
+        bytesReceived: streamStatus.bytesReceived,
+        sourceType: streamStatus.sourceType,
+        tracks: streamStatus.tracks,
+      });
 
       return {
         success: true,
         data: {
           mediamtxAvailable: true,
-          streamReady,
-          hasRtspUrl: !!camera.rtspUrl,
+          pathRegistered: streamStatus.pathRegistered,
+          streamReady: streamStatus.streamReady,
+          readyTime: streamStatus.readyTime,
+          readers: streamStatus.readers,
+          bytesReceived: streamStatus.bytesReceived,
+          sourceType: streamStatus.sourceType,
+          tracks: streamStatus.tracks,
+          hasRtspUrl: true,
+          hasMjpegUrl: !!camera.mjpegUrl,
           webrtcUrl: urls?.webrtcUrl,
           hlsUrl: urls?.hlsUrl,
         },
       };
+    }
+  );
+
+  // ============================================
+  // Troubleshooting Endpoints
+  // ============================================
+
+  // List all registered MediaMTX paths
+  fastify.get(
+    "/mediamtx/paths",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "List all registered paths in MediaMTX",
+        tags: ["Cameras"],
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request, reply) => {
+      const available = await mediamtx.isAvailable();
+      if (!available) {
+        return reply.serviceUnavailable("MediaMTX streaming server is not available");
+      }
+
+      try {
+        const paths = await mediamtx.getPaths();
+        return {
+          success: true,
+          data: paths.map((path) => ({
+            name: path.name,
+            ready: path.ready,
+            readyTime: path.readyTime,
+            sourceType: path.source?.type ?? null,
+            readers: path.readers?.length ?? 0,
+            bytesReceived: path.bytesReceived,
+            tracks: path.tracks,
+          })),
+        };
+      } catch (error) {
+        console.error("Failed to get MediaMTX paths:", error);
+        return reply.internalServerError("Failed to get paths");
+      }
+    }
+  );
+
+  // Test an RTSP URL without saving (for troubleshooting)
+  fastify.post(
+    "/mediamtx/test-rtsp",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Test an RTSP URL by temporarily registering it with MediaMTX",
+        tags: ["Cameras"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          properties: {
+            rtspUrl: { type: "string" },
+            username: { type: "string" },
+            password: { type: "string" },
+          },
+          required: ["rtspUrl"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const { rtspUrl, username, password } = request.body as {
+        rtspUrl: string;
+        username?: string;
+        password?: string;
+      };
+
+      const available = await mediamtx.isAvailable();
+      if (!available) {
+        return reply.serviceUnavailable("MediaMTX streaming server is not available");
+      }
+
+      // Use a temporary path name for testing
+      const testPathName = `test/${Date.now()}`;
+      const fullRtspUrl = mediamtx.buildRtspUrl(rtspUrl, username, password);
+
+      console.log(`[Camera Test] Testing RTSP URL: ${rtspUrl.replace(/\/\/.*:.*@/, "//***:***@")}`);
+
+      try {
+        // Register the test path
+        await mediamtx.addPath(testPathName, fullRtspUrl);
+        console.log(`[Camera Test] Registered test path: ${testPathName}`);
+
+        // Wait a bit for the stream to connect (on-demand)
+        // The stream will start when we query it
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        // Check the path status
+        const path = await mediamtx.getPath(testPathName);
+        console.log(`[Camera Test] Path status:`, path);
+
+        // Wait a bit more and check again if not ready
+        let status = {
+          registered: !!path,
+          ready: path?.ready ?? false,
+          sourceType: path?.source?.type ?? null,
+          tracks: path?.tracks ?? [],
+          error: null as string | null,
+        };
+
+        if (!status.ready) {
+          // Wait up to 5 seconds for the stream to become ready
+          for (let i = 0; i < 10; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            const updatedPath = await mediamtx.getPath(testPathName);
+            if (updatedPath?.ready) {
+              status = {
+                registered: true,
+                ready: true,
+                sourceType: updatedPath.source?.type ?? null,
+                tracks: updatedPath.tracks ?? [],
+                error: null,
+              };
+              console.log(`[Camera Test] Stream became ready after ${(i + 1) * 500}ms`);
+              break;
+            }
+          }
+        }
+
+        // Clean up the test path
+        try {
+          await mediamtx.removePath(testPathName);
+          console.log(`[Camera Test] Cleaned up test path`);
+        } catch {
+          // Ignore cleanup errors
+        }
+
+        if (!status.ready) {
+          status.error = "Stream did not become ready within 5 seconds. Check if the RTSP URL is correct and the camera is accessible.";
+        }
+
+        return {
+          success: true,
+          data: status,
+        };
+      } catch (error) {
+        // Clean up on error
+        try {
+          await mediamtx.removePath(testPathName);
+        } catch {
+          // Ignore cleanup errors
+        }
+
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`[Camera Test] Failed:`, errorMessage);
+
+        return {
+          success: true,
+          data: {
+            registered: false,
+            ready: false,
+            sourceType: null,
+            tracks: [],
+            error: `Failed to test stream: ${errorMessage}`,
+          },
+        };
+      }
     }
   );
 };

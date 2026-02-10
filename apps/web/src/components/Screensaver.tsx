@@ -253,9 +253,13 @@ const calculateDimOpacity = (
   return fadeProgress * maxOpacity;
 };
 
-export function Screensaver() {
+interface ScreensaverProps {
+  alwaysActive?: boolean;
+}
+
+export function Screensaver({ alwaysActive = false }: ScreensaverProps) {
   const {
-    isActive,
+    isActive: storeIsActive,
     slideInterval,
     layout,
     transition,
@@ -271,6 +275,9 @@ export function Screensaver() {
     widgetGridSize,
     layoutConfig,
   } = useScreensaverStore();
+
+  // If alwaysActive is true, the screensaver is always shown and cannot be dismissed
+  const isActive = alwaysActive || storeIsActive;
 
   const kioskEnabled = useAuthStore((state) => state.kioskEnabled);
 
@@ -441,15 +448,19 @@ export function Screensaver() {
 
   // Handle user interaction to exit screensaver
   // Stop propagation to prevent clicks from reaching underlying elements
+  // If alwaysActive is true, don't allow dismissal
   const handleInteraction = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    updateActivity();
-  }, [updateActivity]);
+    if (!alwaysActive) {
+      updateActivity();
+    }
+  }, [updateActivity, alwaysActive]);
 
   // Listen for any interaction to exit screensaver
   useEffect(() => {
-    if (!isActive) return;
+    // Don't set up dismissal listeners if alwaysActive is true
+    if (!isActive || alwaysActive) return;
 
     // Simple handler that just updates activity - no preventDefault needed
     const onInteraction = () => {
@@ -469,7 +480,7 @@ export function Screensaver() {
         window.removeEventListener(event, onInteraction);
       });
     };
-  }, [isActive, updateActivity, kioskEnabled]);
+  }, [isActive, updateActivity, kioskEnabled, alwaysActive]);
 
   // Enter fullscreen when screensaver activates, exit when it deactivates
   // In kiosk mode, don't auto-enter fullscreen - only use fullscreen if already in it
@@ -1345,10 +1356,12 @@ export function Screensaver() {
         );
       })()}
 
-      {/* Tap to exit hint */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/30 text-sm">
-        Tap anywhere to exit
-      </div>
+      {/* Tap to exit hint (hidden when alwaysActive) */}
+      {!alwaysActive && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/30 text-sm">
+          Tap anywhere to exit
+        </div>
+      )}
 
       {/* Night dim overlay */}
       {currentDimOpacity > 0 && (

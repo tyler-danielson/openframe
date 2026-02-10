@@ -46,6 +46,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const albums = await fastify.db
         .select()
@@ -96,6 +99,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const input = createAlbumSchema.parse(request.body);
 
       const [album] = await fastify.db
@@ -135,6 +141,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
       const input = updateAlbumSchema.parse(request.body);
 
@@ -177,6 +186,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [album] = await fastify.db
@@ -238,6 +250,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [album] = await fastify.db
@@ -307,6 +322,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id: albumId } = request.params as { id: string };
 
       const [album] = await fastify.db
@@ -412,6 +430,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const [photo] = await fastify.db
@@ -472,6 +493,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const [token] = await fastify.db
         .select()
@@ -534,6 +558,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { sessionId } = request.params as { sessionId: string };
 
       const [token] = await fastify.db
@@ -584,6 +611,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { sessionId } = request.params as { sessionId: string };
 
       const [token] = await fastify.db
@@ -636,6 +666,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { sessionId } = request.params as { sessionId: string };
 
       const [token] = await fastify.db
@@ -673,6 +706,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const [token] = await fastify.db
         .select()
@@ -727,6 +763,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id: albumId } = request.params as { id: string };
       const { sessionId } = request.body as { sessionId: string };
 
@@ -927,6 +966,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const filePath = (request.params as { "*": string })["*"];
 
       // Security: validate path doesn't escape user directory
@@ -1092,6 +1134,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { albumId, orientation = "all" } = request.query as { albumId?: string; orientation?: string };
 
       let targetAlbums;
@@ -1209,6 +1254,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id: albumId } = request.params as { id: string };
 
       // Verify album exists and belongs to user
@@ -1270,6 +1318,9 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { token } = request.params as { token: string };
 
       const tokenData = uploadTokens.get(token);
@@ -1382,11 +1433,15 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       const originalPath = join(tokenData.userId, uniqueName);
 
       // Process image (saves original and creates thumbnails)
+      const buffer = await data.toBuffer();
       const { width, height, thumbnailPath, mediumPath } = await processImage(
-        data.file,
-        uploadDir,
-        tokenData.userId,
-        uniqueName
+        buffer,
+        {
+          userDir: join(uploadDir, tokenData.userId),
+          filename: uniqueName,
+          generateThumbnail: true,
+          generateMedium: true,
+        }
       );
 
       // Save to database
@@ -1394,10 +1449,11 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         .insert(photos)
         .values({
           albumId: tokenData.albumId,
-          filename: data.filename,
+          filename: uniqueName,
+          originalFilename: data.filename,
           originalPath,
-          thumbnailPath,
-          mediumPath,
+          thumbnailPath: thumbnailPath ?? null,
+          mediumPath: mediumPath ?? null,
           width,
           height,
           mimeType: data.mimetype,
@@ -1408,8 +1464,8 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         success: true,
         data: {
-          id: photo.id,
-          filename: photo.filename,
+          id: photo!.id,
+          filename: photo!.filename,
         },
       };
     }

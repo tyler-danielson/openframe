@@ -174,6 +174,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         "https://www.googleapis.com/auth/tasks.readonly",
         "https://www.googleapis.com/auth/tasks",
         "https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
+        "https://www.googleapis.com/auth/gmail.readonly",
       ];
 
       const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
@@ -461,6 +462,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("Not authenticated");
+      }
       const input = createApiKeySchema.parse(request.body);
 
       const prefix = nanoid(8);
@@ -509,6 +513,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const keys = await fastify.db
         .select({
@@ -550,6 +557,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("Not authenticated");
+      }
       const { id } = request.params as { id: string };
 
       const result = await fastify.db
@@ -596,6 +606,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       return {
         success: true,
@@ -709,6 +722,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       // Disable kiosk mode for all users first
       await fastify.db
@@ -767,6 +783,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       await fastify.db
         .update(kioskConfig)
@@ -804,6 +823,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const [kiosk] = await fastify.db
         .select()

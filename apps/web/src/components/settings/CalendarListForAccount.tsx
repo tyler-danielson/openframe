@@ -5,12 +5,16 @@ import type { Calendar, CalendarProvider, CalendarVisibility, FavoriteSportsTeam
 import { ToggleGroup } from "../ui/Toggle";
 import { Button } from "../ui/Button";
 
+// Allow partial visibility updates
+type CalendarUpdate = Omit<Partial<Calendar>, 'visibility'> & { visibility?: Partial<CalendarVisibility> };
+type TeamUpdate = Omit<Partial<FavoriteSportsTeam>, 'visibility'> & { visibility?: Partial<CalendarVisibility> };
+
 interface CalendarListForAccountProps {
   provider: CalendarProvider;
   calendars: Calendar[];
   favoriteTeams: FavoriteSportsTeam[];
-  onUpdateCalendar: (id: string, updates: Partial<Calendar>) => void;
-  onUpdateTeam: (id: string, updates: Partial<FavoriteSportsTeam>) => void;
+  onUpdateCalendar: (id: string, updates: CalendarUpdate) => void;
+  onUpdateTeam: (id: string, updates: TeamUpdate) => void;
   onConnect: () => void;
   onManageTeams: () => void;
 }

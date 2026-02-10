@@ -42,6 +42,9 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("Not authenticated");
+      }
       const { botToken } = request.body;
 
       if (!botToken || botToken.trim().length === 0) {
@@ -87,6 +90,9 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       await TelegramService.disconnect(fastify, user.id);
 
@@ -111,6 +117,9 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const config = await TelegramService.getConfig(fastify, user.id);
 
@@ -166,6 +175,9 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const isConnected = await TelegramService.testConnection(fastify, user.id);
 
@@ -205,6 +217,9 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { webhookUrl } = request.body;
 
       const config = await TelegramService.getConfig(fastify, user.id);
@@ -246,6 +261,9 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const config = await TelegramService.getConfig(fastify, user.id);
       if (!config) {
@@ -281,6 +299,9 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const config = await TelegramService.getConfig(fastify, user.id);
       if (!config) {
@@ -367,6 +388,9 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const chats = await TelegramService.getChats(fastify, user.id);
 
@@ -407,6 +431,9 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { id } = request.params;
 
       // Verify ownership
@@ -459,6 +486,9 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const updates = request.body;
 
       const config = await TelegramService.getConfig(fastify, user.id);
@@ -505,6 +535,9 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
       const { message, chatId } = request.body;
 
       const config = await TelegramService.getConfig(fastify, user.id);
@@ -554,6 +587,9 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
 
       const config = await TelegramService.getConfig(fastify, user.id);
       if (!config) {
