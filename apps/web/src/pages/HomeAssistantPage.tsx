@@ -411,6 +411,7 @@ export function HomeAssistantPage() {
                     activeTimer={timersByEntity.get(entity.entityId) || null}
                     onTimerChange={handleTimerChange}
                     allEntities={allStates}
+                    entitySettings={entity.settings}
                   />
                 );
               })}

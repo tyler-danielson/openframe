@@ -92,7 +92,7 @@ function MapView({
         await import("maplibre-gl/dist/maplibre-gl.css");
 
         // Check if maplibre reports it's supported
-        if (!maplibre.default.supported()) {
+        if (!(maplibre.default as unknown as { supported: () => boolean }).supported()) {
           throw new Error("MapLibre not supported");
         }
 
@@ -353,19 +353,19 @@ export function HAMapWidget({ config, style, isBuilder }: HAMapWidgetProps) {
   const wsConnecting = useHAWebSocket((state) => state.connecting);
 
   // Fallback to REST API when WebSocket fails (works on Samsung TV)
-  const useRestFallback = !isBuilder && (wsError || (!wsConnected && !wsConnecting));
+  const useRestFallback = !isBuilder && (!!wsError || (!wsConnected && !wsConnecting));
 
-  const { data: restLocations = [] } = useQuery({
+  const { data: restLocations = [] } = useQuery<Location[]>({
     queryKey: ["ha-locations-rest"],
-    queryFn: () => api.getHomeAssistantLocations(),
+    queryFn: () => api.getHomeAssistantLocations() as Promise<Location[]>,
     enabled: useRestFallback,
     staleTime: 30 * 1000,
     refetchInterval: 30 * 1000, // Poll every 30 seconds
   });
 
-  const { data: restZones = [] } = useQuery({
+  const { data: restZones = [] } = useQuery<Zone[]>({
     queryKey: ["ha-zones-rest"],
-    queryFn: () => api.getHomeAssistantZones(),
+    queryFn: () => api.getHomeAssistantZones() as Promise<Zone[]>,
     enabled: useRestFallback,
     staleTime: 5 * 60 * 1000,
   });

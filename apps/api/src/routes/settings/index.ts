@@ -73,6 +73,20 @@ interface CategoryDefinition {
 
 const SETTING_DEFINITIONS: CategoryDefinition[] = [
   {
+    category: "server",
+    label: "Server",
+    description: "Server configuration settings",
+    settings: [
+      {
+        key: "external_url",
+        label: "External URL",
+        description: "The external URL of this server (e.g., http://192.168.1.100:3000). Used for QR codes and mobile uploads.",
+        isSecret: false,
+        placeholder: "http://192.168.1.100:3000",
+      },
+    ],
+  },
+  {
     category: "home",
     label: "Home Location",
     description: "Your home address/coordinates used for weather, navigation, and other location-based features",

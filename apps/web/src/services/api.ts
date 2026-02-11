@@ -582,6 +582,27 @@ class ApiClient {
     await this.fetch(`/photos/${id}`, { method: "DELETE" });
   }
 
+  async updatePhoto(id: string, file: File): Promise<Photo> {
+    const { accessToken } = useAuthStore.getState();
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(`${API_BASE}/photos/${id}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to update photo");
+    }
+
+    const result = await response.json();
+    return result.data;
+  }
+
   // Photo upload tokens (for QR code mobile uploads)
   async createUploadToken(albumId: string): Promise<{ token: string; expiresAt: string; albumName: string }> {
     return this.fetch<{ token: string; expiresAt: string; albumName: string }>(
@@ -745,6 +766,19 @@ class ApiClient {
     await this.fetch(`/kiosks/${id}/refresh`, { method: "POST" });
   }
 
+  async sendKioskCommand(
+    id: string,
+    command: {
+      type: KioskCommandType;
+      payload?: Record<string, unknown>;
+    }
+  ): Promise<void> {
+    await this.fetch(`/kiosks/${id}/command`, {
+      method: "POST",
+      body: JSON.stringify(command),
+    });
+  }
+
   // Public kiosk endpoints (token-based, no auth)
   async getKioskByToken(token: string): Promise<KioskConfig> {
     const response = await fetch(`${API_BASE}/kiosks/public/${token}`);
@@ -766,7 +800,7 @@ class ApiClient {
     return result.data;
   }
 
-  async getKioskCommandsByToken(token: string, since?: number): Promise<{ commands: Array<{ type: string; timestamp: number }> }> {
+  async getKioskCommandsByToken(token: string, since?: number): Promise<{ commands: KioskCommand[] }> {
     const params = since ? `?since=${since}` : "";
     const response = await fetch(`${API_BASE}/kiosks/public/${token}/commands${params}`);
     if (!response.ok) {
@@ -809,6 +843,23 @@ class ApiClient {
     const response = await fetch(`${API_BASE}/kiosks/public/${token}/events${queryString ? `?${queryString}` : ""}`);
     if (!response.ok) {
       throw new Error("Kiosk not found or disabled");
+    }
+    const result = await response.json();
+    return result.data;
+  }
+
+  async getKioskUploadToken(kioskToken: string): Promise<{
+    token: string;
+    expiresAt: string;
+    albumName: string;
+    uploadUrl: string;
+  }> {
+    const response = await fetch(`${API_BASE}/kiosks/public/${kioskToken}/upload-token`, {
+      method: "POST",
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.message || "Failed to get upload token");
     }
     const result = await response.json();
     return result.data;
@@ -1275,6 +1326,15 @@ class ApiClient {
 
   getHACameraStreamUrl(entityId: string): string {
     return `${API_BASE}/homeassistant/camera/${entityId}/stream`;
+  }
+
+  getVacuumObstacleImageUrl(
+    entityId: string,
+    historyIndex: number = 1,
+    obstacleIndex: number = 1,
+    crop: boolean = true
+  ): string {
+    return `${API_BASE}/homeassistant/camera/${entityId}/obstacle?history_index=${historyIndex}&obstacle_index=${obstacleIndex}&crop=${crop ? 1 : 0}`;
   }
 
   async getHomeAssistantCameraSnapshot(entityId: string): Promise<Blob> {
@@ -2619,6 +2679,23 @@ export interface ProfileNewsFeedVisibility {
 // Kiosk types
 export type KioskDisplayMode = "full" | "screensaver-only" | "calendar-only" | "dashboard-only";
 
+export type KioskCommandType =
+  | "refresh"
+  | "reload-photos"
+  | "navigate"
+  | "fullscreen"
+  | "multiview-add"
+  | "multiview-remove"
+  | "multiview-clear"
+  | "multiview-set"
+  | "screensaver";
+
+export interface KioskCommand {
+  type: KioskCommandType;
+  payload?: Record<string, unknown>;
+  timestamp: number;
+}
+
 export interface KioskEnabledFeatures {
   calendar?: boolean;
   dashboard?: boolean;
@@ -2627,6 +2704,7 @@ export interface KioskEnabledFeatures {
   spotify?: boolean;
   iptv?: boolean;
   cameras?: boolean;
+  multiview?: boolean;
   homeassistant?: boolean;
   map?: boolean;
   recipes?: boolean;

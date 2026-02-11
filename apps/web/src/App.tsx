@@ -12,6 +12,7 @@ import { PhotosPage } from "./pages/PhotosPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { IptvPage } from "./pages/IptvPage";
 import { CamerasPage } from "./pages/CamerasPage";
+import { MultiViewPage } from "./pages/MultiViewPage";
 import { HomeAssistantPage } from "./pages/HomeAssistantPage";
 import { SpotifyPage } from "./pages/SpotifyPage";
 import { MapPage } from "./pages/MapPage";
@@ -82,8 +83,11 @@ export default function App() {
   const syncScreensaverSettings = useScreensaverStore((state) => state.syncFromServer);
   const colorScheme = useScreensaverStore((state) => state.colorScheme);
 
-  // Hide NowPlaying on settings pages
+  // Hide NowPlaying on settings pages, upload pages, and kiosk pages
   const isSettingsPage = location.pathname.startsWith("/settings");
+  const isUploadPage = location.pathname.startsWith("/upload");
+  const isKioskPage = location.pathname.startsWith("/kiosk");
+  const hideNowPlaying = isSettingsPage || isUploadPage || isKioskPage;
 
   // Apply color scheme on initial render (from persisted store)
   useEffect(() => {
@@ -199,6 +203,7 @@ export default function App() {
           <Route path="photos" element={<PhotosPage />} />
           <Route path="iptv" element={<IptvPage />} />
           <Route path="cameras" element={<CamerasPage />} />
+          <Route path="multiview" element={<MultiViewPage />} />
           <Route path="homeassistant" element={<HomeAssistantPage />} />
           <Route path="spotify" element={<SpotifyPage />} />
           <Route path="map" element={<MapPage />} />
@@ -260,7 +265,7 @@ export default function App() {
         <>
           <DurationAlertBanner />
           <Screensaver />
-          {!isSettingsPage && <NowPlaying />}
+          {!hideNowPlaying && <NowPlaying />}
         </>
       )}
     </Toaster>

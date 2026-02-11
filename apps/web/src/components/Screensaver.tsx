@@ -435,16 +435,7 @@ export function Screensaver({ alwaysActive = false }: ScreensaverProps) {
       .slice(0, 3);
   }, [tasks]);
 
-  // Fetch Spotify playback for info pane
-  const mediaWidget = compositeWidgetConfigs.find((c) => c.id === "media");
-  const spotifySubItemEnabled = mediaWidget?.enabled && (mediaWidget?.subItems?.spotify?.enabled ?? true);
-  const { data: spotifyPlayback } = useQuery({
-    queryKey: ["screensaver-spotify"],
-    queryFn: () => api.getSpotifyPlayback(),
-    enabled: isActive && spotifySubItemEnabled,
-    staleTime: 10 * 1000,
-    refetchInterval: 10 * 1000,
-  });
+  // Note: Spotify/Now Playing removed from screensaver - use SpotifyWidget in builder layout instead
 
   // Handle user interaction to exit screensaver
   // Stop propagation to prevent clicks from reaching underlying elements
@@ -940,57 +931,8 @@ export function Screensaver({ alwaysActive = false }: ScreensaverProps) {
     );
   };
 
-  // Render the Media composite widget (spotify)
-  const renderMediaCompositeWidget = (config: CompositeWidgetConfig, isFirst: boolean) => {
-    const showSpotify = config.subItems?.spotify?.enabled ?? true;
-
-    if (!showSpotify || !spotifyPlayback?.item) return null;
-
-    const borderClass = isFirst ? "" : "pt-3 border-t border-white/20";
-    const sizeClasses = getWidgetSizeClasses(config.size);
-    const showProgress = config.size === "large" && spotifyPlayback.progress_ms !== undefined;
-    const albumImageSize = config.size === "small" ? "w-8 h-8" : config.size === "large" ? "w-16 h-16" : "w-12 h-12";
-
-    return (
-      <div key="media" className={`${borderClass} ${isFirst ? "" : "mt-3"}`}>
-        <div className={`${sizeClasses.sectionLabel} text-white/50 uppercase tracking-wide mb-2`}>Now Playing</div>
-        <div className={`flex items-center ${sizeClasses.gap}`}>
-          {spotifyPlayback.item.album.images[0] && (
-            <img
-              src={spotifyPlayback.item.album.images[0].url}
-              alt=""
-              className={`${albumImageSize} rounded shadow-lg`}
-            />
-          )}
-          <div className="flex-1 min-w-0">
-            <div className={`text-white ${sizeClasses.item} font-medium truncate`}>{spotifyPlayback.item.name}</div>
-            {config.size !== "small" && (
-              <div className={`text-white/70 ${config.size === "large" ? sizeClasses.item : "text-xs"} truncate`}>
-                {spotifyPlayback.item.artists.map(a => a.name).join(", ")}
-              </div>
-            )}
-            {showProgress && (
-              <div className="mt-2 h-1 bg-white/20 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-green-500 rounded-full transition-all"
-                  style={{ width: `${(spotifyPlayback.progress_ms / spotifyPlayback.item.duration_ms) * 100}%` }}
-                />
-              </div>
-            )}
-          </div>
-          {spotifyPlayback.is_playing && config.size !== "small" && (
-            <div className="flex gap-0.5 items-end h-4">
-              <div className="w-1 bg-green-500 rounded-full animate-pulse" style={{ height: '60%' }} />
-              <div className="w-1 bg-green-500 rounded-full animate-pulse" style={{ height: '100%', animationDelay: '0.2s' }} />
-              <div className="w-1 bg-green-500 rounded-full animate-pulse" style={{ height: '40%', animationDelay: '0.4s' }} />
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
   // Render a composite widget by ID
+  // Note: Media/Spotify is handled via SpotifyWidget in the builder layout, not here
   const renderCompositeWidget = (config: CompositeWidgetConfig, isFirst: boolean): JSX.Element | null => {
     switch (config.id) {
       case "clock":
@@ -999,8 +941,7 @@ export function Screensaver({ alwaysActive = false }: ScreensaverProps) {
         return renderWeatherCompositeWidget(config, isFirst);
       case "schedule":
         return renderScheduleCompositeWidget(config, isFirst);
-      case "media":
-        return renderMediaCompositeWidget(config, isFirst);
+      // Media/Spotify removed - use SpotifyWidget in builder layout instead
       default:
         return null;
     }

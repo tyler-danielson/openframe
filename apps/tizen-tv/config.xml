@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets"
+        xmlns:tizen="http://tizen.org/ns/widgets"
+        id="com.openframe.tizentv"
+        version="1.0.0">
+    <name>OpenFrame Kiosk</name>
+    <icon src="icon.png"/>
+    <tizen:application id="com.openframe.tizentv" package="com.openframe" required_version="6.0"/>
+
+    <!-- Required privileges for TV app -->
+    <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+    <tizen:privilege name="http://tizen.org/privilege/application.launch"/>
+    <tizen:privilege name="http://tizen.org/privilege/internet"/>
+    <tizen:privilege name="http://developer.samsung.com/privilege/productinfo"/>
+
+    <!-- Entry point -->
+    <content src="index.html"/>
+
+    <!-- Support all screen sizes -->
+    <feature name="http://tizen.org/feature/screen.size.all"/>
+
+    <!-- App settings -->
+    <tizen:setting screen-orientation="landscape"
+                   context-menu="disable"
+                   background-support="enable"
+                   encryption="disable"/>
+</widget>

@@ -1,18 +1,33 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Image, Trash2, Upload, QrCode } from "lucide-react";
+import { Plus, Image, Upload, QrCode } from "lucide-react";
 import { api } from "../services/api";
 import { Button } from "../components/ui/Button";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card";
 import { QRUploadModal } from "../components/photos/QRUploadModal";
+import { PhotoViewerModal } from "../components/photos/PhotoViewerModal";
+import { PhotoLayouts, LayoutSelector, type LayoutType } from "../components/photos/PhotoLayouts";
+import { KioskQRUpload } from "../components/photos/KioskQRUpload";
+import { useKiosk } from "../contexts/KioskContext";
 import { cn } from "../lib/utils";
 import type { PhotoAlbum, Photo } from "@openframe/shared";
 
 export function PhotosPage() {
   const queryClient = useQueryClient();
+  const { token: kioskToken } = useKiosk();
+  const isKioskMode = !!kioskToken;
   const [selectedAlbum, setSelectedAlbum] = useState<PhotoAlbum | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
+  const [layout, setLayout] = useState<LayoutType>(() => {
+    const saved = localStorage.getItem("photoLayout");
+    return (saved as LayoutType) || "grid";
+  });
+
+  const handleLayoutChange = (newLayout: LayoutType) => {
+    setLayout(newLayout);
+    localStorage.setItem("photoLayout", newLayout);
+  };
 
   // Fetch albums
   const { data: albums = [] } = useQuery({
@@ -35,13 +50,10 @@ export function PhotosPage() {
     },
   });
 
-  // Delete photo mutation
-  const deletePhoto = useMutation({
-    mutationFn: (id: string) => api.deletePhoto(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["photos", selectedAlbum?.id] });
-    },
-  });
+  const refreshPhotos = () => {
+    queryClient.invalidateQueries({ queryKey: ["photos", selectedAlbum?.id] });
+    queryClient.invalidateQueries({ queryKey: ["albums"] });
+  };
 
   const handleCreateAlbum = async () => {
     const name = prompt("Enter album name:");
@@ -108,40 +120,50 @@ export function PhotosPage() {
       <div className="flex-1 p-6">
         {selectedAlbum ? (
           <>
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl font-semibold">{selectedAlbum.name}</h1>
-                {selectedAlbum.description && (
-                  <p className="text-muted-foreground">
-                    {selectedAlbum.description}
-                  </p>
-                )}
+            <div className="mb-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-semibold">{selectedAlbum.name}</h1>
+                  {selectedAlbum.description && (
+                    <p className="text-muted-foreground">
+                      {selectedAlbum.description}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {!isKioskMode && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowQRModal(true)}
+                      title="Upload from mobile device"
+                    >
+                      <QrCode className="mr-2 h-4 w-4" />
+                      Mobile Upload
+                    </Button>
+                  )}
+                  <input
+                    type="file"
+                    id="photo-upload"
+                    multiple
+                    accept="image/*"
+                    onChange={handleUpload}
+                    className="hidden"
+                    disabled={isUploading}
+                  />
+                  <label
+                    htmlFor="photo-upload"
+                    className={`inline-flex cursor-pointer items-center justify-center rounded-md bg-primary px-4 h-10 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${isUploading ? 'pointer-events-none opacity-50' : ''}`}
+                  >
+                    <Upload className="mr-2 h-4 w-4" />
+                    {isUploading ? "Uploading..." : "Upload Photos"}
+                  </label>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowQRModal(true)}
-                  title="Upload from mobile device"
-                >
-                  <QrCode className="mr-2 h-4 w-4" />
-                  Mobile Upload
-                </Button>
-                <input
-                  type="file"
-                  id="photo-upload"
-                  multiple
-                  accept="image/*"
-                  onChange={handleUpload}
-                  className="hidden"
-                  disabled={isUploading}
-                />
-                <label
-                  htmlFor="photo-upload"
-                  className={`inline-flex cursor-pointer items-center justify-center rounded-md bg-primary px-4 h-10 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${isUploading ? 'pointer-events-none opacity-50' : ''}`}
-                >
-                  <Upload className="mr-2 h-4 w-4" />
-                  {isUploading ? "Uploading..." : "Upload Photos"}
-                </label>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">
+                  {photos.length} {photos.length === 1 ? "photo" : "photos"}
+                </p>
+                <LayoutSelector value={layout} onChange={handleLayoutChange} />
               </div>
             </div>
 
@@ -156,29 +178,11 @@ export function PhotosPage() {
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-4 gap-4">
-                {photos.map((photo) => (
-                  <div
-                    key={photo.id}
-                    className="group relative aspect-square overflow-hidden rounded-lg bg-muted"
-                  >
-                    <img
-                      src={photo.thumbnailUrl ?? photo.originalUrl}
-                      alt={photo.originalFilename}
-                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
-                      <Button
-                        size="icon"
-                        variant="destructive"
-                        onClick={() => deletePhoto.mutate(photo.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <PhotoLayouts
+                photos={photos}
+                layout={layout}
+                onPhotoClick={setSelectedPhoto}
+              />
             )}
           </>
         ) : (
@@ -204,6 +208,20 @@ export function PhotosPage() {
           }}
           albumId={selectedAlbum.id}
           albumName={selectedAlbum.name}
+        />
+      )}
+
+      {/* Kiosk mode: persistent QR code in corner */}
+      {isKioskMode && <KioskQRUpload />}
+
+      {/* Photo Viewer Modal */}
+      {selectedPhoto && (
+        <PhotoViewerModal
+          photo={selectedPhoto}
+          isOpen={!!selectedPhoto}
+          onClose={() => setSelectedPhoto(null)}
+          onPhotoUpdated={refreshPhotos}
+          onPhotoDeleted={refreshPhotos}
         />
       )}
     </div>

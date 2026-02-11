@@ -6,3 +6,4 @@ export { TasksPage } from "./TasksPage";
 export { PhotosPage } from "./PhotosPage";
 export { SpotifyPage } from "./SpotifyPage";
 export { SettingsPage } from "./SettingsPage";
+export { MultiViewPage } from "./MultiViewPage";

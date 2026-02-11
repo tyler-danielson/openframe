@@ -1412,6 +1412,101 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
+  // Proxy vacuum obstacle image from Home Assistant (Dreame integration)
+  fastify.get(
+    "/camera/:entityId/obstacle",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Proxy vacuum obstacle image from Home Assistant",
+        tags: ["Home Assistant"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            entityId: { type: "string" },
+          },
+          required: ["entityId"],
+        },
+        querystring: {
+          type: "object",
+          properties: {
+            history_index: { type: "integer", minimum: 1, maximum: 25, default: 1 },
+            obstacle_index: { type: "integer", minimum: 1, default: 1 },
+            crop: { type: "integer", enum: [0, 1], default: 1 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+      const { entityId } = request.params as { entityId: string };
+      const { history_index = 1, obstacle_index = 1, crop = 1 } = request.query as {
+        history_index?: number;
+        obstacle_index?: number;
+        crop?: number;
+      };
+
+      const [config] = await fastify.db
+        .select()
+        .from(homeAssistantConfig)
+        .where(eq(homeAssistantConfig.userId, user.id))
+        .limit(1);
+
+      if (!config) {
+        return reply.badRequest("Home Assistant not configured");
+      }
+
+      try {
+        // First, get the camera entity state to retrieve the access_token attribute
+        const stateResponse = await fetchFromHA(
+          config.url,
+          config.accessToken,
+          `/states/${entityId}`
+        );
+
+        if (!stateResponse.ok) {
+          return reply.notFound("Camera entity not found");
+        }
+
+        const stateData = await stateResponse.json() as HAEntityState;
+        const cameraAccessToken = stateData.attributes.access_token as string | undefined;
+
+        if (!cameraAccessToken) {
+          return reply.badRequest("Camera entity does not have access_token attribute");
+        }
+
+        // Build the obstacle proxy URL
+        const baseUrl = config.url.replace(/\/+$/, "");
+        const obstacleUrl = `${baseUrl}/api/camera_map_obstacle_history_proxy/${entityId}?token=${cameraAccessToken}&history_index=${history_index}&index=${obstacle_index}&crop=${crop}`;
+
+        const response = await fetch(obstacleUrl);
+
+        if (response.status === 404) {
+          return reply.status(404).send("No obstacle image found");
+        }
+
+        if (!response.ok) {
+          return reply.status(response.status).send("Failed to fetch obstacle image");
+        }
+
+        const contentType = response.headers.get("content-type") ?? "image/jpeg";
+        const buffer = await response.arrayBuffer();
+
+        return reply
+          .header("Content-Type", contentType)
+          .header("Cache-Control", "no-cache, no-store, must-revalidate")
+          .send(Buffer.from(buffer));
+      } catch (error) {
+        console.error("Failed to fetch HA obstacle image:", error);
+        return reply.internalServerError("Failed to fetch obstacle image");
+      }
+    }
+  );
+
   // Get enabled camera entities (configured by user in HA settings)
   fastify.get(
     "/cameras",

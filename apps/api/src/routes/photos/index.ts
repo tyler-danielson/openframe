@@ -1,6 +1,21 @@
 import type { FastifyPluginAsync } from "fastify";
 import { eq, and } from "drizzle-orm";
 import { photoAlbums, photos, oauthTokens } from "@openframe/database/schema";
+
+// Upload token type
+export interface UploadTokenData {
+  userId: string;
+  albumId: string;
+  createdAt: Date;
+  expiresAt: Date;
+}
+
+// Extend Fastify with upload tokens
+declare module "fastify" {
+  interface FastifyInstance {
+    uploadTokens: Map<string, UploadTokenData>;
+  }
+}
 import { createAlbumSchema, updateAlbumSchema } from "@openframe/shared/validators";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { processImage } from "../../services/photos/processor.js";
@@ -477,6 +492,123 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       await fastify.db.delete(photos).where(eq(photos.id, id));
 
       return { success: true };
+    }
+  );
+
+  // Update photo (replace with edited version)
+  fastify.put(
+    "/:id",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Update a photo (replace with edited version)",
+        tags: ["Photos"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        consumes: ["multipart/form-data"],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+      const { id } = request.params as { id: string };
+
+      // Find existing photo
+      const [existingPhoto] = await fastify.db
+        .select()
+        .from(photos)
+        .where(eq(photos.id, id))
+        .limit(1);
+
+      if (!existingPhoto) {
+        return reply.notFound("Photo not found");
+      }
+
+      // Verify ownership
+      const [album] = await fastify.db
+        .select()
+        .from(photoAlbums)
+        .where(
+          and(
+            eq(photoAlbums.id, existingPhoto.albumId),
+            eq(photoAlbums.userId, user.id)
+          )
+        )
+        .limit(1);
+
+      if (!album) {
+        return reply.notFound("Photo not found");
+      }
+
+      // Get uploaded file
+      const data = await request.file();
+      if (!data) {
+        return reply.badRequest("No file uploaded");
+      }
+
+      const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+      if (!allowedTypes.includes(data.mimetype)) {
+        return reply.badRequest("Invalid file type. Allowed: JPEG, PNG, WebP, GIF");
+      }
+
+      // Process new image
+      const userDir = join(uploadDir, user.id);
+      const filename = `${randomUUID()}.jpg`;
+      const buffer = await data.toBuffer();
+
+      const result = await processImage(buffer, {
+        userDir,
+        filename,
+        generateThumbnail: true,
+        generateMedium: true,
+      });
+
+      // Delete old files
+      try {
+        await unlink(join(uploadDir, existingPhoto.originalPath));
+        if (existingPhoto.thumbnailPath) {
+          await unlink(join(uploadDir, existingPhoto.thumbnailPath));
+        }
+        if (existingPhoto.mediumPath) {
+          await unlink(join(uploadDir, existingPhoto.mediumPath));
+        }
+      } catch {
+        // Ignore file deletion errors
+      }
+
+      // Update database
+      const [updatedPhoto] = await fastify.db
+        .update(photos)
+        .set({
+          filename,
+          mimeType: "image/jpeg",
+          width: result.width,
+          height: result.height,
+          size: buffer.length,
+          thumbnailPath: result.thumbnailPath ? join(user.id, result.thumbnailPath) : null,
+          mediumPath: result.mediumPath ? join(user.id, result.mediumPath) : null,
+          originalPath: join(user.id, result.originalPath),
+        })
+        .where(eq(photos.id, id))
+        .returning();
+
+      return {
+        success: true,
+        data: {
+          id: updatedPhoto!.id,
+          filename: updatedPhoto!.filename,
+          width: updatedPhoto!.width,
+          height: updatedPhoto!.height,
+        },
+      };
     }
   );
 
@@ -1222,7 +1354,11 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
 
   // In-memory store for temporary upload tokens
   // Structure: { token: { userId, albumId, createdAt, expiresAt } }
-  const uploadTokens = new Map<string, { userId: string; albumId: string; createdAt: Date; expiresAt: Date }>();
+  // Exported for use by kiosk routes
+  if (!fastify.uploadTokens) {
+    fastify.uploadTokens = new Map<string, { userId: string; albumId: string; createdAt: Date; expiresAt: Date }>();
+  }
+  const uploadTokens = fastify.uploadTokens;
 
   // Clean up expired tokens periodically
   setInterval(() => {
@@ -1444,20 +1580,20 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         }
       );
 
-      // Save to database
+      // Save to database (prefix paths with userId for file serving, like authenticated upload)
       const [photo] = await fastify.db
         .insert(photos)
         .values({
           albumId: tokenData.albumId,
           filename: uniqueName,
           originalFilename: data.filename,
-          originalPath,
-          thumbnailPath: thumbnailPath ?? null,
-          mediumPath: mediumPath ?? null,
+          originalPath: join(tokenData.userId, uniqueName),
+          thumbnailPath: thumbnailPath ? join(tokenData.userId, thumbnailPath) : null,
+          mediumPath: mediumPath ? join(tokenData.userId, mediumPath) : null,
           width,
           height,
           mimeType: data.mimetype,
-          size: 0, // Will be updated after processing
+          size: buffer.length,
         })
         .returning();
 

@@ -222,6 +222,33 @@ export function CalendarView({
     };
   }, []);
 
+  // Refresh currentDate at midnight for rolling views
+  const midnightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const scheduleNextMidnightRefresh = () => {
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 100); // 100ms after midnight to ensure day has changed
+
+      const msUntilMidnight = tomorrow.getTime() - now.getTime();
+
+      midnightTimeoutRef.current = setTimeout(() => {
+        // Refresh currentDate to today
+        setCurrentDate(new Date());
+        // Schedule the next midnight refresh
+        scheduleNextMidnightRefresh();
+      }, msUntilMidnight);
+    };
+
+    scheduleNextMidnightRefresh();
+    return () => {
+      if (midnightTimeoutRef.current) {
+        clearTimeout(midnightTimeoutRef.current);
+      }
+    };
+  }, [setCurrentDate]);
+
   // Modified slot selection to prevent triggering after long-press
   const handleSelectSlotWithLongPressCheck = useCallback(
     (slotInfo: { start: Date; end: Date }) => {

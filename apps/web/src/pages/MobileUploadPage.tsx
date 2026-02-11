@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Upload, Camera, CheckCircle, AlertCircle, Loader2, Image as ImageIcon, X } from "lucide-react";
+import { Camera, CheckCircle, AlertCircle, Loader2, Image as ImageIcon, X, Check, RotateCw } from "lucide-react";
+import Cropper from "react-easy-crop";
+import type { Area } from "react-easy-crop";
 import { api } from "../services/api";
 
 interface UploadedFile {
@@ -9,16 +11,65 @@ interface UploadedFile {
   preview?: string;
 }
 
+interface PendingFile {
+  file: File;
+  preview: string;
+}
+
+// Helper to create cropped image blob
+async function getCroppedImg(imageSrc: string, pixelCrop: Area): Promise<Blob> {
+  const image = new Image();
+  image.src = imageSrc;
+  await new Promise((resolve) => {
+    image.onload = resolve;
+  });
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("No 2d context");
+
+  canvas.width = pixelCrop.width;
+  canvas.height = pixelCrop.height;
+
+  ctx.drawImage(
+    image,
+    pixelCrop.x,
+    pixelCrop.y,
+    pixelCrop.width,
+    pixelCrop.height,
+    0,
+    0,
+    pixelCrop.width,
+    pixelCrop.height
+  );
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("Canvas is empty"));
+      },
+      "image/jpeg",
+      0.9
+    );
+  });
+}
+
 export function MobileUploadPage() {
   const { token } = useParams<{ token: string }>();
   const [albumName, setAlbumName] = useState<string>("");
-  const [expiresAt, setExpiresAt] = useState<Date | null>(null);
   const [isValid, setIsValid] = useState<boolean | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  // Cropping state
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
 
   // Validate token on mount
   useEffect(() => {
@@ -30,13 +81,16 @@ export function MobileUploadPage() {
     api.getUploadTokenInfo(token)
       .then((info) => {
         setAlbumName(info.albumName);
-        setExpiresAt(new Date(info.expiresAt));
         setIsValid(true);
       })
       .catch(() => {
         setIsValid(false);
       });
   }, [token]);
+
+  const onCropComplete = useCallback((_croppedArea: Area, croppedAreaPixels: Area) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  }, []);
 
   const handleFileSelect = async (files: FileList | null) => {
     if (!files || !token) return;
@@ -46,45 +100,83 @@ export function MobileUploadPage() {
     );
 
     if (validFiles.length === 0) {
-      setError("Please select valid image files (JPEG, PNG, WebP, GIF)");
+      setError("Please select valid image files");
       return;
     }
 
     setError(null);
+
+    // Create previews and add to pending queue
+    const newPendingFiles: PendingFile[] = validFiles.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+
+    setPendingFiles((prev) => [...prev, ...newPendingFiles]);
+    // Reset crop for new image
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+  };
+
+  const handleCropConfirm = async () => {
+    if (!pendingFiles[0] || !croppedAreaPixels || !token) return;
+
     setIsUploading(true);
 
-    for (const file of validFiles) {
-      try {
-        // Create preview
-        const preview = URL.createObjectURL(file);
+    try {
+      const croppedBlob = await getCroppedImg(pendingFiles[0].preview, croppedAreaPixels);
+      const croppedFile = new File([croppedBlob], pendingFiles[0].file.name, { type: "image/jpeg" });
 
-        const result = await api.uploadWithToken(token, file);
-        setUploadedFiles((prev) => [
-          ...prev,
-          { id: result.id, filename: result.filename, preview },
-        ]);
-      } catch (err) {
-        console.error("Upload failed:", err);
-        setError(`Failed to upload ${file.name}`);
-      }
+      const result = await api.uploadWithToken(token, croppedFile);
+      setUploadedFiles((prev) => [
+        ...prev,
+        { id: result.id, filename: result.filename, preview: URL.createObjectURL(croppedBlob) },
+      ]);
+
+      // Clean up and move to next file
+      URL.revokeObjectURL(pendingFiles[0].preview);
+      setPendingFiles((prev) => prev.slice(1));
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+    } catch (err) {
+      console.error("Upload failed:", err);
+      setError("Failed to upload photo");
     }
 
     setIsUploading(false);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    handleFileSelect(e.dataTransfer.files);
+  const handleSkipCrop = async () => {
+    if (!pendingFiles[0] || !token) return;
+
+    setIsUploading(true);
+
+    try {
+      const result = await api.uploadWithToken(token, pendingFiles[0].file);
+      setUploadedFiles((prev) => [
+        ...prev,
+        { id: result.id, filename: result.filename, preview: pendingFiles[0]!.preview },
+      ]);
+
+      // Move to next file (don't revoke preview since we're using it)
+      setPendingFiles((prev) => prev.slice(1));
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+    } catch (err) {
+      console.error("Upload failed:", err);
+      setError("Failed to upload photo");
+    }
+
+    setIsUploading(false);
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(true);
-  };
-
-  const handleDragLeave = () => {
-    setDragOver(false);
+  const handleCancelCrop = () => {
+    if (pendingFiles[0]) {
+      URL.revokeObjectURL(pendingFiles[0].preview);
+      setPendingFiles((prev) => prev.slice(1));
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+    }
   };
 
   const removeUploadedFile = (id: string) => {
@@ -100,10 +192,10 @@ export function MobileUploadPage() {
   // Loading state
   if (isValid === null) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="h-[100dvh] bg-background flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">Validating upload link...</p>
+          <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-xl text-muted-foreground">Loading...</p>
         </div>
       </div>
     );
@@ -112,116 +204,150 @@ export function MobileUploadPage() {
   // Invalid/expired token
   if (!isValid) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center max-w-sm">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10 mx-auto mb-4">
-            <AlertCircle className="h-8 w-8 text-destructive" />
-          </div>
-          <h1 className="text-xl font-semibold text-foreground mb-2">
-            Link Expired or Invalid
+      <div className="h-[100dvh] bg-background flex items-center justify-center p-6">
+        <div className="text-center">
+          <AlertCircle className="h-16 w-16 text-destructive mx-auto mb-6" />
+          <h1 className="text-2xl font-bold text-foreground mb-3">
+            Link Expired
           </h1>
-          <p className="text-muted-foreground">
-            This upload link is no longer valid. Please scan a new QR code from the photos page.
+          <p className="text-lg text-muted-foreground">
+            Please scan a new QR code
           </p>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-background p-4 pb-safe">
-      {/* Header */}
-      <div className="text-center mb-6">
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 mx-auto mb-3">
-          <Upload className="h-7 w-7 text-primary" />
-        </div>
-        <h1 className="text-xl font-semibold text-foreground mb-1">
-          Upload to Album
-        </h1>
-        <p className="text-primary font-medium">{albumName}</p>
-      </div>
-
-      {/* Upload Area */}
-      <div
-        className={`border-2 border-dashed rounded-2xl p-8 text-center transition-colors ${
-          dragOver
-            ? "border-primary bg-primary/5"
-            : "border-border hover:border-primary/50"
-        }`}
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif"
-          multiple
-          onChange={(e) => handleFileSelect(e.target.files)}
-          className="hidden"
-        />
-
-        {isUploading ? (
-          <div className="py-4">
-            <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto mb-3" />
-            <p className="text-foreground font-medium">Uploading...</p>
+  // Cropping UI
+  if (pendingFiles.length > 0) {
+    return (
+      <div className="h-[100dvh] bg-black flex flex-col">
+        {/* Header */}
+        <div className="px-4 py-3 flex items-center justify-between bg-black/80 text-white flex-shrink-0 z-10">
+          <button
+            onClick={handleCancelCrop}
+            className="p-2 -ml-2 touch-manipulation"
+          >
+            <X className="h-7 w-7" />
+          </button>
+          <div className="text-center">
+            <p className="text-lg font-semibold">Crop Photo</p>
+            {pendingFiles.length > 1 && (
+              <p className="text-sm text-white/60">{pendingFiles.length} remaining</p>
+            )}
           </div>
-        ) : (
-          <>
-            <ImageIcon className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-            <p className="text-foreground font-medium mb-2">
-              Tap to select photos
-            </p>
-            <p className="text-sm text-muted-foreground mb-4">
-              or drag and drop
-            </p>
+          <button
+            onClick={handleSkipCrop}
+            disabled={isUploading}
+            className="px-3 py-1.5 text-sm bg-white/20 rounded-lg touch-manipulation"
+          >
+            Skip
+          </button>
+        </div>
 
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full py-3 px-4 bg-primary text-primary-foreground rounded-xl font-medium hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
-              >
-                <ImageIcon className="h-5 w-5" />
-                Choose from Gallery
-              </button>
+        {/* Cropper */}
+        <div className="flex-1 relative">
+          <Cropper
+            image={pendingFiles[0]!.preview}
+            crop={crop}
+            zoom={zoom}
+            aspect={undefined}
+            onCropChange={setCrop}
+            onZoomChange={setZoom}
+            onCropComplete={onCropComplete}
+          />
+        </div>
 
-              <button
-                onClick={() => {
-                  if (fileInputRef.current) {
-                    fileInputRef.current.setAttribute("capture", "environment");
-                    fileInputRef.current.click();
-                    fileInputRef.current.removeAttribute("capture");
-                  }
-                }}
-                className="w-full py-3 px-4 bg-accent text-accent-foreground rounded-xl font-medium hover:bg-accent/80 transition-colors flex items-center justify-center gap-2"
-              >
-                <Camera className="h-5 w-5" />
-                Take Photo
-              </button>
-            </div>
-          </>
-        )}
+        {/* Zoom slider */}
+        <div className="px-8 py-4 bg-black/80 flex-shrink-0">
+          <input
+            type="range"
+            min={1}
+            max={3}
+            step={0.1}
+            value={zoom}
+            onChange={(e) => setZoom(Number(e.target.value))}
+            className="w-full h-2 bg-white/30 rounded-lg appearance-none cursor-pointer accent-primary"
+          />
+        </div>
+
+        {/* Confirm button */}
+        <div className="p-4 bg-black flex-shrink-0">
+          <button
+            onClick={handleCropConfirm}
+            disabled={isUploading}
+            className="w-full py-5 bg-primary text-primary-foreground rounded-2xl font-bold text-xl flex items-center justify-center gap-3 touch-manipulation disabled:opacity-50"
+          >
+            {isUploading ? (
+              <>
+                <Loader2 className="h-7 w-7 animate-spin" />
+                Uploading...
+              </>
+            ) : (
+              <>
+                <Check className="h-7 w-7" />
+                Upload
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Uploading state - full screen
+  if (isUploading) {
+    return (
+      <div className="h-[100dvh] bg-background flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-16 w-16 animate-spin text-primary mx-auto mb-6" />
+          <p className="text-2xl font-semibold text-foreground">Uploading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-[100dvh] bg-background flex flex-col">
+      {/* Hidden file inputs */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        multiple
+        onChange={(e) => handleFileSelect(e.target.files)}
+        className="hidden"
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        capture="environment"
+        onChange={(e) => handleFileSelect(e.target.files)}
+        className="hidden"
+      />
+
+      {/* Album name header */}
+      <div className="px-4 py-4 text-center border-b border-border flex-shrink-0">
+        <p className="text-base text-muted-foreground">Uploading to</p>
+        <p className="text-xl font-semibold text-primary truncate">{albumName}</p>
       </div>
 
-      {/* Error Message */}
+      {/* Error message */}
       {error && (
-        <div className="mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-xl flex items-center gap-2">
-          <AlertCircle className="h-5 w-5 text-destructive flex-shrink-0" />
-          <p className="text-sm text-destructive">{error}</p>
+        <div className="px-4 py-3 bg-destructive/10 text-destructive text-center flex-shrink-0">
+          {error}
         </div>
       )}
 
-      {/* Uploaded Files */}
+      {/* Uploaded files strip */}
       {uploadedFiles.length > 0 && (
-        <div className="mt-6">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
-            Uploaded ({uploadedFiles.length})
-          </h2>
-          <div className="grid grid-cols-3 gap-2">
+        <div className="px-4 py-3 border-b border-border flex-shrink-0">
+          <div className="flex gap-3 overflow-x-auto pb-1">
             {uploadedFiles.map((file) => (
               <div
                 key={file.id}
-                className="relative aspect-square rounded-lg overflow-hidden bg-accent"
+                className="relative w-24 h-24 flex-shrink-0 rounded-xl overflow-hidden bg-accent"
               >
                 {file.preview ? (
                   <img
@@ -231,28 +357,41 @@ export function MobileUploadPage() {
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
-                    <CheckCircle className="h-6 w-6 text-green-500" />
+                    <CheckCircle className="h-8 w-8 text-green-500" />
                   </div>
                 )}
                 <button
                   onClick={() => removeUploadedFile(file.id)}
-                  className="absolute top-1 right-1 p-1 bg-black/50 rounded-full"
+                  className="absolute top-1 right-1 p-1.5 bg-black/70 rounded-full touch-manipulation"
                 >
-                  <X className="h-4 w-4 text-white" />
+                  <X className="h-5 w-5 text-white" />
                 </button>
-                <div className="absolute bottom-0 left-0 right-0 bg-black/50 p-1">
-                  <CheckCircle className="h-4 w-4 text-green-400 mx-auto" />
-                </div>
               </div>
             ))}
+            <div className="flex items-center justify-center w-24 h-24 flex-shrink-0 rounded-xl bg-primary/10 text-primary font-bold text-2xl">
+              {uploadedFiles.length}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Footer Info */}
-      <div className="mt-6 text-center text-xs text-muted-foreground">
-        <p>Photos are uploaded directly to your album.</p>
-        <p>This link will expire when closed on the main device.</p>
+      {/* Two big side-by-side square buttons */}
+      <div className="flex-1 flex items-center justify-center gap-6 p-6">
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="aspect-square h-full max-h-[45vw] flex flex-col items-center justify-center gap-6 bg-black text-white border-4 border-primary rounded-3xl active:bg-primary/20 transition-colors touch-manipulation"
+        >
+          <ImageIcon className="h-24 w-24" />
+          <span className="text-5xl font-bold">Gallery</span>
+        </button>
+
+        <button
+          onClick={() => cameraInputRef.current?.click()}
+          className="aspect-square h-full max-h-[45vw] flex flex-col items-center justify-center gap-6 bg-black text-white border-4 border-primary rounded-3xl active:bg-primary/20 transition-colors touch-manipulation"
+        >
+          <Camera className="h-24 w-24" />
+          <span className="text-5xl font-bold">Camera</span>
+        </button>
       </div>
     </div>
   );

@@ -339,6 +339,10 @@ export interface HomeAssistantEntitySettings {
     thresholdMinutes: number;      // e.g., 30
     repeatIntervalMinutes?: number; // How often to re-alert (default: 15)
   };
+  // Vacuum-specific settings
+  vacuum?: {
+    mapCameraEntityId?: string; // Override auto-detection for map camera
+  };
 }
 
 export interface HomeAssistantEntityState {

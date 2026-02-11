@@ -976,6 +976,67 @@ function CompositeWidgetBuilder({
   );
 }
 
+// Vacuum Map Camera Selector with Preview
+function VacuumMapCameraSelector({
+  cameras,
+  defaultValue,
+}: {
+  cameras: { entity_id: string; attributes: Record<string, unknown> }[];
+  defaultValue: string;
+}) {
+  const [selectedCamera, setSelectedCamera] = useState(defaultValue);
+  const [previewKey, setPreviewKey] = useState(0);
+
+  const handleCameraChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedCamera(e.target.value);
+    setPreviewKey((k) => k + 1); // Force refresh preview
+  };
+
+  const previewUrl = selectedCamera ? api.getHACameraSnapshotUrl(selectedCamera) : null;
+
+  return (
+    <div className="pt-2 border-t border-border">
+      <label className="text-sm font-medium text-foreground">
+        Map Camera
+      </label>
+      <div className="mt-1 flex gap-3">
+        <div className="flex-1">
+          <select
+            name="mapCameraEntityId"
+            value={selectedCamera}
+            onChange={handleCameraChange}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="">Auto-detect</option>
+            {cameras.map((camera) => (
+              <option key={camera.entity_id} value={camera.entity_id}>
+                {(camera.attributes.friendly_name as string) || camera.entity_id}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Select the camera entity that displays the vacuum's map
+          </p>
+        </div>
+        {/* Map Preview */}
+        {selectedCamera && previewUrl && (
+          <div className="w-32 h-32 rounded-lg border border-border bg-muted/30 overflow-hidden shrink-0">
+            <img
+              key={previewKey}
+              src={`${previewUrl}${previewUrl.includes("?") ? "&" : "?"}t=${previewKey}`}
+              alt="Map preview"
+              className="w-full h-full object-contain"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function KioskSettings() {
   const queryClient = useQueryClient();
   const setKioskStatus = useAuthStore((state) => state.setKioskStatus);
@@ -4893,6 +4954,16 @@ function HomeAssistantSettings() {
   // Fetch enabled HA cameras (stored in entities table with camera.* prefix)
   const enabledCameras = entities.filter((e) => e.entityId.startsWith("camera."));
 
+  // Fetch all HA camera states for vacuum map camera selection
+  const { data: allCameraStates = [] } = useQuery({
+    queryKey: ["homeassistant", "states", "cameras"],
+    queryFn: async () => {
+      const states = await api.getHomeAssistantStates();
+      return states.filter((s) => s.entity_id.startsWith("camera."));
+    },
+    enabled: isConnected && editingEntity !== null,
+  });
+
   // Fetch available HA cameras for picker
   const { data: availableCameras = [], isLoading: isLoadingCameras } = useQuery({
     queryKey: ["homeassistant", "cameras", "available"],
@@ -5027,18 +5098,23 @@ function HomeAssistantSettings() {
   const updateEntitySettings = useMutation({
     mutationFn: ({
       id,
+      displayName,
       settings,
     }: {
       id: string;
+      displayName?: string | null;
       settings: {
         durationAlert?: {
           enabled: boolean;
           thresholdMinutes: number;
           repeatIntervalMinutes?: number;
         };
+        vacuum?: {
+          mapCameraEntityId?: string;
+        };
       };
     }) =>
-      api.updateHomeAssistantEntity(id, { settings }),
+      api.updateHomeAssistantEntity(id, { displayName, settings }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["homeassistant", "entities"] });
       setEditingEntity(null);
@@ -5363,147 +5439,227 @@ function HomeAssistantSettings() {
                 </Button>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
                 {entities.map((entity) => {
                   const domainParts = entity.entityId.split(".");
                   const domain = domainParts[0] || "";
                   const supportsDurationAlert = ["light", "switch", "cover", "lock", "fan", "binary_sensor", "input_boolean"].includes(domain);
+                  const isVacuum = domain === "vacuum";
+                  const hasEditableSettings = supportsDurationAlert || isVacuum;
                   const settings = entity.settings as {
                     durationAlert?: {
                       enabled: boolean;
                       thresholdMinutes: number;
                       repeatIntervalMinutes?: number;
                     };
+                    vacuum?: {
+                      mapCameraEntityId?: string;
+                    };
                   };
-                  const isEditing = editingEntity === entity.id;
 
                   return (
                     <div
                       key={entity.id}
-                      className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4"
+                      className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3"
                     >
-                      {isEditing ? (
-                        <form
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            const formData = new FormData(e.currentTarget);
-                            const enabled = formData.get("durationAlertEnabled") === "on";
-                            const thresholdMinutes = parseInt(formData.get("thresholdMinutes") as string) || 30;
-                            const repeatIntervalMinutes = parseInt(formData.get("repeatIntervalMinutes") as string) || 15;
-                            updateEntitySettings.mutate({
-                              id: entity.id,
-                              settings: {
-                                ...entity.settings,
-                                durationAlert: {
-                                  enabled,
-                                  thresholdMinutes,
-                                  repeatIntervalMinutes,
-                                },
-                              },
-                            });
-                          }}
-                          className="space-y-4"
-                        >
-                          <div>
-                            <p className="font-medium text-gray-900 dark:text-gray-100">
-                              {entity.displayName || entity.entityId}
-                            </p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{entity.entityId}</p>
-                          </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-sm text-gray-900 dark:text-gray-100 truncate">
+                            {entity.displayName || entity.entityId}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{entity.entityId}</p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {supportsDurationAlert && settings?.durationAlert?.enabled && (
+                            <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+                              {settings.durationAlert.thresholdMinutes}m
+                            </span>
+                          )}
+                          {/* Vacuum: Show prominent Configure Map button */}
+                          {isVacuum && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() => setEditingEntity(entity.id)}
+                            >
+                              {settings?.vacuum?.mapCameraEntityId ? "Map Configured" : "Configure Map"}
+                            </Button>
+                          )}
+                          {/* Other entities: Show gear icon */}
+                          {supportsDurationAlert && !isVacuum && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              onClick={() => setEditingEntity(entity.id)}
+                            >
+                              <Settings className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0"
+                            onClick={() => handleRemoveEntity(entity)}
+                            disabled={removeEntity.isPending}
+                          >
+                            <X className="h-3.5 w-3.5 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
-                          <div className="flex items-center gap-3">
+            {/* Entity Edit Modal */}
+            {editingEntity && (() => {
+              const entity = entities.find(e => e.id === editingEntity);
+              if (!entity) return null;
+
+              const domainParts = entity.entityId.split(".");
+              const domain = domainParts[0] || "";
+              const supportsDurationAlert = ["light", "switch", "cover", "lock", "fan", "binary_sensor", "input_boolean"].includes(domain);
+              const isVacuum = domain === "vacuum";
+              const settings = entity.settings as {
+                durationAlert?: {
+                  enabled: boolean;
+                  thresholdMinutes: number;
+                  repeatIntervalMinutes?: number;
+                };
+                vacuum?: {
+                  mapCameraEntityId?: string;
+                };
+              };
+
+              return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center">
+                  <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setEditingEntity(null)} />
+                  <div className="relative z-10 w-full max-w-md mx-4 bg-card border border-border rounded-xl shadow-xl">
+                    <div className="flex items-center justify-between p-4 border-b border-border">
+                      <h3 className="font-semibold text-foreground">
+                        Entity Settings
+                      </h3>
+                      <button
+                        onClick={() => setEditingEntity(null)}
+                        className="p-1 rounded-lg hover:bg-muted transition-colors"
+                      >
+                        <X className="h-5 w-5 text-muted-foreground" />
+                      </button>
+                    </div>
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const formData = new FormData(e.currentTarget);
+                        const newSettings: {
+                          durationAlert?: { enabled: boolean; thresholdMinutes: number; repeatIntervalMinutes?: number };
+                          vacuum?: { mapCameraEntityId?: string };
+                        } = { ...entity.settings };
+
+                        if (supportsDurationAlert) {
+                          const enabled = formData.get("durationAlertEnabled") === "on";
+                          const thresholdMinutes = parseInt(formData.get("thresholdMinutes") as string) || 30;
+                          const repeatIntervalMinutes = parseInt(formData.get("repeatIntervalMinutes") as string) || 15;
+                          newSettings.durationAlert = { enabled, thresholdMinutes, repeatIntervalMinutes };
+                        }
+
+                        if (isVacuum) {
+                          const mapCameraEntityId = formData.get("mapCameraEntityId") as string;
+                          newSettings.vacuum = { mapCameraEntityId: mapCameraEntityId || undefined };
+                        }
+
+                        updateEntitySettings.mutate({
+                          id: entity.id,
+                          displayName: (formData.get("displayName") as string) || null,
+                          settings: newSettings,
+                        });
+                      }}
+                      className="p-4 space-y-4"
+                    >
+                      {/* Entity info */}
+                      <div>
+                        <label className="text-sm font-medium text-foreground">
+                          Display Name
+                        </label>
+                        <input
+                          type="text"
+                          name="displayName"
+                          defaultValue={entity.displayName || ""}
+                          placeholder="Custom name (optional)"
+                          className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                        <p className="mt-1 text-xs text-muted-foreground">{entity.entityId}</p>
+                      </div>
+
+                      {/* Vacuum-specific: Map Camera Selection */}
+                      {isVacuum && (
+                        <VacuumMapCameraSelector
+                          cameras={allCameraStates}
+                          defaultValue={settings?.vacuum?.mapCameraEntityId || ""}
+                        />
+                      )}
+
+                      {/* Duration Alert Settings */}
+                      {supportsDurationAlert && (
+                        <div className="pt-2 border-t border-border">
+                          <div className="flex items-center gap-3 mb-3">
                             <input
                               type="checkbox"
                               id={`duration-alert-${entity.id}`}
                               name="durationAlertEnabled"
                               defaultChecked={settings?.durationAlert?.enabled}
-                              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                              className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
                             />
-                            <label htmlFor={`duration-alert-${entity.id}`} className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            <label htmlFor={`duration-alert-${entity.id}`} className="text-sm font-medium text-foreground">
                               Enable duration alert
                             </label>
                           </div>
 
                           <div className="grid grid-cols-2 gap-4">
                             <div>
-                              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                Alert after (minutes)
+                              <label className="text-sm font-medium text-foreground">
+                                Alert after (min)
                               </label>
                               <input
                                 type="number"
                                 name="thresholdMinutes"
                                 min="1"
                                 defaultValue={settings?.durationAlert?.thresholdMinutes ?? 30}
-                                className="mt-1 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
+                                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                               />
                             </div>
                             <div>
-                              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                Repeat every (minutes)
+                              <label className="text-sm font-medium text-foreground">
+                                Repeat every (min)
                               </label>
                               <input
                                 type="number"
                                 name="repeatIntervalMinutes"
                                 min="1"
                                 defaultValue={settings?.durationAlert?.repeatIntervalMinutes ?? 15}
-                                className="mt-1 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
+                                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                               />
                             </div>
                           </div>
-
-                          <div className="flex gap-2">
-                            <Button type="submit" size="sm" disabled={updateEntitySettings.isPending}>
-                              {updateEntitySettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                              Save
-                            </Button>
-                            <Button type="button" variant="outline" size="sm" onClick={() => setEditingEntity(null)}>
-                              Cancel
-                            </Button>
-                          </div>
-                        </form>
-                      ) : (
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-gray-900 dark:text-gray-100">
-                              {entity.displayName || entity.entityId}
-                            </p>
-                            <div className="flex items-center gap-2 mt-1">
-                              {entity.displayName && (
-                                <span className="text-xs text-gray-500 dark:text-gray-400">{entity.entityId}</span>
-                              )}
-                              {supportsDurationAlert && settings?.durationAlert?.enabled && (
-                                <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-200">
-                                  Alert: {settings.durationAlert.thresholdMinutes}m
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex gap-2">
-                            {supportsDurationAlert && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setEditingEntity(entity.id)}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRemoveEntity(entity)}
-                              disabled={removeEntity.isPending}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
                         </div>
                       )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+
+                      <div className="flex gap-2 pt-2">
+                        <Button type="submit" size="sm" className="flex-1" disabled={updateEntitySettings.isPending}>
+                          {updateEntitySettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Save
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={() => setEditingEntity(null)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       )}

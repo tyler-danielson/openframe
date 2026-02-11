@@ -37,12 +37,14 @@ import {
   BarChart3,
   Map,
   Clock,
+  Camera,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "../ui/Button";
 import { cn } from "../../lib/utils";
-import type { HomeAssistantEntityState } from "@openframe/shared";
+import type { HomeAssistantEntityState, HomeAssistantEntitySettings } from "@openframe/shared";
 import { api } from "../../services/api";
+import { useAuthStore } from "../../stores/auth";
 
 // Custom vacuum icon component
 function VacuumIcon({ className, isAnimated }: { className?: string; isAnimated?: boolean }) {
@@ -120,6 +122,7 @@ interface VacuumControlModalProps {
   displayName?: string | null;
   onCallService: (domain: string, service: string, data?: Record<string, unknown>) => Promise<void>;
   allEntities?: HomeAssistantEntityState[];
+  entitySettings?: HomeAssistantEntitySettings;
 }
 
 // Map HA vacuum states to display info
@@ -200,6 +203,7 @@ export function VacuumControlModal({
   displayName,
   onCallService,
   allEntities,
+  entitySettings,
 }: VacuumControlModalProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedRooms, setSelectedRooms] = useState<Set<number | string>>(new Set());
@@ -208,6 +212,10 @@ export function VacuumControlModal({
   const [selectedMoppingType, setSelectedMoppingType] = useState<string | null>(null);
   const [consumablesExpanded, setConsumablesExpanded] = useState(false);
   const [mapRefreshKey, setMapRefreshKey] = useState(0);
+  const [obstaclesExpanded, setObstaclesExpanded] = useState(false);
+  const [obstacleImages, setObstacleImages] = useState<string[]>([]);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [loadingObstacles, setLoadingObstacles] = useState(false);
 
   const friendlyName = state.attributes.friendly_name;
   const entityName = displayName || (typeof friendlyName === "string" ? friendlyName : null) || state.entity_id;
@@ -222,10 +230,18 @@ export function VacuumControlModal({
   // Detect if vacuum is actively cleaning (includes returning state)
   const isActivelyCleaning = ["cleaning", "returning"].includes(vacuumState);
 
-  // Auto-detect map camera entity
+  // Detect map camera entity - prefer configured, fallback to auto-detect
   const mapCameraEntity = useMemo(() => {
     if (!allEntities) return null;
 
+    // First: Use explicitly configured map camera if set
+    const configuredMapId = entitySettings?.vacuum?.mapCameraEntityId;
+    if (configuredMapId) {
+      const configured = allEntities.find(e => e.entity_id === configuredMapId);
+      if (configured) return configured;
+    }
+
+    // Fallback: Auto-detect from entity_id patterns
     // Extract vacuum name from entity_id (e.g., "vacuum.dreame_l10s" -> "dreame_l10s")
     const vacuumName = state.entity_id.replace("vacuum.", "");
 
@@ -243,7 +259,7 @@ export function VacuumControlModal({
       e.entity_id.startsWith("camera.") &&
       e.entity_id.includes("map")
     );
-  }, [allEntities, state.entity_id]);
+  }, [allEntities, state.entity_id, entitySettings]);
 
   // Get map snapshot URL
   const getMapSnapshotUrl = useCallback(() => {
@@ -261,6 +277,46 @@ export function VacuumControlModal({
 
     return () => clearInterval(interval);
   }, [isActivelyCleaning, mapCameraEntity]);
+
+  // Load obstacle images when section is expanded
+  useEffect(() => {
+    if (!obstaclesExpanded || !mapCameraEntity) return;
+
+    const loadObstacles = async () => {
+      setLoadingObstacles(true);
+      const images: string[] = [];
+
+      // Get auth headers
+      const { accessToken, apiKey } = useAuthStore.getState();
+      const headers: HeadersInit = {};
+      if (apiKey) {
+        headers["x-api-key"] = apiKey;
+      } else if (accessToken) {
+        headers["Authorization"] = `Bearer ${accessToken}`;
+      }
+
+      // Load obstacles from most recent history (index 1)
+      // Try up to 10 obstacles, stop on 404
+      for (let i = 1; i <= 10; i++) {
+        const url = api.getVacuumObstacleImageUrl(mapCameraEntity.entity_id, 1, i);
+        try {
+          const response = await fetch(url, { method: "HEAD", headers });
+          if (response.ok) {
+            images.push(url);
+          } else {
+            break; // No more obstacles
+          }
+        } catch {
+          break;
+        }
+      }
+
+      setObstacleImages(images);
+      setLoadingObstacles(false);
+    };
+
+    loadObstacles();
+  }, [obstaclesExpanded, mapCameraEntity]);
 
   // Battery level
   const batteryLevel = state.attributes.battery_level as number | undefined;
@@ -403,12 +459,18 @@ export function VacuumControlModal({
     const error = state.attributes.error as string | undefined;
     const errorDescription = state.attributes.error_description as string | undefined;
     const taskStatus = state.attributes.task_status as string | undefined;
-    const lastError = state.attributes.last_error as string | undefined;
+
+    // Helper to check if a string indicates "no error"
+    const isNoErrorMessage = (msg: string | undefined): boolean => {
+      if (!msg) return true;
+      const lower = msg.toLowerCase();
+      return lower === "none" || lower === "no_error" || lower === "no error";
+    };
 
     // Check for error conditions
     const hasError = vacuumState === "error" ||
-      (error && error.toLowerCase() !== "none" && error.toLowerCase() !== "no_error") ||
-      (errorDescription && errorDescription.toLowerCase() !== "none");
+      (error && !isNoErrorMessage(error)) ||
+      (errorDescription && !isNoErrorMessage(errorDescription));
 
     // Get the most relevant message
     let message: string | null = null;
@@ -416,19 +478,21 @@ export function VacuumControlModal({
     let isWarning = false;
 
     if (hasError) {
-      // Prioritize error messages
-      message = errorDescription || error || statusDescription || status || "Error occurred";
-      isError = true;
+      // Prioritize error messages, but filter out "no error" type messages
+      const errorMsg = errorDescription || error || statusDescription || status;
+      if (errorMsg && !isNoErrorMessage(errorMsg)) {
+        message = errorMsg;
+        isError = true;
+      }
     } else if (statusDescription || taskStatus) {
-      // Show status description if available and interesting
+      // Only show status if it contains warning keywords
       const desc = statusDescription || taskStatus || "";
-      // Filter out boring statuses
-      const boringStatuses = ["idle", "docked", "charging", "standby", "none"];
-      if (desc && !boringStatuses.includes(desc.toLowerCase())) {
-        message = desc;
-        // Check if it's a warning (like brush wrapped, low water, etc.)
-        const warningKeywords = ["wrapped", "stuck", "low", "empty", "full", "blocked", "tangled", "replace", "clean"];
+      if (!isNoErrorMessage(desc)) {
+        const warningKeywords = ["wrapped", "stuck", "low", "empty", "full", "blocked", "tangled", "replace", "clean", "error", "fault", "failed"];
         isWarning = warningKeywords.some(kw => desc.toLowerCase().includes(kw));
+        if (isWarning) {
+          message = desc;
+        }
       }
     }
 
@@ -436,7 +500,7 @@ export function VacuumControlModal({
       message,
       isError,
       isWarning,
-      hasNotification: !!message,
+      hasNotification: (isError || isWarning) && message !== null,
     };
   }, [state.attributes, vacuumState]);
 
@@ -1201,6 +1265,56 @@ export function VacuumControlModal({
               </div>
             </div>
           )}
+
+          {/* Detected Objects Section */}
+          {mapCameraEntity && (
+            <div className="mt-6 pt-4 border-t border-border">
+              <button
+                onClick={() => setObstaclesExpanded(!obstaclesExpanded)}
+                className="flex items-center justify-between w-full text-sm font-medium text-primary"
+              >
+                <span className="flex items-center gap-2">
+                  <Camera className="h-4 w-4" />
+                  Detected Objects
+                </span>
+                {obstaclesExpanded ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </button>
+
+              {obstaclesExpanded && (
+                <div className="mt-3">
+                  {loadingObstacles ? (
+                    <div className="flex justify-center py-4">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : obstacleImages.length > 0 ? (
+                    <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                      {obstacleImages.map((url, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => setLightboxImage(url)}
+                          className="aspect-square rounded-lg overflow-hidden border border-border hover:border-primary transition-colors"
+                        >
+                          <img
+                            src={url}
+                            alt={`Object ${idx + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No detected objects from recent cleaning
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           </>
           )}
         </div>
@@ -1216,6 +1330,27 @@ export function VacuumControlModal({
           </Button>
         </div>
       </div>
+
+      {/* Lightbox for full-size obstacle images */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setLightboxImage(null)}
+        >
+          <button
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+            onClick={() => setLightboxImage(null)}
+          >
+            <X className="h-6 w-6 text-white" />
+          </button>
+          <img
+            src={lightboxImage}
+            alt="Detected object"
+            className="max-w-full max-h-full object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -41,7 +41,7 @@ import {
   Clock,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
-import type { HomeAssistantEntityState } from "@openframe/shared";
+import type { HomeAssistantEntityState, HomeAssistantEntitySettings } from "@openframe/shared";
 import { useLongPress } from "../../hooks/useLongPress";
 import { EntityTimerMenu, type EntityTimer } from "./EntityTimerMenu";
 import { VacuumControlCard } from "./VacuumControlCard";
@@ -55,9 +55,10 @@ interface HomioEntityCardProps {
   activeTimer?: EntityTimer | null;
   onTimerChange?: () => void;
   allEntities?: HomeAssistantEntityState[];
+  entitySettings?: HomeAssistantEntitySettings;
 }
 
-export function HomioEntityCard({ state, displayName, onCallService, activeTimer, onTimerChange, allEntities }: HomioEntityCardProps) {
+export function HomioEntityCard({ state, displayName, onCallService, activeTimer, onTimerChange, allEntities, entitySettings }: HomioEntityCardProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [timerMenuOpen, setTimerMenuOpen] = useState(false);
   const [vacuumModalOpen, setVacuumModalOpen] = useState(false);
@@ -82,6 +83,7 @@ export function HomioEntityCard({ state, displayName, onCallService, activeTimer
           displayName={displayName}
           onCallService={onCallService}
           allEntities={allEntities}
+          entitySettings={entitySettings}
         />
       </>
     );

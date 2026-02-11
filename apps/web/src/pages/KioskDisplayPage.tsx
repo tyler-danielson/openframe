@@ -1,11 +1,13 @@
-import { useEffect, useRef, useMemo, useState } from "react";
-import { useParams, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { useEffect, useRef, useMemo, useState, useCallback } from "react";
+import { useParams, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { WifiOff, RefreshCw, Maximize } from "lucide-react";
-import { api } from "../services/api";
+import { api, type KioskCommand } from "../services/api";
 import { KioskProvider, useKiosk } from "../contexts/KioskContext";
 import { useIdleDetector } from "../hooks/useIdleDetector";
 import { Screensaver } from "../components/Screensaver";
 import { Layout } from "../components/ui/Layout";
+import { useScreensaverStore } from "../stores/screensaver";
+import { useRemoteControlStore } from "../stores/remote-control";
 import type { ConnectionStatus } from "../hooks/useConnectionHealth";
 
 // Import all pages
@@ -258,9 +260,74 @@ function KioskLayoutWrapper() {
 // Inner component that has access to kiosk context for command polling
 function KioskCommandPoller({ token }: { token: string }) {
   const { isOfflineMode } = useKiosk();
+  const navigate = useNavigate();
   const lastCommandTimestamp = useRef(Date.now());
+  const setScreensaverActive = useScreensaverStore((s) => s.setActive);
+  const addRemoteCommand = useRemoteControlStore((s) => s.addCommand);
 
-  // Poll for commands (refresh, etc.) - pause when offline
+  // Handle a single command
+  const handleCommand = useCallback(
+    (cmd: KioskCommand) => {
+      console.log(`[Kiosk] Processing command: ${cmd.type}`, cmd.payload);
+
+      switch (cmd.type) {
+        case "refresh":
+          console.log("[Kiosk] Refresh command received, reloading page...");
+          window.location.reload();
+          break;
+
+        case "reload-photos":
+          // This triggers a refetch in the screensaver - just need to emit
+          console.log("[Kiosk] Reload photos command received");
+          // Could emit an event or trigger refetch via query client
+          break;
+
+        case "navigate":
+          if (cmd.payload?.path && typeof cmd.payload.path === "string") {
+            console.log(`[Kiosk] Navigating to: ${cmd.payload.path}`);
+            navigate(cmd.payload.path);
+          }
+          break;
+
+        case "fullscreen":
+          if (cmd.payload?.enabled === true) {
+            console.log("[Kiosk] Entering fullscreen");
+            document.documentElement.requestFullscreen().catch((err) => {
+              console.warn("[Kiosk] Could not enter fullscreen:", err.message);
+            });
+          } else if (cmd.payload?.enabled === false) {
+            console.log("[Kiosk] Exiting fullscreen");
+            document.exitFullscreen().catch((err) => {
+              console.warn("[Kiosk] Could not exit fullscreen:", err.message);
+            });
+          }
+          break;
+
+        case "screensaver":
+          if (typeof cmd.payload?.enabled === "boolean") {
+            console.log(`[Kiosk] Screensaver ${cmd.payload.enabled ? "activated" : "deactivated"}`);
+            setScreensaverActive(cmd.payload.enabled);
+          }
+          break;
+
+        case "multiview-add":
+        case "multiview-remove":
+        case "multiview-clear":
+        case "multiview-set":
+          // Forward multiview commands to the remote control store
+          // These will be consumed by MultiViewPage
+          console.log(`[Kiosk] Forwarding multiview command: ${cmd.type}`);
+          addRemoteCommand(cmd);
+          break;
+
+        default:
+          console.warn(`[Kiosk] Unknown command type: ${cmd.type}`);
+      }
+    },
+    [navigate, setScreensaverActive, addRemoteCommand]
+  );
+
+  // Poll for commands - pause when offline
   useEffect(() => {
     if (!token || isOfflineMode) return;
 
@@ -271,10 +338,7 @@ function KioskCommandPoller({ token }: { token: string }) {
           if (cmd.timestamp > lastCommandTimestamp.current) {
             lastCommandTimestamp.current = cmd.timestamp;
           }
-          if (cmd.type === "refresh") {
-            console.log("Kiosk refresh command received, reloading page...");
-            window.location.reload();
-          }
+          handleCommand(cmd);
         }
       } catch (error) {
         console.error("Failed to poll kiosk commands:", error);
@@ -282,7 +346,7 @@ function KioskCommandPoller({ token }: { token: string }) {
     }, 10000);
 
     return () => clearInterval(pollInterval);
-  }, [token, isOfflineMode]);
+  }, [token, isOfflineMode, handleCommand]);
 
   return null;
 }

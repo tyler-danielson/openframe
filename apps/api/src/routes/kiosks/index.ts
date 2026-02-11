@@ -9,14 +9,48 @@ import {
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { randomUUID } from "crypto";
+import type { UploadTokenData } from "../photos/index.js";
+import { getSystemSetting } from "../settings/index.js";
+
+// Extend Fastify with upload tokens (shared with photos routes)
+declare module "fastify" {
+  interface FastifyInstance {
+    uploadTokens: Map<string, UploadTokenData>;
+  }
+}
 
 // In-memory kiosk command store
 // Commands expire after 60 seconds (kiosks should poll every 10 seconds)
+type KioskCommandType =
+  | "refresh"
+  | "reload-photos"
+  | "navigate"
+  | "fullscreen"
+  | "multiview-add"
+  | "multiview-remove"
+  | "multiview-clear"
+  | "multiview-set"
+  | "screensaver";
+
 interface KioskCommand {
-  type: "refresh" | "reload-photos";
+  type: KioskCommandType;
+  payload?: Record<string, unknown>;
   timestamp: number;
 }
 const kioskCommands = new Map<string, KioskCommand[]>();
+
+// All valid command types for schema validation
+const VALID_COMMAND_TYPES: KioskCommandType[] = [
+  "refresh",
+  "reload-photos",
+  "navigate",
+  "fullscreen",
+  "multiview-add",
+  "multiview-remove",
+  "multiview-clear",
+  "multiview-set",
+  "screensaver",
+];
 
 // Clean up expired commands every 5 minutes
 setInterval(() => {
@@ -384,7 +418,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // Send refresh command to a kiosk
+  // Send refresh command to a kiosk (shorthand for command with type: "refresh")
   fastify.post(
     "/:id/refresh",
     {
@@ -429,6 +463,85 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       kioskCommands.set(id, existingCommands);
 
       fastify.log.info(`Kiosk refresh triggered for kiosk ${id}`);
+
+      return { success: true };
+    }
+  );
+
+  // Send a command to a kiosk (generic command endpoint)
+  fastify.post(
+    "/:id/command",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Send a command to a kiosk for remote control",
+        tags: ["Kiosks"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+        body: {
+          type: "object",
+          required: ["type"],
+          properties: {
+            type: {
+              type: "string",
+              enum: VALID_COMMAND_TYPES,
+              description: "The command type to send",
+            },
+            payload: {
+              type: "object",
+              additionalProperties: true,
+              description: "Optional payload data for the command",
+            },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("User not found");
+      }
+      const { id } = request.params as { id: string };
+      const { type, payload } = request.body as {
+        type: KioskCommandType;
+        payload?: Record<string, unknown>;
+      };
+
+      // Verify ownership
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(and(eq(kiosks.id, id), eq(kiosks.userId, user.id)))
+        .limit(1);
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      // Add command for this kiosk
+      const existingCommands = kioskCommands.get(id) ?? [];
+      existingCommands.push({
+        type,
+        payload,
+        timestamp: Date.now(),
+      });
+      kioskCommands.set(id, existingCommands);
+
+      fastify.log.info(`Kiosk command '${type}' sent to kiosk ${id}`);
 
       return { success: true };
     }
@@ -877,6 +990,115 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         success: true,
         data: {
           message: "Use /api/v1/weather endpoints for weather data",
+        },
+      };
+    }
+  );
+
+  // Generate upload token for kiosk photo uploads
+  fastify.post(
+    "/public/:token/upload-token",
+    {
+      schema: {
+        description: "Generate an upload token for mobile photo uploads via kiosk QR code",
+        tags: ["Kiosks", "Public"],
+        params: {
+          type: "object",
+          properties: {
+            token: { type: "string", format: "uuid" },
+          },
+          required: ["token"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const { token } = request.params as { token: string };
+
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(eq(kiosks.token, token))
+        .limit(1);
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      if (!kiosk.isActive) {
+        return reply.forbidden("Kiosk is disabled");
+      }
+
+      // Find or create "Kiosk Uploads" album for this user
+      const KIOSK_ALBUM_NAME = "Kiosk Uploads";
+      let [album] = await fastify.db
+        .select()
+        .from(photoAlbums)
+        .where(
+          and(
+            eq(photoAlbums.userId, kiosk.userId),
+            eq(photoAlbums.name, KIOSK_ALBUM_NAME)
+          )
+        )
+        .limit(1);
+
+      // Create the album if it doesn't exist
+      if (!album) {
+        [album] = await fastify.db
+          .insert(photoAlbums)
+          .values({
+            userId: kiosk.userId,
+            name: KIOSK_ALBUM_NAME,
+            description: "Photos uploaded via kiosk QR code",
+            isActive: true,
+          })
+          .returning();
+      }
+
+      if (!album) {
+        return reply.internalServerError("Failed to create upload album");
+      }
+
+      // Generate upload token (valid for 30 minutes)
+      // Use the shared uploadTokens Map from the photos routes
+      const uploadToken = randomUUID();
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 30 * 60 * 1000);
+
+      // Initialize uploadTokens if not already done
+      if (!fastify.uploadTokens) {
+        fastify.uploadTokens = new Map();
+      }
+
+      fastify.uploadTokens.set(uploadToken, {
+        userId: kiosk.userId,
+        albumId: album.id,
+        createdAt: now,
+        expiresAt,
+      });
+
+      // Build full upload URL - prefer configured external URL, fall back to request host
+      let baseUrl = await getSystemSetting(fastify.db, "server", "external_url");
+      if (!baseUrl) {
+        // Use X-Forwarded-Host if behind a proxy (like vite dev server), otherwise use Host header
+        const forwardedHost = request.headers["x-forwarded-host"];
+        const host = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost)
+          || request.headers.host
+          || request.headers[":authority"]
+          || "localhost:3000";
+        const protocol = request.headers["x-forwarded-proto"] || (request.protocol ?? "http");
+        baseUrl = `${protocol}://${host}`;
+      }
+      // Remove trailing slash if present
+      baseUrl = baseUrl.replace(/\/$/, "");
+      const uploadUrl = `${baseUrl}/upload/${uploadToken}`;
+
+      return {
+        success: true,
+        data: {
+          token: uploadToken,
+          expiresAt: expiresAt.toISOString(),
+          albumName: album.name,
+          uploadUrl,
         },
       };
     }

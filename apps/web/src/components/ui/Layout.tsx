@@ -5,6 +5,7 @@ import {
   Calendar,
   Image,
   LayoutDashboard,
+  LayoutGrid,
   Settings,
   LogOut,
   RefreshCw,
@@ -177,6 +178,7 @@ export function Layout({ kioskEnabledFeatures }: LayoutProps = {}) {
       { to: buildPath("photos"), icon: Image, label: "Photos", feature: "photos" as const },
       // Media is handled separately with submenu
       { to: buildPath("cameras"), icon: Camera, label: "Cameras", feature: "cameras" as const },
+      { to: buildPath("multiview"), icon: LayoutGrid, label: "Multi-View", feature: "multiview" as const },
       { to: buildPath("homeassistant"), icon: Home, label: "Home Assistant", feature: "homeassistant" as const },
       { to: buildPath("map"), icon: MapPin, label: "Map", feature: "map" as const },
       { to: buildPath("recipes"), icon: ChefHat, label: "Recipes", feature: "recipes" as const },

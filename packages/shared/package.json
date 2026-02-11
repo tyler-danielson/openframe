@@ -4,9 +4,24 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./validators": "./src/validators/index.ts",
-    "./types": "./src/types/index.ts"
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
+    },
+    "./validators": {
+      "import": "./dist/validators/index.js",
+      "types": "./dist/validators/index.d.ts",
+      "default": "./src/validators/index.ts"
+    },
+    "./types": {
+      "import": "./dist/types/index.js",
+      "types": "./dist/types/index.d.ts",
+      "default": "./src/types/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc"
   },
   "dependencies": {
     "zod": "^3.23.8"
