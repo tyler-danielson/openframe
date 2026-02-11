@@ -410,6 +410,7 @@ export function HomeAssistantPage() {
                     onCallService={handleCallService}
                     activeTimer={timersByEntity.get(entity.entityId) || null}
                     onTimerChange={handleTimerChange}
+                    allEntities={allStates}
                   />
                 );
               })}

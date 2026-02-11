@@ -44,6 +44,8 @@ import { cn } from "../../lib/utils";
 import type { HomeAssistantEntityState } from "@openframe/shared";
 import { useLongPress } from "../../hooks/useLongPress";
 import { EntityTimerMenu, type EntityTimer } from "./EntityTimerMenu";
+import { VacuumControlCard } from "./VacuumControlCard";
+import { VacuumControlModal } from "./VacuumControlModal";
 import { api } from "../../services/api";
 
 interface HomioEntityCardProps {
@@ -52,14 +54,38 @@ interface HomioEntityCardProps {
   onCallService: (domain: string, service: string, data?: Record<string, unknown>) => Promise<void>;
   activeTimer?: EntityTimer | null;
   onTimerChange?: () => void;
+  allEntities?: HomeAssistantEntityState[];
 }
 
-export function HomioEntityCard({ state, displayName, onCallService, activeTimer, onTimerChange }: HomioEntityCardProps) {
+export function HomioEntityCard({ state, displayName, onCallService, activeTimer, onTimerChange, allEntities }: HomioEntityCardProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [timerMenuOpen, setTimerMenuOpen] = useState(false);
+  const [vacuumModalOpen, setVacuumModalOpen] = useState(false);
   const [remainingTime, setRemainingTime] = useState<string | null>(null);
 
   const domain = state.entity_id.split(".")[0];
+
+  // Handle vacuum entities with dedicated components
+  if (domain === "vacuum") {
+    return (
+      <>
+        <VacuumControlCard
+          state={state}
+          displayName={displayName}
+          onCallService={onCallService}
+          onOpenModal={() => setVacuumModalOpen(true)}
+        />
+        <VacuumControlModal
+          isOpen={vacuumModalOpen}
+          onClose={() => setVacuumModalOpen(false)}
+          state={state}
+          displayName={displayName}
+          onCallService={onCallService}
+          allEntities={allEntities}
+        />
+      </>
+    );
+  }
   const friendlyName = state.attributes.friendly_name;
   const entityName = displayName || (typeof friendlyName === "string" ? friendlyName : null) || state.entity_id;
   const isOn = state.state === "on" || state.state === "playing" || state.state === "unlocked" || state.state === "open";

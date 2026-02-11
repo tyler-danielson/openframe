@@ -7,6 +7,8 @@ import {
   Lock,
   Unlock,
   Play,
+  Pause,
+  Home,
   Volume2,
   ChevronUp,
   ChevronDown,
@@ -15,12 +17,39 @@ import {
   Gauge,
   Loader2,
   Clock,
+  BatteryFull,
+  BatteryMedium,
+  BatteryLow,
+  BatteryWarning,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import type { HomeAssistantEntityState } from "@openframe/shared";
 import { useLongPress } from "../../hooks/useLongPress";
 import { EntityTimerMenu, type EntityTimer } from "./EntityTimerMenu";
+import { VacuumControlModal } from "./VacuumControlModal";
 import { api } from "../../services/api";
+
+// Custom vacuum icon component
+function VacuumIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 4v1" />
+      <path d="M12 19v1" />
+      <path d="M4 12h1" />
+      <path d="M19 12h1" />
+    </svg>
+  );
+}
 
 interface EntityCardProps {
   state: HomeAssistantEntityState;
@@ -29,11 +58,13 @@ interface EntityCardProps {
   onRemove?: () => void;
   activeTimer?: EntityTimer | null;
   onTimerChange?: () => void;
+  allEntities?: HomeAssistantEntityState[];
 }
 
-export function EntityCard({ state, displayName, onCallService, onRemove, activeTimer, onTimerChange }: EntityCardProps) {
+export function EntityCard({ state, displayName, onCallService, onRemove, activeTimer, onTimerChange, allEntities }: EntityCardProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [timerMenuOpen, setTimerMenuOpen] = useState(false);
+  const [vacuumModalOpen, setVacuumModalOpen] = useState(false);
   const [remainingTime, setRemainingTime] = useState<string | null>(null);
 
   const domain = state.entity_id.split(".")[0];
@@ -147,6 +178,11 @@ export function EntityCard({ state, displayName, onCallService, onRemove, active
       case "sensor":
       case "binary_sensor":
         return <Gauge className={iconClass} />;
+      case "vacuum": {
+        const vacuumState = state.state.toLowerCase();
+        const isActive = vacuumState === "cleaning" || vacuumState === "returning";
+        return <VacuumIcon className={cn(iconClass, isActive && "text-primary animate-pulse")} />;
+      }
       default:
         return <Power className={iconClass} />;
     }
@@ -276,6 +312,110 @@ export function EntityCard({ state, displayName, onCallService, onRemove, active
           </span>
         );
 
+      case "vacuum": {
+        const vacuumState = state.state.toLowerCase();
+        const isCleaning = vacuumState === "cleaning";
+        const isPaused = vacuumState === "paused";
+        const isReturning = vacuumState === "returning";
+        const batteryLevel = state.attributes.battery_level as number | undefined;
+
+        const getVacuumStateLabel = () => {
+          switch (vacuumState) {
+            case "cleaning": return "Cleaning";
+            case "docked": return "Docked";
+            case "returning": return "Returning";
+            case "paused": return "Paused";
+            case "idle": return "Idle";
+            case "error": return "Error";
+            default: return vacuumState;
+          }
+        };
+
+        const getVacuumStateColor = () => {
+          switch (vacuumState) {
+            case "cleaning":
+            case "returning":
+              return "text-primary";
+            case "paused":
+              return "text-amber-500";
+            case "error":
+              return "text-destructive";
+            default:
+              return "text-muted-foreground";
+          }
+        };
+
+        const getBatteryIcon = () => {
+          if (batteryLevel === undefined) return null;
+          const iconClass = "h-4 w-4";
+          if (batteryLevel <= 10) return <BatteryWarning className={cn(iconClass, "text-destructive")} />;
+          if (batteryLevel <= 30) return <BatteryLow className={cn(iconClass, "text-amber-500")} />;
+          if (batteryLevel <= 70) return <BatteryMedium className={cn(iconClass, "text-muted-foreground")} />;
+          return <BatteryFull className={cn(iconClass, "text-green-500")} />;
+        };
+
+        return (
+          <div className="flex items-center gap-2">
+            {/* Battery indicator */}
+            {batteryLevel !== undefined && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                {getBatteryIcon()}
+                {batteryLevel}%
+              </span>
+            )}
+
+            {/* Status */}
+            <span className={cn("text-sm font-medium capitalize", getVacuumStateColor())}>
+              {getVacuumStateLabel()}
+            </span>
+
+            {/* Quick action buttons */}
+            <div className="flex items-center gap-1 ml-2">
+              {!isCleaning && !isReturning && (
+                <button
+                  onClick={() => handleServiceCall("start")}
+                  disabled={isLoading}
+                  className="rounded p-1.5 hover:bg-primary/10 text-primary"
+                  title="Start"
+                >
+                  <Play className="h-4 w-4" />
+                </button>
+              )}
+              {isCleaning && (
+                <button
+                  onClick={() => handleServiceCall("pause")}
+                  disabled={isLoading}
+                  className="rounded p-1.5 hover:bg-amber-500/10 text-amber-500"
+                  title="Pause"
+                >
+                  <Pause className="h-4 w-4" />
+                </button>
+              )}
+              {isPaused && (
+                <button
+                  onClick={() => handleServiceCall("start")}
+                  disabled={isLoading}
+                  className="rounded p-1.5 hover:bg-primary/10 text-primary"
+                  title="Resume"
+                >
+                  <Play className="h-4 w-4" />
+                </button>
+              )}
+              {vacuumState !== "docked" && !isReturning && (
+                <button
+                  onClick={() => handleServiceCall("return_to_base")}
+                  disabled={isLoading}
+                  className="rounded p-1.5 hover:bg-muted"
+                  title="Return to dock"
+                >
+                  <Home className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      }
+
       default:
         if (state.state === "on" || state.state === "off") {
           return (
@@ -329,14 +469,22 @@ export function EntityCard({ state, displayName, onCallService, onRemove, active
     );
   };
 
+  // Check if vacuum to determine if card should be clickable
+  const isVacuum = domain === "vacuum";
+  const vacuumState = isVacuum ? state.state.toLowerCase() : "";
+  const isVacuumActive = vacuumState === "cleaning" || vacuumState === "returning";
+
   return (
     <>
       <div
         {...(supportsTimer ? longPressHandlers : {})}
+        onClick={isVacuum ? () => setVacuumModalOpen(true) : undefined}
         className={cn(
           "rounded-lg border bg-card p-4 transition-all relative",
           isOn && "border-primary/30 shadow-sm shadow-primary/10",
-          isUnavailable && "opacity-50"
+          isVacuumActive && "border-primary/30 shadow-sm shadow-primary/10",
+          isUnavailable && "opacity-50",
+          isVacuum && "cursor-pointer hover:bg-muted/50"
         )}
       >
         {/* Timer Badge */}
@@ -352,7 +500,8 @@ export function EntityCard({ state, displayName, onCallService, onRemove, active
             <div
               className={cn(
                 "flex h-10 w-10 items-center justify-center rounded-lg",
-                isOn ? "bg-primary/10" : "bg-muted"
+                isOn ? "bg-primary/10" : "bg-muted",
+                isVacuumActive && "bg-primary/10"
               )}
             >
               {isLoading ? (
@@ -385,6 +534,18 @@ export function EntityCard({ state, displayName, onCallService, onRemove, active
           existingTimer={activeTimer}
           onCreateTimer={handleCreateTimer}
           onCancelTimer={handleCancelTimer}
+        />
+      )}
+
+      {/* Vacuum Control Modal */}
+      {isVacuum && (
+        <VacuumControlModal
+          isOpen={vacuumModalOpen}
+          onClose={() => setVacuumModalOpen(false)}
+          state={state}
+          displayName={displayName}
+          onCallService={onCallService}
+          allEntities={allEntities}
         />
       )}
     </>
