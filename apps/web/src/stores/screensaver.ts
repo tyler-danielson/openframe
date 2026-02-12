@@ -33,7 +33,10 @@ export type BuilderWidgetType =
   | "fullscreen-toggle"
   | "day-schedule"
   | "news"
-  | "iptv";
+  | "iptv"
+  | "week-schedule"
+  | "photo-feed"
+  | "support";
 
 export type FontSizePreset = "xs" | "sm" | "md" | "lg" | "xl" | "custom";
 
@@ -146,7 +149,7 @@ export const DEFAULT_WIDGET_CONFIGS: InfoPaneWidgetConfig[] = [
 
 // ============ Composite Widget Types (v2) ============
 
-export type CompositeWidgetId = "clock" | "weather" | "schedule" | "media";
+export type CompositeWidgetId = "clock" | "weather" | "schedule" | "media" | "controls";
 
 export interface SubItemConfig {
   enabled: boolean;
@@ -179,6 +182,7 @@ export const DEFAULT_SUB_ITEMS: Record<CompositeWidgetId, Record<string, SubItem
   media: {
     spotify: { enabled: true },
   },
+  controls: {},
 };
 
 // Default composite widget configurations
@@ -187,6 +191,7 @@ export const DEFAULT_COMPOSITE_CONFIGS: CompositeWidgetConfig[] = [
   { id: "weather", enabled: true, size: "medium", col: 1, row: 0, colSpan: 1, rowSpan: 1, subItems: { ...DEFAULT_SUB_ITEMS.weather } },
   { id: "schedule", enabled: true, size: "medium", col: 0, row: 1, colSpan: 2, rowSpan: 1, subItems: { ...DEFAULT_SUB_ITEMS.schedule } },
   { id: "media", enabled: false, size: "medium", col: 2, row: 0, colSpan: 1, rowSpan: 1, subItems: { ...DEFAULT_SUB_ITEMS.media } },
+  { id: "controls", enabled: false, size: "medium", col: 2, row: 1, colSpan: 1, rowSpan: 1, subItems: { ...DEFAULT_SUB_ITEMS.controls } },
 ];
 
 interface ScreensaverState {

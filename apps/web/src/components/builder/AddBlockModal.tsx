@@ -23,6 +23,7 @@ import {
   Shapes,
   Maximize,
   Newspaper,
+  Heart,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import {
@@ -60,6 +61,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Shapes,
   Maximize,
   Newspaper,
+  Heart,
 };
 
 export function AddBlockModal({ isOpen, onClose, onAddWidget }: AddBlockModalProps) {
