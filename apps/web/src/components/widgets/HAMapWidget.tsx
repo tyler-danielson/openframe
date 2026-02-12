@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState, useMemo } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MapPin, User, Loader2, AlertTriangle, Home } from "lucide-react";
 import { api } from "../../services/api";
@@ -33,27 +33,7 @@ interface HAMapWidgetProps {
 // Color palette for different people
 const COLORS = ["#1E40AF", "#047857", "#B45309", "#B91C1C", "#5B21B6", "#9D174D"];
 
-// Check if MapLibre is supported - must be done carefully to avoid crashes
-function checkMapSupport(): boolean {
-  try {
-    // Check basic WebGL support first
-    const canvas = document.createElement("canvas");
-    const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
-    if (!gl) return false;
-
-    // Check if we're in a known problematic browser
-    const ua = navigator.userAgent.toLowerCase();
-    if (ua.includes("tizen") || ua.includes("webos") || ua.includes("smarttv")) {
-      return false;
-    }
-
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// Lazy-loaded map component to avoid loading MapLibre on unsupported browsers
+// Lazy-loaded map component - lets MapLibre try to render, falls back on actual error
 function MapView({
   locations,
   zones,
@@ -90,11 +70,6 @@ function MapView({
 
         // Import CSS
         await import("maplibre-gl/dist/maplibre-gl.css");
-
-        // Check if maplibre reports it's supported
-        if (!(maplibre.default as unknown as { supported: () => boolean }).supported()) {
-          throw new Error("MapLibre not supported");
-        }
 
         if (mounted) {
           setMap(() => reactMapGl.default);
@@ -338,9 +313,6 @@ function LocationListView({
 export function HAMapWidget({ config, style, isBuilder }: HAMapWidgetProps) {
   const [mapFailed, setMapFailed] = useState(false);
 
-  // Check map support once on mount
-  const mapSupported = useMemo(() => checkMapSupport(), []);
-
   const showZones = (config.showZones as boolean) ?? true;
   const showDeviceNames = (config.showDeviceNames as boolean) ?? true;
   const darkMode = (config.darkMode as boolean) ?? true;
@@ -460,8 +432,8 @@ export function HAMapWidget({ config, style, isBuilder }: HAMapWidgetProps) {
     );
   }
 
-  // Show list view if map is not supported or failed to load
-  if (!mapSupported || mapFailed) {
+  // Show list view if map failed to load at runtime
+  if (mapFailed) {
     return <LocationListView locations={locations} style={style} showReason />;
   }
 
