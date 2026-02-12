@@ -197,6 +197,12 @@ pnpm lint
 - **Build:** Turborepo, pnpm
 - **Deploy:** Docker Compose
 
+## Support
+
+If you enjoy OpenFrame, consider buying me a beer!
+
+[![Buy Me a Beer](https://img.shields.io/badge/Buy%20Me%20a%20Beer-%F0%9F%8D%BA-yellow?style=for-the-badge)](https://buymeacoffee.com/pfro7xl)
+
 ## License
 
 MIT
