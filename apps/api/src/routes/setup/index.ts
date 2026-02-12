@@ -90,16 +90,37 @@ export const setupRoutes: FastifyPluginAsync = async (fastify) => {
       // Hash password
       const passwordHash = await bcrypt.hash(password, 12);
 
-      // Create admin user
-      const [user] = await fastify.db
-        .insert(users)
-        .values({
-          email,
-          name,
-          passwordHash,
-          role: "admin",
-        })
-        .returning();
+      // Check if a user with this email already exists (e.g. from OAuth)
+      const [existingUser] = await fastify.db
+        .select()
+        .from(users)
+        .where(eq(users.email, email))
+        .limit(1);
+
+      let user;
+      if (existingUser) {
+        // Upgrade existing user to admin and set password
+        [user] = await fastify.db
+          .update(users)
+          .set({
+            passwordHash,
+            role: "admin",
+            name: name || existingUser.name,
+          })
+          .where(eq(users.id, existingUser.id))
+          .returning();
+      } else {
+        // Create new admin user
+        [user] = await fastify.db
+          .insert(users)
+          .values({
+            email,
+            name,
+            passwordHash,
+            role: "admin",
+          })
+          .returning();
+      }
 
       // Create session tokens (log user in immediately)
       const accessToken = fastify.jwt.sign({ userId: user!.id });
