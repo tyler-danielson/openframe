@@ -21,6 +21,7 @@ import { CamerasPage } from "./CamerasPage";
 import { HomeAssistantPage } from "./HomeAssistantPage";
 import { MapPage } from "./MapPage";
 import { RecipesPage } from "./RecipesPage";
+import { ScreensaverDisplayPage } from "./ScreensaverDisplayPage";
 
 // Feature to route mapping
 const FEATURE_ROUTES: Record<string, { path: string; element: JSX.Element }> = {
@@ -34,6 +35,7 @@ const FEATURE_ROUTES: Record<string, { path: string; element: JSX.Element }> = {
   homeassistant: { path: "homeassistant/*", element: <HomeAssistantPage /> },
   map: { path: "map", element: <MapPage /> },
   recipes: { path: "recipes/*", element: <RecipesPage /> },
+  screensaver: { path: "screensaver", element: <ScreensaverDisplayPage /> },
 };
 
 // Format time ago for display
@@ -154,8 +156,26 @@ function KioskApp() {
     return homePage || "calendar";
   }, [homePage, enabledFeatures, enabledRoutes]);
 
+  // Clear the refresh flag once auth is ready
+  useEffect(() => {
+    if (isAuthReady) {
+      sessionStorage.removeItem("openframe_kiosk_refreshing");
+      // Remove the injected overlay if it's still in the DOM
+      document.getElementById("kiosk-refresh-overlay")?.remove();
+    }
+  }, [isAuthReady]);
+
   if (!isAuthReady) {
-    return null; // Still loading auth
+    return (
+      <div className="fixed inset-0 z-[9999] bg-background flex items-center justify-center flex-col gap-4">
+        <RefreshCw className="h-10 w-10 text-primary animate-spin" />
+        <div className="text-lg text-muted-foreground">
+          {sessionStorage.getItem("openframe_kiosk_refreshing")
+            ? "Refreshing kiosk..."
+            : "Loading kiosk..."}
+        </div>
+      </div>
+    );
   }
 
   // Fullscreen prompt overlay (defined early so all modes can use it)
@@ -273,6 +293,18 @@ function KioskCommandPoller({ token }: { token: string }) {
       switch (cmd.type) {
         case "refresh":
           console.log("[Kiosk] Refresh command received, reloading page...");
+          sessionStorage.setItem("openframe_kiosk_refreshing", "1");
+          // Inject loading overlay so it's visible during the unload/reload gap
+          const overlay = document.createElement("div");
+          overlay.id = "kiosk-refresh-overlay";
+          overlay.style.cssText =
+            "position:fixed;inset:0;z-index:9999;background:var(--background, #000);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1rem;";
+          overlay.innerHTML = `
+            <div style="width:2.5rem;height:2.5rem;border:3px solid var(--muted-foreground, #888);border-top-color:var(--primary, #fff);border-radius:50%;animation:kiosk-spin 1s linear infinite;"></div>
+            <div style="color:var(--foreground, #fff);font-size:1.125rem;">Refreshing kiosk...</div>
+            <style>@keyframes kiosk-spin{to{transform:rotate(360deg)}}</style>
+          `;
+          document.body.appendChild(overlay);
           window.location.reload();
           break;
 

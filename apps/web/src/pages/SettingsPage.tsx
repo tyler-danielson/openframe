@@ -1200,6 +1200,7 @@ const HOME_PAGE_OPTIONS = [
   { value: "homeassistant", label: "Home Assistant" },
   { value: "map", label: "Map" },
   { value: "recipes", label: "Recipes" },
+  { value: "screensaver", label: "Screensaver" },
 ];
 
 // Feature options
@@ -1214,6 +1215,7 @@ const FEATURE_OPTIONS: { key: keyof KioskEnabledFeatures; label: string; icon: R
   { key: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" /> },
   { key: "map", label: "Map", icon: <MapPin className="h-4 w-4" /> },
   { key: "recipes", label: "Recipes", icon: <Settings className="h-4 w-4" /> },
+  { key: "screensaver", label: "Screensaver", icon: <Monitor className="h-4 w-4" /> },
 ];
 
 function KiosksSettings() {
@@ -1225,10 +1227,26 @@ function KiosksSettings() {
   const [formColorScheme, setFormColorScheme] = useState<ColorScheme>("default");
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [showQrKiosk, setShowQrKiosk] = useState<{ token: string; name: string } | null>(null);
+  const [deviceKioskMap, setDeviceKioskMap] = useState<Record<string, string>>({});
 
   const { data: kiosks = [], isLoading } = useQuery({
     queryKey: ["kiosks"],
     queryFn: () => api.getKiosks(),
+  });
+
+  // Pending TV devices (remote push setup)
+  const { data: pendingDevices = [] } = useQuery({
+    queryKey: ["pending-tv-devices"],
+    queryFn: () => api.getPendingTvDevices(),
+    refetchInterval: 5000,
+  });
+
+  const assignTvDevice = useMutation({
+    mutationFn: ({ registrationId, kioskId }: { registrationId: string; kioskId: string }) =>
+      api.assignTvDevice(registrationId, kioskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pending-tv-devices"] });
+    },
   });
 
   // Fetch calendars for calendar selection
@@ -1309,6 +1327,84 @@ function KiosksSettings() {
 
   return (
     <div className="space-y-6">
+      {/* Pending TV Devices (Remote Push Setup) */}
+      {pendingDevices.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Tv className="h-5 w-5 text-primary" />
+              <div>
+                <CardTitle>Pending Devices</CardTitle>
+                <CardDescription>
+                  TVs waiting for a kiosk assignment via remote setup
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {pendingDevices.map((device) => {
+              const timeLeft = Math.max(0, Math.floor((device.expiresAt - Date.now()) / 1000));
+              const minutes = Math.floor(timeLeft / 60);
+              const seconds = timeLeft % 60;
+              return (
+                <div
+                  key={device.registrationId}
+                  className="flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3"
+                >
+                  <Monitor className="h-5 w-5 text-primary flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium">{device.ipAddress}</div>
+                    <div className="text-xs text-muted-foreground truncate">{device.userAgent}</div>
+                  </div>
+                  <div className="text-xs text-muted-foreground whitespace-nowrap">
+                    {minutes}:{seconds.toString().padStart(2, "0")} left
+                  </div>
+                  <select
+                    className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+                    value={deviceKioskMap[device.registrationId] || ""}
+                    onChange={(e) =>
+                      setDeviceKioskMap((prev) => ({
+                        ...prev,
+                        [device.registrationId]: e.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Select kiosk...</option>
+                    {kiosks.map((k) => (
+                      <option key={k.id} value={k.id}>
+                        {k.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    size="sm"
+                    disabled={
+                      !deviceKioskMap[device.registrationId] ||
+                      assignTvDevice.isPending
+                    }
+                    onClick={() => {
+                      const kioskId = deviceKioskMap[device.registrationId];
+                      if (kioskId) {
+                        assignTvDevice.mutate({
+                          registrationId: device.registrationId,
+                          kioskId,
+                        });
+                      }
+                    }}
+                  >
+                    {assignTvDevice.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      "Assign"
+                    )}
+                  </Button>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">

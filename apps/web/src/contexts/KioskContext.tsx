@@ -35,6 +35,7 @@ const DEFAULT_ENABLED_FEATURES: KioskEnabledFeatures = {
   homeassistant: true,
   map: true,
   recipes: true,
+  screensaver: true,
 };
 
 const KioskContext = createContext<KioskContextValue>({

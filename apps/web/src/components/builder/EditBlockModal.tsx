@@ -27,6 +27,7 @@ import {
   Shapes,
   Maximize,
   Newspaper,
+  Tv,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { type FontSizePreset } from "../../stores/screensaver";
@@ -631,6 +632,86 @@ function CountdownConfigFields({
   );
 }
 
+function IptvConfigFields({
+  config,
+  handleConfigChange,
+}: {
+  config: Record<string, unknown>;
+  handleConfigChange: (key: string, value: unknown) => void;
+}) {
+  const { data: favorites = [] } = useQuery({
+    queryKey: ["iptv-favorites"],
+    queryFn: () => api.getIptvFavorites(),
+    staleTime: 60_000,
+  });
+
+  const { data: channels = [] } = useQuery({
+    queryKey: ["iptv-channels-all"],
+    queryFn: () => api.getIptvChannels(),
+    staleTime: 60_000,
+  });
+
+  const currentChannelId = config.channelId as string ?? "";
+  const favoriteIds = new Set(favorites.map((f) => f.id));
+  const nonFavoriteChannels = channels.filter((ch) => !favoriteIds.has(ch.id));
+
+  return (
+    <>
+      <label className="block">
+        <span className="text-sm">Channel</span>
+        <select
+          value={currentChannelId}
+          onChange={(e) => handleConfigChange("channelId", e.target.value)}
+          className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+        >
+          <option value="">Select a channel...</option>
+          {favorites.length > 0 && (
+            <optgroup label="Favorites">
+              {favorites.map((ch) => (
+                <option key={ch.id} value={ch.id}>{ch.name}</option>
+              ))}
+            </optgroup>
+          )}
+          {nonFavoriteChannels.length > 0 && (
+            <optgroup label="All Channels">
+              {nonFavoriteChannels.map((ch) => (
+                <option key={ch.id} value={ch.id}>{ch.name}</option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      </label>
+      <label className="flex items-center justify-between">
+        <span className="text-sm">Show Controls</span>
+        <input
+          type="checkbox"
+          checked={config.showControls as boolean ?? true}
+          onChange={(e) => handleConfigChange("showControls", e.target.checked)}
+          className="rounded"
+        />
+      </label>
+      <label className="flex items-center justify-between">
+        <span className="text-sm">Auto Play</span>
+        <input
+          type="checkbox"
+          checked={config.autoPlay as boolean ?? true}
+          onChange={(e) => handleConfigChange("autoPlay", e.target.checked)}
+          className="rounded"
+        />
+      </label>
+      <label className="flex items-center justify-between">
+        <span className="text-sm">Muted</span>
+        <input
+          type="checkbox"
+          checked={config.muted as boolean ?? true}
+          onChange={(e) => handleConfigChange("muted", e.target.checked)}
+          className="rounded"
+        />
+      </label>
+    </>
+  );
+}
+
 export function EditBlockModal({ isOpen, onClose, widgetId }: EditBlockModalProps) {
   const { layoutConfig, updateBuilderWidget } = useBuilder();
   const [activeTab, setActiveTab] = useState<TabId>("setup");
@@ -859,6 +940,9 @@ export function EditBlockModal({ isOpen, onClose, widgetId }: EditBlockModalProp
             </label>
           </>
         );
+
+      case "iptv":
+        return <IptvConfigFields config={config} handleConfigChange={handleConfigChange} />;
 
       case "ha-entity":
       case "ha-gauge":

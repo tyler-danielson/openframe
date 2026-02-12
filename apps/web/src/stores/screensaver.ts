@@ -32,7 +32,8 @@ export type BuilderWidgetType =
   | "photo-album"
   | "fullscreen-toggle"
   | "day-schedule"
-  | "news";
+  | "news"
+  | "iptv";
 
 export type FontSizePreset = "xs" | "sm" | "md" | "lg" | "xl" | "custom";
 

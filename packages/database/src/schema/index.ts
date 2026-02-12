@@ -423,6 +423,7 @@ export interface KioskEnabledFeatures {
   homeassistant?: boolean;
   map?: boolean;
   recipes?: boolean;
+  screensaver?: boolean;
 }
 
 // Kiosk configuration

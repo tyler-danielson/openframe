@@ -19,6 +19,7 @@ import { PhotoAlbumWidget } from "./PhotoAlbumWidget";
 import { FullscreenToggleWidget } from "./FullscreenToggleWidget";
 import { DayScheduleWidget } from "./DayScheduleWidget";
 import { NewsWidget } from "./NewsWidget";
+import { IptvWidget } from "./IptvWidget";
 
 interface WidgetRendererProps {
   widget: WidgetInstance;
@@ -73,6 +74,8 @@ export function WidgetRenderer({ widget, isBuilder = false }: WidgetRendererProp
       return <DayScheduleWidget {...commonProps} />;
     case "news":
       return <NewsWidget {...commonProps} />;
+    case "iptv":
+      return <IptvWidget {...commonProps} />;
     default:
       return (
         <div className="flex h-full items-center justify-center bg-black/40 text-white/50 p-4">

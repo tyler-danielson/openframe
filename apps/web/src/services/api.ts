@@ -247,6 +247,40 @@ class ApiClient {
     await this.fetch(`/auth/api-keys/${id}`, { method: "DELETE" });
   }
 
+  // Device Code (QR Login)
+  async verifyDeviceCode(code: string): Promise<{ userCode: string; expiresIn: number }> {
+    return this.fetch<{ userCode: string; expiresIn: number }>(
+      `/auth/device-code/verify?code=${encodeURIComponent(code)}`
+    );
+  }
+
+  async approveDeviceCode(userCode: string, kioskName?: string): Promise<{ kioskToken: string; kioskName: string }> {
+    return this.fetch<{ kioskToken: string; kioskName: string }>("/auth/device-code/approve", {
+      method: "POST",
+      body: JSON.stringify({ userCode, kioskName }),
+    });
+  }
+
+  // TV Connect (Remote Push Setup)
+  async getPendingTvDevices(): Promise<
+    Array<{
+      registrationId: string;
+      ipAddress: string;
+      userAgent: string;
+      createdAt: number;
+      expiresAt: number;
+    }>
+  > {
+    return this.fetch("/auth/tv-connect/pending");
+  }
+
+  async assignTvDevice(registrationId: string, kioskId: string): Promise<void> {
+    await this.fetch("/auth/tv-connect/assign", {
+      method: "POST",
+      body: JSON.stringify({ registrationId, kioskId }),
+    });
+  }
+
   // Server Config
   async getServerConfig(): Promise<{ frontendUrl: string }> {
     return this.fetch<{ frontendUrl: string }>("/auth/config");
@@ -2708,6 +2742,7 @@ export interface KioskEnabledFeatures {
   homeassistant?: boolean;
   map?: boolean;
   recipes?: boolean;
+  screensaver?: boolean;
 }
 
 export interface Kiosk {

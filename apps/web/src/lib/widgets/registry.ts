@@ -310,6 +310,21 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       autoFitBounds: true,
     },
   },
+  iptv: {
+    name: "Live TV",
+    icon: "Tv",
+    category: "media",
+    defaultSize: { width: 6, height: 4 },
+    minSize: { width: 3, height: 2 },
+    maxSize: { width: 99, height: 99 },
+    defaultConfig: {
+      channelId: "",
+      serverId: "",
+      showControls: true,
+      autoPlay: true,
+      muted: true,
+    },
+  },
 };
 
 export const WIDGET_CATEGORIES = [

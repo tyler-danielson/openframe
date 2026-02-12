@@ -255,9 +255,10 @@ const calculateDimOpacity = (
 
 interface ScreensaverProps {
   alwaysActive?: boolean;
+  inline?: boolean;
 }
 
-export function Screensaver({ alwaysActive = false }: ScreensaverProps) {
+export function Screensaver({ alwaysActive = false, inline = false }: ScreensaverProps) {
   const {
     isActive: storeIsActive,
     slideInterval,
@@ -276,8 +277,8 @@ export function Screensaver({ alwaysActive = false }: ScreensaverProps) {
     layoutConfig,
   } = useScreensaverStore();
 
-  // If alwaysActive is true, the screensaver is always shown and cannot be dismissed
-  const isActive = alwaysActive || storeIsActive;
+  // If alwaysActive or inline is true, the screensaver is always shown and cannot be dismissed
+  const isActive = alwaysActive || inline || storeIsActive;
 
   const kioskEnabled = useAuthStore((state) => state.kioskEnabled);
 
@@ -443,15 +444,15 @@ export function Screensaver({ alwaysActive = false }: ScreensaverProps) {
   const handleInteraction = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    if (!alwaysActive) {
+    if (!alwaysActive && !inline) {
       updateActivity();
     }
-  }, [updateActivity, alwaysActive]);
+  }, [updateActivity, alwaysActive, inline]);
 
   // Listen for any interaction to exit screensaver
   useEffect(() => {
-    // Don't set up dismissal listeners if alwaysActive is true
-    if (!isActive || alwaysActive) return;
+    // Don't set up dismissal listeners if alwaysActive or inline is true
+    if (!isActive || alwaysActive || inline) return;
 
     // Simple handler that just updates activity - no preventDefault needed
     const onInteraction = () => {
@@ -471,11 +472,13 @@ export function Screensaver({ alwaysActive = false }: ScreensaverProps) {
         window.removeEventListener(event, onInteraction);
       });
     };
-  }, [isActive, updateActivity, kioskEnabled, alwaysActive]);
+  }, [isActive, updateActivity, kioskEnabled, alwaysActive, inline]);
 
   // Enter fullscreen when screensaver activates, exit when it deactivates
   // In kiosk mode, don't auto-enter fullscreen - only use fullscreen if already in it
+  // In inline mode, don't toggle fullscreen at all
   useEffect(() => {
+    if (inline) return;
     if (isActive) {
       // Request fullscreen when screensaver becomes active (skip in kiosk mode)
       if (!kioskEnabled && document.documentElement.requestFullscreen && !document.fullscreenElement) {
@@ -493,7 +496,7 @@ export function Screensaver({ alwaysActive = false }: ScreensaverProps) {
         });
       }
     }
-  }, [isActive, kioskEnabled]);
+  }, [isActive, kioskEnabled, inline]);
 
   // Update clock every second
   useEffect(() => {
@@ -1126,16 +1129,20 @@ export function Screensaver({ alwaysActive = false }: ScreensaverProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] bg-black cursor-none overflow-hidden"
-      onClick={handleInteraction}
-      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
-      onTouchStart={(e) => { e.stopPropagation(); }}
-      onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+      className={inline ? "absolute inset-0 bg-black overflow-hidden" : "fixed inset-0 z-[9999] bg-black cursor-none overflow-hidden"}
+      {...(!inline ? {
+        onClick: handleInteraction,
+        onMouseDown: (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); },
+        onTouchStart: (e: React.TouchEvent) => { e.stopPropagation(); },
+        onPointerDown: (e: React.PointerEvent) => { e.stopPropagation(); e.preventDefault(); },
+      } : {})}
     >
-      {/* Sports Ticker at top */}
-      <div className="absolute top-0 left-0 right-0 z-10">
-        <SportsTicker variant="dark" />
-      </div>
+      {/* Sports Ticker at top (hidden when inline) */}
+      {!inline && (
+        <div className="absolute top-0 left-0 right-0 z-10">
+          <SportsTicker variant="dark" />
+        </div>
+      )}
 
       {layout === "builder" ? (
         // Builder layout - renders widgets from layoutConfig
@@ -1297,8 +1304,8 @@ export function Screensaver({ alwaysActive = false }: ScreensaverProps) {
         );
       })()}
 
-      {/* Tap to exit hint (hidden when alwaysActive) */}
-      {!alwaysActive && (
+      {/* Tap to exit hint (hidden when alwaysActive or inline) */}
+      {!alwaysActive && !inline && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/30 text-sm">
           Tap anywhere to exit
         </div>

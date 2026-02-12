@@ -182,6 +182,7 @@ export function Layout({ kioskEnabledFeatures }: LayoutProps = {}) {
       { to: buildPath("homeassistant"), icon: Home, label: "Home Assistant", feature: "homeassistant" as const },
       { to: buildPath("map"), icon: MapPin, label: "Map", feature: "map" as const },
       { to: buildPath("recipes"), icon: ChefHat, label: "Recipes", feature: "recipes" as const },
+      { to: buildPath("screensaver"), icon: Monitor, label: "Screensaver", feature: "screensaver" as const },
     ];
 
     // Filter items based on enabled features (only if kioskEnabledFeatures is provided)
