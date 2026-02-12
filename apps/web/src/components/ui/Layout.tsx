@@ -26,7 +26,7 @@ import {
   ChefHat,
   Users,
 } from "lucide-react";
-import { api, type KioskEnabledFeatures } from "../../services/api";
+import { api, type KioskEnabledFeatures, type KioskDisplayType } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
 import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import { useScreensaverStore } from "../../stores/screensaver";
@@ -34,6 +34,7 @@ import { cn } from "../../lib/utils";
 
 interface LayoutProps {
   kioskEnabledFeatures?: KioskEnabledFeatures | null;
+  kioskDisplayType?: KioskDisplayType | null;
 }
 
 // Media sub-items (base paths, will be prefixed in component)
@@ -42,7 +43,7 @@ const mediaItemsBase = [
   { path: "iptv", icon: Tv, label: "Live TV" },
 ];
 
-export function Layout({ kioskEnabledFeatures }: LayoutProps = {}) {
+export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -218,9 +219,15 @@ export function Layout({ kioskEnabledFeatures }: LayoutProps = {}) {
     });
   }, [mediaItems, kioskEnabledFeatures, isFeatureEnabled]);
 
+  // Display-only mode: hide sidebar entirely
+  const hideNav = kioskDisplayType === "display";
+  // TV mode: larger nav items with focus rings for D-pad navigation
+  const isTvMode = kioskDisplayType === "tv";
+
   return (
     <div className="flex h-screen bg-background">
       {/* Mobile Menu Button */}
+      {!hideNav && (
       <button
         onClick={() => setIsMobileSidebarOpen(true)}
         className="lg:hidden fixed top-4 left-4 z-40 p-3 rounded-lg bg-card border border-border min-h-[44px] min-w-[44px] flex items-center justify-center"
@@ -228,9 +235,10 @@ export function Layout({ kioskEnabledFeatures }: LayoutProps = {}) {
       >
         <Menu className="h-5 w-5 text-foreground" />
       </button>
+      )}
 
       {/* Mobile Sidebar Overlay */}
-      {isMobileSidebarOpen && (
+      {!hideNav && isMobileSidebarOpen && (
         <div
           className="lg:hidden fixed inset-0 z-40 bg-black/50"
           onClick={() => setIsMobileSidebarOpen(false)}
@@ -238,7 +246,7 @@ export function Layout({ kioskEnabledFeatures }: LayoutProps = {}) {
       )}
 
       {/* Sidebar */}
-      <aside
+      {!hideNav && <aside
         className={cn(
           "fixed lg:relative z-50 lg:z-auto h-full flex w-16 flex-col items-center border-r border-border bg-card py-4 transform transition-transform lg:transform-none",
           isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
@@ -253,16 +261,18 @@ export function Layout({ kioskEnabledFeatures }: LayoutProps = {}) {
           <X className="h-5 w-5 text-foreground" />
         </button>
 
-        <nav className="flex flex-1 flex-col items-center gap-2">
+        <nav className={cn("flex flex-1 flex-col items-center", isTvMode ? "gap-3" : "gap-2")}>
           {/* First 4 nav items (before media) */}
           {navItems.filter(item => ["Calendar", "Tasks", "Dashboard", "Photos"].includes(item.label)).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
+              tabIndex={isTvMode ? 0 : undefined}
               onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); }}
               className={({ isActive }) =>
                 cn(
-                  "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+                  "flex items-center justify-center rounded-lg transition-colors",
+                  isTvMode ? "h-12 w-12 focus:outline-none focus:ring-2 focus:ring-primary/50" : "h-10 w-10",
                   isActive
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -270,7 +280,7 @@ export function Layout({ kioskEnabledFeatures }: LayoutProps = {}) {
               }
               title={item.label}
             >
-              <item.icon className="h-5 w-5" />
+              <item.icon className={isTvMode ? "h-6 w-6" : "h-5 w-5"} />
             </NavLink>
           ))}
 
@@ -278,15 +288,17 @@ export function Layout({ kioskEnabledFeatures }: LayoutProps = {}) {
           {showMedia && (
             <button
               onClick={() => setIsMediaMenuOpen(!isMediaMenuOpen)}
+              tabIndex={isTvMode ? 0 : undefined}
               className={cn(
-                "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+                "flex items-center justify-center rounded-lg transition-colors",
+                isTvMode ? "h-12 w-12 focus:outline-none focus:ring-2 focus:ring-primary/50" : "h-10 w-10",
                 isMediaRoute || isMediaMenuOpen
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               )}
               title="Media"
             >
-              <Play className="h-5 w-5" />
+              <Play className={isTvMode ? "h-6 w-6" : "h-5 w-5"} />
             </button>
           )}
 
@@ -295,10 +307,12 @@ export function Layout({ kioskEnabledFeatures }: LayoutProps = {}) {
             <NavLink
               key={item.to}
               to={item.to}
+              tabIndex={isTvMode ? 0 : undefined}
               onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); }}
               className={({ isActive }) =>
                 cn(
-                  "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+                  "flex items-center justify-center rounded-lg transition-colors",
+                  isTvMode ? "h-12 w-12 focus:outline-none focus:ring-2 focus:ring-primary/50" : "h-10 w-10",
                   isActive
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -306,7 +320,7 @@ export function Layout({ kioskEnabledFeatures }: LayoutProps = {}) {
               }
               title={item.label}
             >
-              <item.icon className="h-5 w-5" />
+              <item.icon className={isTvMode ? "h-6 w-6" : "h-5 w-5"} />
             </NavLink>
           ))}
         </nav>
@@ -371,10 +385,10 @@ export function Layout({ kioskEnabledFeatures }: LayoutProps = {}) {
             )
           )}
         </div>
-      </aside>
+      </aside>}
 
       {/* Media Submenu - appears to the right of sidebar */}
-      {isMediaMenuOpen && showMedia && (
+      {!hideNav && isMediaMenuOpen && showMedia && (
         <aside className="fixed lg:relative z-40 lg:z-auto h-full flex w-16 flex-col items-center border-r border-border bg-card/95 backdrop-blur-sm py-4 left-16 lg:left-auto">
           <div className="flex flex-col items-center gap-2 mt-[72px]">
             {filteredMediaItems.map((item) => (

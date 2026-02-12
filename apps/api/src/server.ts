@@ -4,6 +4,13 @@ import { loadConfig } from "./config.js";
 
 async function main() {
   const config = loadConfig();
+
+  // Ensure auto-generated secrets are available via process.env
+  // (settings/setup routes read ENCRYPTION_KEY from process.env for encrypt/decrypt)
+  if (!process.env.ENCRYPTION_KEY && config.encryptionKey) {
+    process.env.ENCRYPTION_KEY = config.encryptionKey;
+  }
+
   const app = await buildApp(config);
 
   try {

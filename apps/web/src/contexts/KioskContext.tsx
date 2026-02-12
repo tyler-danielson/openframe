@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type KioskConfig, type KioskDisplayMode, type KioskEnabledFeatures } from "../services/api";
+import { api, type KioskConfig, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures } from "../services/api";
 import { useScreensaverStore, type ScreensaverLayoutConfig, DEFAULT_LAYOUT_CONFIG } from "../stores/screensaver";
 import { useAuthStore } from "../stores/auth";
 import { useConnectionHealth, type ConnectionStatus } from "../hooks/useConnectionHealth";
@@ -10,6 +10,7 @@ interface KioskContextValue {
   token: string | null;
   config: KioskConfig | null;
   displayMode: KioskDisplayMode;
+  displayType: KioskDisplayType;
   homePage: string;
   selectedCalendarIds: string[] | null;
   enabledFeatures: KioskEnabledFeatures;
@@ -42,6 +43,7 @@ const KioskContext = createContext<KioskContextValue>({
   token: null,
   config: null,
   displayMode: "full",
+  displayType: "touch",
   homePage: "calendar",
   selectedCalendarIds: null,
   enabledFeatures: DEFAULT_ENABLED_FEATURES,
@@ -154,6 +156,7 @@ export function KioskProvider({ token, children }: KioskProviderProps) {
 
   // Derive display settings from config
   const displayMode = config?.displayMode ?? "full";
+  const displayType = config?.displayType ?? "touch";
   const homePage = config?.homePage ?? "calendar";
   const selectedCalendarIds = config?.selectedCalendarIds ?? null;
   const enabledFeatures = config?.enabledFeatures ?? DEFAULT_ENABLED_FEATURES;
@@ -165,6 +168,7 @@ export function KioskProvider({ token, children }: KioskProviderProps) {
         token,
         config: config ?? null,
         displayMode,
+        displayType,
         homePage,
         selectedCalendarIds,
         enabledFeatures,

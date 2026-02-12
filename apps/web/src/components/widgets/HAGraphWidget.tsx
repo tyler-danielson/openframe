@@ -1,3 +1,5 @@
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../../services/api";
 import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
@@ -30,8 +32,20 @@ export function HAGraphWidget({ config, style, isBuilder }: HAGraphWidgetProps) 
   const showGrid = config.showGrid as boolean ?? true;
   const lineColor = config.lineColor as string ?? "#3B82F6";
 
-  const { getEntityState, connected } = useHAWebSocket();
-  const entity = entityId ? getEntityState(entityId) : undefined;
+  const { getEntityState, connected, connecting, error: wsError } = useHAWebSocket();
+  const wsEntity = entityId ? getEntityState(entityId) : undefined;
+
+  // REST fallback when WebSocket is unavailable
+  const useRestFallback = !isBuilder && entityId && (!!wsError || (!connected && !connecting));
+  const { data: restEntity } = useQuery({
+    queryKey: ["ha-entity-rest", entityId],
+    queryFn: () => api.getHomeAssistantState(entityId),
+    enabled: !!useRestFallback,
+    staleTime: 30 * 1000,
+    refetchInterval: 30 * 1000,
+  });
+
+  const entity = connected && wsEntity ? wsEntity : restEntity;
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
   const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset as Exclude<FontSizePreset, "custom">];
@@ -84,17 +98,6 @@ export function HAGraphWidget({ config, style, isBuilder }: HAGraphWidgetProps) 
         style={{ color: style?.textColor || "#ffffff" }}
       >
         <span className="text-sm opacity-50">No entity configured</span>
-      </div>
-    );
-  }
-
-  if (!connected && !isBuilder) {
-    return (
-      <div
-        className="flex h-full items-center justify-center p-4 rounded-lg bg-black/40 backdrop-blur-sm"
-        style={{ color: style?.textColor || "#ffffff" }}
-      >
-        <span className="text-sm opacity-50">HA not connected</span>
       </div>
     );
   }

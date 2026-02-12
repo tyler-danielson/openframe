@@ -1,17 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import { SetupScreen } from "@/components/SetupScreen";
+import { QRLoginScreen } from "@/components/QRLoginScreen";
+import { RemotePushScreen } from "@/components/RemotePushScreen";
 import { KioskFrame } from "@/components/KioskFrame";
 import { RemoteHandler } from "@/components/RemoteHandler";
 import { storage, type KioskConfig } from "@/services/storage";
 import { disableScreenSaver, isTizenTV } from "@/hooks/useTizenKeys";
 import "@/styles/tv.css";
 
-type AppState = "loading" | "setup" | "kiosk";
+type AppState = "loading" | "setup" | "qr-login" | "remote-push" | "kiosk";
 
 export function App() {
   const [appState, setAppState] = useState<AppState>("loading");
   const [config, setConfig] = useState<KioskConfig | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [qrServerUrl, setQrServerUrl] = useState("");
 
   // Initialize app
   useEffect(() => {
@@ -35,6 +38,16 @@ export function App() {
     setAppState("kiosk");
   }, []);
 
+  const handleQRLogin = useCallback((serverUrl: string) => {
+    setQrServerUrl(serverUrl);
+    setAppState("qr-login");
+  }, []);
+
+  const handleRemotePush = useCallback((serverUrl: string) => {
+    setQrServerUrl(serverUrl);
+    setAppState("remote-push");
+  }, []);
+
   const handleBack = useCallback(() => {
     setAppState("setup");
     setShowSettings(false);
@@ -56,7 +69,29 @@ export function App() {
 
   // Setup state
   if (appState === "setup") {
-    return <SetupScreen onConnect={handleConnect} initialConfig={config} />;
+    return <SetupScreen onConnect={handleConnect} onQRLogin={handleQRLogin} onRemotePush={handleRemotePush} initialConfig={config} />;
+  }
+
+  // QR Login state
+  if (appState === "qr-login") {
+    return (
+      <QRLoginScreen
+        serverUrl={qrServerUrl}
+        onConnect={handleConnect}
+        onBack={handleBack}
+      />
+    );
+  }
+
+  // Remote Push state
+  if (appState === "remote-push") {
+    return (
+      <RemotePushScreen
+        serverUrl={qrServerUrl}
+        onConnect={handleConnect}
+        onBack={handleBack}
+      />
+    );
   }
 
   // Kiosk state

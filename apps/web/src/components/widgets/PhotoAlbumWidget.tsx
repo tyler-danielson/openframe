@@ -117,7 +117,7 @@ export function PhotoAlbumWidget({ config, style, isBuilder }: PhotoAlbumWidgetP
 
   // Fetch HA camera snapshots
   useEffect(() => {
-    if (source !== "ha-camera" || !entityId || isBuilder || !haConnected) return;
+    if (source !== "ha-camera" || !entityId || isBuilder) return;
 
     const fetchSnapshot = async () => {
       try {
@@ -139,7 +139,7 @@ export function PhotoAlbumWidget({ config, style, isBuilder }: PhotoAlbumWidgetP
       clearInterval(timer);
       if (cameraUrl) URL.revokeObjectURL(cameraUrl);
     };
-  }, [source, entityId, interval, isBuilder, haConnected]);
+  }, [source, entityId, interval, isBuilder]);
 
   // Update photos array when data changes
   useEffect(() => {
@@ -308,17 +308,6 @@ export function PhotoAlbumWidget({ config, style, isBuilder }: PhotoAlbumWidgetP
 
   // HA Camera mode
   if (source === "ha-camera") {
-    if (!haConnected) {
-      return (
-        <div
-          className="flex h-full items-center justify-center p-4 rounded-lg bg-black/40 backdrop-blur-sm"
-          style={{ color: style?.textColor || "#ffffff" }}
-        >
-          <span className="text-sm opacity-50">HA not connected</span>
-        </div>
-      );
-    }
-
     if (!cameraUrl) {
       return (
         <div

@@ -6,6 +6,7 @@ import {
   apiKeys,
   oauthTokens,
   kioskConfig,
+  kiosks,
 } from "@openframe/database/schema";
 import {
   refreshTokenSchema,
@@ -13,7 +14,9 @@ import {
 } from "@openframe/shared/validators";
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { nanoid } from "nanoid";
+import bcrypt from "bcryptjs";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { getCategorySettings } from "../settings/index.js";
 
 // In-memory OAuth state store (for single-server deployments)
 // States expire after 10 minutes
@@ -26,6 +29,40 @@ interface KioskCommand {
   timestamp: number;
 }
 const kioskCommands = new Map<string, KioskCommand[]>();
+
+// In-memory device code store (for QR code login flow)
+interface DeviceCodeEntry {
+  deviceCode: string;
+  userCode: string;
+  status: "pending" | "approved" | "expired" | "denied";
+  kioskToken?: string;
+  expiresAt: number;
+  createdAt: number;
+}
+const deviceCodeStore = new Map<string, DeviceCodeEntry>();
+const userCodeIndex = new Map<string, string>(); // userCode → deviceCode
+
+// In-memory TV Connect store (for remote push setup flow)
+interface TvConnectEntry {
+  registrationId: string;
+  status: "pending" | "assigned" | "expired";
+  kioskToken?: string;
+  ipAddress: string;
+  userAgent: string;
+  createdAt: number;
+  expiresAt: number;
+}
+const tvConnectStore = new Map<string, TvConnectEntry>();
+
+// Unambiguous characters for user codes (no 0/O, 1/I/L, B/8, 5/S)
+const UNAMBIGUOUS_CHARS = "ACDEFGHJKMNPQRTUVWXY2346789";
+function generateUserCode(): string {
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += UNAMBIGUOUS_CHARS[Math.floor(Math.random() * UNAMBIGUOUS_CHARS.length)];
+  }
+  return code;
+}
 
 // Clean up expired states every 5 minutes
 setInterval(() => {
@@ -44,9 +81,106 @@ setInterval(() => {
       kioskCommands.set(userId, validCommands);
     }
   }
-}, 5 * 60 * 1000);
+  // Clean up expired device codes
+  for (const [deviceCode, entry] of deviceCodeStore.entries()) {
+    if (now > entry.expiresAt) {
+      userCodeIndex.delete(entry.userCode);
+      deviceCodeStore.delete(deviceCode);
+    }
+  }
+  // Clean up expired TV connect registrations
+  for (const [regId, entry] of tvConnectStore.entries()) {
+    if (now > entry.expiresAt) {
+      tvConnectStore.delete(regId);
+    }
+  }
+}, 2 * 60 * 1000);
+
+// Helper to get OAuth config from DB settings, falling back to env vars
+async function getOAuthConfig(db: any, provider: "google" | "microsoft") {
+  const settings = await getCategorySettings(db, provider);
+  if (provider === "google") {
+    return {
+      clientId: settings.client_id || process.env.GOOGLE_CLIENT_ID,
+      clientSecret: settings.client_secret || process.env.GOOGLE_CLIENT_SECRET,
+      redirectUri: process.env.GOOGLE_REDIRECT_URI,
+    };
+  }
+  return {
+    clientId: settings.client_id || process.env.MICROSOFT_CLIENT_ID,
+    clientSecret: settings.client_secret || process.env.MICROSOFT_CLIENT_SECRET,
+    tenantId: settings.tenant_id || process.env.MICROSOFT_TENANT_ID || "common",
+    redirectUri: process.env.MICROSOFT_REDIRECT_URI,
+  };
+}
 
 export const authRoutes: FastifyPluginAsync = async (fastify) => {
+  // Email/password login
+  fastify.post(
+    "/login",
+    {
+      schema: {
+        description: "Login with email and password",
+        tags: ["Auth"],
+        body: {
+          type: "object",
+          properties: {
+            email: { type: "string", format: "email" },
+            password: { type: "string" },
+          },
+          required: ["email", "password"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const { email, password } = request.body as {
+        email: string;
+        password: string;
+      };
+
+      // Find user by email
+      const [user] = await fastify.db
+        .select()
+        .from(users)
+        .where(eq(users.email, email))
+        .limit(1);
+
+      if (!user || !user.passwordHash) {
+        return reply.unauthorized("Invalid email or password");
+      }
+
+      // Verify password
+      const valid = await bcrypt.compare(password, user.passwordHash);
+      if (!valid) {
+        return reply.unauthorized("Invalid email or password");
+      }
+
+      // Create session tokens
+      const accessToken = fastify.jwt.sign({ userId: user.id });
+      const refreshToken = randomBytes(32).toString("base64url");
+      const tokenHash = createHash("sha256").update(refreshToken).digest("hex");
+      const familyId = randomUUID();
+
+      await fastify.db.insert(refreshTokens).values({
+        userId: user.id,
+        tokenHash,
+        familyId,
+        deviceInfo: request.headers["user-agent"],
+        ipAddress: request.ip,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+
+      return {
+        success: true,
+        data: {
+          accessToken,
+          refreshToken,
+          expiresIn: 900,
+        },
+      };
+    }
+  );
+
   // Refresh tokens
   fastify.post(
     "/refresh",
@@ -157,8 +291,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const clientId = process.env.GOOGLE_CLIENT_ID;
-      const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+      const googleConfig = await getOAuthConfig(fastify.db, "google");
+      const clientId = googleConfig.clientId;
+      const redirectUri = googleConfig.redirectUri;
 
       if (!clientId || !redirectUri) {
         return reply.badRequest("Google OAuth not configured");
@@ -249,7 +384,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("Missing OAuth code");
       }
 
-      // Exchange code for tokens
+      // Exchange code for tokens using DB config
+      const googleConfig = await getOAuthConfig(fastify.db, "google");
+
       const tokenResponse = await fetch(
         "https://oauth2.googleapis.com/token",
         {
@@ -257,9 +394,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
             code,
-            client_id: process.env.GOOGLE_CLIENT_ID!,
-            client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-            redirect_uri: process.env.GOOGLE_REDIRECT_URI!,
+            client_id: googleConfig.clientId!,
+            client_secret: googleConfig.clientSecret!,
+            redirect_uri: googleConfig.redirectUri!,
             grant_type: "authorization_code",
           }),
         }
@@ -390,8 +527,10 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (_request, reply) => {
-      const clientId = process.env.MICROSOFT_CLIENT_ID;
-      const redirectUri = process.env.MICROSOFT_REDIRECT_URI;
+      const msConfig = await getOAuthConfig(fastify.db, "microsoft");
+      const clientId = msConfig.clientId;
+      const redirectUri = msConfig.redirectUri;
+      const tenantId = (msConfig as any).tenantId || "common";
 
       if (!clientId || !redirectUri) {
         return reply.badRequest("Microsoft OAuth not configured");
@@ -408,7 +547,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       ];
 
       const url = new URL(
-        "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+        `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`
       );
       url.searchParams.set("client_id", clientId);
       url.searchParams.set("redirect_uri", redirectUri);
@@ -1110,6 +1249,585 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         success: true,
         data: { commands: newCommands },
       };
+    }
+  );
+
+  // ============================================================
+  // Device Code / QR Login Flow
+  // ============================================================
+
+  // Generate a new device code (called by TV)
+  fastify.post(
+    "/device-code",
+    {
+      schema: {
+        description: "Generate a device code for QR login flow",
+        tags: ["Auth", "Device Code"],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  deviceCode: { type: "string" },
+                  userCode: { type: "string" },
+                  verificationUrl: { type: "string" },
+                  expiresIn: { type: "number" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const deviceCode = randomUUID();
+      let userCode = generateUserCode();
+
+      // Ensure user code is unique
+      while (userCodeIndex.has(userCode)) {
+        userCode = generateUserCode();
+      }
+
+      const expiresIn = 600; // 10 minutes
+      const entry: DeviceCodeEntry = {
+        deviceCode,
+        userCode,
+        status: "pending",
+        expiresAt: Date.now() + expiresIn * 1000,
+        createdAt: Date.now(),
+      };
+
+      deviceCodeStore.set(deviceCode, entry);
+      userCodeIndex.set(userCode, deviceCode);
+
+      // Build verification URL from request origin or FRONTEND_URL
+      const frontendUrl =
+        process.env.FRONTEND_URL ||
+        `${request.protocol}://${request.hostname}`;
+      const verificationUrl = `${frontendUrl}/device-login?code=${userCode}`;
+
+      return {
+        success: true,
+        data: {
+          deviceCode,
+          userCode,
+          verificationUrl,
+          expiresIn,
+        },
+      };
+    }
+  );
+
+  // Poll for device code approval (called by TV)
+  fastify.post(
+    "/device-code/poll",
+    {
+      schema: {
+        description: "Poll for device code approval status",
+        tags: ["Auth", "Device Code"],
+        body: {
+          type: "object",
+          properties: {
+            deviceCode: { type: "string" },
+          },
+          required: ["deviceCode"],
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  status: { type: "string" },
+                  kioskToken: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { deviceCode } = request.body as { deviceCode: string };
+      const entry = deviceCodeStore.get(deviceCode);
+
+      if (!entry) {
+        return reply.notFound("Invalid device code");
+      }
+
+      if (Date.now() > entry.expiresAt) {
+        entry.status = "expired";
+        return {
+          success: true,
+          data: { status: "expired" },
+        };
+      }
+
+      if (entry.status === "approved" && entry.kioskToken) {
+        // Clean up after successful approval
+        userCodeIndex.delete(entry.userCode);
+        deviceCodeStore.delete(deviceCode);
+        return {
+          success: true,
+          data: { status: "approved", kioskToken: entry.kioskToken },
+        };
+      }
+
+      return {
+        success: true,
+        data: { status: entry.status },
+      };
+    }
+  );
+
+  // Verify a user code (called by web app)
+  fastify.get(
+    "/device-code/verify",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Verify a device user code",
+        tags: ["Auth", "Device Code"],
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            code: { type: "string" },
+          },
+          required: ["code"],
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  userCode: { type: "string" },
+                  expiresIn: { type: "number" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { code } = request.query as { code: string };
+      const upperCode = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const deviceCode = userCodeIndex.get(upperCode);
+
+      if (!deviceCode) {
+        return reply.notFound("Invalid or expired code");
+      }
+
+      const entry = deviceCodeStore.get(deviceCode);
+      if (!entry || Date.now() > entry.expiresAt) {
+        return reply.notFound("Code has expired");
+      }
+
+      if (entry.status !== "pending") {
+        return reply.badRequest("Code has already been used");
+      }
+
+      const expiresIn = Math.floor((entry.expiresAt - Date.now()) / 1000);
+
+      return {
+        success: true,
+        data: {
+          userCode: entry.userCode,
+          expiresIn,
+        },
+      };
+    }
+  );
+
+  // Approve a device code (called by web app)
+  fastify.post(
+    "/device-code/approve",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Approve a device code and create a kiosk",
+        tags: ["Auth", "Device Code"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          properties: {
+            userCode: { type: "string" },
+            kioskName: { type: "string" },
+          },
+          required: ["userCode"],
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  kioskToken: { type: "string" },
+                  kioskName: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("Not authenticated");
+      }
+
+      const { userCode, kioskName } = request.body as {
+        userCode: string;
+        kioskName?: string;
+      };
+
+      const upperCode = userCode.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const deviceCode = userCodeIndex.get(upperCode);
+
+      if (!deviceCode) {
+        return reply.notFound("Invalid or expired code");
+      }
+
+      const entry = deviceCodeStore.get(deviceCode);
+      if (!entry || Date.now() > entry.expiresAt) {
+        return reply.notFound("Code has expired");
+      }
+
+      if (entry.status !== "pending") {
+        return reply.badRequest("Code has already been used");
+      }
+
+      // Create a new kiosk for this user
+      const name = kioskName?.trim() || "TV Kiosk";
+      const [newKiosk] = await fastify.db
+        .insert(kiosks)
+        .values({
+          userId: user.id,
+          name,
+        })
+        .returning();
+
+      // Mark the device code as approved with the kiosk token
+      entry.status = "approved";
+      entry.kioskToken = newKiosk!.token;
+
+      // Also enable kiosk mode for the user if not already enabled
+      const [existingKioskConfig] = await fastify.db
+        .select()
+        .from(kioskConfig)
+        .where(eq(kioskConfig.userId, user.id))
+        .limit(1);
+
+      if (!existingKioskConfig) {
+        await fastify.db.insert(kioskConfig).values({
+          userId: user.id,
+          enabled: true,
+        });
+      } else if (!existingKioskConfig.enabled) {
+        await fastify.db
+          .update(kioskConfig)
+          .set({ enabled: true, updatedAt: new Date() })
+          .where(eq(kioskConfig.userId, user.id));
+      }
+
+      fastify.log.info(
+        `Device code approved: user=${user.id}, kiosk=${newKiosk!.id}, name=${name}`
+      );
+
+      return {
+        success: true,
+        data: {
+          kioskToken: newKiosk!.token,
+          kioskName: name,
+        },
+      };
+    }
+  );
+
+  // ============================================================
+  // TV Connect / Remote Push Setup Flow
+  // ============================================================
+
+  // Register a TV for remote setup (called by TV)
+  fastify.post(
+    "/tv-connect/register",
+    {
+      schema: {
+        description: "Register a TV for remote push setup",
+        tags: ["Auth", "TV Connect"],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  registrationId: { type: "string" },
+                  expiresIn: { type: "number" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const registrationId = randomUUID();
+      const expiresIn = 600; // 10 minutes
+
+      const entry: TvConnectEntry = {
+        registrationId,
+        status: "pending",
+        ipAddress: request.ip,
+        userAgent: request.headers["user-agent"] || "Unknown",
+        createdAt: Date.now(),
+        expiresAt: Date.now() + expiresIn * 1000,
+      };
+
+      tvConnectStore.set(registrationId, entry);
+
+      fastify.log.info(`TV Connect registered: ${registrationId} from ${request.ip}`);
+
+      return {
+        success: true,
+        data: {
+          registrationId,
+          expiresIn,
+        },
+      };
+    }
+  );
+
+  // Poll for TV connect assignment (called by TV)
+  fastify.post(
+    "/tv-connect/poll",
+    {
+      schema: {
+        description: "Poll for TV connect assignment status",
+        tags: ["Auth", "TV Connect"],
+        body: {
+          type: "object",
+          properties: {
+            registrationId: { type: "string" },
+          },
+          required: ["registrationId"],
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  status: { type: "string" },
+                  kioskToken: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { registrationId } = request.body as { registrationId: string };
+      const entry = tvConnectStore.get(registrationId);
+
+      if (!entry) {
+        return reply.notFound("Invalid registration ID");
+      }
+
+      if (Date.now() > entry.expiresAt) {
+        entry.status = "expired";
+        return {
+          success: true,
+          data: { status: "expired" },
+        };
+      }
+
+      if (entry.status === "assigned" && entry.kioskToken) {
+        // Clean up after successful assignment pickup
+        tvConnectStore.delete(registrationId);
+        return {
+          success: true,
+          data: { status: "assigned", kioskToken: entry.kioskToken },
+        };
+      }
+
+      return {
+        success: true,
+        data: { status: entry.status },
+      };
+    }
+  );
+
+  // List pending TV connect registrations (called by web app)
+  fastify.get(
+    "/tv-connect/pending",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "List pending TV connect registrations",
+        tags: ["Auth", "TV Connect"],
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    registrationId: { type: "string" },
+                    ipAddress: { type: "string" },
+                    userAgent: { type: "string" },
+                    createdAt: { type: "number" },
+                    expiresAt: { type: "number" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("Not authenticated");
+      }
+
+      const now = Date.now();
+      const pending: Array<{
+        registrationId: string;
+        ipAddress: string;
+        userAgent: string;
+        createdAt: number;
+        expiresAt: number;
+      }> = [];
+
+      for (const entry of tvConnectStore.values()) {
+        if (entry.status === "pending" && now < entry.expiresAt) {
+          pending.push({
+            registrationId: entry.registrationId,
+            ipAddress: entry.ipAddress,
+            userAgent: entry.userAgent,
+            createdAt: entry.createdAt,
+            expiresAt: entry.expiresAt,
+          });
+        }
+      }
+
+      return {
+        success: true,
+        data: pending,
+      };
+    }
+  );
+
+  // Assign a kiosk to a pending TV (called by web app)
+  fastify.post(
+    "/tv-connect/assign",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Assign a kiosk to a pending TV connect registration",
+        tags: ["Auth", "TV Connect"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          properties: {
+            registrationId: { type: "string" },
+            kioskId: { type: "string" },
+          },
+          required: ["registrationId", "kioskId"],
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("Not authenticated");
+      }
+
+      const { registrationId, kioskId } = request.body as {
+        registrationId: string;
+        kioskId: string;
+      };
+
+      // Find the pending registration
+      const entry = tvConnectStore.get(registrationId);
+      if (!entry || entry.status !== "pending") {
+        return reply.notFound("Registration not found or already assigned");
+      }
+
+      if (Date.now() > entry.expiresAt) {
+        entry.status = "expired";
+        return reply.badRequest("Registration has expired");
+      }
+
+      // Look up the kiosk (scoped to user)
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(and(eq(kiosks.id, kioskId), eq(kiosks.userId, user.id)))
+        .limit(1);
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      // Mark the registration as assigned
+      entry.status = "assigned";
+      entry.kioskToken = kiosk.token;
+
+      // Enable kiosk config for user if not already enabled
+      const [existingKioskConfig] = await fastify.db
+        .select()
+        .from(kioskConfig)
+        .where(eq(kioskConfig.userId, user.id))
+        .limit(1);
+
+      if (!existingKioskConfig) {
+        await fastify.db.insert(kioskConfig).values({
+          userId: user.id,
+          enabled: true,
+        });
+      } else if (!existingKioskConfig.enabled) {
+        await fastify.db
+          .update(kioskConfig)
+          .set({ enabled: true, updatedAt: new Date() })
+          .where(eq(kioskConfig.userId, user.id));
+      }
+
+      fastify.log.info(
+        `TV Connect assigned: reg=${registrationId}, kiosk=${kiosk.id}, user=${user.id}`
+      );
+
+      return { success: true };
     }
   );
 };

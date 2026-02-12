@@ -50,26 +50,30 @@ services:
       PORT: 3001
       DATABASE_URL: postgresql://openframe:openframe@postgres:5432/openframe
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET}
-      COOKIE_SECRET: ${COOKIE_SECRET}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       CORS_ORIGINS: http://localhost:8080
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
-      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID}
-      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET}
-      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-      HOME_ASSISTANT_URL: ${HOME_ASSISTANT_URL}
-      HOME_ASSISTANT_TOKEN: ${HOME_ASSISTANT_TOKEN}
       FRONTEND_URL: http://localhost:8080
+      DATA_DIR: /app/data
+      # Infrastructure secrets are auto-generated if not provided
+      JWT_SECRET: ${JWT_SECRET:-}
+      COOKIE_SECRET: ${COOKIE_SECRET:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      # OAuth credentials (optional - can be configured via Setup Wizard / Settings)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      HOME_ASSISTANT_URL: ${HOME_ASSISTANT_URL:-}
+      HOME_ASSISTANT_TOKEN: ${HOME_ASSISTANT_TOKEN:-}
       MEDIAMTX_API_URL: ${MEDIAMTX_API_URL:-http://mediamtx:9997}
       MEDIAMTX_HOST: ${MEDIAMTX_HOST:-localhost}
       MEDIAMTX_WEBRTC_PORT: ${MEDIAMTX_WEBRTC_PORT:-8889}
       MEDIAMTX_HLS_PORT: ${MEDIAMTX_HLS_PORT:-8888}
     volumes:
       - uploads_data:/app/uploads
+      - secrets_data:/app/data
     ports:
       - "3001:3001"
 
@@ -93,9 +97,9 @@ services:
     depends_on:
       - api
     environment:
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       API_URL: http://api:3001
-      API_KEY: ${BOT_API_KEY}
+      API_KEY: ${BOT_API_KEY:-}
     profiles:
       - bot
 
@@ -120,3 +124,4 @@ volumes:
   postgres_data:
   redis_data:
   uploads_data:
+  secrets_data:

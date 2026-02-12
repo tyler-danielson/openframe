@@ -271,6 +271,15 @@ body {
   background: var(--color-green);
 }
 
+.hint-key.yellow {
+  background: var(--color-yellow);
+  color: black;
+}
+
+.hint-key.blue {
+  background: var(--color-blue);
+}
+
 .hint-action {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
@@ -568,6 +577,237 @@ body {
   width: 100%;
   height: 100%;
   position: relative;
+}
+
+/* QR Login Screen */
+.qr-login-container {
+  width: 100%;
+  max-width: 960px;
+  padding: var(--spacing-2xl);
+  background: var(--color-bg-secondary);
+  border-radius: var(--border-radius-lg);
+}
+
+.qr-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-2xl);
+}
+
+.qr-loading p {
+  font-size: var(--font-size-lg);
+  color: var(--color-text-secondary);
+}
+
+.qr-display {
+  display: flex;
+  gap: var(--spacing-2xl);
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--spacing-xl) 0;
+}
+
+.qr-code-wrapper {
+  flex-shrink: 0;
+  padding: var(--spacing-lg);
+  background: #ffffff;
+  border-radius: var(--border-radius);
+}
+
+.qr-instructions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  max-width: 400px;
+}
+
+.qr-step {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+}
+
+.qr-step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: white;
+  background: var(--color-primary);
+  border-radius: 50%;
+}
+
+.qr-or-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin: var(--spacing-sm) 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.qr-or-divider::before,
+.qr-or-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.qr-user-code {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  font-family: "Courier New", monospace;
+  text-align: center;
+  letter-spacing: 0.15em;
+  color: var(--color-primary);
+  padding: var(--spacing-md);
+  background: var(--color-primary-light);
+  border-radius: var(--border-radius);
+  border: 2px solid var(--color-primary);
+}
+
+.qr-timer {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.qr-timer strong {
+  color: var(--color-text);
+}
+
+.qr-approved {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-2xl);
+  text-align: center;
+}
+
+.qr-success-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 96px;
+  height: 96px;
+  font-size: 56px;
+  color: white;
+  background: var(--color-success);
+  border-radius: 50%;
+  animation: scaleIn 0.3s ease;
+}
+
+@keyframes scaleIn {
+  0% { transform: scale(0); }
+  80% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+.qr-approved h2 {
+  font-size: var(--font-size-xl);
+  color: var(--color-success);
+}
+
+.qr-approved p {
+  font-size: var(--font-size-lg);
+  color: var(--color-text-secondary);
+}
+
+.qr-expired,
+.qr-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-2xl);
+  text-align: center;
+}
+
+.qr-expired h2 {
+  font-size: var(--font-size-xl);
+  color: var(--color-yellow);
+}
+
+.qr-error h2 {
+  font-size: var(--font-size-xl);
+  color: var(--color-error);
+}
+
+.qr-expired p,
+.qr-error p {
+  font-size: var(--font-size-lg);
+  color: var(--color-text-secondary);
+}
+
+.qr-hint {
+  font-size: var(--font-size-sm) !important;
+  color: var(--color-text-muted) !important;
+  margin-top: var(--spacing-sm);
+}
+
+/* Remote Push Screen */
+.remote-push-container {
+  width: 100%;
+  max-width: 960px;
+  padding: var(--spacing-2xl);
+  background: var(--color-bg-secondary);
+  border-radius: var(--border-radius-lg);
+}
+
+.remote-push-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-2xl);
+  text-align: center;
+}
+
+.remote-push-status h2 {
+  font-size: var(--font-size-lg);
+  color: var(--color-text-secondary);
+}
+
+.remote-push-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  max-width: 500px;
+  text-align: left;
+  margin: var(--spacing-md) 0;
+}
+
+/* QR Login button on setup screen */
+.qr-login-btn {
+  width: 100%;
+  flex: unset;
+}
+
+/* Setup divider */
+.setup-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.setup-divider::before,
+.setup-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
 }
 
 /* Focus visible for accessibility */

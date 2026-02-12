@@ -13,6 +13,9 @@
     <tizen:privilege name="http://tizen.org/privilege/internet"/>
     <tizen:privilege name="http://developer.samsung.com/privilege/productinfo"/>
 
+    <!-- Allow network access to any server (needed for QR login fetch calls) -->
+    <access origin="*" subdomains="true"/>
+
     <!-- Entry point -->
     <content src="index.html"/>
 

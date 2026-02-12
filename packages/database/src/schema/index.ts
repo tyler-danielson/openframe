@@ -20,6 +20,8 @@ import type {
 export type { PlannerLayoutConfig, PlannerWidgetInstance, PlannerWidgetType };
 
 // Enums
+export const userRoleEnum = pgEnum("user_role", ["admin", "member", "viewer"]);
+
 export const oauthProviderEnum = pgEnum("oauth_provider", [
   "google",
   "microsoft",
@@ -63,6 +65,8 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   name: text("name"),
   avatarUrl: text("avatar_url"),
+  passwordHash: text("password_hash"),
+  role: userRoleEnum("role").notNull().default("member"),
   timezone: text("timezone").default("UTC").notNull(),
   preferences: jsonb("preferences").$type<UserPreferences>().default({}),
   createdAt: timestamp("created_at", { withTimezone: true })
@@ -403,6 +407,15 @@ export const screensaverTransitionEnum = pgEnum("screensaver_transition", [
   "zoom",
 ]);
 
+// Kiosk display type enum (device interaction model)
+export const kioskDisplayTypeEnum = pgEnum("kiosk_display_type", [
+  "touch",    // Touch Screen (default)
+  "tv",       // Samsung TV / remote-controlled
+  "display",  // Display Only (no interaction)
+]);
+
+export type KioskDisplayType = "touch" | "tv" | "display";
+
 // Kiosk display mode enum
 export const kioskDisplayModeEnum = pgEnum("kiosk_display_mode", [
   "full",              // Full app with navigation
@@ -466,6 +479,7 @@ export const kiosks = pgTable(
     colorScheme: colorSchemeEnum("color_scheme").default("default").notNull(),
     // Display mode settings
     displayMode: kioskDisplayModeEnum("display_mode").default("full").notNull(),
+    displayType: kioskDisplayTypeEnum("display_type").notNull().default("touch"),
     homePage: text("home_page").default("calendar"),
     selectedCalendarIds: text("selected_calendar_ids").array(),
     enabledFeatures: jsonb("enabled_features").$type<KioskEnabledFeatures>(),
@@ -1586,6 +1600,7 @@ export type CapacitiesSpace = typeof capacitiesSpaces.$inferSelect;
 export type TelegramConfig = typeof telegramConfig.$inferSelect;
 export type TelegramChat = typeof telegramChats.$inferSelect;
 export type Kiosk = typeof kiosks.$inferSelect;
+export type UserRole = "admin" | "member" | "viewer";
 
 // reMarkable Template Enums
 export const remarkableTemplateTypeEnum = pgEnum("remarkable_template_type", [

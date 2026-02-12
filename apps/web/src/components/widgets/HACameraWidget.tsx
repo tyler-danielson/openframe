@@ -19,8 +19,9 @@ export function HACameraWidget({ config, style, isBuilder }: HACameraWidgetProps
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Camera snapshots use REST API directly — no WebSocket dependency needed
   useEffect(() => {
-    if (!entityId || isBuilder || !connected) return;
+    if (!entityId || isBuilder) return;
 
     const fetchSnapshot = async () => {
       try {
@@ -44,7 +45,7 @@ export function HACameraWidget({ config, style, isBuilder }: HACameraWidgetProps
       clearInterval(interval);
       if (imageUrl) URL.revokeObjectURL(imageUrl);
     };
-  }, [entityId, refreshInterval, isBuilder, connected]);
+  }, [entityId, refreshInterval, isBuilder]);
 
   if (isBuilder || !entityId) {
     return (
@@ -60,17 +61,6 @@ export function HACameraWidget({ config, style, isBuilder }: HACameraWidgetProps
         {isBuilder && (
           <span className="text-xs opacity-50 mt-1">Live feed in preview mode</span>
         )}
-      </div>
-    );
-  }
-
-  if (!connected) {
-    return (
-      <div
-        className="flex h-full items-center justify-center p-4 rounded-lg bg-black/40 backdrop-blur-sm"
-        style={{ color: style?.textColor || "#ffffff" }}
-      >
-        <span className="text-sm opacity-50">HA not connected</span>
       </div>
     );
   }

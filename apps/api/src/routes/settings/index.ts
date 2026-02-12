@@ -178,6 +178,34 @@ const SETTING_DEFINITIONS: CategoryDefinition[] = [
     ],
   },
   {
+    category: "microsoft",
+    label: "Microsoft OAuth",
+    description: "Configure Microsoft OAuth for calendar and tasks sync",
+    settings: [
+      {
+        key: "client_id",
+        label: "Application (Client) ID",
+        description: "Microsoft Entra App Registration Client ID",
+        isSecret: false,
+        placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+      },
+      {
+        key: "client_secret",
+        label: "Client Secret",
+        description: "Microsoft Entra App Registration Client Secret",
+        isSecret: true,
+        placeholder: "Client secret value",
+      },
+      {
+        key: "tenant_id",
+        label: "Tenant ID",
+        description: "Directory (Tenant) ID, or 'common' for multi-tenant",
+        isSecret: false,
+        placeholder: "common",
+      },
+    ],
+  },
+  {
     category: "spotify",
     label: "Spotify",
     description: "Configure Spotify OAuth for music playback",

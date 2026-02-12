@@ -5,7 +5,7 @@ import { useSearchParams, Link } from "react-router-dom";
 import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Tablet, Link2, Unlink, QrCode } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { Camera } from "@openframe/shared";
-import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskEnabledFeatures } from "../services/api";
+import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures } from "../services/api";
 import { useAuthStore } from "../stores/auth";
 import { useCalendarStore, type WeekCellWidget } from "../stores/calendar";
 import { useScreensaverStore, type ScreensaverLayout, type ScreensaverTransition, type ClockPosition, type ClockSize, type InfoPaneWidget, type InfoPaneWidgetConfig, type WidgetSize, type WidgetGridSize, LIST_WIDGETS, DEFAULT_WIDGET_CONFIGS, type CompositeWidgetId, type CompositeWidgetConfig, type SubItemConfig, DEFAULT_COMPOSITE_CONFIGS, DEFAULT_SUB_ITEMS } from "../stores/screensaver";
@@ -1180,6 +1180,13 @@ function KioskSettings() {
   );
 }
 
+// Display type options (device interaction model)
+const DISPLAY_TYPE_OPTIONS: { value: KioskDisplayType; label: string; description: string }[] = [
+  { value: "touch", label: "Touch Screen", description: "Standard touch interaction" },
+  { value: "tv", label: "Samsung TV", description: "Remote/D-pad navigation with larger controls" },
+  { value: "display", label: "Display Only", description: "No interactive controls, view-only" },
+];
+
 // Display mode options
 const DISPLAY_MODE_OPTIONS: { value: KioskDisplayMode; label: string; description: string }[] = [
   { value: "full", label: "Full App", description: "Full navigation with all enabled features" },
@@ -1677,6 +1684,25 @@ function KiosksSettings() {
                                 className="mt-1 w-full rounded-md border border-primary/30 bg-background px-2 py-1.5 text-sm"
                               >
                                 {DISPLAY_MODE_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Display Type */}
+                            <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
+                              <label className="text-xs font-semibold text-primary uppercase tracking-wide">Display Type</label>
+                              <select
+                                value={kiosk.displayType || "touch"}
+                                onChange={(e) => updateKiosk.mutate({
+                                  id: kiosk.id,
+                                  data: { displayType: e.target.value as KioskDisplayType }
+                                })}
+                                className="mt-1 w-full rounded-md border border-primary/30 bg-background px-2 py-1.5 text-sm"
+                              >
+                                {DISPLAY_TYPE_OPTIONS.map((option) => (
                                   <option key={option.value} value={option.value}>
                                     {option.label}
                                   </option>
@@ -2288,7 +2314,7 @@ function SystemSettings() {
   const queryClient = useQueryClient();
   // Start with all sections collapsed except "home" (Home Location)
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
-    new Set(["weather", "google", "spotify", "telegram", "homeassistant", "handwriting"])
+    new Set(["weather", "google", "microsoft", "spotify", "telegram", "homeassistant", "handwriting"])
   );
   const [formValues, setFormValues] = useState<Record<string, Record<string, string>>>({});
   const [saveStatus, setSaveStatus] = useState<Record<string, "idle" | "saving" | "saved" | "error">>({});

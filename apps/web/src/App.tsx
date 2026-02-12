@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "./stores/auth";
 import { useScreensaverStore } from "./stores/screensaver";
@@ -22,6 +22,8 @@ import { ScreensaverBuilderPage } from "./pages/ScreensaverBuilderPage";
 import { KioskDisplayPage } from "./pages/KioskDisplayPage";
 import { RecipesPage } from "./pages/RecipesPage";
 import { MobileRecipeUploadPage } from "./pages/MobileRecipeUploadPage";
+import { DeviceLoginPage } from "./pages/DeviceLoginPage";
+import { SetupPage } from "./pages/SetupPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { PlannerBuilderPage } from "./pages/PlannerBuilderPage";
 import { ProfileSettingsPage } from "./pages/ProfileSettingsPage";
@@ -82,6 +84,34 @@ export default function App() {
   const setApiKey = useAuthStore((state) => state.setApiKey);
   const syncScreensaverSettings = useScreensaverStore((state) => state.syncFromServer);
   const colorScheme = useScreensaverStore((state) => state.colorScheme);
+
+  // Setup status
+  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
+
+  // Check setup status on app load
+  useEffect(() => {
+    async function checkSetupStatus() {
+      // Skip setup check for kiosk, upload, auth callback, and setup pages
+      const path = window.location.pathname;
+      if (
+        path.startsWith("/kiosk/") ||
+        path.startsWith("/upload") ||
+        path.startsWith("/auth/callback") ||
+        path.startsWith("/setup")
+      ) {
+        setNeedsSetup(false);
+        return;
+      }
+
+      try {
+        const status = await api.getSetupStatus();
+        setNeedsSetup(status.needsSetup);
+      } catch {
+        setNeedsSetup(false);
+      }
+    }
+    checkSetupStatus();
+  }, []);
 
   // Hide NowPlaying on settings pages, upload pages, and kiosk pages
   const isSettingsPage = location.pathname.startsWith("/settings");
@@ -167,8 +197,8 @@ export default function App() {
     return () => clearInterval(pollInterval);
   }, [kioskEnabled]);
 
-  // Show loading while checking kiosk status
-  if (!kioskChecked) {
+  // Show loading while checking kiosk status or setup status
+  if (!kioskChecked || needsSetup === null) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="animate-pulse text-muted-foreground">Loading...</div>
@@ -176,15 +206,30 @@ export default function App() {
     );
   }
 
+  // Redirect to setup if needed (and not already on setup page)
+  if (needsSetup && !location.pathname.startsWith("/setup")) {
+    return (
+      <Toaster>
+        <Routes>
+          <Route path="/setup" element={<SetupPage />} />
+          <Route path="*" element={<Navigate to="/setup" replace />} />
+        </Routes>
+      </Toaster>
+    );
+  }
+
   return (
     <Toaster>
       <Routes>
+        <Route path="/setup" element={<SetupPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         {/* Public mobile upload page (accessed via QR code) */}
         <Route path="/upload/:token" element={<MobileUploadPage />} />
         {/* Public mobile recipe upload page (accessed via QR code) */}
         <Route path="/upload-recipe/:token" element={<MobileRecipeUploadPage />} />
+        {/* Public device login page (QR code flow) */}
+        <Route path="/device-login" element={<DeviceLoginPage />} />
         {/* Public kiosk display page (accessed via unique token URL) */}
         <Route path="/kiosk/:token/*" element={<KioskDisplayPage />} />
 

@@ -241,6 +241,10 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
               type: "string",
               enum: ["full", "screensaver-only", "calendar-only", "dashboard-only"],
             },
+            displayType: {
+              type: "string",
+              enum: ["touch", "tv", "display"],
+            },
             homePage: { type: "string" },
             selectedCalendarIds: {
               type: "array",
@@ -292,6 +296,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         isActive?: boolean;
         colorScheme?: string;
         displayMode?: string;
+        displayType?: string;
         homePage?: string;
         selectedCalendarIds?: string[] | null;
         enabledFeatures?: Record<string, boolean> | null;
@@ -309,6 +314,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       if (body.isActive !== undefined) updates.isActive = body.isActive;
       if (body.colorScheme !== undefined) updates.colorScheme = body.colorScheme;
       if (body.displayMode !== undefined) updates.displayMode = body.displayMode;
+      if (body.displayType !== undefined) updates.displayType = body.displayType;
       if (body.homePage !== undefined) updates.homePage = body.homePage;
       if (body.selectedCalendarIds !== undefined) updates.selectedCalendarIds = body.selectedCalendarIds;
       if (body.enabledFeatures !== undefined) updates.enabledFeatures = body.enabledFeatures;
@@ -595,6 +601,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
           name: kiosk.name,
           colorScheme: kiosk.colorScheme,
           displayMode: kiosk.displayMode,
+          displayType: kiosk.displayType,
           homePage: kiosk.homePage,
           selectedCalendarIds: kiosk.selectedCalendarIds,
           enabledFeatures: kiosk.enabledFeatures,

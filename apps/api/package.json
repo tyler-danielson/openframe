@@ -22,6 +22,7 @@
     "@fastify/websocket": "^11.0.1",
     "@openframe/database": "workspace:*",
     "@openframe/shared": "workspace:*",
+    "bcryptjs": "^2.4.3",
     "bullmq": "^5.25.5",
     "date-fns": "^4.1.0",
     "dotenv": "^16.4.5",
@@ -42,6 +43,7 @@
   "devDependencies": {
     "@openframe/eslint-config": "workspace:*",
     "@openframe/typescript-config": "workspace:*",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.9.0",
     "@types/pdfmake": "^0.3.0",
     "eslint": "^9.15.0",

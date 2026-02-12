@@ -94,7 +94,7 @@ function ConnectionStatusIndicator({
 
 // Kiosk app content - uses the same Layout and pages as the main app
 function KioskApp() {
-  const { isAuthReady, displayMode, homePage, enabledFeatures, connectionStatus, lastOnlineAt, startFullscreen } = useKiosk();
+  const { isAuthReady, displayMode, displayType, homePage, enabledFeatures, connectionStatus, lastOnlineAt, startFullscreen } = useKiosk();
   const location = useLocation();
   const hasAttemptedFullscreen = useRef(false);
   const [showFullscreenPrompt, setShowFullscreenPrompt] = useState(false);
@@ -119,6 +119,12 @@ function KioskApp() {
       return () => clearTimeout(timer);
     }
   }, [isAuthReady, startFullscreen]);
+
+  // Set display type data attribute on document root for CSS-level adaptations
+  useEffect(() => {
+    document.documentElement.dataset.displayType = displayType;
+    return () => { delete document.documentElement.dataset.displayType; };
+  }, [displayType]);
 
   // Handle click to enter fullscreen
   const handleFullscreenClick = () => {
@@ -197,7 +203,7 @@ function KioskApp() {
     // Only show the screensaver, always active and cannot be dismissed
     return (
       <>
-        <Screensaver alwaysActive />
+        <Screensaver alwaysActive displayType={displayType} />
         <ConnectionStatusIndicator status={connectionStatus} lastOnlineAt={lastOnlineAt} />
         {fullscreenPrompt}
       </>
@@ -209,7 +215,7 @@ function KioskApp() {
     return (
       <div className="min-h-screen bg-background">
         <CalendarPage />
-        <Screensaver />
+        <Screensaver displayType={displayType} />
         <ConnectionStatusIndicator status={connectionStatus} lastOnlineAt={lastOnlineAt} />
         {fullscreenPrompt}
       </div>
@@ -221,7 +227,7 @@ function KioskApp() {
     return (
       <div className="min-h-screen bg-background">
         <DashboardPage />
-        <Screensaver />
+        <Screensaver displayType={displayType} />
         <ConnectionStatusIndicator status={connectionStatus} lastOnlineAt={lastOnlineAt} />
         {fullscreenPrompt}
       </div>
@@ -232,7 +238,7 @@ function KioskApp() {
   return (
     <>
       <Routes>
-        <Route element={<Layout kioskEnabledFeatures={enabledFeatures} />}>
+        <Route element={<Layout kioskEnabledFeatures={enabledFeatures} kioskDisplayType={displayType} />}>
           <Route index element={<Navigate to={effectiveHomePage} replace />} />
           {enabledRoutes.map(({ feature, path, element }) => (
             <Route key={feature} path={path} element={element} />
@@ -241,7 +247,7 @@ function KioskApp() {
           <Route path="*" element={<Navigate to={effectiveHomePage} replace />} />
         </Route>
       </Routes>
-      <Screensaver />
+      <Screensaver displayType={displayType} />
       <ConnectionStatusIndicator status={connectionStatus} lastOnlineAt={lastOnlineAt} />
       {fullscreenPrompt}
     </>

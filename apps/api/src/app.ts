@@ -36,6 +36,7 @@ import { recipeRoutes } from "./routes/recipes/index.js";
 import { profileRoutes } from "./routes/profiles/index.js";
 import { gmailRoutes } from "./routes/gmail/index.js";
 import { briefingRoutes } from "./routes/briefing/index.js";
+import { setupRoutes } from "./routes/setup/index.js";
 import type { Config } from "./config.js";
 
 export async function buildApp(config: Config): Promise<FastifyInstance> {
@@ -150,6 +151,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(profileRoutes, { prefix: "/api/v1/profiles" });
   await app.register(gmailRoutes, { prefix: "/api/v1/gmail" });
   await app.register(briefingRoutes, { prefix: "/api/v1/briefing" });
+  await app.register(setupRoutes, { prefix: "/api/v1/setup" });
 
   // Error handler
   app.setErrorHandler((error: FastifyError, _request, reply) => {

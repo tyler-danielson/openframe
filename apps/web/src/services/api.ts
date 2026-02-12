@@ -768,6 +768,7 @@ class ApiClient {
       isActive?: boolean;
       colorScheme?: ColorScheme;
       displayMode?: KioskDisplayMode;
+      displayType?: KioskDisplayType;
       homePage?: string;
       selectedCalendarIds?: string[] | null;
       enabledFeatures?: KioskEnabledFeatures | null;
@@ -2692,6 +2693,50 @@ class ApiClient {
     const params = limit ? `?limit=${limit}` : "";
     return this.fetch<EmailHighlight[]>(`/gmail/highlights${params}`);
   }
+
+  // Setup
+  async getSetupStatus(): Promise<{ needsSetup: boolean; hasAdmin: boolean; isComplete: boolean }> {
+    return this.fetch<{ needsSetup: boolean; hasAdmin: boolean; isComplete: boolean }>("/setup/status", {}, true);
+  }
+
+  async createAdmin(data: { email: string; password: string; name: string }): Promise<{
+    user: { id: string; email: string; name: string; role: string };
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+  }> {
+    return this.fetch("/setup/admin", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }, true);
+  }
+
+  async setupConfigure(category: string, settings: Record<string, string>): Promise<void> {
+    await this.fetch("/setup/configure", {
+      method: "POST",
+      body: JSON.stringify({ category, settings }),
+    });
+  }
+
+  async completeSetup(): Promise<void> {
+    await this.fetch("/setup/complete", { method: "POST", body: JSON.stringify({}) });
+  }
+
+  async getAvailableProviders(): Promise<{ google: boolean; microsoft: boolean }> {
+    return this.fetch<{ google: boolean; microsoft: boolean }>("/setup/providers", {}, true);
+  }
+
+  // Password login
+  async loginWithPassword(email: string, password: string): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+  }> {
+    return this.fetch("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }, true);
+  }
 }
 
 // Family Profile types
@@ -2712,6 +2757,7 @@ export interface ProfileNewsFeedVisibility {
 
 // Kiosk types
 export type KioskDisplayMode = "full" | "screensaver-only" | "calendar-only" | "dashboard-only";
+export type KioskDisplayType = "touch" | "tv" | "display";
 
 export type KioskCommandType =
   | "refresh"
@@ -2753,6 +2799,7 @@ export interface Kiosk {
   isActive: boolean;
   colorScheme: ColorScheme;
   displayMode: KioskDisplayMode;
+  displayType: KioskDisplayType;
   homePage: string | null;
   selectedCalendarIds: string[] | null;
   enabledFeatures: KioskEnabledFeatures | null;
@@ -2772,6 +2819,7 @@ export interface KioskConfig {
   name: string;
   colorScheme: ColorScheme;
   displayMode: KioskDisplayMode;
+  displayType: KioskDisplayType;
   homePage: string | null;
   selectedCalendarIds: string[] | null;
   enabledFeatures: KioskEnabledFeatures | null;

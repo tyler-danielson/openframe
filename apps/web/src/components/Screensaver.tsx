@@ -256,9 +256,10 @@ const calculateDimOpacity = (
 interface ScreensaverProps {
   alwaysActive?: boolean;
   inline?: boolean;
+  displayType?: "touch" | "tv" | "display";
 }
 
-export function Screensaver({ alwaysActive = false, inline = false }: ScreensaverProps) {
+export function Screensaver({ alwaysActive = false, inline = false, displayType }: ScreensaverProps) {
   const {
     isActive: storeIsActive,
     slideInterval,
@@ -441,18 +442,21 @@ export function Screensaver({ alwaysActive = false, inline = false }: Screensave
   // Handle user interaction to exit screensaver
   // Stop propagation to prevent clicks from reaching underlying elements
   // If alwaysActive is true, don't allow dismissal
+  // Display-only kiosks should never allow dismissal
+  const noDismiss = alwaysActive || inline || displayType === "display";
+
   const handleInteraction = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    if (!alwaysActive && !inline) {
+    if (!noDismiss) {
       updateActivity();
     }
-  }, [updateActivity, alwaysActive, inline]);
+  }, [updateActivity, noDismiss]);
 
   // Listen for any interaction to exit screensaver
   useEffect(() => {
-    // Don't set up dismissal listeners if alwaysActive or inline is true
-    if (!isActive || alwaysActive || inline) return;
+    // Don't set up dismissal listeners if dismissal is disabled
+    if (!isActive || noDismiss) return;
 
     // Simple handler that just updates activity - no preventDefault needed
     const onInteraction = () => {
@@ -472,7 +476,7 @@ export function Screensaver({ alwaysActive = false, inline = false }: Screensave
         window.removeEventListener(event, onInteraction);
       });
     };
-  }, [isActive, updateActivity, kioskEnabled, alwaysActive, inline]);
+  }, [isActive, updateActivity, kioskEnabled, noDismiss]);
 
   // Enter fullscreen when screensaver activates, exit when it deactivates
   // In kiosk mode, don't auto-enter fullscreen - only use fullscreen if already in it
@@ -1304,8 +1308,8 @@ export function Screensaver({ alwaysActive = false, inline = false }: Screensave
         );
       })()}
 
-      {/* Tap to exit hint (hidden when alwaysActive or inline) */}
-      {!alwaysActive && !inline && (
+      {/* Tap to exit hint (hidden when dismissal is disabled) */}
+      {!noDismiss && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/30 text-sm">
           Tap anywhere to exit
         </div>

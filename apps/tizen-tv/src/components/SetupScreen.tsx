@@ -5,13 +5,15 @@ import "@/styles/tv.css";
 
 interface SetupScreenProps {
   onConnect: (config: KioskConfig) => void;
+  onQRLogin: (serverUrl: string) => void;
+  onRemotePush: (serverUrl: string) => void;
   initialConfig?: KioskConfig | null;
 }
 
-type FocusableElement = "serverUrl" | "token" | "connect" | "clear";
-const FOCUSABLE_ELEMENTS: FocusableElement[] = ["serverUrl", "token", "connect", "clear"];
+type FocusableElement = "serverUrl" | "qrLogin" | "remotePush" | "token" | "connect" | "clear";
+const FOCUSABLE_ELEMENTS: FocusableElement[] = ["serverUrl", "qrLogin", "remotePush", "token", "connect", "clear"];
 
-export function SetupScreen({ onConnect, initialConfig }: SetupScreenProps) {
+export function SetupScreen({ onConnect, onQRLogin, onRemotePush, initialConfig }: SetupScreenProps) {
   // Check URL params for pre-filled values (useful for TV where typing is hard)
   const urlParams = new URLSearchParams(window.location.search);
   const paramServer = urlParams.get("server") || urlParams.get("url") || "";
@@ -41,6 +43,32 @@ export function SetupScreen({ onConnect, initialConfig }: SetupScreenProps) {
     }
   }, [focusedElement]);
 
+  const getNormalizedServerUrl = useCallback(() => {
+    let normalizedUrl = serverUrl.trim();
+    if (!normalizedUrl.startsWith("http://") && !normalizedUrl.startsWith("https://")) {
+      normalizedUrl = `https://${normalizedUrl}`;
+    }
+    return normalizedUrl.replace(/\/+$/, "");
+  }, [serverUrl]);
+
+  const handleQRLoginClick = useCallback(() => {
+    if (!serverUrl.trim()) {
+      setError("Please enter a server URL first");
+      setFocusedElement("serverUrl");
+      return;
+    }
+    onQRLogin(getNormalizedServerUrl());
+  }, [serverUrl, onQRLogin, getNormalizedServerUrl]);
+
+  const handleRemotePushClick = useCallback(() => {
+    if (!serverUrl.trim()) {
+      setError("Please enter a server URL first");
+      setFocusedElement("serverUrl");
+      return;
+    }
+    onRemotePush(getNormalizedServerUrl());
+  }, [serverUrl, onRemotePush, getNormalizedServerUrl]);
+
   const handleConnect = useCallback(() => {
     // Validate inputs
     if (!serverUrl.trim()) {
@@ -56,13 +84,7 @@ export function SetupScreen({ onConnect, initialConfig }: SetupScreenProps) {
     }
 
     // Validate URL format
-    let normalizedUrl = serverUrl.trim();
-    if (!normalizedUrl.startsWith("http://") && !normalizedUrl.startsWith("https://")) {
-      normalizedUrl = `https://${normalizedUrl}`;
-    }
-
-    // Remove trailing slash
-    normalizedUrl = normalizedUrl.replace(/\/+$/, "");
+    const normalizedUrl = getNormalizedServerUrl();
 
     const config: KioskConfig = {
       serverUrl: normalizedUrl,
@@ -129,6 +151,10 @@ export function SetupScreen({ onConnect, initialConfig }: SetupScreenProps) {
             handleConnect();
           } else if (focusedElement === "clear") {
             handleClear();
+          } else if (focusedElement === "qrLogin") {
+            handleQRLoginClick();
+          } else if (focusedElement === "remotePush") {
+            handleRemotePushClick();
           }
           // For input fields, Enter is handled natively
           break;
@@ -144,9 +170,17 @@ export function SetupScreen({ onConnect, initialConfig }: SetupScreenProps) {
         case "green":
           handleConnect();
           break;
+
+        case "yellow":
+          handleQRLoginClick();
+          break;
+
+        case "blue":
+          handleRemotePushClick();
+          break;
       }
     },
-    [focusedElement, handleConnect, handleClear]
+    [focusedElement, handleConnect, handleClear, handleQRLoginClick, handleRemotePushClick]
   );
 
   useTizenKeys(handleKeyAction);
@@ -170,6 +204,24 @@ export function SetupScreen({ onConnect, initialConfig }: SetupScreenProps) {
               onChange={(e) => setServerUrl(e.target.value)}
               placeholder="https://openframe.example.com"
             />
+          </div>
+
+          <button
+            className={`btn btn-primary qr-login-btn ${focusedElement === "qrLogin" ? "focused" : ""}`}
+            onClick={handleQRLoginClick}
+          >
+            Login with QR Code
+          </button>
+
+          <button
+            className={`btn btn-secondary qr-login-btn ${focusedElement === "remotePush" ? "focused" : ""}`}
+            onClick={handleRemotePushClick}
+          >
+            Remote Setup
+          </button>
+
+          <div className="setup-divider">
+            <span>or enter token manually</span>
           </div>
 
           <div className={`input-group ${focusedElement === "token" ? "focused" : ""}`}>
@@ -216,6 +268,14 @@ export function SetupScreen({ onConnect, initialConfig }: SetupScreenProps) {
           <div className="hint">
             <span className="hint-key red">Red</span>
             <span className="hint-action">Clear</span>
+          </div>
+          <div className="hint">
+            <span className="hint-key yellow">Yellow</span>
+            <span className="hint-action">QR Login</span>
+          </div>
+          <div className="hint">
+            <span className="hint-key blue">Blue</span>
+            <span className="hint-action">Remote Setup</span>
           </div>
         </div>
       </div>

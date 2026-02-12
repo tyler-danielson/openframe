@@ -1,4 +1,7 @@
 import { z } from "zod";
+import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 
 const configSchema = z.object({
   nodeEnv: z.enum(["development", "production", "test"]).default("development"),
@@ -41,17 +44,72 @@ export type Config = z.infer<typeof configSchema>;
 const emptyToUndefined = (val: string | undefined) =>
   val && val.trim() !== "" ? val : undefined;
 
+// Path for persisted auto-generated secrets
+const SECRETS_PATH = path.resolve(process.env.DATA_DIR || "./data", "secrets.json");
+
+interface PersistedSecrets {
+  jwtSecret: string;
+  cookieSecret: string;
+  encryptionKey: string;
+}
+
+function loadOrGenerateSecrets(): PersistedSecrets {
+  // Try to read existing secrets
+  try {
+    if (fs.existsSync(SECRETS_PATH)) {
+      const raw = fs.readFileSync(SECRETS_PATH, "utf-8");
+      const secrets = JSON.parse(raw) as PersistedSecrets;
+      if (secrets.jwtSecret && secrets.cookieSecret && secrets.encryptionKey) {
+        return secrets;
+      }
+    }
+  } catch {
+    // Fall through to generation
+  }
+
+  // Generate new secrets
+  const secrets: PersistedSecrets = {
+    jwtSecret: crypto.randomBytes(48).toString("base64url"),
+    cookieSecret: crypto.randomBytes(48).toString("base64url"),
+    encryptionKey: crypto.randomBytes(32).toString("hex"), // 64 hex chars = 32 bytes
+  };
+
+  // Persist to disk
+  try {
+    const dir = path.dirname(SECRETS_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(SECRETS_PATH, JSON.stringify(secrets, null, 2), { mode: 0o600 });
+    console.log(`Auto-generated infrastructure secrets saved to ${SECRETS_PATH}`);
+  } catch (err) {
+    console.warn(`Warning: Could not persist secrets to ${SECRETS_PATH}:`, err);
+  }
+
+  return secrets;
+}
+
 export function loadConfig(): Config {
+  // Auto-generate secrets if not provided via env
+  const envJwt = emptyToUndefined(process.env.JWT_SECRET);
+  const envCookie = emptyToUndefined(process.env.COOKIE_SECRET);
+  const envEncryption = emptyToUndefined(process.env.ENCRYPTION_KEY);
+
+  let autoSecrets: PersistedSecrets | null = null;
+  if (!envJwt || !envCookie || !envEncryption) {
+    autoSecrets = loadOrGenerateSecrets();
+  }
+
   const result = configSchema.safeParse({
     nodeEnv: process.env.NODE_ENV,
     port: process.env.PORT,
     logLevel: process.env.LOG_LEVEL,
     databaseUrl: process.env.DATABASE_URL,
     redisUrl: process.env.REDIS_URL,
-    jwtSecret: process.env.JWT_SECRET,
-    cookieSecret: process.env.COOKIE_SECRET,
+    jwtSecret: envJwt || autoSecrets?.jwtSecret,
+    cookieSecret: envCookie || autoSecrets?.cookieSecret,
     corsOrigins: process.env.CORS_ORIGINS,
-    encryptionKey: process.env.ENCRYPTION_KEY,
+    encryptionKey: envEncryption || autoSecrets?.encryptionKey,
     googleClientId: emptyToUndefined(process.env.GOOGLE_CLIENT_ID),
     googleClientSecret: emptyToUndefined(process.env.GOOGLE_CLIENT_SECRET),
     googleRedirectUri: emptyToUndefined(process.env.GOOGLE_REDIRECT_URI),
