@@ -15,6 +15,7 @@ import type {
   ImportResult,
 } from "@openframe/shared";
 import crypto from "crypto";
+import { getCurrentUser } from "../../plugins/auth.js";
 
 // Simple encryption for secrets (uses the ENCRYPTION_KEY from env)
 const ALGORITHM = "aes-256-gcm";
@@ -686,8 +687,9 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Settings"],
       },
     },
-    async (request) => {
-      const user = (request as any).user;
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) return reply.unauthorized("User not found");
 
       // Get system settings (non-secrets only)
       const systemSettingsData = await fastify.db
@@ -842,7 +844,8 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const user = (request as any).user;
+      const user = await getCurrentUser(request);
+      if (!user) return reply.unauthorized("User not found");
       const { settings, mode = "merge" } = request.body;
 
       // Validate version
