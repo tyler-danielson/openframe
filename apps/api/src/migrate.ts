@@ -27,6 +27,8 @@ async function runMigrations() {
 
   console.log(`Using migrations folder: ${migrationsFolder}`);
 
+  // Final validation to ensure the selected path actually exists
+  // This will fail if both Docker and development paths are missing
   if (!fs.existsSync(migrationsFolder)) {
     console.error(`Migrations folder does not exist: ${migrationsFolder}`);
     process.exit(1);
