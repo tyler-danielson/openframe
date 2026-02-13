@@ -27,6 +27,11 @@ async function runMigrations() {
 
   console.log(`Using migrations folder: ${migrationsFolder}`);
 
+  if (!fs.existsSync(migrationsFolder)) {
+    console.error(`Migrations folder does not exist: ${migrationsFolder}`);
+    process.exit(1);
+  }
+
   try {
     await migrate(db, {
       migrationsFolder,
