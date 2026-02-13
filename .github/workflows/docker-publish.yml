@@ -1,8 +1,9 @@
-name: Build and Publish Docker Images
+name: Build & Publish Docker Images
 
 on:
   push:
-    branches: [master]
+    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 env:
@@ -20,19 +21,38 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Docker meta for API
+        id: meta-api
+        uses: docker/metadata-action@v5
         with:
-          node-version: '20'
+          images: ${{ env.IMAGE_PREFIX }}-api
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - name: Docker meta for Web
+        id: meta-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-web
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build project
-        run: pnpm build
+      - name: Docker meta for Bot
+        id: meta-bot
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-bot
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -45,31 +65,34 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push API image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile.api
           push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}-api:latest
-            ${{ env.IMAGE_PREFIX }}-api:${{ github.sha }}
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build and push Web image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile.web
           push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}-web:latest
-            ${{ env.IMAGE_PREFIX }}-web:${{ github.sha }}
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build and push Bot image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile.bot
           push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}-bot:latest
-            ${{ env.IMAGE_PREFIX }}-bot:${{ github.sha }}
+          tags: ${{ steps.meta-bot.outputs.tags }}
+          labels: ${{ steps.meta-bot.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
