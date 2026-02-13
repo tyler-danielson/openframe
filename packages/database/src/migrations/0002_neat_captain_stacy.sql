@@ -1,5 +1,13 @@
-CREATE TYPE "public"."photo_source" AS ENUM('local', 'google', 'facebook');--> statement-breakpoint
-CREATE TYPE "public"."screensaver_layout" AS ENUM('fullscreen', 'side-by-side', 'quad', 'scatter');--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."photo_source" AS ENUM('local', 'google', 'facebook');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."screensaver_layout" AS ENUM('fullscreen', 'side-by-side', 'quad', 'scatter');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "iptv_categories" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"server_id" uuid NOT NULL,

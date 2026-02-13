@@ -1,5 +1,13 @@
-CREATE TYPE "public"."color_scheme" AS ENUM('default', 'homio', 'ocean', 'forest', 'sunset', 'lavender');--> statement-breakpoint
-CREATE TYPE "public"."screensaver_transition" AS ENUM('fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down', 'zoom');--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."color_scheme" AS ENUM('default', 'homio', 'ocean', 'forest', 'sunset', 'lavender');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."screensaver_transition" AS ENUM('fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down', 'zoom');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
 ALTER TYPE "public"."oauth_provider" ADD VALUE 'spotify';--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "cameras" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

@@ -1,9 +1,33 @@
-CREATE TYPE "public"."kiosk_display_mode" AS ENUM('full', 'screensaver-only', 'calendar-only', 'dashboard-only');--> statement-breakpoint
-CREATE TYPE "public"."kiosk_display_type" AS ENUM('touch', 'tv', 'display');--> statement-breakpoint
-CREATE TYPE "public"."kitchen_timer_status" AS ENUM('running', 'paused', 'completed', 'cancelled');--> statement-breakpoint
-CREATE TYPE "public"."remarkable_schedule_type" AS ENUM('daily', 'weekly', 'monthly', 'manual');--> statement-breakpoint
-CREATE TYPE "public"."remarkable_template_type" AS ENUM('weekly_planner', 'habit_tracker', 'custom_agenda', 'user_designed');--> statement-breakpoint
-CREATE TYPE "public"."user_role" AS ENUM('admin', 'member', 'viewer');--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."kiosk_display_mode" AS ENUM('full', 'screensaver-only', 'calendar-only', 'dashboard-only');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."kiosk_display_type" AS ENUM('touch', 'tv', 'display');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."kitchen_timer_status" AS ENUM('running', 'paused', 'completed', 'cancelled');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."remarkable_schedule_type" AS ENUM('daily', 'weekly', 'monthly', 'manual');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."remarkable_template_type" AS ENUM('weekly_planner', 'habit_tracker', 'custom_agenda', 'user_designed');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."user_role" AS ENUM('admin', 'member', 'viewer');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "family_profiles" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,
