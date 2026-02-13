@@ -111,6 +111,9 @@ const COMPOSITE_WIDGET_INFO: Record<CompositeWidgetId, {
     label: "Media", icon: "🎵", description: "Now playing",
     subItems: [{ id: "spotify", label: "Spotify" }],
   },
+  controls: {
+    label: "Controls", icon: "🎛️", description: "Device controls",
+  },
 };
 
 // Sortable widget card component

@@ -62,17 +62,28 @@ The app will be available at:
 
 ### Docker Deployment
 
-1. **Configure environment:**
+No build tools required — just Docker.
+
+1. **Clone and start:**
 
 ```bash
-cp docker/.env.example docker/.env
-# Edit .env with your secrets and OAuth credentials
+git clone https://github.com/tyler-danielson/openframe.git
+cd openframe/docker
+docker compose up -d
 ```
 
-2. **Start all services:**
+That's it! The app will be available at:
+- Frontend: http://localhost:8080
+- API: http://localhost:3001
+- API Docs: http://localhost:3001/docs
+
+All secrets (JWT, cookies, encryption keys) are auto-generated on first run and persisted across restarts. OAuth and integrations can be configured via the Setup Wizard in the UI.
+
+2. **Optional: customize settings**
 
 ```bash
-cd docker
+cp .env.example .env
+# Edit .env with your OAuth credentials or other settings
 docker compose up -d
 ```
 
@@ -151,9 +162,8 @@ openframe/
 
 1. Install Docker on your Pi
 2. Clone this repository
-3. Configure `.env` files
-4. Run `docker compose up -d`
-5. Open a browser in kiosk mode pointing to `http://localhost:3000`
+3. Run `cd docker && docker compose up -d`
+4. Open a browser in kiosk mode pointing to `http://localhost:8080`
 
 ### Kiosk Mode (Raspberry Pi OS)
 
