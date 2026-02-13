@@ -21,17 +21,38 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract metadata
-        id: meta
-        run: |
-          # Extract version from tag if present (e.g., v1.0.0 -> 1.0.0)
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/v}
-            echo "version=${VERSION}" >> $GITHUB_OUTPUT
-            echo "is_tag=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_tag=false" >> $GITHUB_OUTPUT
-          fi
+      - name: Docker meta for API
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-api
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Docker meta for Web
+        id: meta-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-web
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Docker meta for Bot
+        id: meta-bot
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-bot
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -49,10 +70,8 @@ jobs:
           context: .
           file: docker/Dockerfile.api
           push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}-api:latest
-            ${{ env.IMAGE_PREFIX }}-api:${{ github.sha }}
-            ${{ steps.meta.outputs.is_tag == 'true' && format('{0}-api:{1}', env.IMAGE_PREFIX, steps.meta.outputs.version) || '' }}
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -62,10 +81,8 @@ jobs:
           context: .
           file: docker/Dockerfile.web
           push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}-web:latest
-            ${{ env.IMAGE_PREFIX }}-web:${{ github.sha }}
-            ${{ steps.meta.outputs.is_tag == 'true' && format('{0}-web:{1}', env.IMAGE_PREFIX, steps.meta.outputs.version) || '' }}
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -75,9 +92,7 @@ jobs:
           context: .
           file: docker/Dockerfile.bot
           push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}-bot:latest
-            ${{ env.IMAGE_PREFIX }}-bot:${{ github.sha }}
-            ${{ steps.meta.outputs.is_tag == 'true' && format('{0}-bot:{1}', env.IMAGE_PREFIX, steps.meta.outputs.version) || '' }}
+          tags: ${{ steps.meta-bot.outputs.tags }}
+          labels: ${{ steps.meta-bot.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
