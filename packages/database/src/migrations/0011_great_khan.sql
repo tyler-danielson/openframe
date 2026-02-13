@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS "kiosks" (
 	"screensaver_enabled" boolean DEFAULT true NOT NULL,
 	"screensaver_timeout" integer DEFAULT 300 NOT NULL,
 	"screensaver_interval" integer DEFAULT 15 NOT NULL,
-	"screensaver_layout" "screensaver_layout" DEFAULT 'builder' NOT NULL,
+	"screensaver_layout" "screensaver_layout" DEFAULT 'fullscreen' NOT NULL,
 	"screensaver_transition" "screensaver_transition" DEFAULT 'fade' NOT NULL,
 	"screensaver_layout_config" jsonb,
 	"last_accessed_at" timestamp with time zone,
@@ -252,9 +252,9 @@ CREATE TABLE IF NOT EXISTS "telegram_config" (
 );
 --> statement-breakpoint
 ALTER TABLE "calendars" ALTER COLUMN "visibility" SET DEFAULT '{"week":false,"month":false,"day":false,"popup":true,"screensaver":false}'::jsonb;--> statement-breakpoint
-ALTER TABLE "calendars" ADD COLUMN "is_favorite" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE "calendars" ADD COLUMN "source_url" text;--> statement-breakpoint
-ALTER TABLE "kiosk_config" ADD COLUMN "screensaver_layout_config" jsonb;--> statement-breakpoint
+ALTER TABLE "calendars" ADD COLUMN IF NOT EXISTS "is_favorite" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "calendars" ADD COLUMN IF NOT EXISTS "source_url" text;--> statement-breakpoint
+ALTER TABLE "kiosk_config" ADD COLUMN IF NOT EXISTS "screensaver_layout_config" jsonb;--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "capacities_config" ADD CONSTRAINT "capacities_config_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION
@@ -370,14 +370,4 @@ CREATE INDEX IF NOT EXISTS "sports_games_time_idx" ON "sports_games" USING btree
 CREATE INDEX IF NOT EXISTS "sports_games_status_idx" ON "sports_games" USING btree ("status");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "sports_games_teams_idx" ON "sports_games" USING btree ("home_team_id","away_team_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "telegram_chats_user_idx" ON "telegram_chats" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "telegram_chats_chat_idx" ON "telegram_chats" USING btree ("chat_id");--> statement-breakpoint
-ALTER TABLE "public"."kiosk_config" ALTER COLUMN "screensaver_layout" SET DATA TYPE text;--> statement-breakpoint
-ALTER TABLE "public"."kiosks" ALTER COLUMN "screensaver_layout" SET DATA TYPE text;--> statement-breakpoint
-DROP TYPE "public"."screensaver_layout";--> statement-breakpoint
-DO $$ BEGIN
-    CREATE TYPE "public"."screensaver_layout" AS ENUM('fullscreen', 'informational', 'quad', 'scatter', 'builder');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;--> statement-breakpoint
-ALTER TABLE "public"."kiosk_config" ALTER COLUMN "screensaver_layout" SET DATA TYPE "public"."screensaver_layout" USING "screensaver_layout"::"public"."screensaver_layout";--> statement-breakpoint
-ALTER TABLE "public"."kiosks" ALTER COLUMN "screensaver_layout" SET DATA TYPE "public"."screensaver_layout" USING "screensaver_layout"::"public"."screensaver_layout";
+CREATE INDEX IF NOT EXISTS "telegram_chats_chat_idx" ON "telegram_chats" USING btree ("chat_id");

@@ -12,7 +12,7 @@ CREATE TABLE "family_profiles" (
   "updated_at" timestamp with time zone NOT NULL DEFAULT now()
 );
 
-CREATE INDEX "family_profiles_user_idx" ON "family_profiles"("user_id");
+CREATE INDEX IF NOT EXISTS "family_profiles_user_idx" ON "family_profiles"("user_id");
 
 -- Per-profile calendar visibility
 CREATE TABLE "profile_calendars" (
@@ -22,8 +22,8 @@ CREATE TABLE "profile_calendars" (
   "is_visible" boolean NOT NULL DEFAULT true
 );
 
-CREATE INDEX "profile_calendars_profile_idx" ON "profile_calendars"("profile_id");
-CREATE INDEX "profile_calendars_calendar_idx" ON "profile_calendars"("calendar_id");
+CREATE INDEX IF NOT EXISTS "profile_calendars_profile_idx" ON "profile_calendars"("profile_id");
+CREATE INDEX IF NOT EXISTS "profile_calendars_calendar_idx" ON "profile_calendars"("calendar_id");
 
 -- Per-profile news feed selection
 CREATE TABLE "profile_news_feeds" (
@@ -33,8 +33,8 @@ CREATE TABLE "profile_news_feeds" (
   "is_visible" boolean NOT NULL DEFAULT true
 );
 
-CREATE INDEX "profile_news_feeds_profile_idx" ON "profile_news_feeds"("profile_id");
-CREATE INDEX "profile_news_feeds_feed_idx" ON "profile_news_feeds"("news_feed_id");
+CREATE INDEX IF NOT EXISTS "profile_news_feeds_profile_idx" ON "profile_news_feeds"("profile_id");
+CREATE INDEX IF NOT EXISTS "profile_news_feeds_feed_idx" ON "profile_news_feeds"("news_feed_id");
 
 -- Per-profile planner layout configuration (widget-based)
 CREATE TABLE "profile_planner_config" (

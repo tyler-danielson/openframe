@@ -71,16 +71,16 @@ CREATE TABLE IF NOT EXISTS "system_settings" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "calendars" ADD COLUMN "show_on_dashboard" boolean DEFAULT true NOT NULL;--> statement-breakpoint
-ALTER TABLE "calendars" ADD COLUMN "visibility" jsonb DEFAULT '{"week":true,"month":true,"day":true,"popup":true}'::jsonb NOT NULL;--> statement-breakpoint
-ALTER TABLE "kiosk_config" ADD COLUMN "color_scheme" "color_scheme" DEFAULT 'default' NOT NULL;--> statement-breakpoint
-ALTER TABLE "kiosk_config" ADD COLUMN "screensaver_transition" "screensaver_transition" DEFAULT 'fade' NOT NULL;--> statement-breakpoint
-ALTER TABLE "oauth_tokens" ADD COLUMN "account_name" text;--> statement-breakpoint
-ALTER TABLE "oauth_tokens" ADD COLUMN "external_account_id" text;--> statement-breakpoint
-ALTER TABLE "oauth_tokens" ADD COLUMN "is_primary" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE "oauth_tokens" ADD COLUMN "icon" text;--> statement-breakpoint
-ALTER TABLE "oauth_tokens" ADD COLUMN "default_device_id" text;--> statement-breakpoint
-ALTER TABLE "oauth_tokens" ADD COLUMN "favorite_device_ids" text[];--> statement-breakpoint
+ALTER TABLE "calendars" ADD COLUMN IF NOT EXISTS "show_on_dashboard" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "calendars" ADD COLUMN IF NOT EXISTS "visibility" jsonb DEFAULT '{"week":true,"month":true,"day":true,"popup":true}'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "kiosk_config" ADD COLUMN IF NOT EXISTS "color_scheme" "color_scheme" DEFAULT 'default' NOT NULL;--> statement-breakpoint
+ALTER TABLE "kiosk_config" ADD COLUMN IF NOT EXISTS "screensaver_transition" "screensaver_transition" DEFAULT 'fade' NOT NULL;--> statement-breakpoint
+ALTER TABLE "oauth_tokens" ADD COLUMN IF NOT EXISTS "account_name" text;--> statement-breakpoint
+ALTER TABLE "oauth_tokens" ADD COLUMN IF NOT EXISTS "external_account_id" text;--> statement-breakpoint
+ALTER TABLE "oauth_tokens" ADD COLUMN IF NOT EXISTS "is_primary" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "oauth_tokens" ADD COLUMN IF NOT EXISTS "icon" text;--> statement-breakpoint
+ALTER TABLE "oauth_tokens" ADD COLUMN IF NOT EXISTS "default_device_id" text;--> statement-breakpoint
+ALTER TABLE "oauth_tokens" ADD COLUMN IF NOT EXISTS "favorite_device_ids" text[];--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "cameras" ADD CONSTRAINT "cameras_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION
