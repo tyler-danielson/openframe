@@ -46,8 +46,8 @@ services:
       PORT: 3001
       DATABASE_URL: postgresql://${POSTGRES_USER:-openframe}:${POSTGRES_PASSWORD:-openframe}@postgres:5432/${POSTGRES_DB:-openframe}
       REDIS_URL: redis://redis:6379
-      CORS_ORIGINS: http://localhost:8080
-      FRONTEND_URL: http://localhost:8080
+      CORS_ORIGINS: ${FRONTEND_URL:-http://localhost:8080}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
       DATA_DIR: /app/data
       # Infrastructure secrets (auto-generated and persisted if not provided)
       JWT_SECRET: ${JWT_SECRET:-}
