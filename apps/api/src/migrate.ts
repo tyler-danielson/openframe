@@ -2,6 +2,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { createDatabase } from "@openframe/database";
 import path from "path";
 import { fileURLToPath } from "url";
+import fs from "fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -16,9 +17,19 @@ async function runMigrations() {
 
   const db = createDatabase(databaseUrl);
 
+  // Try Docker path first, fall back to relative path for development
+  const dockerMigrationsPath = "/app/packages/database/src/migrations";
+  const relativeMigrationsPath = path.resolve(__dirname, "../../packages/database/src/migrations");
+
+  const migrationsFolder = fs.existsSync(dockerMigrationsPath) 
+    ? dockerMigrationsPath 
+    : relativeMigrationsPath;
+
+  console.log(`Using migrations folder: ${migrationsFolder}`);
+
   try {
     await migrate(db, {
-      migrationsFolder: path.resolve(__dirname, "../../packages/database/src/migrations"),
+      migrationsFolder,
     });
     console.log("Migrations completed successfully.");
   } catch (err) {
