@@ -19,7 +19,7 @@ async function runMigrations() {
 
   // Try Docker path first, fall back to relative path for development
   const dockerMigrationsPath = "/app/packages/database/src/migrations";
-  const relativeMigrationsPath = path.resolve(__dirname, "../../packages/database/src/migrations");
+  const relativeMigrationsPath = path.resolve(__dirname, "../../../packages/database/src/migrations");
 
   const migrationsFolder = fs.existsSync(dockerMigrationsPath) 
     ? dockerMigrationsPath 
