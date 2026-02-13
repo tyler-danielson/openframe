@@ -1,0 +1,117 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: openframe-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-openframe}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openframe}
+      POSTGRES_DB: ${POSTGRES_DB:-openframe}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openframe}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: openframe-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    image: ghcr.io/tyler-danielson/openframe-api:latest
+    container_name: openframe-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-openframe}:${POSTGRES_PASSWORD:-openframe}@postgres:5432/${POSTGRES_DB:-openframe}
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGINS: http://localhost:8080
+      FRONTEND_URL: http://localhost:8080
+      DATA_DIR: /app/data
+      # Infrastructure secrets (auto-generated and persisted if not provided)
+      JWT_SECRET: ${JWT_SECRET:-}
+      COOKIE_SECRET: ${COOKIE_SECRET:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      # OAuth credentials (optional - can be configured via Setup Wizard / Settings)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      HOME_ASSISTANT_URL: ${HOME_ASSISTANT_URL:-}
+      HOME_ASSISTANT_TOKEN: ${HOME_ASSISTANT_TOKEN:-}
+      MEDIAMTX_API_URL: ${MEDIAMTX_API_URL:-http://mediamtx:9997}
+      MEDIAMTX_HOST: ${MEDIAMTX_HOST:-localhost}
+      MEDIAMTX_WEBRTC_PORT: ${MEDIAMTX_WEBRTC_PORT:-8889}
+      MEDIAMTX_HLS_PORT: ${MEDIAMTX_HLS_PORT:-8888}
+    volumes:
+      - uploads_data:/app/uploads
+      - secrets_data:/app/data
+    ports:
+      - "3001:3001"
+
+  web:
+    image: ghcr.io/tyler-danielson/openframe-web:latest
+    container_name: openframe-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
+  bot:
+    image: ghcr.io/tyler-danielson/openframe-bot:latest
+    container_name: openframe-bot
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      API_URL: http://api:3001
+      API_KEY: ${BOT_API_KEY:-}
+    profiles:
+      - bot
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: openframe-mediamtx
+    restart: unless-stopped
+    environment:
+      MTX_PROTOCOLS: tcp
+    ports:
+      - "8554:8554"      # RTSP
+      - "8888:8888"      # HLS
+      - "8889:8889"      # WebRTC
+      - "9997:9997"      # API
+      - "8189:8189/udp"  # WebRTC ICE
+    profiles:
+      - cameras
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
+  secrets_data:

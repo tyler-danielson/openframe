@@ -93,6 +93,17 @@ docker compose up -d
 docker compose --profile bot up -d
 ```
 
+### Portainer / Cosmos Cloud Deployment
+
+If you're using Portainer, Cosmos Cloud, or another Docker management platform:
+
+1. Copy the contents of [`docker/docker-compose.portable.yml`](docker/docker-compose.portable.yml)
+2. Paste it into your platform's stack/compose editor
+3. (Optional) Add environment variables for OAuth, etc.
+4. Deploy!
+
+Images are automatically built and published to GitHub Container Registry on every push to `main`.
+
 ## Configuration
 
 ### Google Calendar Setup
