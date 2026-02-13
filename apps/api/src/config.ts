@@ -41,8 +41,10 @@ const configSchema = z.object({
 export type Config = z.infer<typeof configSchema>;
 
 // Helper to convert empty strings to undefined
-const emptyToUndefined = (val: string | undefined) =>
-  val && val.trim() !== "" ? val : undefined;
+function emptyToUndefined(val: string | undefined): string | undefined {
+  if (!val || val.trim() === "") return undefined;
+  return val;
+}
 
 // Path for persisted auto-generated secrets
 const SECRETS_PATH = path.resolve(process.env.DATA_DIR || "./data", "secrets.json");
