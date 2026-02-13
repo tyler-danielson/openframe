@@ -21,6 +21,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Extract metadata
+        id: meta
+        run: |
+          # Extract version from tag if present (e.g., v1.0.0 -> 1.0.0)
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "is_tag=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_tag=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -40,6 +52,7 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}-api:latest
             ${{ env.IMAGE_PREFIX }}-api:${{ github.sha }}
+            ${{ steps.meta.outputs.is_tag == 'true' && format('{0}-api:{1}', env.IMAGE_PREFIX, steps.meta.outputs.version) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -52,6 +65,7 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}-web:latest
             ${{ env.IMAGE_PREFIX }}-web:${{ github.sha }}
+            ${{ steps.meta.outputs.is_tag == 'true' && format('{0}-web:{1}', env.IMAGE_PREFIX, steps.meta.outputs.version) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -64,5 +78,6 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}-bot:latest
             ${{ env.IMAGE_PREFIX }}-bot:${{ github.sha }}
+            ${{ steps.meta.outputs.is_tag == 'true' && format('{0}-bot:{1}', env.IMAGE_PREFIX, steps.meta.outputs.version) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
