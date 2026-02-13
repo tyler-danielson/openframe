@@ -1,6 +1,14 @@
 -- Add automation trigger and action type enums
-CREATE TYPE automation_trigger_type AS ENUM ('time', 'state', 'duration');
-CREATE TYPE automation_action_type AS ENUM ('service_call', 'notification');
+DO $$ BEGIN
+    CREATE TYPE automation_trigger_type AS ENUM ('time', 'state', 'duration');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+DO $$ BEGIN
+    CREATE TYPE automation_action_type AS ENUM ('service_call', 'notification');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- Create ha_automations table
 CREATE TABLE ha_automations (

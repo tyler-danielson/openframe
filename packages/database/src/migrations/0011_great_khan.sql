@@ -1,8 +1,28 @@
-CREATE TYPE "public"."automation_action_type" AS ENUM('service_call', 'notification');--> statement-breakpoint
-CREATE TYPE "public"."automation_trigger_type" AS ENUM('time', 'state', 'duration');--> statement-breakpoint
-CREATE TYPE "public"."game_status" AS ENUM('scheduled', 'in_progress', 'halftime', 'final', 'postponed', 'cancelled');--> statement-breakpoint
-CREATE TYPE "public"."ha_timer_action" AS ENUM('turn_on', 'turn_off');--> statement-breakpoint
-CREATE TYPE "public"."sports_provider" AS ENUM('espn');--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."automation_action_type" AS ENUM('service_call', 'notification');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."automation_trigger_type" AS ENUM('time', 'state', 'duration');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."game_status" AS ENUM('scheduled', 'in_progress', 'halftime', 'final', 'postponed', 'cancelled');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."ha_timer_action" AS ENUM('turn_on', 'turn_off');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."sports_provider" AS ENUM('espn');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
 ALTER TYPE "public"."calendar_provider" ADD VALUE 'ics';--> statement-breakpoint
 ALTER TYPE "public"."calendar_provider" ADD VALUE 'sports';--> statement-breakpoint
 ALTER TYPE "public"."calendar_provider" ADD VALUE 'homeassistant';--> statement-breakpoint
@@ -354,6 +374,10 @@ CREATE INDEX IF NOT EXISTS "telegram_chats_chat_idx" ON "telegram_chats" USING b
 ALTER TABLE "public"."kiosk_config" ALTER COLUMN "screensaver_layout" SET DATA TYPE text;--> statement-breakpoint
 ALTER TABLE "public"."kiosks" ALTER COLUMN "screensaver_layout" SET DATA TYPE text;--> statement-breakpoint
 DROP TYPE "public"."screensaver_layout";--> statement-breakpoint
-CREATE TYPE "public"."screensaver_layout" AS ENUM('fullscreen', 'informational', 'quad', 'scatter', 'builder');--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."screensaver_layout" AS ENUM('fullscreen', 'informational', 'quad', 'scatter', 'builder');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
 ALTER TABLE "public"."kiosk_config" ALTER COLUMN "screensaver_layout" SET DATA TYPE "public"."screensaver_layout" USING "screensaver_layout"::"public"."screensaver_layout";--> statement-breakpoint
 ALTER TABLE "public"."kiosks" ALTER COLUMN "screensaver_layout" SET DATA TYPE "public"."screensaver_layout" USING "screensaver_layout"::"public"."screensaver_layout";

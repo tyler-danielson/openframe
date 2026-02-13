@@ -1,7 +1,23 @@
-CREATE TYPE "public"."calendar_provider" AS ENUM('google', 'microsoft', 'caldav');--> statement-breakpoint
-CREATE TYPE "public"."event_status" AS ENUM('confirmed', 'tentative', 'cancelled');--> statement-breakpoint
-CREATE TYPE "public"."oauth_provider" AS ENUM('google', 'microsoft');--> statement-breakpoint
-CREATE TYPE "public"."task_status" AS ENUM('needsAction', 'completed');--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."calendar_provider" AS ENUM('google', 'microsoft', 'caldav');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."event_status" AS ENUM('confirmed', 'tentative', 'cancelled');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."oauth_provider" AS ENUM('google', 'microsoft');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."task_status" AS ENUM('needsAction', 'completed');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "api_keys" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,

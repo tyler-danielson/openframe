@@ -1,18 +1,26 @@
 -- Template type enum
-CREATE TYPE remarkable_template_type AS ENUM (
-    'weekly_planner',
-    'habit_tracker',
-    'custom_agenda',
-    'user_designed'
-);
+DO $$ BEGIN
+    CREATE TYPE remarkable_template_type AS ENUM (
+        'weekly_planner',
+        'habit_tracker',
+        'custom_agenda',
+        'user_designed'
+    );
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- Schedule type enum
-CREATE TYPE remarkable_schedule_type AS ENUM (
-    'daily',
-    'weekly',
-    'monthly',
-    'manual'
-);
+DO $$ BEGIN
+    CREATE TYPE remarkable_schedule_type AS ENUM (
+        'daily',
+        'weekly',
+        'monthly',
+        'manual'
+    );
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- reMarkable Templates - stores template configurations
 CREATE TABLE remarkable_templates (
