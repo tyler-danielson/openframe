@@ -14,13 +14,22 @@ CREATE TABLE IF NOT EXISTS "home_assistant_rooms" (
 -- Create index for user lookup
 CREATE INDEX IF NOT EXISTS "ha_rooms_user_idx" ON "home_assistant_rooms" ("user_id");
 
--- Add room_id column to home_assistant_entities table
-ALTER TABLE "home_assistant_entities" ADD COLUMN IF NOT EXISTS "room_id" uuid;
-
--- Add foreign key constraint for room_id
-ALTER TABLE "home_assistant_entities"
-ADD CONSTRAINT "ha_entities_room_id_fk"
-FOREIGN KEY ("room_id") REFERENCES "home_assistant_rooms"("id") ON DELETE SET NULL ON UPDATE NO ACTION;
-
--- Create index for room lookup
-CREATE INDEX IF NOT EXISTS "ha_entities_room_idx" ON "home_assistant_entities" ("room_id");
+-- Add room_id column to home_assistant_entities table (only if table exists)
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'home_assistant_entities') THEN
+        ALTER TABLE "home_assistant_entities" ADD COLUMN IF NOT EXISTS "room_id" uuid;
+        
+        -- Add foreign key constraint for room_id if it doesn't exist
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'ha_entities_room_id_fk'
+        ) THEN
+            ALTER TABLE "home_assistant_entities"
+            ADD CONSTRAINT "ha_entities_room_id_fk"
+            FOREIGN KEY ("room_id") REFERENCES "home_assistant_rooms"("id") ON DELETE SET NULL ON UPDATE NO ACTION;
+        END IF;
+        
+        -- Create index for room lookup
+        CREATE INDEX IF NOT EXISTS "ha_entities_room_idx" ON "home_assistant_entities" ("room_id");
+    END IF;
+END $$;
