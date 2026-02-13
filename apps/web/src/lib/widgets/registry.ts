@@ -305,11 +305,14 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
     minSize: { width: 2, height: 2 },
     maxSize: { width: 99, height: 99 },
     defaultConfig: {
-      showZones: true,
       showDeviceNames: true,
       darkMode: true,
       autoFitBounds: true,
       showLastUpdated: false,
+      showEta: false,
+      selectedDevices: [],
+      selectedZones: [],
+      deviceIcons: {},
     },
   },
   iptv: {

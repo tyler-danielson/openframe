@@ -101,7 +101,7 @@ function KioskApp() {
   const navigate = useNavigate();
   const hasAttemptedFullscreen = useRef(false);
   const [showFullscreenPrompt, setShowFullscreenPrompt] = useState(false);
-  const [showControls, setShowControls] = useState(true);
+  const [showControls, setShowControls] = useState(displayType === "tv");
   const setScreensaverActive = useScreensaverStore((s) => s.setActive);
   const screensaverIsActive = useScreensaverStore((s) => s.isActive);
   const screensaverBehavior = useScreensaverStore((s) => s.behavior);

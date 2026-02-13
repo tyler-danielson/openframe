@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <defs>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#D4B88C"/>
+      <stop offset="50%" stop-color="#C4A77D"/>
+      <stop offset="100%" stop-color="#A8896A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Outer frame -->
+  <rect x="8" y="8" width="84" height="84" rx="16" ry="16"
+        stroke="url(#gold)" stroke-width="4.5" fill="none"/>
+
+  <!-- Inner frame -->
+  <rect x="24" y="24" width="52" height="52" rx="10" ry="10"
+        stroke="url(#gold)" stroke-width="3.5" fill="none"/>
+
+  <!-- Corner accents — the "open" brackets -->
+  <line x1="36" y1="40" x2="36" y2="33" stroke="#C4A77D" stroke-width="3" stroke-linecap="round"/>
+  <line x1="36" y1="33" x2="43" y2="33" stroke="#C4A77D" stroke-width="3" stroke-linecap="round"/>
+
+  <line x1="64" y1="33" x2="64" y2="40" stroke="#C4A77D" stroke-width="3" stroke-linecap="round"/>
+  <line x1="57" y1="33" x2="64" y2="33" stroke="#C4A77D" stroke-width="3" stroke-linecap="round"/>
+
+  <line x1="36" y1="60" x2="36" y2="67" stroke="#C4A77D" stroke-width="3" stroke-linecap="round"/>
+  <line x1="36" y1="67" x2="43" y2="67" stroke="#C4A77D" stroke-width="3" stroke-linecap="round"/>
+
+  <line x1="64" y1="67" x2="64" y2="60" stroke="#C4A77D" stroke-width="3" stroke-linecap="round"/>
+  <line x1="57" y1="67" x2="64" y2="67" stroke="#C4A77D" stroke-width="3" stroke-linecap="round"/>
+</svg>

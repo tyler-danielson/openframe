@@ -543,21 +543,21 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
             const key = format(day, "yyyy-MM-dd");
             const dayAllDay = allDayEventsByDay.get(key) ?? [];
             return (
-              <div key={key} className="flex-1 px-0.5 space-y-0.5">
+              <div key={key} className="flex-1 min-w-0 px-0.5 space-y-0.5 overflow-hidden">
                 {dayAllDay.map((event: CalendarEvent) => {
                   const calendar = calendars.find((c: Calendar) => c.id === event.calendarId);
                   const color = calendar?.color ?? "#3B82F6";
                   return (
                     <div
                       key={event.id}
-                      className="rounded px-1 py-0.5 truncate"
+                      className="rounded px-1 py-0.5 overflow-hidden"
                       style={{
                         backgroundColor: `${color}30`,
                         borderLeft: `2px solid ${color}`,
                       }}
                     >
                       <span
-                        className={cn(sizeClasses?.event || "text-[10px]", "font-medium leading-tight")}
+                        className={cn(sizeClasses?.event || "text-[10px]", "block truncate font-medium leading-tight")}
                         style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.event) } : undefined}
                       >
                         {event.title}
