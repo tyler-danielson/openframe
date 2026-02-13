@@ -8,6 +8,7 @@ interface ForecastWidgetProps {
   config: Record<string, unknown>;
   style?: WidgetStyle;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
 const getWeatherIcon = (iconCode: string): string => {

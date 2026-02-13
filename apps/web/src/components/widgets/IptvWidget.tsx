@@ -1,17 +1,19 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Hls from "hls.js";
 import { Tv, Volume2, VolumeX, ChevronDown, Star, Clock, AlertCircle, Loader2 } from "lucide-react";
 import { api } from "../../services/api";
 import type { WidgetStyle } from "../../stores/screensaver";
+import { useBlockControls } from "../../hooks/useBlockControls";
 
 interface IptvWidgetProps {
   config: Record<string, unknown>;
   style?: WidgetStyle;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
-export function IptvWidget({ config, isBuilder }: IptvWidgetProps) {
+export function IptvWidget({ config, isBuilder, widgetId }: IptvWidgetProps) {
   const channelId = config.channelId as string ?? "";
   const showControls = config.showControls as boolean ?? true;
   const autoPlay = config.autoPlay as boolean ?? true;
@@ -149,6 +151,46 @@ export function IptvWidget({ config, isBuilder }: IptvWidgetProps) {
     // Record the watch in history
     api.recordIptvWatch(newChannelId).catch(() => {});
   }, []);
+
+  // TV block navigation controls
+  const blockControls = useMemo(() => {
+    if (isBuilder || !widgetId) return null;
+    const favs = favorites || [];
+    const allChannels = [...favs, ...(history || []).filter((h) => !favs.some((f) => f.id === h.id))];
+
+    const currentIdx = allChannels.findIndex((ch) => ch.id === activeChannelId);
+
+    return {
+      actions: [
+        {
+          key: "up",
+          label: "Channel Up",
+          action: () => {
+            if (allChannels.length === 0) return;
+            const nextIdx = currentIdx <= 0 ? allChannels.length - 1 : currentIdx - 1;
+            const ch = allChannels[nextIdx];
+            if (ch) handleChannelSwitch(ch.id);
+          },
+        },
+        {
+          key: "down",
+          label: "Channel Down",
+          action: () => {
+            if (allChannels.length === 0) return;
+            const nextIdx = (currentIdx + 1) % allChannels.length;
+            const ch = allChannels[nextIdx];
+            if (ch) handleChannelSwitch(ch.id);
+          },
+        },
+        {
+          key: "enter",
+          label: isMuted ? "Unmute" : "Mute",
+          action: () => setIsMuted((m) => !m),
+        },
+      ],
+    };
+  }, [isBuilder, widgetId, favorites, history, activeChannelId, isMuted, handleChannelSwitch]);
+  useBlockControls(widgetId, blockControls);
 
   // Builder preview - static placeholder
   if (isBuilder) {

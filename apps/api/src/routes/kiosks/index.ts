@@ -279,6 +279,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
               enum: ["fade", "slide-left", "slide-right", "slide-up", "slide-down", "zoom"],
             },
             screensaverLayoutConfig: { type: "object" },
+            screensaverBehavior: { type: "string", enum: ["screensaver", "hide-toolbar"] },
             startFullscreen: { type: "boolean" },
           },
         },
@@ -306,6 +307,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         screensaverLayout?: string;
         screensaverTransition?: string;
         screensaverLayoutConfig?: Record<string, unknown>;
+        screensaverBehavior?: string;
         startFullscreen?: boolean;
       };
 
@@ -324,6 +326,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       if (body.screensaverLayout !== undefined) updates.screensaverLayout = body.screensaverLayout;
       if (body.screensaverTransition !== undefined) updates.screensaverTransition = body.screensaverTransition;
       if (body.screensaverLayoutConfig !== undefined) updates.screensaverLayoutConfig = body.screensaverLayoutConfig;
+      if (body.screensaverBehavior !== undefined) updates.screensaverBehavior = body.screensaverBehavior;
       if (body.startFullscreen !== undefined) updates.startFullscreen = body.startFullscreen;
 
       const [kiosk] = await fastify.db

@@ -26,6 +26,7 @@ import { CalendarAccountsList } from "../components/settings/CalendarAccountsLis
 import { CalendarListForAccount } from "../components/settings/CalendarListForAccount";
 import { AddAccountModal } from "../components/settings/AddAccountModal";
 import { HACalendarModal } from "../components/settings/HACalendarModal";
+import { SupportButton } from "../components/settings/SupportButton";
 import { HandwritingCanvas } from "../components/ui/HandwritingCanvas";
 import type { CalendarProvider } from "@openframe/shared";
 import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings } from "@openframe/shared";
@@ -111,9 +112,7 @@ const COMPOSITE_WIDGET_INFO: Record<CompositeWidgetId, {
     label: "Media", icon: "🎵", description: "Now playing",
     subItems: [{ id: "spotify", label: "Spotify" }],
   },
-  controls: {
-    label: "Controls", icon: "🎛️", description: "Device controls",
-  },
+  controls: { label: "TV Controls", icon: "🎮", description: "Remote control reference" },
 };
 
 // Sortable widget card component
@@ -1049,6 +1048,14 @@ function KioskSettings() {
     queryFn: () => api.getMyKioskStatus(),
   });
 
+  // Fetch server config to get configured frontend URL
+  const { data: serverConfig } = useQuery({
+    queryKey: ["server-config"],
+    queryFn: () => api.getServerConfig(),
+    staleTime: Infinity,
+  });
+  const frontendUrl = serverConfig?.frontendUrl || window.location.origin;
+
   const enableKiosk = useMutation({
     mutationFn: () => api.enableKiosk(),
     onSuccess: () => {
@@ -1128,7 +1135,7 @@ function KioskSettings() {
                   Any device on your local network can now access your calendar at this URL:
                 </p>
                 <code className="mt-2 block rounded bg-white px-3 py-2 text-sm font-mono font-semibold text-gray-900 border border-green-200 dark:bg-gray-900 dark:text-gray-100 dark:border-green-700">
-                  {window.location.origin}
+                  {frontendUrl}
                 </code>
                 <p className="mt-2 text-sm text-green-700 dark:text-green-300">
                   They will have full access to view and create/edit events.
@@ -1209,7 +1216,7 @@ const HOME_PAGE_OPTIONS = [
   { value: "cameras", label: "Cameras" },
   { value: "homeassistant", label: "Home Assistant" },
   { value: "map", label: "Map" },
-  { value: "recipes", label: "Recipes" },
+  { value: "kitchen", label: "Kitchen" },
   { value: "screensaver", label: "Screensaver" },
 ];
 
@@ -1224,7 +1231,7 @@ const FEATURE_OPTIONS: { key: keyof KioskEnabledFeatures; label: string; icon: R
   { key: "cameras", label: "Cameras", icon: <Video className="h-4 w-4" /> },
   { key: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" /> },
   { key: "map", label: "Map", icon: <MapPin className="h-4 w-4" /> },
-  { key: "recipes", label: "Recipes", icon: <Settings className="h-4 w-4" /> },
+  { key: "kitchen", label: "Kitchen", icon: <Settings className="h-4 w-4" /> },
   { key: "screensaver", label: "Screensaver", icon: <Monitor className="h-4 w-4" /> },
 ];
 
@@ -1243,6 +1250,14 @@ function KiosksSettings() {
     queryKey: ["kiosks"],
     queryFn: () => api.getKiosks(),
   });
+
+  // Fetch server config to get configured frontend URL for kiosk URLs
+  const { data: serverConfig } = useQuery({
+    queryKey: ["server-config"],
+    queryFn: () => api.getServerConfig(),
+    staleTime: Infinity,
+  });
+  const frontendUrl = serverConfig?.frontendUrl || window.location.origin;
 
   // Pending TV devices (remote push setup)
   const { data: pendingDevices = [] } = useQuery({
@@ -1304,7 +1319,7 @@ function KiosksSettings() {
   });
 
   const handleCopyUrl = async (token: string) => {
-    const url = `${window.location.origin}/kiosk/${token}`;
+    const url = `${frontendUrl}/kiosk/${token}`;
     await navigator.clipboard.writeText(url);
     setCopiedToken(token);
     setTimeout(() => setCopiedToken(null), 2000);
@@ -1571,7 +1586,7 @@ function KiosksSettings() {
                           </div>
                           <div className="mt-2 flex items-center gap-2 ml-5">
                             <code className="text-xs bg-muted px-2 py-1 rounded font-mono truncate max-w-md">
-                              {window.location.origin}/kiosk/{kiosk.token}
+                              {frontendUrl}/kiosk/{kiosk.token}
                             </code>
                             <button
                               type="button"
@@ -1752,6 +1767,105 @@ function KiosksSettings() {
                                 <p className="text-xs text-muted-foreground mt-0.5">Automatically enter fullscreen mode when kiosk loads</p>
                               </div>
                             </label>
+                          </div>
+
+                          {/* Screensaver & Idle */}
+                          <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
+                            <label className="text-xs font-semibold text-primary uppercase tracking-wide">Screensaver & Idle</label>
+                            <div className="mt-2 space-y-3">
+                              {/* Screensaver Enabled */}
+                              <label className="flex items-center gap-3 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={kiosk.screensaverEnabled ?? true}
+                                  onChange={(e) => updateKiosk.mutate({
+                                    id: kiosk.id,
+                                    data: { screensaverEnabled: e.target.checked }
+                                  })}
+                                  className="rounded border-primary/30 h-4 w-4"
+                                />
+                                <div>
+                                  <span className="text-xs font-medium text-foreground">Screensaver Enabled</span>
+                                  <p className="text-xs text-muted-foreground mt-0.5">Activate idle behavior after timeout</p>
+                                </div>
+                              </label>
+
+                              {(kiosk.screensaverEnabled ?? true) && (
+                                <>
+                                  {/* Idle Behavior */}
+                                  <div>
+                                    <label className="text-xs font-medium text-foreground block mb-1">Idle Behavior</label>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => updateKiosk.mutate({
+                                          id: kiosk.id,
+                                          data: { screensaverBehavior: "screensaver" }
+                                        })}
+                                        className={`text-left px-3 py-2 rounded-lg border-2 transition-all text-xs ${
+                                          (kiosk.screensaverBehavior || "screensaver") === "screensaver"
+                                            ? "border-primary bg-primary/10"
+                                            : "border-border hover:border-primary/40"
+                                        }`}
+                                      >
+                                        <div className="font-medium text-foreground">Custom Screensaver</div>
+                                        <div className="text-muted-foreground mt-0.5">Show custom photo/widget screensaver overlay</div>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => updateKiosk.mutate({
+                                          id: kiosk.id,
+                                          data: { screensaverBehavior: "hide-toolbar" }
+                                        })}
+                                        className={`text-left px-3 py-2 rounded-lg border-2 transition-all text-xs ${
+                                          kiosk.screensaverBehavior === "hide-toolbar"
+                                            ? "border-primary bg-primary/10"
+                                            : "border-border hover:border-primary/40"
+                                        }`}
+                                      >
+                                        <div className="font-medium text-foreground">Hide Toolbar Only</div>
+                                        <div className="text-muted-foreground mt-0.5">Hide sidebar after idle to prevent burn-in; page stays visible</div>
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* Idle Timeout */}
+                                  <div>
+                                    <label className="text-xs font-medium text-foreground block mb-1">
+                                      Idle Timeout: {Math.floor((kiosk.screensaverTimeout ?? 300) / 60)} min {(kiosk.screensaverTimeout ?? 300) % 60 > 0 ? `${(kiosk.screensaverTimeout ?? 300) % 60}s` : ""}
+                                    </label>
+                                    <input
+                                      type="range"
+                                      min={30}
+                                      max={3600}
+                                      step={30}
+                                      value={kiosk.screensaverTimeout ?? 300}
+                                      onChange={(e) => updateKiosk.mutate({
+                                        id: kiosk.id,
+                                        data: { screensaverTimeout: parseInt(e.target.value) }
+                                      })}
+                                      className="w-full accent-primary"
+                                    />
+                                    <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+                                      <span>30s</span>
+                                      <span>60 min</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Edit Screensaver Layout link (only for full screensaver behavior) */}
+                                  {(kiosk.screensaverBehavior || "screensaver") === "screensaver" && (
+                                    <Link
+                                      to={`/settings/screensaver-builder?kioskId=${kiosk.id}`}
+                                      className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors"
+                                    >
+                                      <Palette className="h-3.5 w-3.5" />
+                                      Edit Screensaver Layout
+                                      <ChevronRight className="h-3 w-3" />
+                                    </Link>
+                                  )}
+                                </>
+                              )}
+                            </div>
                           </div>
 
                           {/* Calendar Selection */}
@@ -1952,7 +2066,7 @@ function KiosksSettings() {
               <div className="flex flex-col items-center gap-4">
                 <div className="bg-white p-4 rounded-lg">
                   <QRCodeSVG
-                    value={`${window.location.origin}/kiosk/${showQrKiosk.token}`}
+                    value={`${frontendUrl}/kiosk/${showQrKiosk.token}`}
                     size={200}
                     level="M"
                   />
@@ -7627,7 +7741,7 @@ export function SettingsPage() {
   const logout = useAuthStore((state) => state.logout);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col relative">
       {/* Login Status Banner */}
       {(() => {
         const hasValidSession = isAuthenticated && user?.email;
@@ -8918,6 +9032,7 @@ export function SettingsPage() {
           )}
         </div>
       </div>
+      <SupportButton />
     </div>
   );
 }

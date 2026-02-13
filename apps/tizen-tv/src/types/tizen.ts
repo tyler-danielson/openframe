@@ -78,6 +78,8 @@ export const TIZEN_KEY_NAMES = [
   "9",
   "Info",
   "Guide",
+  "ChannelUp",
+  "ChannelDown",
 ] as const;
 
 export type TizenKeyCode = (typeof TIZEN_KEY_CODES)[keyof typeof TIZEN_KEY_CODES];

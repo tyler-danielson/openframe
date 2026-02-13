@@ -30,6 +30,7 @@ import { api, type KioskEnabledFeatures, type KioskDisplayType } from "../../ser
 import { useAuthStore } from "../../stores/auth";
 import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import { useScreensaverStore } from "../../stores/screensaver";
+import { useBlockNavStore, type NavigableBlock } from "../../stores/block-nav";
 import { cn } from "../../lib/utils";
 
 interface LayoutProps {
@@ -167,6 +168,11 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
   // Helper to check if a feature is enabled
   const isFeatureEnabled = useCallback((feature: keyof KioskEnabledFeatures) => {
     if (!kioskEnabledFeatures) return true; // No restrictions
+    // Backward compat: "kitchen" also checks legacy "recipes" key
+    if (feature === "kitchen" as any) {
+      return kioskEnabledFeatures["kitchen" as keyof KioskEnabledFeatures] !== false
+        || kioskEnabledFeatures["recipes" as keyof KioskEnabledFeatures] !== false;
+    }
     return kioskEnabledFeatures[feature] !== false;
   }, [kioskEnabledFeatures]);
 
@@ -182,8 +188,8 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
       { to: buildPath("multiview"), icon: LayoutGrid, label: "Multi-View", feature: "multiview" as const },
       { to: buildPath("homeassistant"), icon: Home, label: "Home Assistant", feature: "homeassistant" as const },
       { to: buildPath("map"), icon: MapPin, label: "Map", feature: "map" as const },
-      { to: buildPath("recipes"), icon: ChefHat, label: "Recipes", feature: "recipes" as const },
-      { to: buildPath("screensaver"), icon: Monitor, label: "Screensaver", feature: "screensaver" as const },
+      { to: buildPath("kitchen"), icon: ChefHat, label: "Kitchen", feature: "kitchen" as const },
+      { to: buildPath("screensaver"), icon: Monitor, label: "Custom", feature: "screensaver" as const },
     ];
 
     // Filter items based on enabled features (only if kioskEnabledFeatures is provided)
@@ -219,15 +225,67 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
     });
   }, [mediaItems, kioskEnabledFeatures, isFeatureEnabled]);
 
-  // Display-only mode: hide sidebar entirely
+  // Screensaver behavior: hide toolbar when idle (smooth slide)
+  const screensaverActive = useScreensaverStore((s) => s.isActive);
+  const screensaverBehavior = useScreensaverStore((s) => s.behavior);
+  const hideToolbarForBurnIn = screensaverActive && screensaverBehavior === "hide-toolbar";
+
+  // Display-only mode: hide sidebar entirely (hard remove from DOM)
   const hideNav = kioskDisplayType === "display";
   // TV mode: larger nav items with focus rings for D-pad navigation
   const isTvMode = kioskDisplayType === "tv";
 
+  // Block navigation for TV sidebar
+  const blockNavMode = useBlockNavStore((s) => s.mode);
+  const focusedBlockId = useBlockNavStore((s) => s.focusedBlockId);
+  const registerBlocks = useBlockNavStore((s) => s.registerBlocks);
+  const clearBlocks = useBlockNavStore((s) => s.clearBlocks);
+
+  // Register sidebar nav items as navigable blocks (at x=-1, left of page content)
+  useEffect(() => {
+    if (!isTvMode || hideNav) return;
+
+    // Build sidebar blocks from visible nav items
+    const sidebarBlocks: NavigableBlock[] = navItems.map((item, index) => ({
+      id: `nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`,
+      group: "nav",
+      x: -1,
+      y: index,
+      width: 1,
+      height: 1,
+      label: item.label,
+      instantAction: () => navigate(item.to),
+    }));
+
+    registerBlocks(sidebarBlocks, "nav");
+    return () => clearBlocks("nav");
+  }, [isTvMode, hideNav, navItems, navigate, registerBlocks, clearBlocks]);
+
+  // Helper to get block nav focus classes for a sidebar item
+  const getNavBlockClasses = (itemLabel: string) => {
+    if (blockNavMode === "idle") return "";
+    const blockId = `nav-${itemLabel.toLowerCase().replace(/\s+/g, "-")}`;
+    const isFocused = focusedBlockId === blockId;
+    if (blockNavMode === "selecting" && isFocused) {
+      return "ring-3 ring-primary/80 shadow-[0_0_20px_hsl(var(--primary)/0.4)] scale-110";
+    }
+    if (blockNavMode === "controlling" && !isFocused) {
+      return "opacity-30";
+    }
+    return "";
+  };
+
+  // Check if a sidebar item is focused (for showing label tooltip)
+  const isNavItemFocused = (itemLabel: string) => {
+    if (blockNavMode !== "selecting") return false;
+    const blockId = `nav-${itemLabel.toLowerCase().replace(/\s+/g, "-")}`;
+    return focusedBlockId === blockId;
+  };
+
   return (
     <div className="flex h-screen bg-background">
       {/* Mobile Menu Button */}
-      {!hideNav && (
+      {!hideNav && !hideToolbarForBurnIn && (
       <button
         onClick={() => setIsMobileSidebarOpen(true)}
         className="lg:hidden fixed top-4 left-4 z-40 p-3 rounded-lg bg-card border border-border min-h-[44px] min-w-[44px] flex items-center justify-center"
@@ -248,8 +306,10 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
       {/* Sidebar */}
       {!hideNav && <aside
         className={cn(
-          "fixed lg:relative z-50 lg:z-auto h-full flex w-16 flex-col items-center border-r border-border bg-card py-4 transform transition-transform lg:transform-none",
-          isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+          "fixed lg:relative z-50 lg:z-auto h-full flex w-16 flex-col items-center border-r border-border bg-card py-4 transform transition-transform duration-500 ease-in-out",
+          hideToolbarForBurnIn
+            ? "-translate-x-full"
+            : isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
       >
         {/* Mobile Close Button */}
@@ -264,24 +324,31 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
         <nav className={cn("flex flex-1 flex-col items-center", isTvMode ? "gap-3" : "gap-2")}>
           {/* First 4 nav items (before media) */}
           {navItems.filter(item => ["Calendar", "Tasks", "Dashboard", "Photos"].includes(item.label)).map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              tabIndex={isTvMode ? 0 : undefined}
-              onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); }}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center justify-center rounded-lg transition-colors",
-                  isTvMode ? "h-12 w-12 focus:outline-none focus:ring-2 focus:ring-primary/50" : "h-10 w-10",
-                  isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                )
-              }
-              title={item.label}
-            >
-              <item.icon className={isTvMode ? "h-6 w-6" : "h-5 w-5"} />
-            </NavLink>
+            <div key={item.to} className="relative">
+              <NavLink
+                to={item.to}
+                tabIndex={isTvMode ? 0 : undefined}
+                onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); }}
+                className={({ isActive }) =>
+                  cn(
+                    "flex items-center justify-center rounded-lg transition-all duration-200",
+                    isTvMode ? "h-12 w-12 focus:outline-none focus:ring-2 focus:ring-primary/50" : "h-10 w-10",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    isTvMode && getNavBlockClasses(item.label)
+                  )
+                }
+                title={item.label}
+              >
+                <item.icon className={isTvMode ? "h-6 w-6" : "h-5 w-5"} />
+              </NavLink>
+              {isTvMode && isNavItemFocused(item.label) && (
+                <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 bg-black/90 text-white text-sm px-3 py-1.5 rounded-lg whitespace-nowrap z-50 pointer-events-none border border-primary/30">
+                  {item.label}
+                </div>
+              )}
+            </div>
           ))}
 
           {/* Media button with submenu - only show if media features are enabled */}
@@ -304,24 +371,31 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
 
           {/* Remaining nav items (after media) */}
           {navItems.filter(item => !["Calendar", "Tasks", "Dashboard", "Photos"].includes(item.label)).map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              tabIndex={isTvMode ? 0 : undefined}
-              onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); }}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center justify-center rounded-lg transition-colors",
-                  isTvMode ? "h-12 w-12 focus:outline-none focus:ring-2 focus:ring-primary/50" : "h-10 w-10",
-                  isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                )
-              }
-              title={item.label}
-            >
-              <item.icon className={isTvMode ? "h-6 w-6" : "h-5 w-5"} />
-            </NavLink>
+            <div key={item.to} className="relative">
+              <NavLink
+                to={item.to}
+                tabIndex={isTvMode ? 0 : undefined}
+                onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); }}
+                className={({ isActive }) =>
+                  cn(
+                    "flex items-center justify-center rounded-lg transition-all duration-200",
+                    isTvMode ? "h-12 w-12 focus:outline-none focus:ring-2 focus:ring-primary/50" : "h-10 w-10",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    isTvMode && getNavBlockClasses(item.label)
+                  )
+                }
+                title={item.label}
+              >
+                <item.icon className={isTvMode ? "h-6 w-6" : "h-5 w-5"} />
+              </NavLink>
+              {isTvMode && isNavItemFocused(item.label) && (
+                <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 bg-black/90 text-white text-sm px-3 py-1.5 rounded-lg whitespace-nowrap z-50 pointer-events-none border border-primary/30">
+                  {item.label}
+                </div>
+              )}
+            </div>
           ))}
         </nav>
 
@@ -388,7 +462,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
       </aside>}
 
       {/* Media Submenu - appears to the right of sidebar */}
-      {!hideNav && isMediaMenuOpen && showMedia && (
+      {!hideNav && !hideToolbarForBurnIn && isMediaMenuOpen && showMedia && (
         <aside className="fixed lg:relative z-40 lg:z-auto h-full flex w-16 flex-col items-center border-r border-border bg-card/95 backdrop-blur-sm py-4 left-16 lg:left-auto">
           <div className="flex flex-col items-center gap-2 mt-[72px]">
             {filteredMediaItems.map((item) => (

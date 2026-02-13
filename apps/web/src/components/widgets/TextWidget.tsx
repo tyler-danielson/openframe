@@ -6,6 +6,7 @@ interface TextWidgetProps {
   config: Record<string, unknown>;
   style?: WidgetStyle;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
 // Font size presets mapping to Tailwind classes

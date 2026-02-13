@@ -1,0 +1,1 @@
+ALTER TABLE "kiosks" ADD COLUMN "screensaver_behavior" text DEFAULT 'screensaver' NOT NULL;

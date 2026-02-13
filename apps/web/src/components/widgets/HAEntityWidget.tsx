@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Zap } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../services/api";
@@ -5,11 +6,13 @@ import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import { cn } from "../../lib/utils";
+import { useBlockControls } from "../../hooks/useBlockControls";
 
 interface HAEntityWidgetProps {
   config: Record<string, unknown>;
   style?: WidgetStyle;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
 const FONT_SIZE_CLASSES: Record<Exclude<FontSizePreset, "custom">, { name: string; state: string; icon: string }> = {
@@ -27,7 +30,7 @@ const CUSTOM_SCALE = {
   icon: 1.25,
 };
 
-export function HAEntityWidget({ config, style, isBuilder }: HAEntityWidgetProps) {
+export function HAEntityWidget({ config, style, isBuilder, widgetId }: HAEntityWidgetProps) {
   const entityId = config.entityId as string ?? "";
   const showIcon = config.showIcon as boolean ?? true;
   const showName = config.showName as boolean ?? true;
@@ -48,6 +51,26 @@ export function HAEntityWidget({ config, style, isBuilder }: HAEntityWidgetProps
   });
 
   const entity = connected && wsEntity ? wsEntity : restEntity;
+
+  // TV block navigation controls — toggle entity on/off
+  const { callService } = useHAWebSocket();
+  const blockControls = useMemo(() => {
+    if (isBuilder || !widgetId || !entityId) return null;
+    const domain = entityId.split(".")[0];
+    // Only togglable domains
+    const togglable = ["switch", "light", "input_boolean", "fan", "automation", "script", "scene", "lock", "cover"];
+    if (!domain || !togglable.includes(domain)) return null;
+    return {
+      actions: [
+        {
+          key: "enter",
+          label: "Toggle",
+          action: () => { callService("homeassistant", "toggle", { entity_id: entityId }).catch(() => {}); },
+        },
+      ],
+    };
+  }, [isBuilder, widgetId, entityId, callService]);
+  useBlockControls(widgetId, blockControls);
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
   const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset as Exclude<FontSizePreset, "custom">];

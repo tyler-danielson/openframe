@@ -27,13 +27,15 @@ import { SupportWidget } from "./SupportWidget";
 interface WidgetRendererProps {
   widget: WidgetInstance;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
-export function WidgetRenderer({ widget, isBuilder = false }: WidgetRendererProps) {
+export function WidgetRenderer({ widget, isBuilder = false, widgetId }: WidgetRendererProps) {
   const commonProps = {
     config: widget.config,
     style: widget.style,
     isBuilder,
+    widgetId,
   };
 
   switch (widget.type) {

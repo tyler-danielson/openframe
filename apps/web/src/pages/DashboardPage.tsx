@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, startOfDay, endOfDay } from "date-fns";
 import {
@@ -19,6 +19,9 @@ import { DashboardTasksWidget } from "../components/dashboard/DashboardTasksWidg
 import { LocationMap } from "../components/homeassistant/LocationMap";
 import { HeadlinesWidget } from "../components/news/HeadlinesWidget";
 import { useCalendarStore } from "../stores/calendar";
+import { useBlockNavStore, type NavigableBlock } from "../stores/block-nav";
+import { BlockNavOverlay } from "../components/BlockNavOverlay";
+import { useKiosk } from "../contexts/KioskContext";
 
 // Map OpenWeatherMap icon codes to Lucide icons
 const weatherIconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -98,6 +101,52 @@ export function DashboardPage() {
   // Weather forecast toggle state
   const [showForecast, setShowForecast] = useState(false);
 
+  // Block navigation for TV display
+  const { displayType } = useKiosk();
+  const blockNavMode = useBlockNavStore((s) => s.mode);
+  const focusedBlockId = useBlockNavStore((s) => s.focusedBlockId);
+  const blockCount = useBlockNavStore((s) => s.blocks.length);
+  const debugTrace = useBlockNavStore((s) => s._debug);
+  const registerBlocks = useBlockNavStore((s) => s.registerBlocks);
+  const clearBlocks = useBlockNavStore((s) => s.clearBlocks);
+
+  // Scroll refs for cards
+  const eventsScrollRef = useRef<HTMLDivElement>(null);
+  const tasksScrollRef = useRef<HTMLDivElement>(null);
+  const newsScrollRef = useRef<HTMLDivElement>(null);
+
+  // Register dashboard sections as navigable blocks
+  useEffect(() => {
+    if (displayType !== "tv") return;
+
+    const blocks: NavigableBlock[] = [
+      { id: "dash-clock", x: 0, y: 0, width: 1, height: 1, label: "Clock" },
+      { id: "dash-weather", x: 2, y: 0, width: 1, height: 1, label: "Weather" },
+      { id: "dash-events", x: 0, y: 1, width: 1, height: 2, label: "Events" },
+      { id: "dash-tasks", x: 1, y: 1, width: 1, height: 2, label: "Tasks" },
+      { id: "dash-locations", x: 2, y: 1, width: 1, height: 1, label: "Locations" },
+      { id: "dash-headlines", x: 2, y: 2, width: 1, height: 1, label: "Headlines" },
+    ];
+    registerBlocks(blocks, "page");
+    return () => clearBlocks("page");
+  }, [displayType, registerBlocks, clearBlocks]);
+
+  // Helper for block nav conditional classes
+  const getBlockNavClasses = (blockId: string) => {
+    if (blockNavMode === "idle") return "";
+    const isFocused = focusedBlockId === blockId;
+    if (blockNavMode === "selecting" && isFocused) {
+      return "ring-3 ring-primary/80 shadow-[0_0_20px_hsl(var(--primary)/0.4)] z-10";
+    }
+    if (blockNavMode === "controlling" && isFocused) {
+      return "ring-4 ring-primary z-10";
+    }
+    if (blockNavMode === "controlling" && !isFocused) {
+      return "opacity-30";
+    }
+    return "";
+  };
+
   const toggleForecast = useCallback(() => {
     setShowForecast((prev) => !prev);
   }, []);
@@ -130,15 +179,19 @@ export function DashboardPage() {
 
   return (
     <div className="flex h-full flex-col p-6">
+      {/* DEBUG: Block nav state indicator — remove after testing */}
+      <div className="fixed top-2 left-2 z-[9999] bg-black/80 text-white text-xs px-2 py-1 rounded font-mono">
+        BN: mode={blockNavMode} blocks={blockCount} dt={displayType} focused={focusedBlockId ?? "none"} | {debugTrace}
+      </div>
       {/* Header with clock and weather inline */}
       <div className="mb-6 flex items-start justify-between gap-6">
         {/* Clock on the left */}
-        <div className="flex-shrink-0">
+        <div className={`flex-shrink-0 transition-all duration-300 rounded-lg ${getBlockNavClasses("dash-clock")}`}>
           <ClockWidget />
         </div>
 
         {/* Weather on the right - expanded with forecast */}
-        <div className="flex-shrink-0">
+        <div className={`flex-shrink-0 transition-all duration-300 rounded-lg ${getBlockNavClasses("dash-weather")}`}>
           {weatherLoading ? (
             <div className="animate-pulse flex items-center gap-4">
               <div className="h-12 w-12 bg-muted rounded-full" />
@@ -227,11 +280,11 @@ export function DashboardPage() {
       {/* 3-column main content */}
       <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-6 min-h-0">
         {/* Column 1: Events */}
-        <Card className="flex flex-col min-h-0">
+        <Card className={`flex flex-col min-h-0 transition-all duration-300 ${getBlockNavClasses("dash-events")}`}>
           <CardHeader className="pb-2">
             <CardTitle>Today's Events</CardTitle>
           </CardHeader>
-          <CardContent className="flex-1 overflow-auto">
+          <CardContent ref={eventsScrollRef} className="flex-1 overflow-auto">
             {dashboardCalendarIds.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                 <p className="text-sm">No calendars enabled for dashboard</p>
@@ -276,11 +329,11 @@ export function DashboardPage() {
         </Card>
 
         {/* Column 2: Tasks */}
-        <Card className="flex flex-col min-h-0">
+        <Card className={`flex flex-col min-h-0 transition-all duration-300 ${getBlockNavClasses("dash-tasks")}`}>
           <CardHeader className="pb-2">
             <CardTitle>Today's Tasks</CardTitle>
           </CardHeader>
-          <CardContent className="flex-1 overflow-auto">
+          <CardContent ref={tasksScrollRef} className="flex-1 overflow-auto">
             <DashboardTasksWidget />
           </CardContent>
         </Card>
@@ -288,7 +341,7 @@ export function DashboardPage() {
         {/* Column 3: Map + News */}
         <div className="flex flex-col gap-6 min-h-0">
           {/* Family Locations Map */}
-          <Card className="flex flex-col flex-1 min-h-0">
+          <Card className={`flex flex-col flex-1 min-h-0 transition-all duration-300 ${getBlockNavClasses("dash-locations")}`}>
             <CardHeader className="pb-2">
               <CardTitle>Family Locations</CardTitle>
             </CardHeader>
@@ -298,11 +351,11 @@ export function DashboardPage() {
           </Card>
 
           {/* News/Headlines */}
-          <Card className="flex flex-col flex-1 min-h-0">
+          <Card className={`flex flex-col flex-1 min-h-0 transition-all duration-300 ${getBlockNavClasses("dash-headlines")}`}>
             <CardHeader className="pb-2">
               <CardTitle>Headlines</CardTitle>
             </CardHeader>
-            <CardContent className="flex-1 overflow-auto">
+            <CardContent ref={newsScrollRef} className="flex-1 overflow-auto">
               <HeadlinesWidget limit={8} />
             </CardContent>
           </Card>

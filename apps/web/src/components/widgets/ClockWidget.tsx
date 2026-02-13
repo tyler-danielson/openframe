@@ -7,6 +7,7 @@ interface ClockWidgetProps {
   config: Record<string, unknown>;
   style?: WidgetStyle;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
 // Font size classes for each preset (time and date elements)

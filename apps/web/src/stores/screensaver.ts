@@ -194,9 +194,12 @@ export const DEFAULT_COMPOSITE_CONFIGS: CompositeWidgetConfig[] = [
   { id: "controls", enabled: false, size: "medium", col: 2, row: 1, colSpan: 1, rowSpan: 1, subItems: { ...DEFAULT_SUB_ITEMS.controls } },
 ];
 
+export type ScreensaverBehavior = "screensaver" | "hide-toolbar";
+
 interface ScreensaverState {
   // Settings
   enabled: boolean;
+  behavior: ScreensaverBehavior;
   idleTimeout: number; // seconds before screensaver starts
   slideInterval: number; // seconds between slides
   layout: ScreensaverLayout;
@@ -234,6 +237,7 @@ interface ScreensaverState {
 
   // Actions
   setEnabled: (enabled: boolean) => void;
+  setBehavior: (behavior: ScreensaverBehavior) => void;
   setIdleTimeout: (timeout: number) => void;
   setSlideInterval: (interval: number) => void;
   setLayout: (layout: ScreensaverLayout) => void;
@@ -283,6 +287,7 @@ export const useScreensaverStore = create<ScreensaverState>()(
     (set, get) => ({
       // Settings (persisted)
       enabled: true,
+      behavior: "screensaver" as ScreensaverBehavior,
       idleTimeout: 300, // 5 minutes default
       slideInterval: 15, // 15 seconds default
       layout: "fullscreen",
@@ -320,6 +325,10 @@ export const useScreensaverStore = create<ScreensaverState>()(
 
       setEnabled: (enabled) => {
         set({ enabled });
+        get().saveToServer();
+      },
+      setBehavior: (behavior) => {
+        set({ behavior });
         get().saveToServer();
       },
       setIdleTimeout: (idleTimeout) => {
@@ -650,6 +659,7 @@ export const useScreensaverStore = create<ScreensaverState>()(
       version: 3, // Bump version for builder layout config
       partialize: (state) => ({
         enabled: state.enabled,
+        behavior: state.behavior,
         idleTimeout: state.idleTimeout,
         slideInterval: state.slideInterval,
         layout: state.layout,

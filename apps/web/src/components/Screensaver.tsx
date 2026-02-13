@@ -6,7 +6,9 @@ import { useScreensaverStore, type ScreensaverTransition, type ClockPosition, ty
 import { useAuthStore } from "../stores/auth";
 import { SportsTicker } from "./SportsTicker";
 import { WidgetRenderer } from "./widgets/WidgetRenderer";
+import { BlockNavOverlay } from "./BlockNavOverlay";
 import { isWidgetVisible } from "../lib/widget-visibility";
+import { useBlockNavStore, type NavigableBlock } from "../stores/block-nav";
 import type { SportsGame, CalendarEvent, Calendar, Task } from "@openframe/shared";
 
 // Orientation detection helpers
@@ -282,6 +284,38 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
   const isActive = alwaysActive || inline || storeIsActive;
 
   const kioskEnabled = useAuthStore((state) => state.kioskEnabled);
+
+  // Block navigation state for TV display
+  const blockNavMode = useBlockNavStore((s) => s.mode);
+  const focusedBlockId = useBlockNavStore((s) => s.focusedBlockId);
+  const registerBlocks = useBlockNavStore((s) => s.registerBlocks);
+  const clearBlocks = useBlockNavStore((s) => s.clearBlocks);
+
+  // Register builder widgets as navigable blocks when on TV display
+  useEffect(() => {
+    console.log("[BlockNav] Screensaver registration check:", { displayType, layout, isActive, widgetCount: layoutConfig?.widgets?.length });
+    if (displayType !== "tv" || layout !== "builder" || !isActive) {
+      // Only clear blocks if we previously registered them (don't clobber dashboard blocks)
+      return;
+    }
+    const visibleWidgets = (layoutConfig?.widgets || []).filter((w) => isWidgetVisible(w));
+    if (visibleWidgets.length === 0) {
+      clearBlocks("page");
+      return;
+    }
+    const navBlocks: NavigableBlock[] = visibleWidgets.map((w) => ({
+      id: w.id,
+      x: w.x,
+      y: w.y,
+      width: w.width,
+      height: w.height,
+      label: w.type.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    }));
+    console.log("[BlockNav] Registered", navBlocks.length, "blocks");
+    registerBlocks(navBlocks, "page");
+    return () => clearBlocks("page");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayType, layout, isActive, layoutConfig?.widgets?.length]);
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [prevIndex, setPrevIndex] = useState<number | null>(null);
@@ -938,6 +972,43 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
     );
   };
 
+  // Render the Controls composite widget (TV remote reference card)
+  const renderControlsCompositeWidget = (config: CompositeWidgetConfig, isFirst: boolean) => {
+    const borderClass = isFirst ? "" : "pt-3 border-t border-white/20";
+    const sizeClasses = getWidgetSizeClasses(config.size);
+
+    return (
+      <div key="controls" className={`${borderClass} ${isFirst ? "" : "mt-3"}`}>
+        <div className={`space-y-1.5 ${sizeClasses.item}`}>
+          <div className="flex items-center gap-2 text-white/80">
+            <span className="text-white/50 font-mono text-xs w-12">D-pad</span>
+            <span>Scroll</span>
+          </div>
+          <div className="flex items-center gap-2 text-white/80">
+            <span className="text-white/50 font-mono text-xs w-12">OK</span>
+            <span>Select</span>
+          </div>
+          <div className="flex items-center gap-2 text-white/80">
+            <span className="text-white/50 font-mono text-xs w-12">CH</span>
+            <span>Next / Prev Page</span>
+          </div>
+          {config.size !== "small" && (
+            <>
+              <div className="flex items-center gap-2 text-white/80">
+                <span className="text-white/50 font-mono text-xs w-12">&#9654;&#10074;&#10074;</span>
+                <span>Refresh</span>
+              </div>
+              <div className="flex items-center gap-2 text-white/80">
+                <span className="text-white/50 font-mono text-xs w-12">&#9664;&#9664;</span>
+                <span>Help</span>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // Render a composite widget by ID
   // Note: Media/Spotify is handled via SpotifyWidget in the builder layout, not here
   const renderCompositeWidget = (config: CompositeWidgetConfig, isFirst: boolean): JSX.Element | null => {
@@ -948,6 +1019,8 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
         return renderWeatherCompositeWidget(config, isFirst);
       case "schedule":
         return renderScheduleCompositeWidget(config, isFirst);
+      case "controls":
+        return renderControlsCompositeWidget(config, isFirst);
       // Media/Spotify removed - use SpotifyWidget in builder layout instead
       default:
         return null;
@@ -1170,17 +1243,40 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
           >
             {(layoutConfig?.widgets || [])
               .filter((widget) => isWidgetVisible(widget))
-              .map((widget) => (
-                <div
-                  key={widget.id}
-                  style={{
-                    gridColumn: `${widget.x + 1} / span ${widget.width}`,
-                    gridRow: `${widget.y + 1} / span ${widget.height}`,
-                  }}
-                >
-                  <WidgetRenderer widget={widget} />
-                </div>
-              ))}
+              .map((widget) => {
+                const isFocused = focusedBlockId === widget.id;
+                const isSelecting = blockNavMode === "selecting";
+                const isControlling = blockNavMode === "controlling";
+
+                let navClasses = "";
+                if (isSelecting && isFocused) {
+                  navClasses = "ring-3 ring-primary/80 shadow-[0_0_20px_hsl(var(--primary)/0.4)] z-10 rounded-lg";
+                } else if (isControlling && isFocused) {
+                  navClasses = "ring-4 ring-primary z-10 rounded-lg";
+                } else if (isControlling && !isFocused) {
+                  navClasses = "opacity-30";
+                }
+
+                return (
+                  <div
+                    key={widget.id}
+                    className={`relative transition-all duration-300 ${navClasses}`}
+                    style={{
+                      gridColumn: `${widget.x + 1} / span ${widget.width}`,
+                      gridRow: `${widget.y + 1} / span ${widget.height}`,
+                    }}
+                  >
+                    <WidgetRenderer widget={widget} widgetId={widget.id} />
+                    {/* Widget label badge when selecting */}
+                    {isSelecting && isFocused && (
+                      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 bg-black/80 text-primary text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap border border-primary/20">
+                        {widget.type.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            {blockNavMode !== "idle" && <BlockNavOverlay />}
           </div>
         </div>
       ) : layout === "scatter" ? (

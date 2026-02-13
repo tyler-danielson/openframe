@@ -101,7 +101,7 @@ export function KioskFrame({ config, onBack, onNavigate }: KioskFrameProps) {
         try {
           iframeRef.current.contentWindow.postMessage(
             { type: "navigate", page },
-            config.serverUrl
+            "*"
           );
           onNavigate?.(page);
         } catch (error) {
@@ -111,6 +111,17 @@ export function KioskFrame({ config, onBack, onNavigate }: KioskFrameProps) {
     },
     [config.serverUrl, onNavigate]
   );
+
+  // Listen for "back-unhandled" messages from the iframe (block nav didn't consume back)
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.data?.type === "back-unhandled") {
+        onBack();
+      }
+    }
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [onBack]);
 
   // Expose navigation method via ref or context
   useEffect(() => {

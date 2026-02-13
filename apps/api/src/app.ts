@@ -5,6 +5,7 @@ import jwt from "@fastify/jwt";
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import multipart from "@fastify/multipart";
+import helmet from "@fastify/helmet";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { databasePlugin } from "./plugins/database.js";
@@ -33,6 +34,7 @@ import { capacitiesRoutes } from "./routes/capacities/index.js";
 import { telegramRoutes } from "./routes/telegram/index.js";
 import { kiosksRoutes } from "./routes/kiosks/index.js";
 import { recipeRoutes } from "./routes/recipes/index.js";
+import { kitchenRoutes } from "./routes/kitchen/index.js";
 import { profileRoutes } from "./routes/profiles/index.js";
 import { gmailRoutes } from "./routes/gmail/index.js";
 import { briefingRoutes } from "./routes/briefing/index.js";
@@ -83,41 +85,48 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
     },
   });
 
-  // Swagger documentation
-  await app.register(swagger, {
-    openapi: {
-      openapi: "3.0.0",
-      info: {
-        title: "OpenFrame API",
-        description: "Self-hosted calendar dashboard API",
-        version: "1.0.0",
-      },
-      servers: [
-        {
-          url: `http://localhost:${config.port}`,
-          description: "Development server",
-        },
-      ],
-      components: {
-        securitySchemes: {
-          bearerAuth: {
-            type: "http",
-            scheme: "bearer",
-            bearerFormat: "JWT",
-          },
-          apiKey: {
-            type: "apiKey",
-            in: "header",
-            name: "X-API-Key",
-          },
-        },
-      },
-    },
+  await app.register(helmet, {
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
   });
 
-  await app.register(swaggerUi, {
-    routePrefix: "/docs",
-  });
+  // Swagger documentation (development only)
+  if (config.nodeEnv !== "production") {
+    await app.register(swagger, {
+      openapi: {
+        openapi: "3.0.0",
+        info: {
+          title: "OpenFrame API",
+          description: "Self-hosted calendar dashboard API",
+          version: "1.0.0",
+        },
+        servers: [
+          {
+            url: `http://localhost:${config.port}`,
+            description: "Development server",
+          },
+        ],
+        components: {
+          securitySchemes: {
+            bearerAuth: {
+              type: "http",
+              scheme: "bearer",
+              bearerFormat: "JWT",
+            },
+            apiKey: {
+              type: "apiKey",
+              in: "header",
+              name: "X-API-Key",
+            },
+          },
+        },
+      },
+    });
+
+    await app.register(swaggerUi, {
+      routePrefix: "/docs",
+    });
+  }
 
   // Custom plugins
   await app.register(databasePlugin, { connectionString: config.databaseUrl });
@@ -148,6 +157,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(telegramRoutes, { prefix: "/api/v1/telegram" });
   await app.register(kiosksRoutes, { prefix: "/api/v1/kiosks" });
   await app.register(recipeRoutes, { prefix: "/api/v1/recipes" });
+  await app.register(kitchenRoutes, { prefix: "/api/v1/kitchen" });
   await app.register(profileRoutes, { prefix: "/api/v1/profiles" });
   await app.register(gmailRoutes, { prefix: "/api/v1/gmail" });
   await app.register(briefingRoutes, { prefix: "/api/v1/briefing" });

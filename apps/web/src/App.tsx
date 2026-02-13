@@ -20,7 +20,7 @@ import { MobileUploadPage } from "./pages/MobileUploadPage";
 import { RemarkablePage } from "./pages/RemarkablePage";
 import { ScreensaverBuilderPage } from "./pages/ScreensaverBuilderPage";
 import { KioskDisplayPage } from "./pages/KioskDisplayPage";
-import { RecipesPage } from "./pages/RecipesPage";
+import { KitchenPage } from "./pages/KitchenPage";
 import { MobileRecipeUploadPage } from "./pages/MobileRecipeUploadPage";
 import { DeviceLoginPage } from "./pages/DeviceLoginPage";
 import { SetupPage } from "./pages/SetupPage";
@@ -252,7 +252,8 @@ export default function App() {
           <Route path="homeassistant" element={<HomeAssistantPage />} />
           <Route path="spotify" element={<SpotifyPage />} />
           <Route path="map" element={<MapPage />} />
-          <Route path="recipes" element={<RecipesPage />} />
+          <Route path="kitchen" element={<KitchenPage />} />
+          <Route path="recipes" element={<Navigate to="/kitchen" replace />} />
           <Route
             path="remarkable"
             element={

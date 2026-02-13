@@ -39,6 +39,8 @@ import type {
   ImportResult,
   Recipe,
   RecipeIngredient,
+  KitchenTimerPreset,
+  KitchenActiveTimer,
   FamilyProfile,
   PlannerLayoutConfig,
   ProfileRemarkableSettings,
@@ -778,6 +780,7 @@ class ApiClient {
       screensaverLayout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
       screensaverTransition?: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
       screensaverLayoutConfig?: Record<string, unknown>;
+      screensaverBehavior?: "screensaver" | "hide-toolbar";
       startFullscreen?: boolean;
     }
   ): Promise<Kiosk> {
@@ -2554,6 +2557,63 @@ class ApiClient {
     return `${API_BASE}/recipes/image/${path}?token=${accessToken}`;
   }
 
+  // Kitchen Timers
+
+  async getTimerPresets(): Promise<KitchenTimerPreset[]> {
+    return this.fetch<KitchenTimerPreset[]>("/kitchen/timers/presets");
+  }
+
+  async createTimerPreset(data: {
+    name: string;
+    durationSeconds: number;
+    recipeId?: string | null;
+  }): Promise<KitchenTimerPreset> {
+    return this.fetch<KitchenTimerPreset>("/kitchen/timers/presets", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteTimerPreset(id: string): Promise<void> {
+    await this.fetch(`/kitchen/timers/presets/${id}`, { method: "DELETE" });
+  }
+
+  async getActiveTimers(): Promise<KitchenActiveTimer[]> {
+    return this.fetch<KitchenActiveTimer[]>("/kitchen/timers/active");
+  }
+
+  async startTimer(data: {
+    name: string;
+    durationSeconds: number;
+    presetId?: string | null;
+  }): Promise<KitchenActiveTimer> {
+    return this.fetch<KitchenActiveTimer>("/kitchen/timers/active", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateActiveTimer(
+    id: string,
+    action: "pause" | "resume" | "cancel"
+  ): Promise<KitchenActiveTimer> {
+    return this.fetch<KitchenActiveTimer>(`/kitchen/timers/active/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ action }),
+    });
+  }
+
+  async completeTimer(id: string): Promise<KitchenActiveTimer> {
+    return this.fetch<KitchenActiveTimer>(
+      `/kitchen/timers/active/${id}/complete`,
+      { method: "POST" }
+    );
+  }
+
+  async deleteActiveTimer(id: string): Promise<void> {
+    await this.fetch(`/kitchen/timers/active/${id}`, { method: "DELETE" });
+  }
+
   // Family Profiles
   async getProfiles(): Promise<FamilyProfile[]> {
     return this.fetch<FamilyProfile[]>("/profiles");
@@ -2787,7 +2847,7 @@ export interface KioskEnabledFeatures {
   multiview?: boolean;
   homeassistant?: boolean;
   map?: boolean;
-  recipes?: boolean;
+  kitchen?: boolean;
   screensaver?: boolean;
 }
 
@@ -2809,6 +2869,7 @@ export interface Kiosk {
   screensaverLayout: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
   screensaverTransition: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
   screensaverLayoutConfig: Record<string, unknown> | null;
+  screensaverBehavior: "screensaver" | "hide-toolbar";
   startFullscreen: boolean;
   lastAccessedAt: string | null;
   createdAt: string;
@@ -2829,6 +2890,7 @@ export interface KioskConfig {
   screensaverLayout: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
   screensaverTransition: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
   screensaverLayoutConfig: Record<string, unknown> | null;
+  screensaverBehavior: "screensaver" | "hide-toolbar";
   startFullscreen: boolean;
 }
 

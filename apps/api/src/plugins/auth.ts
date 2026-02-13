@@ -1,7 +1,7 @@
 import fp from "fastify-plugin";
 import { eq } from "drizzle-orm";
 import { users, apiKeys, kioskConfig, kiosks } from "@openframe/database/schema";
-import { createHash } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
 import type { FastifyRequest, FastifyReply } from "fastify";
 
 declare module "fastify" {
@@ -99,7 +99,13 @@ export const authPlugin = fp(
           .where(eq(apiKeys.keyPrefix, keyPrefix))
           .limit(1);
 
-        if (!key || key.keyHash !== keyHash) {
+        if (
+          !key ||
+          !timingSafeEqual(
+            Buffer.from(key.keyHash, "hex"),
+            Buffer.from(keyHash, "hex")
+          )
+        ) {
           return reply.unauthorized("Invalid API key");
         }
 

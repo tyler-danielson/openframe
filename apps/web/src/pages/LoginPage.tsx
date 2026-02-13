@@ -16,7 +16,9 @@ export function LoginPage() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const setTokens = useAuthStore((state) => state.setTokens);
 
-  const returnTo = new URLSearchParams(window.location.search).get("returnTo") || "/dashboard";
+  const isSafeRedirect = (u: string) => u.startsWith("/") && !u.startsWith("//");
+  const rawReturnTo = new URLSearchParams(window.location.search).get("returnTo");
+  const returnTo = rawReturnTo && isSafeRedirect(rawReturnTo) ? rawReturnTo : "/dashboard";
 
   // Provider availability
   const [providers, setProviders] = useState<{ google: boolean; microsoft: boolean } | null>(null);

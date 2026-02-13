@@ -8,6 +8,7 @@ interface FullscreenToggleWidgetProps {
   config: Record<string, unknown>;
   style?: WidgetStyle;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
 const ICON_SIZE_CLASSES = {

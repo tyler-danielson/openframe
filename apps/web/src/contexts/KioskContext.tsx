@@ -35,7 +35,7 @@ const DEFAULT_ENABLED_FEATURES: KioskEnabledFeatures = {
   cameras: true,
   homeassistant: true,
   map: true,
-  recipes: true,
+  kitchen: true,
   screensaver: true,
 };
 
@@ -127,6 +127,7 @@ export function KioskProvider({ token, children }: KioskProviderProps) {
       const layoutConfig = config.screensaverLayoutConfig as ScreensaverLayoutConfig | null;
       useScreensaverStore.setState({
         enabled: config.screensaverEnabled,
+        behavior: config.screensaverBehavior || "screensaver",
         idleTimeout: config.screensaverTimeout,
         slideInterval: config.screensaverInterval,
         layout: config.screensaverLayout,

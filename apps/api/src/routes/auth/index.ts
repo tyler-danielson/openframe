@@ -119,6 +119,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/login",
     {
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
       schema: {
         description: "Login with email and password",
         tags: ["Auth"],
@@ -185,6 +186,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/refresh",
     {
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
       schema: {
         description: "Refresh access token using refresh token",
         tags: ["Auth"],
@@ -1325,6 +1327,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/device-code/poll",
     {
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
       schema: {
         description: "Poll for device code approval status",
         tags: ["Auth", "Device Code"],

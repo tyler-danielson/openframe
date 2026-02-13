@@ -7,6 +7,7 @@ interface ImageWidgetProps {
   config: Record<string, unknown>;
   style?: WidgetStyle;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
 export function ImageWidget({ config, style, isBuilder }: ImageWidgetProps) {

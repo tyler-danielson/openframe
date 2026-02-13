@@ -1154,7 +1154,13 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const { url } = request.query as { url: string };
 
-      if (!url || !url.includes("googleusercontent.com")) {
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        return reply.badRequest("Invalid Google Photos URL");
+      }
+      if (parsed.protocol !== "https:" || !parsed.hostname.endsWith(".googleusercontent.com")) {
         return reply.badRequest("Invalid Google Photos URL");
       }
 

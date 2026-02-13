@@ -494,6 +494,7 @@ export const kiosks = pgTable(
       .default("fade")
       .notNull(),
     screensaverLayoutConfig: jsonb("screensaver_layout_config"), // Custom builder layout config
+    screensaverBehavior: text("screensaver_behavior").default("screensaver").notNull(), // "screensaver" | "hide-toolbar"
     startFullscreen: boolean("start_fullscreen").default(false).notNull(), // Auto-enter fullscreen on load
     lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1871,6 +1872,101 @@ export const recipeUploadTokensRelations = relations(recipeUploadTokens, ({ one 
 // Type exports for recipes
 export type Recipe = typeof recipes.$inferSelect;
 export type RecipeUploadToken = typeof recipeUploadTokens.$inferSelect;
+
+// ============ Kitchen Timers ============
+
+export const kitchenTimerStatusEnum = pgEnum("kitchen_timer_status", [
+  "running",
+  "paused",
+  "completed",
+  "cancelled",
+]);
+
+// Saved timer presets (e.g. "Boil eggs - 10 min")
+export const kitchenTimerPresets = pgTable(
+  "kitchen_timer_presets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    durationSeconds: integer("duration_seconds").notNull(),
+    recipeId: uuid("recipe_id").references(() => recipes.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("kitchen_timer_presets_user_idx").on(table.userId)]
+);
+
+// Active (running/paused/completed) timers
+export const kitchenActiveTimers = pgTable(
+  "kitchen_active_timers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    presetId: uuid("preset_id").references(() => kitchenTimerPresets.id, {
+      onDelete: "set null",
+    }),
+    name: text("name").notNull(),
+    durationSeconds: integer("duration_seconds").notNull(),
+    remainingSeconds: integer("remaining_seconds").notNull(),
+    status: kitchenTimerStatusEnum("status").notNull().default("running"),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("kitchen_active_timers_user_idx").on(table.userId),
+    index("kitchen_active_timers_user_status_idx").on(
+      table.userId,
+      table.status
+    ),
+  ]
+);
+
+// Kitchen timer relations
+export const kitchenTimerPresetsRelations = relations(
+  kitchenTimerPresets,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [kitchenTimerPresets.userId],
+      references: [users.id],
+    }),
+    recipe: one(recipes, {
+      fields: [kitchenTimerPresets.recipeId],
+      references: [recipes.id],
+    }),
+  })
+);
+
+export const kitchenActiveTimersRelations = relations(
+  kitchenActiveTimers,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [kitchenActiveTimers.userId],
+      references: [users.id],
+    }),
+    preset: one(kitchenTimerPresets, {
+      fields: [kitchenActiveTimers.presetId],
+      references: [kitchenTimerPresets.id],
+    }),
+  })
+);
+
+// Type exports for kitchen timers
+export type KitchenTimerPreset = typeof kitchenTimerPresets.$inferSelect;
+export type KitchenActiveTimer = typeof kitchenActiveTimers.$inferSelect;
 
 // ============ Family Profiles ============
 

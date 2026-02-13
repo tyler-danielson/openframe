@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useTizenKeys, exitApp, type KeyAction } from "@/hooks/useTizenKeys";
 import { navigateKiosk, refreshKiosk } from "./KioskFrame";
 import "@/styles/tv.css";
@@ -9,7 +9,17 @@ interface RemoteHandlerProps {
   onToggleSettings?: () => void;
 }
 
-// Page mapping for number keys
+// Ordered page list for channel up/down cycling
+const PAGE_CYCLE = [
+  "calendar",
+  "dashboard",
+  "homeassistant",
+  "photos",
+  "tasks",
+  "screensaver",
+];
+
+// Page mapping for number keys (kept for remotes that have them)
 const PAGE_MAP: Record<string, string> = {
   digit_0: "home",
   digit_1: "calendar",
@@ -23,21 +33,12 @@ const PAGE_MAP: Record<string, string> = {
   digit_9: "settings",
 };
 
-// Color button actions
+// Color button actions (kept for remotes that have them)
 const COLOR_ACTIONS: Record<string, () => void> = {
-  red: () => {
-    // Toggle screensaver - send message to iframe
-    navigateKiosk("screensaver:toggle");
-  },
-  green: () => {
-    navigateKiosk("calendar");
-  },
-  yellow: () => {
-    navigateKiosk("dashboard");
-  },
-  blue: () => {
-    navigateKiosk("homeassistant");
-  },
+  red: () => navigateKiosk("screensaver:toggle"),
+  green: () => navigateKiosk("calendar"),
+  yellow: () => navigateKiosk("dashboard"),
+  blue: () => navigateKiosk("homeassistant"),
 };
 
 export function RemoteHandler({
@@ -47,6 +48,7 @@ export function RemoteHandler({
 }: RemoteHandlerProps) {
   const [showHints, setShowHints] = useState(false);
   const [lastAction, setLastAction] = useState<string | null>(null);
+  const currentPageIndex = useRef(0);
 
   const handleKeyAction = useCallback(
     (action: KeyAction) => {
@@ -55,9 +57,9 @@ export function RemoteHandler({
       setTimeout(() => setLastAction(null), 500);
 
       switch (action) {
-        // Navigation
+        // Navigation — send to iframe first; block nav handles back internally
         case "back":
-          onBack();
+          navigateKiosk("action:back");
           break;
 
         case "exit":
@@ -68,26 +70,50 @@ export function RemoteHandler({
           onToggleSettings?.();
           break;
 
-        // Media controls
+        // Channel up/down: cycle through pages
+        case "channel_up": {
+          currentPageIndex.current = (currentPageIndex.current + 1) % PAGE_CYCLE.length;
+          const nextPage = PAGE_CYCLE[currentPageIndex.current];
+          if (nextPage) navigateKiosk(nextPage);
+          break;
+        }
+        case "channel_down": {
+          currentPageIndex.current = (currentPageIndex.current - 1 + PAGE_CYCLE.length) % PAGE_CYCLE.length;
+          const prevPage = PAGE_CYCLE[currentPageIndex.current];
+          if (prevPage) navigateKiosk(prevPage);
+          break;
+        }
+
+        // Media controls — send to iframe for block nav; refresh as fallback
         case "play_pause":
         case "play":
+          navigateKiosk("action:play_pause");
           refreshKiosk();
           break;
 
+        // Rewind: toggle help overlay (works on SolarCell via playback controls)
+        case "rewind":
+          setShowHints((prev) => !prev);
+          navigateKiosk("help");
+          break;
+
+        // Info/Guide: toggle help (for remotes that have these buttons)
         case "info":
         case "guide":
           setShowHints((prev) => !prev);
+          navigateKiosk("help");
           break;
 
-        // Color buttons
+        // Color buttons — send to iframe; block nav consumes when controlling,
+        // otherwise iframe falls through to default color actions
         case "red":
         case "green":
         case "yellow":
         case "blue":
-          COLOR_ACTIONS[action]?.();
+          navigateKiosk(`color:${action}`);
           break;
 
-        // Number keys
+        // Number keys (for remotes that have them)
         case "digit_0":
         case "digit_1":
         case "digit_2":
@@ -97,24 +123,21 @@ export function RemoteHandler({
         case "digit_6":
         case "digit_7":
         case "digit_8":
-        case "digit_9":
+        case "digit_9": {
           const page = PAGE_MAP[action];
-          if (page) {
-            navigateKiosk(page);
-          }
+          if (page) navigateKiosk(page);
           break;
+        }
 
         // D-pad for iframe scrolling
         case "up":
         case "down":
         case "left":
         case "right":
-          // Send scroll command to iframe
           navigateKiosk(`scroll:${action}`);
           break;
 
         case "enter":
-          // Send click/select to iframe
           navigateKiosk("action:select");
           break;
       }
@@ -144,7 +167,7 @@ export function RemoteHandler({
               <div className="hints-grid">
                 <div className="hint-item">
                   <span className="key">D-pad</span>
-                  <span>Navigate / Scroll</span>
+                  <span>Scroll</span>
                 </div>
                 <div className="hint-item">
                   <span className="key">OK</span>
@@ -154,92 +177,38 @@ export function RemoteHandler({
                   <span className="key">Back</span>
                   <span>Return to Setup</span>
                 </div>
-                <div className="hint-item">
-                  <span className="key">Menu</span>
-                  <span>Settings</span>
-                </div>
               </div>
             </div>
 
             <div className="hints-section">
-              <h3>Media Controls</h3>
+              <h3>Pages</h3>
               <div className="hints-grid">
                 <div className="hint-item">
-                  <span className="key">Play/Pause</span>
-                  <span>Refresh Kiosk</span>
+                  <span className="key">CH ▲</span>
+                  <span>Next Page</span>
+                </div>
+                <div className="hint-item">
+                  <span className="key">CH ▼</span>
+                  <span>Previous Page</span>
                 </div>
               </div>
             </div>
 
             <div className="hints-section">
-              <h3>Color Buttons</h3>
+              <h3>Actions</h3>
               <div className="hints-grid">
                 <div className="hint-item">
-                  <span className="key red">Red</span>
-                  <span>Toggle Screensaver</span>
+                  <span className="key">▶❚❚</span>
+                  <span>Refresh</span>
                 </div>
                 <div className="hint-item">
-                  <span className="key green">Green</span>
-                  <span>Calendar</span>
-                </div>
-                <div className="hint-item">
-                  <span className="key yellow">Yellow</span>
-                  <span>Dashboard</span>
-                </div>
-                <div className="hint-item">
-                  <span className="key blue">Blue</span>
-                  <span>Home Assistant</span>
+                  <span className="key">◀◀</span>
+                  <span>This Help</span>
                 </div>
               </div>
             </div>
 
-            <div className="hints-section">
-              <h3>Number Keys</h3>
-              <div className="hints-grid compact">
-                <div className="hint-item">
-                  <span className="key">0</span>
-                  <span>Home</span>
-                </div>
-                <div className="hint-item">
-                  <span className="key">1</span>
-                  <span>Calendar</span>
-                </div>
-                <div className="hint-item">
-                  <span className="key">2</span>
-                  <span>Dashboard</span>
-                </div>
-                <div className="hint-item">
-                  <span className="key">3</span>
-                  <span>Home Assistant</span>
-                </div>
-                <div className="hint-item">
-                  <span className="key">4</span>
-                  <span>Photos</span>
-                </div>
-                <div className="hint-item">
-                  <span className="key">5</span>
-                  <span>Weather</span>
-                </div>
-                <div className="hint-item">
-                  <span className="key">6</span>
-                  <span>Tasks</span>
-                </div>
-                <div className="hint-item">
-                  <span className="key">7</span>
-                  <span>Notes</span>
-                </div>
-                <div className="hint-item">
-                  <span className="key">8</span>
-                  <span>Media</span>
-                </div>
-                <div className="hint-item">
-                  <span className="key">9</span>
-                  <span>Settings</span>
-                </div>
-              </div>
-            </div>
-
-            <p className="hints-close">Press INFO or any key to close</p>
+            <p className="hints-close">Press any key to close</p>
           </div>
         </div>
       )}
@@ -252,8 +221,13 @@ function getActionLabel(action: string): string {
     back: "Going back...",
     exit: "Exiting...",
     menu: "Opening settings...",
+    channel_up: "Next page",
+    channel_down: "Previous page",
     play_pause: "Refreshing...",
     play: "Refreshing...",
+    rewind: "Help",
+    info: "Help",
+    guide: "Help",
     red: "Screensaver",
     green: "Calendar",
     yellow: "Dashboard",

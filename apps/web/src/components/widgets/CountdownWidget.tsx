@@ -9,6 +9,7 @@ interface CountdownWidgetProps {
   config: Record<string, unknown>;
   style?: WidgetStyle;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
 // Font size classes for each preset
@@ -143,8 +144,13 @@ export function CountdownWidget({ config, style, isBuilder }: CountdownWidgetPro
 
   // Render "days (sleeps)" mode
   if (displayMode === "days") {
-    // Calculate sleeps: if there's any time remaining in the day, count it as another sleep
-    const sleeps = timeRemaining.days + (timeRemaining.hours > 0 || timeRemaining.minutes > 0 || timeRemaining.seconds > 0 ? 1 : 0);
+    // Calculate sleeps as number of midnights between today and the event date
+    // A "sleep" = one night. Friday → Sunday = 2 sleeps (Fri night, Sat night)
+    const now = new Date();
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const targetDate = new Date(effectiveTargetDate);
+    const eventMidnight = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+    const sleeps = Math.max(0, Math.round((eventMidnight.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24)));
 
     return (
       <div
@@ -162,7 +168,7 @@ export function CountdownWidget({ config, style, isBuilder }: CountdownWidgetPro
             {effectiveLabel}
           </div>
         )}
-        {timeRemaining.isExpired ? (
+        {sleeps === 0 ? (
           <div
             className={cn(sizeClasses?.value, "font-light")}
             style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.value) } : undefined}

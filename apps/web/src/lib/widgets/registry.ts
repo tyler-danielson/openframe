@@ -309,6 +309,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showDeviceNames: true,
       darkMode: true,
       autoFitBounds: true,
+      showLastUpdated: false,
     },
   },
   iptv: {

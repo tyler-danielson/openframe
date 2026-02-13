@@ -1,13 +1,16 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../services/api";
 import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import { cn } from "../../lib/utils";
+import { useBlockControls } from "../../hooks/useBlockControls";
 
 interface SpotifyWidgetProps {
   config: Record<string, unknown>;
   style?: WidgetStyle;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
 const FONT_SIZE_CLASSES: Record<Exclude<FontSizePreset, "custom">, { title: string; artist: string; label: string }> = {
@@ -34,7 +37,7 @@ const ALBUM_SIZE_CLASSES: Record<Exclude<FontSizePreset, "custom">, string> = {
   xl: "w-20 h-20",
 };
 
-export function SpotifyWidget({ config, style, isBuilder }: SpotifyWidgetProps) {
+export function SpotifyWidget({ config, style, isBuilder, widgetId }: SpotifyWidgetProps) {
   const showAlbumArt = config.showAlbumArt as boolean ?? true;
   const showProgress = config.showProgress as boolean ?? true;
   const showArtist = config.showArtist as boolean ?? true;
@@ -56,6 +59,37 @@ export function SpotifyWidget({ config, style, isBuilder }: SpotifyWidgetProps) 
     refetchInterval: 10 * 1000,
     enabled: !isBuilder,
   });
+
+  // TV block navigation controls
+  const isPlaying = playback?.is_playing ?? false;
+  const blockControls = useMemo(() => {
+    if (isBuilder || !widgetId) return null;
+    return {
+      actions: [
+        {
+          key: "enter",
+          label: isPlaying ? "Pause" : "Play",
+          action: () => { (isPlaying ? api.spotifyPause() : api.spotifyPlay()).catch(() => {}); },
+        },
+        {
+          key: "play_pause",
+          label: isPlaying ? "Pause" : "Play",
+          action: () => { (isPlaying ? api.spotifyPause() : api.spotifyPlay()).catch(() => {}); },
+        },
+        {
+          key: "right",
+          label: "Next Track",
+          action: () => { api.spotifyNext().catch(() => {}); },
+        },
+        {
+          key: "left",
+          label: "Previous Track",
+          action: () => { api.spotifyPrevious().catch(() => {}); },
+        },
+      ],
+    };
+  }, [isBuilder, widgetId, isPlaying]);
+  useBlockControls(widgetId, blockControls);
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
   const presetKey = preset as Exclude<FontSizePreset, "custom">;

@@ -23,7 +23,8 @@ export function AuthCallbackPage() {
         localStorage.removeItem("oauth_return_url");
       }
 
-      navigate(returnUrl ?? "/dashboard", { replace: true });
+      const isSafeRedirect = (u: string) => u.startsWith("/") && !u.startsWith("//");
+      navigate(returnUrl && isSafeRedirect(returnUrl) ? returnUrl : "/dashboard", { replace: true });
     } else {
       navigate("/login", { replace: true });
     }

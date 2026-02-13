@@ -5,9 +5,11 @@ import { api, type KioskCommand } from "../services/api";
 import { KioskProvider, useKiosk } from "../contexts/KioskContext";
 import { useIdleDetector } from "../hooks/useIdleDetector";
 import { Screensaver } from "../components/Screensaver";
+import { TVControlsOverlay } from "../components/TVControlsOverlay";
 import { Layout } from "../components/ui/Layout";
 import { useScreensaverStore } from "../stores/screensaver";
 import { useRemoteControlStore } from "../stores/remote-control";
+import { useBlockNavStore } from "../stores/block-nav";
 import type { ConnectionStatus } from "../hooks/useConnectionHealth";
 
 // Import all pages
@@ -20,7 +22,7 @@ import { IptvPage } from "./IptvPage";
 import { CamerasPage } from "./CamerasPage";
 import { HomeAssistantPage } from "./HomeAssistantPage";
 import { MapPage } from "./MapPage";
-import { RecipesPage } from "./RecipesPage";
+import { KitchenPage } from "./KitchenPage";
 import { ScreensaverDisplayPage } from "./ScreensaverDisplayPage";
 
 // Feature to route mapping
@@ -34,7 +36,7 @@ const FEATURE_ROUTES: Record<string, { path: string; element: JSX.Element }> = {
   cameras: { path: "cameras", element: <CamerasPage /> },
   homeassistant: { path: "homeassistant/*", element: <HomeAssistantPage /> },
   map: { path: "map", element: <MapPage /> },
-  recipes: { path: "recipes/*", element: <RecipesPage /> },
+  kitchen: { path: "kitchen/*", element: <KitchenPage /> },
   screensaver: { path: "screensaver", element: <ScreensaverDisplayPage /> },
 };
 
@@ -96,11 +98,218 @@ function ConnectionStatusIndicator({
 function KioskApp() {
   const { isAuthReady, displayMode, displayType, homePage, enabledFeatures, connectionStatus, lastOnlineAt, startFullscreen } = useKiosk();
   const location = useLocation();
+  const navigate = useNavigate();
   const hasAttemptedFullscreen = useRef(false);
   const [showFullscreenPrompt, setShowFullscreenPrompt] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const setScreensaverActive = useScreensaverStore((s) => s.setActive);
+  const screensaverIsActive = useScreensaverStore((s) => s.isActive);
+  const screensaverBehavior = useScreensaverStore((s) => s.behavior);
+  const showScreensaverOverlay = screensaverBehavior !== "hide-toolbar";
 
   // Enable idle detection for screensaver
   useIdleDetector();
+
+  // Auto-dismiss controls overlay after 5 seconds
+  useEffect(() => {
+    if (!showControls) return;
+    const timer = setTimeout(() => setShowControls(false), 5000);
+    return () => clearTimeout(timer);
+  }, [showControls]);
+
+  // Listen for postMessage commands from TV wrapper (Tizen iframe parent)
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (!event.data?.type) return;
+      // Accept messages from same origin, Tizen TV wrapper (wgt:// or "null"), or local file://
+      const trustedOrigin =
+        event.origin === window.location.origin ||
+        event.origin === "null" ||
+        event.origin.startsWith("wgt:") ||
+        event.origin.startsWith("file:");
+      if (!trustedOrigin) return;
+      const { type, page } = event.data;
+      // Debug: confirm message received
+      useBlockNavStore.setState({ _debug: `rcv: ${type}/${page} from ${event.origin}` });
+      if (type === "navigate" && page) {
+        // Dismiss hide-toolbar mode on any remote activity
+        const ss = useScreensaverStore.getState();
+        if (ss.isActive && ss.behavior === "hide-toolbar") {
+          ss.updateActivity(); // resets isActive → sidebar reappears
+          // Left or back specifically: activate sidebar nav after sidebar re-renders
+          if (page === "scroll:left" || page === "action:back") {
+            setTimeout(() => {
+              const nav = useBlockNavStore.getState();
+              const sidebarBlocks = nav.blocks.filter((b) => b.group === "nav");
+              if (sidebarBlocks.length > 0) {
+                const sorted = [...sidebarBlocks].sort((a, b) => a.y - b.y || a.x - b.x);
+                useBlockNavStore.setState({ mode: "selecting", focusedBlockId: sorted[0]?.id ?? null });
+              }
+            }, 100);
+            return; // Consume the event
+          }
+        }
+
+        if (page === "screensaver:toggle") {
+          setScreensaverActive(!screensaverIsActive);
+        } else if (page.startsWith("scroll:")) {
+          const dir = page.replace("scroll:", "") as "up" | "down" | "left" | "right";
+          const nav = useBlockNavStore.getState();
+
+          if (nav.mode === "idle" && displayType === "tv" && nav.blocks.length > 0) {
+            useBlockNavStore.setState({ _debug: `activate! dt=${displayType} b=${nav.blocks.length}` });
+            // Left arrow from idle: activate sidebar nav directly
+            // Other directions: activate page content blocks only
+            nav.activateSelection(dir === "left" ? "nav" : undefined);
+            // If activation didn't change mode (no matching blocks), fall through to scroll
+            const afterNav = useBlockNavStore.getState();
+            if (afterNav.mode === "idle") {
+              const amount = 300;
+              if (dir === "up") window.scrollBy(0, -amount);
+              else if (dir === "down") window.scrollBy(0, amount);
+              else if (dir === "right") window.scrollBy(amount, 0);
+            }
+          } else if (nav.mode === "selecting") {
+            useBlockNavStore.setState({ _debug: `nav:${dir}` });
+            nav.navigateDirection(dir);
+          } else if (nav.mode === "controlling") {
+            useBlockNavStore.setState({ _debug: `ctrl:${dir}` });
+            nav.executeControl(dir);
+          } else {
+            // Legacy scroll behavior
+            useBlockNavStore.setState({ _debug: `SCROLL m=${nav.mode} dt=${displayType} b=${nav.blocks.length}` });
+            const amount = 300;
+            if (dir === "up") window.scrollBy(0, -amount);
+            else if (dir === "down") window.scrollBy(0, amount);
+            else if (dir === "left") window.scrollBy(-amount, 0);
+            else if (dir === "right") window.scrollBy(amount, 0);
+          }
+        } else if (page === "action:select") {
+          const nav = useBlockNavStore.getState();
+          if (nav.mode === "selecting") {
+            nav.enterBlock();
+          } else if (nav.mode === "controlling") {
+            nav.executeControl("enter");
+          } else {
+            (document.activeElement as HTMLElement)?.click?.();
+          }
+        } else if (page === "action:back") {
+          const nav = useBlockNavStore.getState();
+          if (nav.mode === "controlling") {
+            nav.exitBlock();
+          } else if (nav.mode === "selecting") {
+            nav.deactivateNavigation();
+          } else {
+            // Block nav didn't consume back — notify parent (Tizen wrapper)
+            window.parent.postMessage({ type: "back-unhandled" }, "*");
+          }
+        } else if (page === "action:play_pause") {
+          const nav = useBlockNavStore.getState();
+          if (nav.mode === "controlling") {
+            nav.executeControl("play_pause");
+          }
+          // When not controlling, play/pause does nothing in the iframe
+        } else if (page.startsWith("color:")) {
+          const color = page.replace("color:", "");
+          const nav = useBlockNavStore.getState();
+          if (nav.mode === "controlling") {
+            nav.executeControl(color);
+          } else {
+            // Default color button actions when not in block nav controlling mode
+            const colorActions: Record<string, string> = {
+              red: "screensaver:toggle",
+              green: "calendar",
+              yellow: "dashboard",
+              blue: "homeassistant",
+            };
+            const target = colorActions[color];
+            if (target === "screensaver:toggle") {
+              setScreensaverActive(!screensaverIsActive);
+            } else if (target) {
+              navigate(target);
+            }
+          }
+        } else if (page === "help") {
+          setShowControls((prev) => !prev);
+        } else {
+          navigate(page);
+        }
+      }
+    }
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [navigate, setScreensaverActive, screensaverIsActive, displayType]);
+
+  // Keyboard listener for desktop testing of block navigation
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Dismiss hide-toolbar mode on any key press (idle detector handles this too,
+      // but we need special left/Escape handling to activate sidebar nav)
+      const ss = useScreensaverStore.getState();
+      if (ss.isActive && ss.behavior === "hide-toolbar") {
+        ss.updateActivity();
+        if (e.key === "ArrowLeft" || e.key === "Escape") {
+          e.preventDefault();
+          setTimeout(() => {
+            const nav = useBlockNavStore.getState();
+            const sidebarBlocks = nav.blocks.filter((b) => b.group === "nav");
+            if (sidebarBlocks.length > 0) {
+              const sorted = [...sidebarBlocks].sort((a, b) => a.y - b.y || a.x - b.x);
+              useBlockNavStore.setState({ mode: "selecting", focusedBlockId: sorted[0]?.id ?? null });
+            }
+          }, 100);
+          return;
+        }
+      }
+
+      const nav = useBlockNavStore.getState();
+      const keyMap: Record<string, string> = {
+        ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
+      };
+
+      if (keyMap[e.key]) {
+        const dir = keyMap[e.key] as "up" | "down" | "left" | "right";
+        if (nav.mode === "idle" && nav.blocks.length > 0) {
+          nav.activateSelection(dir === "left" ? "nav" : undefined);
+          // If activation didn't change mode (no matching blocks), fall through to scroll
+          const afterNav = useBlockNavStore.getState();
+          if (afterNav.mode !== "idle") {
+            e.preventDefault();
+          } else if (dir !== "left") {
+            e.preventDefault();
+            const amount = 300;
+            if (dir === "up") window.scrollBy(0, -amount);
+            else if (dir === "down") window.scrollBy(0, amount);
+            else if (dir === "right") window.scrollBy(amount, 0);
+          }
+        } else if (nav.mode === "selecting") {
+          e.preventDefault();
+          nav.navigateDirection(dir);
+        } else if (nav.mode === "controlling") {
+          e.preventDefault();
+          nav.executeControl(dir);
+        }
+      } else if (e.key === "Enter") {
+        if (nav.mode === "selecting") {
+          e.preventDefault();
+          nav.enterBlock();
+        } else if (nav.mode === "controlling") {
+          e.preventDefault();
+          nav.executeControl("enter");
+        }
+      } else if (e.key === "Escape") {
+        if (nav.mode === "controlling") {
+          e.preventDefault();
+          nav.exitBlock();
+        } else if (nav.mode === "selecting") {
+          e.preventDefault();
+          nav.deactivateNavigation();
+        }
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   // Request fullscreen on load if enabled
   useEffect(() => {
@@ -198,6 +407,11 @@ function KioskApp() {
     </div>
   );
 
+  // Controls overlay (shared across all display modes)
+  const controlsOverlay = (
+    <TVControlsOverlay visible={showControls} onDismiss={() => setShowControls(false)} />
+  );
+
   // Handle different display modes
   if (displayMode === "screensaver-only") {
     // Only show the screensaver, always active and cannot be dismissed
@@ -206,6 +420,7 @@ function KioskApp() {
         <Screensaver alwaysActive displayType={displayType} />
         <ConnectionStatusIndicator status={connectionStatus} lastOnlineAt={lastOnlineAt} />
         {fullscreenPrompt}
+        {controlsOverlay}
       </>
     );
   }
@@ -215,9 +430,10 @@ function KioskApp() {
     return (
       <div className="min-h-screen bg-background">
         <CalendarPage />
-        <Screensaver displayType={displayType} />
+        {showScreensaverOverlay && <Screensaver displayType={displayType} />}
         <ConnectionStatusIndicator status={connectionStatus} lastOnlineAt={lastOnlineAt} />
         {fullscreenPrompt}
+        {controlsOverlay}
       </div>
     );
   }
@@ -227,9 +443,10 @@ function KioskApp() {
     return (
       <div className="min-h-screen bg-background">
         <DashboardPage />
-        <Screensaver displayType={displayType} />
+        {showScreensaverOverlay && <Screensaver displayType={displayType} />}
         <ConnectionStatusIndicator status={connectionStatus} lastOnlineAt={lastOnlineAt} />
         {fullscreenPrompt}
+        {controlsOverlay}
       </div>
     );
   }
@@ -247,9 +464,10 @@ function KioskApp() {
           <Route path="*" element={<Navigate to={effectiveHomePage} replace />} />
         </Route>
       </Routes>
-      <Screensaver displayType={displayType} />
+      {showScreensaverOverlay && <Screensaver displayType={displayType} />}
       <ConnectionStatusIndicator status={connectionStatus} lastOnlineAt={lastOnlineAt} />
       {fullscreenPrompt}
+      {controlsOverlay}
     </>
   );
 }

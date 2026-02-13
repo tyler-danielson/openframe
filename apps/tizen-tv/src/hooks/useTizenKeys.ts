@@ -22,6 +22,8 @@ export type KeyAction =
   | "blue"
   | "info"
   | "guide"
+  | "channel_up"
+  | "channel_down"
   | "digit_0"
   | "digit_1"
   | "digit_2"
@@ -80,6 +82,10 @@ function keyCodeToAction(keyCode: number): KeyAction | null {
       return "info";
     case TIZEN_KEY_CODES.Guide:
       return "guide";
+    case TIZEN_KEY_CODES.ChannelUp:
+      return "channel_up";
+    case TIZEN_KEY_CODES.ChannelDown:
+      return "channel_down";
     case TIZEN_KEY_CODES.Digit0:
       return "digit_0";
     case TIZEN_KEY_CODES.Digit1:

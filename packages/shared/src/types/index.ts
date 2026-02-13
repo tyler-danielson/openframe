@@ -811,6 +811,31 @@ export interface RecipeUploadToken {
   expiresAt: Date;
 }
 
+// ============ Kitchen Timer Types ============
+
+export interface KitchenTimerPreset {
+  id: string;
+  userId: string;
+  name: string;
+  durationSeconds: number;
+  recipeId: string | null;
+  createdAt: Date;
+}
+
+export interface KitchenActiveTimer {
+  id: string;
+  userId: string;
+  presetId: string | null;
+  name: string;
+  durationSeconds: number;
+  remainingSeconds: number;
+  status: "running" | "paused" | "completed" | "cancelled";
+  startedAt: Date;
+  pausedAt: Date | null;
+  completedAt: Date | null;
+  createdAt: Date;
+}
+
 // ============ Family Profile Types ============
 
 export interface FamilyProfile {

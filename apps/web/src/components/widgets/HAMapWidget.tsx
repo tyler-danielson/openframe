@@ -14,6 +14,7 @@ interface Location {
   latitude: number;
   longitude: number;
   entityPictureUrl?: string;
+  lastUpdated?: string;
 }
 
 interface Zone {
@@ -28,10 +29,25 @@ interface HAMapWidgetProps {
   config: Record<string, unknown>;
   style?: WidgetStyle;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
 // Color palette for different people
 const COLORS = ["#1E40AF", "#047857", "#B45309", "#B91C1C", "#5B21B6", "#9D174D"];
+
+// Format a lastUpdated timestamp for display
+function formatLastUpdated(lastUpdated: string): string {
+  const date = new Date(lastUpdated);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHrs = Math.floor(diffMin / 60);
+  if (diffHrs < 24) return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
 
 // Lazy-loaded map component - lets MapLibre try to render, falls back on actual error
 function MapView({
@@ -317,6 +333,7 @@ export function HAMapWidget({ config, style, isBuilder }: HAMapWidgetProps) {
   const showDeviceNames = (config.showDeviceNames as boolean) ?? true;
   const darkMode = (config.darkMode as boolean) ?? true;
   const autoFitBounds = (config.autoFitBounds as boolean) ?? true;
+  const showLastUpdated = (config.showLastUpdated as boolean) ?? false;
 
   // Get real-time locations from WebSocket
   const { locations: wsLocations, connected: wsConnected } = useHALocationsWS();
@@ -448,6 +465,28 @@ export function HAMapWidget({ config, style, isBuilder }: HAMapWidgetProps) {
         showDeviceNames={showDeviceNames}
         onError={handleMapError}
       />
+      {showLastUpdated && (() => {
+        const visible = locations.filter((loc) => {
+          if (loc.state === "home" && loc.lastUpdated &&
+            (Date.now() - new Date(loc.lastUpdated).getTime()) < 60 * 60 * 1000) return false;
+          return true;
+        });
+        if (visible.length === 0) return null;
+        return (
+          <div className="absolute bottom-2 right-2 z-10 bg-primary/80 backdrop-blur-sm rounded-lg px-2.5 py-1.5 shadow-lg border border-primary/30">
+            <div className="space-y-0.5">
+              {visible.map((location) => (
+                <div key={location.entityId} className="flex items-center gap-2 text-[11px] text-primary-foreground">
+                  <span className="font-medium truncate max-w-[80px]">{location.name}</span>
+                  <span className="opacity-70">
+                    {location.lastUpdated ? formatLastUpdated(location.lastUpdated) : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

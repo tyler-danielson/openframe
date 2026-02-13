@@ -9,6 +9,7 @@ interface HACameraWidgetProps {
   config: Record<string, unknown>;
   style?: WidgetStyle;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
 export function HACameraWidget({ config, style, isBuilder }: HACameraWidgetProps) {

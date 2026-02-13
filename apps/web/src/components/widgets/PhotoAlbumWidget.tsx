@@ -1,18 +1,20 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Images } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../services/api";
 import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import type { WidgetStyle } from "../../stores/screensaver";
 import { cn } from "../../lib/utils";
+import { useBlockControls } from "../../hooks/useBlockControls";
 
 interface PhotoAlbumWidgetProps {
   config: Record<string, unknown>;
   style?: WidgetStyle;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
-interface Photo {
+export interface Photo {
   id: string;
   url: string;
   width?: number;
@@ -39,7 +41,7 @@ export const REDDIT_PRESETS = [
   { id: "itookapicture", name: "I Took A Picture", description: "Photography" },
 ];
 
-function filterByOrientation(photos: Photo[], orientation: Orientation): Photo[] {
+export function filterByOrientation(photos: Photo[], orientation: Orientation): Photo[] {
   if (orientation === "all") return photos;
 
   return photos.filter((photo) => {
@@ -49,7 +51,7 @@ function filterByOrientation(photos: Photo[], orientation: Orientation): Photo[]
   });
 }
 
-function shuffleArray<T>(array: T[]): T[] {
+export function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -60,7 +62,7 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled;
 }
 
-export function PhotoAlbumWidget({ config, style, isBuilder }: PhotoAlbumWidgetProps) {
+export function PhotoAlbumWidget({ config, style, isBuilder, widgetId }: PhotoAlbumWidgetProps) {
   const source = (config.source as PhotoSource) ?? "album";
   const albumId = (config.albumId as string) ?? "";
   const entityId = (config.entityId as string) ?? "";
@@ -188,6 +190,28 @@ export function PhotoAlbumWidget({ config, style, isBuilder }: PhotoAlbumWidgetP
       preloadNext();
     }, transitionDuration);
   }, [photos.length, transitionDuration, preloadNext]);
+
+  // Go to previous photo
+  const prevPhoto = useCallback(() => {
+    if (photos.length <= 1) return;
+    setIsTransitioning(true);
+    setTimeout(() => {
+      setCurrentIndex((prev) => (prev - 1 + photos.length) % photos.length);
+      setIsTransitioning(false);
+    }, transitionDuration);
+  }, [photos.length, transitionDuration]);
+
+  // TV block navigation controls
+  const blockControls = useMemo(() => {
+    if (isBuilder || !widgetId) return null;
+    return {
+      actions: [
+        { key: "right", label: "Next Photo", action: advancePhoto },
+        { key: "left", label: "Previous Photo", action: prevPhoto },
+      ],
+    };
+  }, [isBuilder, widgetId, advancePhoto, prevPhoto]);
+  useBlockControls(widgetId, blockControls);
 
   // Set up slideshow timer with offset support
   useEffect(() => {

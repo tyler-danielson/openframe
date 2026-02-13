@@ -55,6 +55,7 @@ export const setupRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/admin",
     {
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
       schema: {
         description: "Create the first admin user",
         tags: ["Setup"],

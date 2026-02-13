@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   X,
   Star,
@@ -8,9 +9,12 @@ import {
   Trash2,
   ChevronLeft,
   ExternalLink,
+  Timer,
 } from "lucide-react";
 import type { Recipe, RecipeIngredient } from "@openframe/shared";
+import { api } from "../../services/api";
 import { Button } from "../ui/Button";
+import { useToast } from "../ui/Toaster";
 import { cn } from "../../lib/utils";
 
 interface RecipeViewerProps {
@@ -31,6 +35,17 @@ export function RecipeViewer({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set());
   const [checkedSteps, setCheckedSteps] = useState<Set<number>>(new Set());
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const startTimerMutation = useMutation({
+    mutationFn: (data: { name: string; durationSeconds: number }) =>
+      api.startTimer(data),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["kitchen-active-timers"] });
+      toast({ title: `Timer "${variables.name}" started!`, type: "success" });
+    },
+  });
 
   const totalTime = (recipe.prepTime || 0) + (recipe.cookTime || 0);
 
@@ -135,15 +150,43 @@ export function RecipeViewer({
           {/* Meta info */}
           <div className="flex flex-wrap items-center gap-4 mb-6 text-sm">
             {recipe.prepTime && recipe.prepTime > 0 && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-accent rounded-full">
-                <Clock className="h-4 w-4 text-primary" />
-                <span>Prep: {recipe.prepTime} min</span>
+              <div className="flex items-center gap-1 bg-accent rounded-full">
+                <div className="flex items-center gap-1.5 px-3 py-1.5">
+                  <Clock className="h-4 w-4 text-primary" />
+                  <span>Prep: {recipe.prepTime} min</span>
+                </div>
+                <button
+                  onClick={() =>
+                    startTimerMutation.mutate({
+                      name: `${recipe.title} - Prep`,
+                      durationSeconds: recipe.prepTime! * 60,
+                    })
+                  }
+                  className="flex items-center gap-1 px-2 py-1.5 rounded-full hover:bg-primary/10 text-primary transition-colors"
+                  title="Start prep timer"
+                >
+                  <Timer className="h-3.5 w-3.5" />
+                </button>
               </div>
             )}
             {recipe.cookTime && recipe.cookTime > 0 && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-accent rounded-full">
-                <Clock className="h-4 w-4 text-primary" />
-                <span>Cook: {recipe.cookTime} min</span>
+              <div className="flex items-center gap-1 bg-accent rounded-full">
+                <div className="flex items-center gap-1.5 px-3 py-1.5">
+                  <Clock className="h-4 w-4 text-primary" />
+                  <span>Cook: {recipe.cookTime} min</span>
+                </div>
+                <button
+                  onClick={() =>
+                    startTimerMutation.mutate({
+                      name: `${recipe.title} - Cook`,
+                      durationSeconds: recipe.cookTime! * 60,
+                    })
+                  }
+                  className="flex items-center gap-1 px-2 py-1.5 rounded-full hover:bg-primary/10 text-primary transition-colors"
+                  title="Start cook timer"
+                >
+                  <Timer className="h-3.5 w-3.5" />
+                </button>
               </div>
             )}
             {totalTime > 0 && (

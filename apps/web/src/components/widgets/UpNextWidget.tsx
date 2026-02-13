@@ -12,14 +12,15 @@ interface UpNextWidgetProps {
   config: Record<string, unknown>;
   style?: WidgetStyle;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
-const FONT_SIZE_CLASSES: Record<Exclude<FontSizePreset, "custom">, { title: string; detail: string; label: string; countdown: string }> = {
-  xs: { title: "text-sm", detail: "text-[10px]", label: "text-[8px]", countdown: "text-xs" },
-  sm: { title: "text-base", detail: "text-xs", label: "text-[10px]", countdown: "text-sm" },
-  md: { title: "text-lg", detail: "text-sm", label: "text-xs", countdown: "text-base" },
-  lg: { title: "text-xl", detail: "text-base", label: "text-sm", countdown: "text-lg" },
-  xl: { title: "text-2xl", detail: "text-lg", label: "text-base", countdown: "text-xl" },
+const FONT_SIZE_CLASSES: Record<Exclude<FontSizePreset, "custom">, { title: string; detail: string; label: string; countdown: string; dayHeader: string }> = {
+  xs: { title: "text-sm", detail: "text-[10px]", label: "text-[8px]", countdown: "text-xs", dayHeader: "text-[9px]" },
+  sm: { title: "text-base", detail: "text-xs", label: "text-[10px]", countdown: "text-sm", dayHeader: "text-[11px]" },
+  md: { title: "text-lg", detail: "text-sm", label: "text-xs", countdown: "text-base", dayHeader: "text-xs" },
+  lg: { title: "text-xl", detail: "text-base", label: "text-sm", countdown: "text-lg", dayHeader: "text-sm" },
+  xl: { title: "text-2xl", detail: "text-lg", label: "text-base", countdown: "text-xl", dayHeader: "text-base" },
 };
 
 const CUSTOM_SCALE = {
@@ -27,13 +28,21 @@ const CUSTOM_SCALE = {
   detail: 0.85,
   label: 0.7,
   countdown: 1,
+  dayHeader: 0.75,
 };
+
+function getDayLabel(date: Date): string {
+  if (isToday(date)) return "Today";
+  if (isTomorrow(date)) return "Tomorrow";
+  return format(date, "EEEE M/d");
+}
 
 export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
   const showCountdown = config.showCountdown as boolean ?? true;
   const showLocation = config.showLocation as boolean ?? true;
   const showCalendarName = config.showCalendarName as boolean ?? true;
   const showDescription = config.showDescription as boolean ?? false;
+  const maxItems = config.maxItems as number ?? 10;
   const configCalendarIds = config.calendarIds as string[] ?? [];
   const hideBlankEvents = config.hideBlankEvents as boolean ?? false;
   const hideDuplicates = config.hideDuplicates as boolean ?? false;
@@ -81,7 +90,7 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
     refetchInterval: 60 * 1000,
   });
 
-  const nextEvent = useMemo(() => {
+  const upcomingEvents = useMemo(() => {
     const now = new Date();
     let filtered = [...events]
       .filter((event) => new Date(event.endTime) > now)
@@ -105,8 +114,20 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
       });
     }
 
-    return filtered[0] || null;
-  }, [events, hideBlankEvents, hideAllDayEvents, hideDuplicates]);
+    return filtered.slice(0, maxItems);
+  }, [events, hideBlankEvents, hideAllDayEvents, hideDuplicates, maxItems]);
+
+  const groupedEvents = useMemo(() => {
+    const groups = new Map<string, CalendarEvent[]>();
+    for (const event of upcomingEvents) {
+      const dayKey = format(new Date(event.startTime), "yyyy-MM-dd");
+      if (!groups.has(dayKey)) {
+        groups.set(dayKey, []);
+      }
+      groups.get(dayKey)!.push(event);
+    }
+    return groups;
+  }, [upcomingEvents]);
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
   const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset as Exclude<FontSizePreset, "custom">];
@@ -123,7 +144,6 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
     const startTime = new Date(event.startTime);
     const endTime = new Date(event.endTime);
 
-    // Check if event is currently happening
     if (startTime <= now && endTime > now) {
       return "Now";
     }
@@ -139,24 +159,86 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
     return `in ${days} days`;
   };
 
-  const getTimeDisplay = (event: CalendarEvent) => {
-    const startTime = new Date(event.startTime);
-    const eventIsToday = isToday(startTime);
-    const eventIsTomorrow = isTomorrow(startTime);
-
-    if (event.isAllDay) {
-      if (eventIsToday) return "All day today";
-      if (eventIsTomorrow) return "All day tomorrow";
-      return `All day ${format(startTime, "EEEE")}`;
-    }
-
-    const timeStr = format(startTime, "h:mm a");
-    if (eventIsToday) return `Today at ${timeStr}`;
-    if (eventIsTomorrow) return `Tomorrow at ${timeStr}`;
-    return `${format(startTime, "EEEE")} at ${timeStr}`;
+  const getTimeRange = (event: CalendarEvent) => {
+    if (event.isAllDay) return "All day";
+    const start = new Date(event.startTime);
+    const end = new Date(event.endTime);
+    return `${format(start, "h:mm a")} – ${format(end, "h:mm a")}`;
   };
 
+  const renderEventRow = (event: CalendarEvent, calendar: Calendar | undefined, isFirst: boolean) => (
+    <div key={event.id} className="flex items-start gap-3">
+      <div
+        className="w-0.5 self-stretch rounded-full flex-shrink-0 mt-0.5"
+        style={{ backgroundColor: calendar?.color ?? "#3B82F6" }}
+      />
+      <div className="flex-1 min-w-0">
+        <div
+          className={cn(sizeClasses?.title, "font-semibold truncate")}
+          style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.title) } : undefined}
+        >
+          {event.title}
+        </div>
+        <div
+          className={cn(sizeClasses?.detail, "opacity-70 mt-0.5")}
+          style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.detail) } : undefined}
+        >
+          {getTimeRange(event)}
+        </div>
+        {showLocation && event.location && (
+          <div
+            className={cn(sizeClasses?.detail, "opacity-50 mt-0.5 flex items-center gap-1")}
+            style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.detail) } : undefined}
+          >
+            <MapPin className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{event.location}</span>
+          </div>
+        )}
+        {showDescription && event.description && (
+          <div
+            className={cn(sizeClasses?.detail, "opacity-50 mt-0.5 line-clamp-2")}
+            style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.detail) } : undefined}
+          >
+            {event.description}
+          </div>
+        )}
+        {showCalendarName && calendar && (
+          <div
+            className={cn(sizeClasses?.label, "opacity-40 mt-0.5")}
+            style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.label) } : undefined}
+          >
+            {calendar.name}
+          </div>
+        )}
+      </div>
+      {showCountdown && isFirst && (
+        <div
+          className={cn(sizeClasses?.countdown, "font-medium text-primary flex-shrink-0")}
+          style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.countdown) } : undefined}
+        >
+          {getCountdownText(event)}
+        </div>
+      )}
+    </div>
+  );
+
   if (isBuilder) {
+    const mockGroups = [
+      {
+        label: "Today",
+        events: [
+          { id: "1", title: "Team Standup Meeting", time: "10:00 AM – 10:30 AM", location: "Conference Room A", description: "Daily sync with team", calendar: "Work Calendar", color: "#3B82F6", isFirst: true },
+          { id: "2", title: "Design Review", time: "2:00 PM – 3:00 PM", location: null, description: null, calendar: "Work Calendar", color: "#3B82F6", isFirst: false },
+        ],
+      },
+      {
+        label: "Tomorrow",
+        events: [
+          { id: "3", title: "Sprint Planning", time: "9:00 AM – 11:00 AM", location: null, description: null, calendar: "Work Calendar", color: "#10B981", isFirst: false },
+        ],
+      },
+    ];
+
     return (
       <div
         className={cn(
@@ -173,52 +255,74 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
             {headerText}
           </div>
         )}
-        <div className="flex-1 flex flex-col justify-center">
-          <div className="flex items-start gap-3">
-            <div
-              className="w-1 self-stretch rounded-full flex-shrink-0"
-              style={{ backgroundColor: "#3B82F6" }}
-            />
-            <div className="flex-1 min-w-0">
+        <div className="flex-1 overflow-y-auto space-y-3">
+          {mockGroups.map((group) => (
+            <div key={group.label}>
               <div
-                className={cn(sizeClasses?.title, "font-semibold truncate")}
-                style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.title) } : undefined}
+                className={cn(sizeClasses?.dayHeader, "uppercase tracking-wider opacity-50 mb-1.5 font-medium")}
+                style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.dayHeader) } : undefined}
               >
-                Team Standup Meeting
+                {group.label}
               </div>
-              <div
-                className={cn(sizeClasses?.detail, "opacity-70 mt-0.5")}
-                style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.detail) } : undefined}
-              >
-                Today at 10:00 AM
+              <div className="space-y-2">
+                {group.events.map((event) => (
+                  <div key={event.id} className="flex items-start gap-3">
+                    <div
+                      className="w-0.5 self-stretch rounded-full flex-shrink-0 mt-0.5"
+                      style={{ backgroundColor: event.color }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div
+                        className={cn(sizeClasses?.title, "font-semibold truncate")}
+                        style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.title) } : undefined}
+                      >
+                        {event.title}
+                      </div>
+                      <div
+                        className={cn(sizeClasses?.detail, "opacity-70 mt-0.5")}
+                        style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.detail) } : undefined}
+                      >
+                        {event.time}
+                      </div>
+                      {showLocation && event.location && (
+                        <div
+                          className={cn(sizeClasses?.detail, "opacity-50 mt-0.5 flex items-center gap-1")}
+                          style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.detail) } : undefined}
+                        >
+                          <MapPin className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate">{event.location}</span>
+                        </div>
+                      )}
+                      {showDescription && event.description && (
+                        <div
+                          className={cn(sizeClasses?.detail, "opacity-50 mt-0.5 line-clamp-2")}
+                          style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.detail) } : undefined}
+                        >
+                          {event.description}
+                        </div>
+                      )}
+                      {showCalendarName && (
+                        <div
+                          className={cn(sizeClasses?.label, "opacity-40 mt-0.5")}
+                          style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.label) } : undefined}
+                        >
+                          {event.calendar}
+                        </div>
+                      )}
+                    </div>
+                    {showCountdown && event.isFirst && (
+                      <div
+                        className={cn(sizeClasses?.countdown, "font-medium text-primary flex-shrink-0")}
+                        style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.countdown) } : undefined}
+                      >
+                        in 45m
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
-              {showLocation && (
-                <div
-                  className={cn(sizeClasses?.detail, "opacity-50 mt-1 flex items-center gap-1")}
-                  style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.detail) } : undefined}
-                >
-                  <MapPin className="h-3 w-3" />
-                  <span className="truncate">Conference Room A</span>
-                </div>
-              )}
-              {showCalendarName && (
-                <div
-                  className={cn(sizeClasses?.label, "opacity-40 mt-1")}
-                  style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.label) } : undefined}
-                >
-                  Work Calendar
-                </div>
-              )}
             </div>
-            {showCountdown && (
-              <div
-                className={cn(sizeClasses?.countdown, "font-medium text-primary flex-shrink-0")}
-                style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.countdown) } : undefined}
-              >
-                in 45m
-              </div>
-            )}
-          </div>
+          ))}
         </div>
       </div>
     );
@@ -235,7 +339,7 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
     );
   }
 
-  if (!nextEvent) {
+  if (upcomingEvents.length === 0) {
     return (
       <div
         className="flex h-full items-center justify-center p-4 rounded-lg bg-black/40 backdrop-blur-sm"
@@ -246,7 +350,7 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
     );
   }
 
-  const calendar = calendars.find((c: Calendar) => c.id === nextEvent.calendarId);
+  let isFirstEvent = true;
 
   return (
     <div
@@ -264,60 +368,28 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
           {headerText}
         </div>
       )}
-      <div className="flex-1 flex flex-col justify-center">
-        <div className="flex items-start gap-3">
-          <div
-            className="w-1 self-stretch rounded-full flex-shrink-0"
-            style={{ backgroundColor: calendar?.color ?? "#3B82F6" }}
-          />
-          <div className="flex-1 min-w-0">
-            <div
-              className={cn(sizeClasses?.title, "font-semibold truncate")}
-              style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.title) } : undefined}
-            >
-              {nextEvent.title}
-            </div>
-            <div
-              className={cn(sizeClasses?.detail, "opacity-70 mt-0.5")}
-              style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.detail) } : undefined}
-            >
-              {getTimeDisplay(nextEvent)}
-            </div>
-            {showLocation && nextEvent.location && (
+      <div className="flex-1 overflow-y-auto space-y-3">
+        {Array.from(groupedEvents.entries()).map(([dayKey, dayEvents]) => {
+          const dayDate = new Date(dayKey + "T00:00:00");
+          return (
+            <div key={dayKey}>
               <div
-                className={cn(sizeClasses?.detail, "opacity-50 mt-1 flex items-center gap-1")}
-                style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.detail) } : undefined}
+                className={cn(sizeClasses?.dayHeader, "uppercase tracking-wider opacity-50 mb-1.5 font-medium")}
+                style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.dayHeader) } : undefined}
               >
-                <MapPin className="h-3 w-3" />
-                <span className="truncate">{nextEvent.location}</span>
+                {getDayLabel(dayDate)}
               </div>
-            )}
-            {showDescription && nextEvent.description && (
-              <div
-                className={cn(sizeClasses?.detail, "opacity-50 mt-1 line-clamp-2")}
-                style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.detail) } : undefined}
-              >
-                {nextEvent.description}
+              <div className="space-y-2">
+                {dayEvents.map((event) => {
+                  const calendar = calendars.find((c: Calendar) => c.id === event.calendarId);
+                  const isFirst = isFirstEvent;
+                  if (isFirstEvent) isFirstEvent = false;
+                  return renderEventRow(event, calendar, isFirst);
+                })}
               </div>
-            )}
-            {showCalendarName && calendar && (
-              <div
-                className={cn(sizeClasses?.label, "opacity-40 mt-1")}
-                style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.label) } : undefined}
-              >
-                {calendar.name}
-              </div>
-            )}
-          </div>
-          {showCountdown && (
-            <div
-              className={cn(sizeClasses?.countdown, "font-medium text-primary flex-shrink-0")}
-              style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.countdown) } : undefined}
-            >
-              {getCountdownText(nextEvent)}
             </div>
-          )}
-        </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -18,8 +18,10 @@ export function useIdleDetector() {
     // Track user activity
     const handleActivity = () => {
       // Read fresh value from store to avoid stale closure
-      const { isActive: currentlyActive } = useScreensaverStore.getState();
-      if (!currentlyActive) {
+      const { isActive: currentlyActive, behavior } = useScreensaverStore.getState();
+      // In hide-toolbar mode, there's no Screensaver overlay to handle dismissal,
+      // so allow activity events to reset even when active
+      if (!currentlyActive || behavior === "hide-toolbar") {
         updateActivity();
       }
     };

@@ -9,6 +9,7 @@ interface HAGaugeWidgetProps {
   config: Record<string, unknown>;
   style?: WidgetStyle;
   isBuilder?: boolean;
+  widgetId?: string;
 }
 
 const FONT_SIZE_CLASSES: Record<Exclude<FontSizePreset, "custom">, { value: string; name: string }> = {
