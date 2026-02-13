@@ -1,1 +1,1 @@
-ALTER TABLE "kiosks" ADD COLUMN "screensaver_behavior" text DEFAULT 'screensaver' NOT NULL;
+ALTER TABLE "kiosks" ADD COLUMN IF NOT EXISTS "screensaver_behavior" text DEFAULT 'screensaver' NOT NULL;

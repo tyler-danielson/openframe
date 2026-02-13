@@ -66,12 +66,12 @@ CREATE TABLE IF NOT EXISTS "iptv_watch_history" (
 	"watched_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "kiosk_config" ADD COLUMN "screensaver_enabled" boolean DEFAULT true NOT NULL;--> statement-breakpoint
-ALTER TABLE "kiosk_config" ADD COLUMN "screensaver_timeout" integer DEFAULT 300 NOT NULL;--> statement-breakpoint
-ALTER TABLE "kiosk_config" ADD COLUMN "screensaver_interval" integer DEFAULT 15 NOT NULL;--> statement-breakpoint
-ALTER TABLE "kiosk_config" ADD COLUMN "screensaver_layout" "screensaver_layout" DEFAULT 'fullscreen' NOT NULL;--> statement-breakpoint
-ALTER TABLE "photos" ADD COLUMN "source_type" "photo_source";--> statement-breakpoint
-ALTER TABLE "photos" ADD COLUMN "external_id" text;--> statement-breakpoint
+ALTER TABLE "kiosk_config" ADD COLUMN IF NOT EXISTS "screensaver_enabled" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "kiosk_config" ADD COLUMN IF NOT EXISTS "screensaver_timeout" integer DEFAULT 300 NOT NULL;--> statement-breakpoint
+ALTER TABLE "kiosk_config" ADD COLUMN IF NOT EXISTS "screensaver_interval" integer DEFAULT 15 NOT NULL;--> statement-breakpoint
+ALTER TABLE "kiosk_config" ADD COLUMN IF NOT EXISTS "screensaver_layout" "screensaver_layout" DEFAULT 'fullscreen' NOT NULL;--> statement-breakpoint
+ALTER TABLE "photos" ADD COLUMN IF NOT EXISTS "source_type" "photo_source";--> statement-breakpoint
+ALTER TABLE "photos" ADD COLUMN IF NOT EXISTS "external_id" text;--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "iptv_categories" ADD CONSTRAINT "iptv_categories_server_id_iptv_servers_id_fk" FOREIGN KEY ("server_id") REFERENCES "public"."iptv_servers"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION

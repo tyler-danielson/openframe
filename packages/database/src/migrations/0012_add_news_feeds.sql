@@ -10,7 +10,7 @@ CREATE TABLE news_feeds (
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 
-CREATE INDEX news_feeds_user_idx ON news_feeds(user_id);
+CREATE INDEX IF NOT EXISTS news_feeds_user_idx ON news_feeds(user_id);
 
 -- Cached articles
 CREATE TABLE news_articles (
@@ -26,6 +26,6 @@ CREATE TABLE news_articles (
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 
-CREATE INDEX news_articles_feed_idx ON news_articles(feed_id);
-CREATE UNIQUE INDEX news_articles_guid_idx ON news_articles(feed_id, guid);
-CREATE INDEX news_articles_published_idx ON news_articles(published_at DESC);
+CREATE INDEX IF NOT EXISTS news_articles_feed_idx ON news_articles(feed_id);
+CREATE UNIQUE INDEX IF NOT EXISTS news_articles_guid_idx ON news_articles(feed_id, guid);
+CREATE INDEX IF NOT EXISTS news_articles_published_idx ON news_articles(published_at DESC);

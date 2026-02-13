@@ -37,9 +37,9 @@ CREATE TABLE remarkable_templates (
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 
-CREATE INDEX remarkable_templates_user_idx ON remarkable_templates(user_id);
-CREATE INDEX remarkable_templates_type_idx ON remarkable_templates(user_id, template_type);
-CREATE INDEX remarkable_templates_active_idx ON remarkable_templates(user_id, is_active);
+CREATE INDEX IF NOT EXISTS remarkable_templates_user_idx ON remarkable_templates(user_id);
+CREATE INDEX IF NOT EXISTS remarkable_templates_type_idx ON remarkable_templates(user_id, template_type);
+CREATE INDEX IF NOT EXISTS remarkable_templates_active_idx ON remarkable_templates(user_id, is_active);
 
 -- reMarkable Schedules - unified scheduling for templates and default agenda
 CREATE TABLE remarkable_schedules (
@@ -57,10 +57,10 @@ CREATE TABLE remarkable_schedules (
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 
-CREATE INDEX remarkable_schedules_user_idx ON remarkable_schedules(user_id);
-CREATE INDEX remarkable_schedules_template_idx ON remarkable_schedules(template_id);
-CREATE INDEX remarkable_schedules_enabled_idx ON remarkable_schedules(user_id, enabled);
-CREATE INDEX remarkable_schedules_next_push_idx ON remarkable_schedules(next_push_at) WHERE enabled = true;
+CREATE INDEX IF NOT EXISTS remarkable_schedules_user_idx ON remarkable_schedules(user_id);
+CREATE INDEX IF NOT EXISTS remarkable_schedules_template_idx ON remarkable_schedules(template_id);
+CREATE INDEX IF NOT EXISTS remarkable_schedules_enabled_idx ON remarkable_schedules(user_id, enabled);
+CREATE INDEX IF NOT EXISTS remarkable_schedules_next_push_idx ON remarkable_schedules(next_push_at) WHERE enabled = true;
 
 -- reMarkable Processed Confirmations - tracks confirmations sent back after note processing
 CREATE TABLE remarkable_processed_confirmations (
@@ -73,6 +73,6 @@ CREATE TABLE remarkable_processed_confirmations (
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 
-CREATE INDEX remarkable_processed_confirmations_user_idx ON remarkable_processed_confirmations(user_id);
-CREATE INDEX remarkable_processed_confirmations_document_idx ON remarkable_processed_confirmations(document_id);
-CREATE INDEX remarkable_processed_confirmations_created_idx ON remarkable_processed_confirmations(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS remarkable_processed_confirmations_user_idx ON remarkable_processed_confirmations(user_id);
+CREATE INDEX IF NOT EXISTS remarkable_processed_confirmations_document_idx ON remarkable_processed_confirmations(document_id);
+CREATE INDEX IF NOT EXISTS remarkable_processed_confirmations_created_idx ON remarkable_processed_confirmations(user_id, created_at DESC);

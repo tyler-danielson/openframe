@@ -252,9 +252,9 @@ CREATE TABLE IF NOT EXISTS "telegram_config" (
 );
 --> statement-breakpoint
 ALTER TABLE "calendars" ALTER COLUMN "visibility" SET DEFAULT '{"week":false,"month":false,"day":false,"popup":true,"screensaver":false}'::jsonb;--> statement-breakpoint
-ALTER TABLE "calendars" ADD COLUMN "is_favorite" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE "calendars" ADD COLUMN "source_url" text;--> statement-breakpoint
-ALTER TABLE "kiosk_config" ADD COLUMN "screensaver_layout_config" jsonb;--> statement-breakpoint
+ALTER TABLE "calendars" ADD COLUMN IF NOT EXISTS "is_favorite" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "calendars" ADD COLUMN IF NOT EXISTS "source_url" text;--> statement-breakpoint
+ALTER TABLE "kiosk_config" ADD COLUMN IF NOT EXISTS "screensaver_layout_config" jsonb;--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "capacities_config" ADD CONSTRAINT "capacities_config_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION

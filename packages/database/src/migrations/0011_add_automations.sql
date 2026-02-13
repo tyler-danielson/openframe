@@ -28,6 +28,6 @@ CREATE TABLE ha_automations (
 );
 
 -- Create indexes
-CREATE INDEX ha_automations_user_idx ON ha_automations(user_id);
-CREATE INDEX ha_automations_enabled_idx ON ha_automations(user_id, enabled);
-CREATE INDEX ha_automations_trigger_type_idx ON ha_automations(trigger_type);
+CREATE INDEX IF NOT EXISTS ha_automations_user_idx ON ha_automations(user_id);
+CREATE INDEX IF NOT EXISTS ha_automations_enabled_idx ON ha_automations(user_id, enabled);
+CREATE INDEX IF NOT EXISTS ha_automations_trigger_type_idx ON ha_automations(trigger_type);

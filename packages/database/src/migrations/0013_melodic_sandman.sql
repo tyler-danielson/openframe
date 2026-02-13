@@ -167,15 +167,15 @@ CREATE TABLE IF NOT EXISTS "remarkable_templates" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "favorite_sports_teams" ADD COLUMN "visibility" jsonb DEFAULT '{"week":false,"month":false,"day":false,"popup":true,"screensaver":false}'::jsonb NOT NULL;--> statement-breakpoint
-ALTER TABLE "kiosks" ADD COLUMN "display_mode" "kiosk_display_mode" DEFAULT 'full' NOT NULL;--> statement-breakpoint
-ALTER TABLE "kiosks" ADD COLUMN "display_type" "kiosk_display_type" DEFAULT 'touch' NOT NULL;--> statement-breakpoint
-ALTER TABLE "kiosks" ADD COLUMN "home_page" text DEFAULT 'calendar';--> statement-breakpoint
-ALTER TABLE "kiosks" ADD COLUMN "selected_calendar_ids" text[];--> statement-breakpoint
-ALTER TABLE "kiosks" ADD COLUMN "enabled_features" jsonb;--> statement-breakpoint
-ALTER TABLE "kiosks" ADD COLUMN "start_fullscreen" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "password_hash" text;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "role" "user_role" DEFAULT 'member' NOT NULL;--> statement-breakpoint
+ALTER TABLE "favorite_sports_teams" ADD COLUMN IF NOT EXISTS "visibility" jsonb DEFAULT '{"week":false,"month":false,"day":false,"popup":true,"screensaver":false}'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "kiosks" ADD COLUMN IF NOT EXISTS "display_mode" "kiosk_display_mode" DEFAULT 'full' NOT NULL;--> statement-breakpoint
+ALTER TABLE "kiosks" ADD COLUMN IF NOT EXISTS "display_type" "kiosk_display_type" DEFAULT 'touch' NOT NULL;--> statement-breakpoint
+ALTER TABLE "kiosks" ADD COLUMN IF NOT EXISTS "home_page" text DEFAULT 'calendar';--> statement-breakpoint
+ALTER TABLE "kiosks" ADD COLUMN IF NOT EXISTS "selected_calendar_ids" text[];--> statement-breakpoint
+ALTER TABLE "kiosks" ADD COLUMN IF NOT EXISTS "enabled_features" jsonb;--> statement-breakpoint
+ALTER TABLE "kiosks" ADD COLUMN IF NOT EXISTS "start_fullscreen" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "password_hash" text;--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "role" "user_role" DEFAULT 'member' NOT NULL;--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "family_profiles" ADD CONSTRAINT "family_profiles_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION
