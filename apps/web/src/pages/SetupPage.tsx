@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Calendar, ArrowRight, ArrowLeft, Check, SkipForward, Loader2, Eye, EyeOff, Copy } from "lucide-react";
+import { Calendar, ArrowRight, ArrowLeft, Check, SkipForward, Loader2, Eye, EyeOff, Copy, Globe } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/Card";
 import { useAuthStore } from "../stores/auth";
@@ -259,13 +259,24 @@ export function SetupPage() {
               <CardContent className="space-y-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-primary">External URL</label>
-                  <input
-                    type="text"
-                    value={externalUrl}
-                    onChange={(e) => setExternalUrl(e.target.value)}
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    placeholder="https://openframe.example.com"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={externalUrl}
+                      onChange={(e) => setExternalUrl(e.target.value)}
+                      className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                      placeholder="https://openframe.example.com"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setExternalUrl(window.location.origin)}
+                      className="shrink-0 rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground hover:bg-primary/10 hover:border-primary/40 hover:text-primary transition-colors"
+                      title="Use current URL"
+                    >
+                      <Globe className="h-4 w-4 inline-block mr-1" />
+                      Use Current
+                    </button>
+                  </div>
                   <p className="mt-1 text-xs text-muted-foreground">
                     The URL where this server is accessible. Auto-detected from your browser. Used for OAuth redirects and QR codes.
                   </p>

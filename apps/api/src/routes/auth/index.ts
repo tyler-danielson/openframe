@@ -102,6 +102,24 @@ async function getFrontendUrl(db: any): Promise<string> {
   return serverSettings.external_url || process.env.FRONTEND_URL || "http://localhost:3000";
 }
 
+// Google OAuth rejects private IPs (e.g. 192.168.x.x) as redirect URIs.
+// Rewrite to localhost so local dev works without extra configuration.
+function rewritePrivateIpToLocalhost(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    // Match RFC 1918 private ranges: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
+    const isPrivate = /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(host);
+    if (isPrivate) {
+      parsed.hostname = "localhost";
+      return parsed.toString().replace(/\/$/, "");
+    }
+  } catch {
+    // Not a valid URL, return as-is
+  }
+  return url;
+}
+
 // Helper to get OAuth config from DB settings, falling back to env vars
 async function getOAuthConfig(db: any, provider: "google" | "microsoft") {
   const settings = await getCategorySettings(db, provider);
@@ -109,11 +127,12 @@ async function getOAuthConfig(db: any, provider: "google" | "microsoft") {
   const externalUrl = serverSettings.external_url || process.env.FRONTEND_URL;
 
   if (provider === "google") {
+    const baseUrl = externalUrl ? rewritePrivateIpToLocalhost(externalUrl.replace(/\/+$/, "")) : null;
     return {
       clientId: settings.client_id || process.env.GOOGLE_CLIENT_ID,
       clientSecret: settings.client_secret || process.env.GOOGLE_CLIENT_SECRET,
-      redirectUri: externalUrl
-        ? `${externalUrl.replace(/\/+$/, "")}/api/v1/auth/oauth/google/callback`
+      redirectUri: baseUrl
+        ? `${baseUrl}/api/v1/auth/oauth/google/callback`
         : process.env.GOOGLE_REDIRECT_URI,
     };
   }

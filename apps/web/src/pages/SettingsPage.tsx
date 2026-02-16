@@ -2672,15 +2672,28 @@ function SystemSettings() {
                         {settingDef.description}
                       </p>
                     )}
-                    <input
-                      type={settingDef.isSecret ? "password" : "text"}
-                      value={getSettingValue(categoryDef.category, settingDef.key)}
-                      onChange={(e) =>
-                        handleInputChange(categoryDef.category, settingDef.key, e.target.value)
-                      }
-                      placeholder={settingDef.placeholder}
-                      className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:border-primary focus:outline-none"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type={settingDef.isSecret ? "password" : "text"}
+                        value={getSettingValue(categoryDef.category, settingDef.key)}
+                        onChange={(e) =>
+                          handleInputChange(categoryDef.category, settingDef.key, e.target.value)
+                        }
+                        placeholder={settingDef.placeholder}
+                        className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:border-primary focus:outline-none"
+                      />
+                      {categoryDef.category === "server" && settingDef.key === "external_url" && (
+                        <button
+                          type="button"
+                          onClick={() => handleInputChange("server", "external_url", window.location.origin)}
+                          className="shrink-0 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-primary/10 hover:border-primary/40 transition-colors"
+                          title="Use current URL"
+                        >
+                          <Globe className="h-4 w-4 inline-block mr-1" />
+                          Use Current
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
 

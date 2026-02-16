@@ -6,17 +6,31 @@ import { getCurrentUser } from "../../plugins/auth.js";
 import { SpotifyService, setSpotifyCredentials, type SpotifyAccount } from "../../services/spotify.js";
 import { getCategorySettings } from "../settings/index.js";
 
+// OAuth providers reject private IPs as redirect URIs — rewrite to localhost
+function rewritePrivateIpToLocalhost(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(host)) {
+      parsed.hostname = "localhost";
+      return parsed.toString().replace(/\/$/, "");
+    }
+  } catch { /* not a valid URL */ }
+  return url;
+}
+
 // Helper to get Spotify OAuth config from DB settings, falling back to env vars
 async function getSpotifyConfig(db: any) {
   const settings = await getCategorySettings(db, "spotify");
   const serverSettings = await getCategorySettings(db, "server");
   const externalUrl = serverSettings.external_url || process.env.FRONTEND_URL;
+  const baseUrl = externalUrl ? rewritePrivateIpToLocalhost(externalUrl.replace(/\/+$/, "")) : null;
 
   return {
     clientId: settings.client_id || process.env.SPOTIFY_CLIENT_ID,
     clientSecret: settings.client_secret || process.env.SPOTIFY_CLIENT_SECRET,
-    redirectUri: externalUrl
-      ? `${externalUrl.replace(/\/+$/, "")}/api/v1/spotify/auth/callback`
+    redirectUri: baseUrl
+      ? `${baseUrl}/api/v1/spotify/auth/callback`
       : process.env.SPOTIFY_REDIRECT_URI,
   };
 }
