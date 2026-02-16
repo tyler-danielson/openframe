@@ -331,7 +331,8 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         const referer = request.headers.referer;
         if (referer) {
           try {
-            returnUrl = new URL(referer).origin + "/dashboard";
+            const refererUrl = new URL(referer);
+            returnUrl = refererUrl.origin + refererUrl.pathname + refererUrl.search;
           } catch {
             // Ignore
           }
@@ -502,13 +503,14 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Redirect to frontend with tokens
       // Use the stored return URL from when OAuth started, fall back to FRONTEND_URL
-      const baseUrl = storedState.returnUrl
-        ? new URL(storedState.returnUrl).origin
-        : (process.env.FRONTEND_URL || "http://localhost:3000");
+      let baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+      let finalReturnPath = "/dashboard";
 
-      const finalReturnPath = storedState.returnUrl
-        ? new URL(storedState.returnUrl).pathname + new URL(storedState.returnUrl).search
-        : "/dashboard";
+      if (storedState.returnUrl) {
+        const returnUrlParsed = new URL(storedState.returnUrl);
+        baseUrl = returnUrlParsed.origin;
+        finalReturnPath = returnUrlParsed.pathname + returnUrlParsed.search;
+      }
 
       const redirectUrl = new URL(`${baseUrl}/auth/callback`);
       redirectUrl.searchParams.set("accessToken", accessToken);
@@ -528,11 +530,11 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Auth", "OAuth"],
       },
     },
-    async (_request, reply) => {
+    async (request, reply) => {
       const msConfig = await getOAuthConfig(fastify.db, "microsoft");
       const clientId = msConfig.clientId;
       const redirectUri = msConfig.redirectUri;
-      const tenantId = (msConfig as any).tenantId || "common";
+      const tenantId = "tenantId" in msConfig ? msConfig.tenantId : "common";
 
       if (!clientId || !redirectUri) {
         return reply.badRequest("Microsoft OAuth not configured");
@@ -557,10 +559,207 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       url.searchParams.set("scope", scopes.join(" "));
       url.searchParams.set("state", state);
 
-      // Store state in memory for verification
-      oauthStateStore.set(state, { createdAt: Date.now() });
+      // Get the return URL from query param (most reliable) or construct from referer
+      const query = request.query as Record<string, string>;
+      let returnUrl = query.returnUrl;
+
+      if (!returnUrl) {
+        const referer = request.headers.referer;
+        if (referer) {
+          try {
+            const refererUrl = new URL(referer);
+            returnUrl = refererUrl.origin + refererUrl.pathname + refererUrl.search;
+          } catch {
+            // Ignore
+          }
+        }
+      }
+
+      // Store state in memory for verification (works across proxy boundaries)
+      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl });
 
       return reply.redirect(url.toString());
+    }
+  );
+
+  // Microsoft OAuth callback
+  fastify.get(
+    "/oauth/microsoft/callback",
+    {
+      schema: {
+        description: "Microsoft OAuth callback",
+        tags: ["Auth", "OAuth"],
+        querystring: {
+          type: "object",
+          properties: {
+            code: { type: "string" },
+            state: { type: "string" },
+            error: { type: "string" },
+            error_description: { type: "string" },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { code, state, error, error_description } = request.query as Record<string, string | undefined>;
+
+      if (error) {
+        return reply.badRequest(`OAuth error: ${error}${error_description ? ` - ${error_description}` : ""}`);
+      }
+
+      if (!state) {
+        return reply.badRequest("Missing OAuth state");
+      }
+
+      // Verify state from in-memory store
+      const storedState = oauthStateStore.get(state);
+      if (!storedState) {
+        return reply.badRequest("Invalid OAuth state");
+      }
+
+      // Remove used state
+      oauthStateStore.delete(state);
+
+      if (!code) {
+        return reply.badRequest("Missing OAuth code");
+      }
+
+      // Exchange code for tokens using DB config
+      const msConfig = await getOAuthConfig(fastify.db, "microsoft");
+      const tenantId = "tenantId" in msConfig ? msConfig.tenantId : "common";
+
+      const tokenResponse = await fetch(
+        `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            code,
+            client_id: msConfig.clientId!,
+            client_secret: msConfig.clientSecret!,
+            redirect_uri: msConfig.redirectUri!,
+            grant_type: "authorization_code",
+          }),
+        }
+      );
+
+      if (!tokenResponse.ok) {
+        return reply.internalServerError("Failed to exchange OAuth code");
+      }
+
+      const tokens = await tokenResponse.json() as {
+        access_token: string;
+        refresh_token?: string;
+        expires_in: number;
+        scope: string;
+      };
+
+      // Get user info from Microsoft Graph
+      const userInfoResponse = await fetch(
+        "https://graph.microsoft.com/v1.0/me",
+        {
+          headers: { Authorization: `Bearer ${tokens.access_token}` },
+        }
+      );
+
+      if (!userInfoResponse.ok) {
+        return reply.internalServerError("Failed to get user info");
+      }
+
+      const userInfo = await userInfoResponse.json() as {
+        mail?: string;
+        userPrincipalName?: string;
+        displayName?: string;
+      };
+
+      const email = userInfo.mail || userInfo.userPrincipalName;
+      if (!email) {
+        return reply.internalServerError("Failed to get user email");
+      }
+
+      // Find or create user
+      let [user] = await fastify.db
+        .select()
+        .from(users)
+        .where(eq(users.email, email))
+        .limit(1);
+
+      if (!user) {
+        [user] = await fastify.db
+          .insert(users)
+          .values({
+            email: email,
+            name: userInfo.displayName,
+          })
+          .returning();
+      }
+
+      // Store OAuth tokens (encrypted in production)
+      const [existingOAuth] = await fastify.db
+        .select()
+        .from(oauthTokens)
+        .where(
+          and(
+            eq(oauthTokens.userId, user!.id),
+            eq(oauthTokens.provider, "microsoft")
+          )
+        )
+        .limit(1);
+
+      if (existingOAuth) {
+        await fastify.db
+          .update(oauthTokens)
+          .set({
+            accessToken: tokens.access_token,
+            refreshToken: tokens.refresh_token ?? existingOAuth.refreshToken,
+            expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+            scope: tokens.scope,
+            updatedAt: new Date(),
+          })
+          .where(eq(oauthTokens.id, existingOAuth.id));
+      } else {
+        await fastify.db.insert(oauthTokens).values({
+          userId: user!.id,
+          provider: "microsoft",
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+          scope: tokens.scope,
+        });
+      }
+
+      // Create session tokens
+      const accessToken = fastify.jwt.sign({ userId: user!.id });
+      const refreshToken = randomBytes(32).toString("base64url");
+      const tokenHash = createHash("sha256").update(refreshToken).digest("hex");
+      const familyId = randomUUID();
+
+      await fastify.db.insert(refreshTokens).values({
+        userId: user!.id,
+        tokenHash,
+        familyId,
+        deviceInfo: request.headers["user-agent"],
+        ipAddress: request.ip,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+
+      // Redirect to frontend with tokens
+      // Use the stored return URL from when OAuth started, fall back to FRONTEND_URL
+      let baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+      let finalReturnPath = "/dashboard";
+
+      if (storedState.returnUrl) {
+        const returnUrlParsed = new URL(storedState.returnUrl);
+        baseUrl = returnUrlParsed.origin;
+        finalReturnPath = returnUrlParsed.pathname + returnUrlParsed.search;
+      }
+
+      const redirectUrl = new URL(`${baseUrl}/auth/callback`);
+      redirectUrl.searchParams.set("accessToken", accessToken);
+      redirectUrl.searchParams.set("refreshToken", refreshToken);
+      redirectUrl.searchParams.set("returnTo", finalReturnPath);
+
+      return reply.redirect(redirectUrl.toString());
     }
   );
 
