@@ -503,13 +503,14 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Redirect to frontend with tokens
       // Use the stored return URL from when OAuth started, fall back to FRONTEND_URL
-      const baseUrl = storedState.returnUrl
-        ? new URL(storedState.returnUrl).origin
-        : (process.env.FRONTEND_URL || "http://localhost:3000");
+      let baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+      let finalReturnPath = "/dashboard";
 
-      const finalReturnPath = storedState.returnUrl
-        ? new URL(storedState.returnUrl).pathname + new URL(storedState.returnUrl).search
-        : "/dashboard";
+      if (storedState.returnUrl) {
+        const returnUrlParsed = new URL(storedState.returnUrl);
+        baseUrl = returnUrlParsed.origin;
+        finalReturnPath = returnUrlParsed.pathname + returnUrlParsed.search;
+      }
 
       const redirectUrl = new URL(`${baseUrl}/auth/callback`);
       redirectUrl.searchParams.set("accessToken", accessToken);
@@ -533,7 +534,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       const msConfig = await getOAuthConfig(fastify.db, "microsoft");
       const clientId = msConfig.clientId;
       const redirectUri = msConfig.redirectUri;
-      const tenantId = (msConfig as any).tenantId || "common";
+      const tenantId = "tenantId" in msConfig ? msConfig.tenantId : "common";
 
       if (!clientId || !redirectUri) {
         return reply.badRequest("Microsoft OAuth not configured");
@@ -625,7 +626,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Exchange code for tokens using DB config
       const msConfig = await getOAuthConfig(fastify.db, "microsoft");
-      const tenantId = (msConfig as any).tenantId || "common";
+      const tenantId = "tenantId" in msConfig ? msConfig.tenantId : "common";
 
       const tokenResponse = await fetch(
         `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
@@ -744,13 +745,14 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Redirect to frontend with tokens
       // Use the stored return URL from when OAuth started, fall back to FRONTEND_URL
-      const baseUrl = storedState.returnUrl
-        ? new URL(storedState.returnUrl).origin
-        : (process.env.FRONTEND_URL || "http://localhost:3000");
+      let baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+      let finalReturnPath = "/dashboard";
 
-      const finalReturnPath = storedState.returnUrl
-        ? new URL(storedState.returnUrl).pathname + new URL(storedState.returnUrl).search
-        : "/dashboard";
+      if (storedState.returnUrl) {
+        const returnUrlParsed = new URL(storedState.returnUrl);
+        baseUrl = returnUrlParsed.origin;
+        finalReturnPath = returnUrlParsed.pathname + returnUrlParsed.search;
+      }
 
       const redirectUrl = new URL(`${baseUrl}/auth/callback`);
       redirectUrl.searchParams.set("accessToken", accessToken);
