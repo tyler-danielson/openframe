@@ -7962,7 +7962,7 @@ export function SettingsPage() {
                       variant="outline"
                       className="w-full"
                       onClick={() => {
-                        window.location.href = "/api/v1/auth/oauth/microsoft";
+                        window.location.href = `/api/v1/auth/oauth/microsoft?returnUrl=${encodeURIComponent(window.location.origin + "/settings?tab=account")}`;
                       }}
                     >
                       <ExternalLink className="mr-2 h-4 w-4" />
@@ -8021,7 +8021,7 @@ export function SettingsPage() {
                             if (selectedCalendarProvider === "google") {
                               window.location.href = `/api/v1/auth/oauth/google?returnUrl=${encodeURIComponent(window.location.origin + "/settings?tab=calendars")}`;
                             } else if (selectedCalendarProvider === "microsoft") {
-                              window.location.href = "/api/v1/auth/oauth/microsoft";
+                              window.location.href = `/api/v1/auth/oauth/microsoft?returnUrl=${encodeURIComponent(window.location.origin + "/settings?tab=calendars")}`;
                             } else if (selectedCalendarProvider === "sports") {
                               // Navigate to entertainment tab with sports sub-tab
                               window.location.href = "/settings?tab=entertainment&subtab=sports";
@@ -8058,7 +8058,7 @@ export function SettingsPage() {
                   window.location.href = `/api/v1/auth/oauth/google?returnUrl=${encodeURIComponent(window.location.origin + "/settings?tab=calendars")}`;
                 }}
                 onConnectMicrosoft={() => {
-                  window.location.href = "/api/v1/auth/oauth/microsoft";
+                  window.location.href = `/api/v1/auth/oauth/microsoft?returnUrl=${encodeURIComponent(window.location.origin + "/settings?tab=calendars")}`;
                 }}
                 onConnectCalDAV={async (url, username, password) => {
                   // TODO: Implement CalDAV connection
