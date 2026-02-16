@@ -19,21 +19,6 @@ const configSchema = z.object({
     .default("http://localhost:3000"),
   encryptionKey: z.string().length(64), // 32 bytes hex encoded for AES-256
 
-  // OAuth credentials
-  googleClientId: z.string().optional(),
-  googleClientSecret: z.string().optional(),
-  googleRedirectUri: z.string().url().optional(),
-  microsoftClientId: z.string().optional(),
-  microsoftClientSecret: z.string().optional(),
-  microsoftRedirectUri: z.string().url().optional(),
-
-  // Telegram bot
-  telegramBotToken: z.string().optional(),
-
-  // Home Assistant
-  homeAssistantUrl: z.string().url().optional(),
-  homeAssistantToken: z.string().optional(),
-
   // Storage
   uploadDir: z.string().default("./uploads"),
 });
@@ -112,15 +97,6 @@ export function loadConfig(): Config {
     cookieSecret: envCookie || autoSecrets?.cookieSecret,
     corsOrigins: process.env.CORS_ORIGINS,
     encryptionKey: envEncryption || autoSecrets?.encryptionKey,
-    googleClientId: emptyToUndefined(process.env.GOOGLE_CLIENT_ID),
-    googleClientSecret: emptyToUndefined(process.env.GOOGLE_CLIENT_SECRET),
-    googleRedirectUri: emptyToUndefined(process.env.GOOGLE_REDIRECT_URI),
-    microsoftClientId: emptyToUndefined(process.env.MICROSOFT_CLIENT_ID),
-    microsoftClientSecret: emptyToUndefined(process.env.MICROSOFT_CLIENT_SECRET),
-    microsoftRedirectUri: emptyToUndefined(process.env.MICROSOFT_REDIRECT_URI),
-    telegramBotToken: emptyToUndefined(process.env.TELEGRAM_BOT_TOKEN),
-    homeAssistantUrl: emptyToUndefined(process.env.HOME_ASSISTANT_URL),
-    homeAssistantToken: emptyToUndefined(process.env.HOME_ASSISTANT_TOKEN),
     uploadDir: process.env.UPLOAD_DIR,
   });
 

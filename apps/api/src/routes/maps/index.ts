@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { getCategorySettings } from "../settings/index.js";
 
 const DISTANCE_MATRIX_API = "https://maps.googleapis.com/maps/api/distancematrix/json";
 const PLACES_AUTOCOMPLETE_API = "https://maps.googleapis.com/maps/api/place/autocomplete/json";
@@ -62,7 +63,8 @@ export async function mapsRoutes(fastify: FastifyInstance) {
         destination: string;
       };
 
-      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      const googleSettings = await getCategorySettings(fastify.db, "google");
+      const apiKey = googleSettings.maps_api_key || process.env.GOOGLE_MAPS_API_KEY;
       if (!apiKey) {
         throw fastify.httpErrors.serviceUnavailable("Google Maps API key not configured");
       }
@@ -156,7 +158,8 @@ export async function mapsRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { input } = request.query as { input: string };
 
-      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      const googleSettings = await getCategorySettings(fastify.db, "google");
+      const apiKey = googleSettings.maps_api_key || process.env.GOOGLE_MAPS_API_KEY;
       if (!apiKey) {
         throw fastify.httpErrors.serviceUnavailable("Google Maps API key not configured");
       }

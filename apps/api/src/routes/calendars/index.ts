@@ -3,9 +3,19 @@ import { eq, and } from "drizzle-orm";
 import { calendars, oauthTokens } from "@openframe/database/schema";
 import { calendarQuerySchema, syncCalendarSchema } from "@openframe/shared/validators";
 import { getCurrentUser } from "../../plugins/auth.js";
-import { syncGoogleCalendars } from "../../services/calendar-sync/google.js";
+import { syncGoogleCalendars, setGoogleCalendarCredentials } from "../../services/calendar-sync/google.js";
+import { getCategorySettings } from "../settings/index.js";
 
 export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
+  // Set Google OAuth credentials from DB for calendar sync
+  const googleSettings = await getCategorySettings(fastify.db, "google");
+  if (googleSettings.client_id || googleSettings.client_secret) {
+    setGoogleCalendarCredentials({
+      clientId: googleSettings.client_id || undefined,
+      clientSecret: googleSettings.client_secret || undefined,
+    });
+  }
+
   // List calendars
   fastify.get(
     "/",

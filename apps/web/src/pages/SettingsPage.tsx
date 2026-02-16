@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
-import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Tablet, Link2, Unlink, QrCode } from "lucide-react";
+import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Tablet, Link2, Unlink, QrCode, Copy } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { Camera } from "@openframe/shared";
 import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures } from "../services/api";
@@ -12,7 +12,7 @@ import { useScreensaverStore, type ScreensaverLayout, type ScreensaverTransition
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
+import { GripVertical, BookOpen } from "lucide-react";
 import { ToggleGroup } from "../components/ui/Toggle";
 import { useTasksStore, type TasksLayout } from "../stores/tasks";
 import { Button } from "../components/ui/Button";
@@ -35,13 +35,13 @@ import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParse
 type SettingsTab = "account" | "calendars" | "tasks" | "entertainment" | "appearance" | "ai" | "automations" | "cameras" | "homeassistant" | "kiosks" | "system";
 
 // Entertainment sub-tabs
-type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "news";
+type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobookshelf" | "news";
 
 // Appearance sub-tabs
 type AppearanceSubTab = "display" | "photos" | "screensaver";
 
 const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "entertainment", "appearance", "ai", "automations", "cameras", "homeassistant", "kiosks", "system"];
-const validEntertainmentSubTabs: EntertainmentSubTab[] = ["sports", "spotify", "iptv", "news"];
+const validEntertainmentSubTabs: EntertainmentSubTab[] = ["sports", "spotify", "iptv", "plex", "audiobookshelf", "news"];
 const validAppearanceSubTabs: AppearanceSubTab[] = ["display", "photos", "screensaver"];
 
 const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
@@ -63,6 +63,8 @@ const entertainmentSubTabs: { id: EntertainmentSubTab; label: string; icon: Reac
   { id: "sports", label: "Sports", icon: <Trophy className="h-4 w-4" /> },
   { id: "spotify", label: "Spotify", icon: <Music className="h-4 w-4" /> },
   { id: "iptv", label: "IPTV", icon: <Tv className="h-4 w-4" /> },
+  { id: "plex", label: "Plex", icon: <Play className="h-4 w-4" /> },
+  { id: "audiobookshelf", label: "Audiobookshelf", icon: <BookOpen className="h-4 w-4" /> },
   { id: "news", label: "News", icon: <Newspaper className="h-4 w-4" /> },
 ];
 
@@ -1320,7 +1322,19 @@ function KiosksSettings() {
 
   const handleCopyUrl = async (token: string) => {
     const url = `${frontendUrl}/kiosk/${token}`;
-    await navigator.clipboard.writeText(url);
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // Fallback for non-HTTPS contexts
+      const textArea = document.createElement("textarea");
+      textArea.value = url;
+      textArea.style.position = "fixed";
+      textArea.style.opacity = "0";
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textArea);
+    }
     setCopiedToken(token);
     setTimeout(() => setCopiedToken(null), 2000);
   };
@@ -2670,6 +2684,48 @@ function SystemSettings() {
                   </div>
                 ))}
 
+                {/* Redirect URIs - show computed OAuth redirect URIs when server external_url is set */}
+                {categoryDef.category === "server" && (() => {
+                  const externalUrl = getSettingValue("server", "external_url");
+                  if (!externalUrl) return null;
+                  const base = externalUrl.replace(/\/+$/, "");
+                  const redirectUris = [
+                    { label: "Google Redirect URI", value: `${base}/api/v1/auth/oauth/google/callback` },
+                    { label: "Microsoft Redirect URI", value: `${base}/api/v1/auth/oauth/microsoft/callback` },
+                    { label: "Spotify Redirect URI", value: `${base}/api/v1/spotify/auth/callback` },
+                  ];
+                  return (
+                    <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 p-4 mt-2">
+                      <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">
+                        OAuth Redirect URIs
+                      </p>
+                      <p className="text-xs text-blue-700 dark:text-blue-300 mb-3">
+                        Use these URLs when configuring OAuth apps in Google Cloud Console, Microsoft Entra, and Spotify Developer Dashboard.
+                      </p>
+                      <div className="space-y-2">
+                        {redirectUris.map((uri) => (
+                          <div key={uri.label} className="flex items-center gap-2">
+                            <div className="flex-1 min-w-0">
+                              <label className="block text-xs font-medium text-blue-800 dark:text-blue-200">{uri.label}</label>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <code className="text-xs bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-700 rounded px-2 py-1 truncate block flex-1">{uri.value}</code>
+                                <button
+                                  type="button"
+                                  onClick={() => navigator.clipboard.writeText(uri.value)}
+                                  className="shrink-0 rounded p-1 text-blue-600 hover:bg-blue-100 dark:text-blue-400 dark:hover:bg-blue-900"
+                                  title="Copy to clipboard"
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Handwriting recognition - link to AI tab */}
                 {categoryDef.category === "handwriting" && (
                   <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 p-4 mt-4">
@@ -2953,6 +3009,365 @@ function IptvSettings() {
                   >
                     <RefreshCw className={`h-4 w-4 ${syncServer.isPending ? "animate-spin" : ""}`} />
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDeleteServer(server)}
+                    disabled={deleteServer.isPending}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PlexSettings() {
+  const queryClient = useQueryClient();
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [serverName, setServerName] = useState("");
+  const [serverUrl, setServerUrl] = useState("");
+  const [accessToken, setAccessToken] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const { data: servers = [], isLoading } = useQuery({
+    queryKey: ["plex-servers"],
+    queryFn: () => api.getPlexServers(),
+  });
+
+  const addServer = useMutation({
+    mutationFn: async (data: { name: string; serverUrl: string; accessToken: string }) => {
+      return api.addPlexServer(data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["plex-servers"] });
+      setShowAddForm(false);
+      setServerName("");
+      setServerUrl("");
+      setAccessToken("");
+      setAddError(null);
+    },
+    onError: (error) => {
+      setAddError(error instanceof Error ? error.message : "Failed to add server");
+    },
+  });
+
+  const deleteServer = useMutation({
+    mutationFn: (id: string) => api.deletePlexServer(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["plex-servers"] });
+    },
+  });
+
+  const handleDeleteServer = (server: { id: string; name: string }) => {
+    if (confirm(`Delete Plex server "${server.name}"?`)) {
+      deleteServer.mutate(server.id);
+    }
+  };
+
+  const handleAddServer = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddError(null);
+    addServer.mutate({ name: serverName, serverUrl, accessToken });
+  };
+
+  return (
+    <Card className="border-2 border-primary/40">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Plex Servers</CardTitle>
+            <CardDescription>
+              Manage your Plex Media Server connections
+            </CardDescription>
+          </div>
+          {!showAddForm && (
+            <Button size="sm" onClick={() => setShowAddForm(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Server
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {showAddForm && (
+          <form onSubmit={handleAddServer} className="space-y-4 rounded-lg border border-border p-4">
+            <h4 className="font-medium">Add New Plex Server</h4>
+            {addError && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3">
+                <p className="text-sm text-destructive">{addError}</p>
+              </div>
+            )}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Server Name</label>
+                <input
+                  type="text"
+                  value={serverName}
+                  onChange={(e) => setServerName(e.target.value)}
+                  placeholder="My Plex Server"
+                  required
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Server URL</label>
+                <input
+                  type="url"
+                  value={serverUrl}
+                  onChange={(e) => setServerUrl(e.target.value)}
+                  placeholder="http://192.168.1.50:32400"
+                  required
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <label className="text-sm font-medium">Access Token</label>
+                <input
+                  type="password"
+                  value={accessToken}
+                  onChange={(e) => setAccessToken(e.target.value)}
+                  placeholder="Plex authentication token"
+                  required
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Find your token in Plex Web &rarr; Settings &rarr; Authorized Devices, or from a browser inspection of app.plex.tv
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setShowAddForm(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={addServer.isPending}>
+                {addServer.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  "Add Server"
+                )}
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : servers.length === 0 && !showAddForm ? (
+          <div className="rounded-lg border border-dashed border-border p-6 text-center">
+            <Play className="mx-auto h-8 w-8 text-muted-foreground" />
+            <p className="mt-2 text-sm text-muted-foreground">
+              No Plex servers configured
+            </p>
+            <Button size="sm" className="mt-4" onClick={() => setShowAddForm(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Your First Server
+            </Button>
+          </div>
+        ) : servers.length > 0 ? (
+          <div className="space-y-3">
+            {servers.map((server) => (
+              <div
+                key={server.id}
+                className="flex items-center justify-between rounded-lg border border-border p-4"
+              >
+                <div>
+                  <p className="font-medium">{server.name}</p>
+                  <p className="text-sm text-muted-foreground">{server.serverUrl}</p>
+                  {server.machineId && (
+                    <p className="text-xs text-muted-foreground">
+                      Machine ID: {server.machineId.slice(0, 12)}...
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDeleteServer(server)}
+                    disabled={deleteServer.isPending}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AudiobookshelfSettings() {
+  const queryClient = useQueryClient();
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [serverName, setServerName] = useState("");
+  const [serverUrl, setServerUrl] = useState("");
+  const [accessToken, setAccessToken] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const { data: servers = [], isLoading } = useQuery({
+    queryKey: ["audiobookshelf-servers"],
+    queryFn: () => api.getAudiobookshelfServers(),
+  });
+
+  const addServer = useMutation({
+    mutationFn: async (data: { name: string; serverUrl: string; accessToken: string }) => {
+      return api.addAudiobookshelfServer(data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["audiobookshelf-servers"] });
+      setShowAddForm(false);
+      setServerName("");
+      setServerUrl("");
+      setAccessToken("");
+      setAddError(null);
+    },
+    onError: (error) => {
+      setAddError(error instanceof Error ? error.message : "Failed to add server");
+    },
+  });
+
+  const deleteServer = useMutation({
+    mutationFn: (id: string) => api.deleteAudiobookshelfServer(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["audiobookshelf-servers"] });
+    },
+  });
+
+  const handleDeleteServer = (server: { id: string; name: string }) => {
+    if (confirm(`Delete Audiobookshelf server "${server.name}"?`)) {
+      deleteServer.mutate(server.id);
+    }
+  };
+
+  const handleAddServer = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddError(null);
+    addServer.mutate({ name: serverName, serverUrl, accessToken });
+  };
+
+  return (
+    <Card className="border-2 border-primary/40">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Audiobookshelf Servers</CardTitle>
+            <CardDescription>
+              Manage your Audiobookshelf server connections
+            </CardDescription>
+          </div>
+          {!showAddForm && (
+            <Button size="sm" onClick={() => setShowAddForm(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Server
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {showAddForm && (
+          <form onSubmit={handleAddServer} className="space-y-4 rounded-lg border border-border p-4">
+            <h4 className="font-medium">Add New Audiobookshelf Server</h4>
+            {addError && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3">
+                <p className="text-sm text-destructive">{addError}</p>
+              </div>
+            )}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Server Name</label>
+                <input
+                  type="text"
+                  value={serverName}
+                  onChange={(e) => setServerName(e.target.value)}
+                  placeholder="My Audiobookshelf"
+                  required
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Server URL</label>
+                <input
+                  type="url"
+                  value={serverUrl}
+                  onChange={(e) => setServerUrl(e.target.value)}
+                  placeholder="http://192.168.1.50:13378"
+                  required
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <label className="text-sm font-medium">API Token</label>
+                <input
+                  type="password"
+                  value={accessToken}
+                  onChange={(e) => setAccessToken(e.target.value)}
+                  placeholder="Audiobookshelf API token"
+                  required
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Find your API token in Audiobookshelf &rarr; Settings &rarr; Users &rarr; your user
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setShowAddForm(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={addServer.isPending}>
+                {addServer.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  "Add Server"
+                )}
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : servers.length === 0 && !showAddForm ? (
+          <div className="rounded-lg border border-dashed border-border p-6 text-center">
+            <BookOpen className="mx-auto h-8 w-8 text-muted-foreground" />
+            <p className="mt-2 text-sm text-muted-foreground">
+              No Audiobookshelf servers configured
+            </p>
+            <Button size="sm" className="mt-4" onClick={() => setShowAddForm(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Your First Server
+            </Button>
+          </div>
+        ) : servers.length > 0 ? (
+          <div className="space-y-3">
+            {servers.map((server) => (
+              <div
+                key={server.id}
+                className="flex items-center justify-between rounded-lg border border-border p-4"
+              >
+                <div>
+                  <p className="font-medium">{server.name}</p>
+                  <p className="text-sm text-muted-foreground">{server.serverUrl}</p>
+                </div>
+                <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
@@ -6416,9 +6831,24 @@ function ApiKeysSettings() {
     },
   });
 
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";
+      textArea.style.opacity = "0";
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textArea);
+    }
+  };
+
   const handleCopyKey = async () => {
     if (createdKey) {
-      await navigator.clipboard.writeText(createdKey);
+      await copyToClipboard(createdKey);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -6427,7 +6857,7 @@ function ApiKeysSettings() {
   const handleCopyKioskUrl = async () => {
     if (createdKey) {
       const kioskUrl = `${frontendUrl}?apiKey=${createdKey}`;
-      await navigator.clipboard.writeText(kioskUrl);
+      await copyToClipboard(kioskUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -7472,7 +7902,7 @@ function SpotifySettings() {
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="mt-1 h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-                    Configure SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, and SPOTIFY_REDIRECT_URI in environment
+                    Configure Spotify Client ID and Client Secret in the System tab under Spotify settings
                   </li>
                 </ul>
               </div>
@@ -8252,6 +8682,8 @@ export function SettingsPage() {
                   <IptvChannelManager />
                 </div>
               )}
+              {activeEntertainmentSubTab === "plex" && <PlexSettings />}
+              {activeEntertainmentSubTab === "audiobookshelf" && <AudiobookshelfSettings />}
               {activeEntertainmentSubTab === "news" && <NewsSettings />}
             </div>
           )}
@@ -8737,7 +9169,7 @@ export function SettingsPage() {
                           </div>
                           <div className="rounded-lg border border-border p-4 bg-muted/30">
                             <p className="text-sm font-medium mb-2">Layout preview</p>
-                            <div className="grid grid-cols-5 gap-2">
+                            <div className="grid grid-cols-6 gap-2">
                               <button
                                 type="button"
                                 onClick={() => setScreensaverLayout("fullscreen")}
@@ -8791,6 +9223,19 @@ export function SettingsPage() {
                                 <div className="bg-muted-foreground/30 rounded" />
                                 <div className="bg-muted-foreground/30 rounded" />
                                 <div className="bg-primary/40 rounded col-span-2" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setScreensaverLayout("skylight")}
+                                className={`aspect-video rounded border-2 flex items-center justify-center gap-0.5 p-1 ${
+                                  screensaverLayout === "skylight" ? "border-primary bg-primary/10" : "border-border"
+                                }`}
+                              >
+                                <div className="w-4 h-5 bg-muted-foreground/30 rounded" />
+                                <div className="flex flex-col gap-0.5">
+                                  <div className="w-2 h-[9px] bg-muted-foreground/30 rounded" />
+                                  <div className="w-2 h-[9px] bg-muted-foreground/30 rounded" />
+                                </div>
                               </button>
                             </div>
                           </div>

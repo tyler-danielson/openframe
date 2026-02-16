@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { oauthTokens } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { getGmailHighlights, checkGmailAccess } from "../../services/gmail.js";
+import { getCategorySettings } from "../settings/index.js";
 
 export const gmailRoutes: FastifyPluginAsync = async (fastify) => {
   // Get Gmail status (check if user has Gmail access)
@@ -76,10 +77,13 @@ export const gmailRoutes: FastifyPluginAsync = async (fastify) => {
         };
       }
 
-      // Verify actual access
+      // Verify actual access - pass OAuth credentials from DB
+      const googleSettings = await getCategorySettings(fastify.db, "google");
       const accessCheck = await checkGmailAccess({
         accessToken: oauth.accessToken,
         refreshToken: oauth.refreshToken || undefined,
+        clientId: googleSettings.client_id || undefined,
+        clientSecret: googleSettings.client_secret || undefined,
       });
 
       return {
@@ -163,10 +167,14 @@ export const gmailRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
+        // Pass OAuth credentials from DB
+        const googleSettings = await getCategorySettings(fastify.db, "google");
         const highlights = await getGmailHighlights(
           {
             accessToken: oauth.accessToken,
             refreshToken: oauth.refreshToken || undefined,
+            clientId: googleSettings.client_id || undefined,
+            clientSecret: googleSettings.client_secret || undefined,
           },
           Math.min(limit, 20) // Cap at 20 emails
         );

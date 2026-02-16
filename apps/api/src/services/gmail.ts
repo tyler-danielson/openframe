@@ -4,6 +4,8 @@ import type { EmailHighlight } from "@openframe/shared";
 export interface GmailServiceOptions {
   accessToken: string;
   refreshToken?: string;
+  clientId?: string;
+  clientSecret?: string;
 }
 
 /**
@@ -14,8 +16,8 @@ export async function getGmailHighlights(
   maxResults: number = 10
 ): Promise<EmailHighlight[]> {
   const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET
+    options.clientId || process.env.GOOGLE_CLIENT_ID,
+    options.clientSecret || process.env.GOOGLE_CLIENT_SECRET
   );
 
   oauth2Client.setCredentials({
@@ -84,8 +86,8 @@ export async function checkGmailAccess(options: GmailServiceOptions): Promise<{
 }> {
   try {
     const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET
+      options.clientId || process.env.GOOGLE_CLIENT_ID,
+      options.clientSecret || process.env.GOOGLE_CLIENT_SECRET
     );
 
     oauth2Client.setCredentials({

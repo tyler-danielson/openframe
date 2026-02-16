@@ -26,8 +26,10 @@ import {
   deletePickerSession,
   getPhotoUrl,
   getAccessToken,
+  setGoogleOAuthCredentials,
 } from "../../services/google-photos.js";
 import { fetchSubredditPhotos } from "../../services/reddit-photos.js";
+import { getCategorySettings } from "../settings/index.js";
 import { randomUUID } from "crypto";
 import { mkdir, unlink, stat } from "fs/promises";
 import { createReadStream } from "fs";
@@ -47,6 +49,15 @@ function getMimeType(filePath: string): string {
 
 export const photoRoutes: FastifyPluginAsync = async (fastify) => {
   const uploadDir = process.env.UPLOAD_DIR ?? "./uploads";
+
+  // Set Google OAuth credentials from DB for the google-photos service
+  const googleSettings = await getCategorySettings(fastify.db, "google");
+  if (googleSettings.client_id || googleSettings.client_secret) {
+    setGoogleOAuthCredentials({
+      clientId: googleSettings.client_id || undefined,
+      clientSecret: googleSettings.client_secret || undefined,
+    });
+  }
 
   // List albums
   fastify.get(
@@ -1358,12 +1369,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ==================== TEMPORARY UPLOAD TOKENS ====================
 
-  // In-memory store for temporary upload tokens
-  // Structure: { token: { userId, albumId, createdAt, expiresAt } }
-  // Exported for use by kiosk routes
-  if (!fastify.uploadTokens) {
-    fastify.uploadTokens = new Map<string, { userId: string; albumId: string; createdAt: Date; expiresAt: Date }>();
-  }
+  // Upload tokens Map is shared across routes (initialized in app.ts via decorate)
   const uploadTokens = fastify.uploadTokens;
 
   // Clean up expired tokens periodically

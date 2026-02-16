@@ -48,6 +48,18 @@ interface GoogleEventsResponse {
 
 type OAuthToken = typeof oauthTokens.$inferSelect;
 
+export interface GoogleCalendarCredentials {
+  clientId?: string;
+  clientSecret?: string;
+}
+
+// Module-level credentials that can be set by the route layer
+let _calendarCredentials: GoogleCalendarCredentials = {};
+
+export function setGoogleCalendarCredentials(creds: GoogleCalendarCredentials) {
+  _calendarCredentials = creds;
+}
+
 /**
  * Parse a date-only string (YYYY-MM-DD) as local midnight.
  * This is needed for all-day events because:
@@ -72,12 +84,15 @@ async function refreshGoogleToken(token: OAuthToken): Promise<string> {
     return token.accessToken;
   }
 
+  const clientId = _calendarCredentials.clientId || process.env.GOOGLE_CLIENT_ID!;
+  const clientSecret = _calendarCredentials.clientSecret || process.env.GOOGLE_CLIENT_SECRET!;
+
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: token.refreshToken,
       grant_type: "refresh_token",
     }),
@@ -362,5 +377,173 @@ async function upsertEvent(
     await db.update(events).set(eventData).where(eq(events.id, existing.id));
   } else {
     await db.insert(events).values(eventData);
+  }
+}
+
+// --- Outgoing sync: local → Google Calendar ---
+
+type CalendarRecord = typeof calendars.$inferSelect;
+type EventRecord = typeof events.$inferSelect;
+
+function buildGoogleEventBody(event: EventRecord) {
+  const body: Record<string, unknown> = {
+    summary: event.title,
+    description: event.description ?? undefined,
+    location: event.location ?? undefined,
+  };
+
+  if (event.isAllDay) {
+    const startDate = event.startTime.toISOString().slice(0, 10);
+    // Google uses exclusive end date for all-day events, so add 1 day
+    const endDate = new Date(event.endTime);
+    endDate.setDate(endDate.getDate() + 1);
+    body.start = { date: startDate };
+    body.end = { date: endDate.toISOString().slice(0, 10) };
+  } else {
+    body.start = { dateTime: event.startTime.toISOString() };
+    body.end = { dateTime: event.endTime.toISOString() };
+  }
+
+  if (event.recurrenceRule) {
+    body.recurrence = [`RRULE:${event.recurrenceRule}`];
+  }
+
+  if (Array.isArray(event.attendees) && event.attendees.length > 0) {
+    body.attendees = (event.attendees as Array<{ email: string; name?: string }>).map((a) => ({
+      email: a.email,
+      displayName: a.name,
+    }));
+  }
+
+  if (Array.isArray(event.reminders) && event.reminders.length > 0) {
+    body.reminders = {
+      useDefault: false,
+      overrides: (event.reminders as Array<{ method: string; minutes: number }>).map((r) => ({
+        method: r.method,
+        minutes: r.minutes,
+      })),
+    };
+  }
+
+  return body;
+}
+
+export async function pushEventToGoogle(
+  db: Database,
+  userId: string,
+  calendar: CalendarRecord,
+  event: EventRecord,
+  token: OAuthToken
+): Promise<void> {
+  try {
+    const accessToken = await refreshGoogleToken(token);
+    const body = buildGoogleEventBody(event);
+
+    const response = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.externalId)}/events`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error(`[Google Sync] Failed to push event: ${response.status} ${text}`);
+      return;
+    }
+
+    const created = (await response.json()) as GoogleEvent;
+
+    // Update local event with Google's ID and etag
+    await db
+      .update(events)
+      .set({
+        externalId: created.id,
+        etag: created.etag ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(events.id, event.id));
+  } catch (err) {
+    console.error("[Google Sync] Error pushing event:", err);
+  }
+}
+
+export async function updateEventInGoogle(
+  db: Database,
+  calendar: CalendarRecord,
+  event: EventRecord,
+  token: OAuthToken
+): Promise<void> {
+  // Never synced to Google — nothing to update
+  if (event.externalId.startsWith("local_")) return;
+
+  try {
+    const accessToken = await refreshGoogleToken(token);
+    const body = buildGoogleEventBody(event);
+
+    const response = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.externalId)}/events/${encodeURIComponent(event.externalId)}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error(`[Google Sync] Failed to update event: ${response.status} ${text}`);
+      return;
+    }
+
+    const updated = (await response.json()) as GoogleEvent;
+
+    await db
+      .update(events)
+      .set({
+        etag: updated.etag ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(events.id, event.id));
+  } catch (err) {
+    console.error("[Google Sync] Error updating event:", err);
+  }
+}
+
+export async function deleteEventFromGoogle(
+  calendar: CalendarRecord,
+  event: EventRecord,
+  token: OAuthToken
+): Promise<void> {
+  // Never synced to Google — nothing to delete
+  if (event.externalId.startsWith("local_")) return;
+
+  try {
+    const accessToken = await refreshGoogleToken(token);
+
+    const response = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.externalId)}/events/${encodeURIComponent(event.externalId)}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    if (!response.ok && response.status !== 410) {
+      const text = await response.text();
+      console.error(`[Google Sync] Failed to delete event: ${response.status} ${text}`);
+    }
+  } catch (err) {
+    console.error("[Google Sync] Error deleting event:", err);
   }
 }

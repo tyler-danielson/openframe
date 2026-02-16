@@ -2,6 +2,18 @@ import type { FastifyInstance } from "fastify";
 import { eq, and, desc } from "drizzle-orm";
 import { oauthTokens } from "@openframe/database/schema";
 
+export interface SpotifyCredentials {
+  clientId?: string;
+  clientSecret?: string;
+}
+
+// Module-level credentials that can be set by the route layer
+let _spotifyCredentials: SpotifyCredentials = {};
+
+export function setSpotifyCredentials(creds: SpotifyCredentials) {
+  _spotifyCredentials = creds;
+}
+
 export interface SpotifyDevice {
   id: string;
   name: string;
@@ -181,12 +193,15 @@ export class SpotifyService {
   }
 
   private async refreshAccessToken(tokenId: string, refreshToken: string): Promise<string> {
+    const clientId = _spotifyCredentials.clientId || process.env.SPOTIFY_CLIENT_ID || "";
+    const clientSecret = _spotifyCredentials.clientSecret || process.env.SPOTIFY_CLIENT_SECRET || "";
+
     const response = await fetch("https://accounts.spotify.com/api/token", {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
         Authorization: `Basic ${Buffer.from(
-          `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
+          `${clientId}:${clientSecret}`
         ).toString("base64")}`,
       },
       body: new URLSearchParams({

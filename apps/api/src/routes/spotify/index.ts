@@ -3,7 +3,29 @@ import { eq, and } from "drizzle-orm";
 import { oauthTokens } from "@openframe/database/schema";
 import { randomBytes } from "crypto";
 import { getCurrentUser } from "../../plugins/auth.js";
-import { SpotifyService, type SpotifyAccount } from "../../services/spotify.js";
+import { SpotifyService, setSpotifyCredentials, type SpotifyAccount } from "../../services/spotify.js";
+import { getCategorySettings } from "../settings/index.js";
+
+// Helper to get Spotify OAuth config from DB settings, falling back to env vars
+async function getSpotifyConfig(db: any) {
+  const settings = await getCategorySettings(db, "spotify");
+  const serverSettings = await getCategorySettings(db, "server");
+  const externalUrl = serverSettings.external_url || process.env.FRONTEND_URL;
+
+  return {
+    clientId: settings.client_id || process.env.SPOTIFY_CLIENT_ID,
+    clientSecret: settings.client_secret || process.env.SPOTIFY_CLIENT_SECRET,
+    redirectUri: externalUrl
+      ? `${externalUrl.replace(/\/+$/, "")}/api/v1/spotify/auth/callback`
+      : process.env.SPOTIFY_REDIRECT_URI,
+  };
+}
+
+// Helper to get frontend URL from DB
+async function getFrontendUrl(db: any): Promise<string> {
+  const serverSettings = await getCategorySettings(db, "server");
+  return serverSettings.external_url || process.env.FRONTEND_URL || "http://localhost:3000";
+}
 
 // In-memory OAuth state store
 const oauthStateStore = new Map<string, { createdAt: number; returnUrl?: string; userId?: string }>();
@@ -19,6 +41,15 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
+  // Set Spotify credentials from DB for the SpotifyService token refresh
+  const spotifySettings = await getCategorySettings(fastify.db, "spotify");
+  if (spotifySettings.client_id || spotifySettings.client_secret) {
+    setSpotifyCredentials({
+      clientId: spotifySettings.client_id || undefined,
+      clientSecret: spotifySettings.client_secret || undefined,
+    });
+  }
+
   // Check Spotify connection status (returns all connected accounts)
   fastify.get(
     "/status",
@@ -218,8 +249,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.unauthorized("Invalid or expired token");
       }
 
-      const clientId = process.env.SPOTIFY_CLIENT_ID;
-      const redirectUri = process.env.SPOTIFY_REDIRECT_URI;
+      const spotifyConfig = await getSpotifyConfig(fastify.db);
+      const clientId = spotifyConfig.clientId;
+      const redirectUri = spotifyConfig.redirectUri;
 
       if (!clientId || !redirectUri) {
         return reply.badRequest("Spotify OAuth not configured");
@@ -311,7 +343,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("Missing OAuth code");
       }
 
-      // Exchange code for tokens
+      // Exchange code for tokens using DB config
+      const spotifyConfig = await getSpotifyConfig(fastify.db);
+
       const tokenResponse = await fetch(
         "https://accounts.spotify.com/api/token",
         {
@@ -319,12 +353,12 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
           headers: {
             "Content-Type": "application/x-www-form-urlencoded",
             Authorization: `Basic ${Buffer.from(
-              `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
+              `${spotifyConfig.clientId}:${spotifyConfig.clientSecret}`
             ).toString("base64")}`,
           },
           body: new URLSearchParams({
             code,
-            redirect_uri: process.env.SPOTIFY_REDIRECT_URI!,
+            redirect_uri: spotifyConfig.redirectUri!,
             grant_type: "authorization_code",
           }),
         }
@@ -346,7 +380,7 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
 
       // If we don't have a user, redirect to login
       if (!userId) {
-        const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+        const frontendUrl = await getFrontendUrl(fastify.db);
         return reply.redirect(
           `${frontendUrl}/login?error=spotify_auth_failed&reason=not_logged_in`
         );
@@ -425,9 +459,10 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Redirect back to frontend
+      const frontendUrl = await getFrontendUrl(fastify.db);
       const baseUrl = storedState.returnUrl
         ? new URL(storedState.returnUrl).origin
-        : process.env.FRONTEND_URL || "http://localhost:3000";
+        : frontendUrl;
 
       return reply.redirect(`${baseUrl}/settings?tab=spotify&connected=true`);
     }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Calendar, ArrowRight, ArrowLeft, Check, SkipForward, Loader2, Eye, EyeOff } from "lucide-react";
+import { Calendar, ArrowRight, ArrowLeft, Check, SkipForward, Loader2, Eye, EyeOff, Copy } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/Card";
 import { useAuthStore } from "../stores/auth";
@@ -38,6 +38,11 @@ export function SetupPage() {
   // Server settings
   const [serverName, setServerName] = useState("OpenFrame");
   const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const [externalUrl, setExternalUrl] = useState(() => {
+    // Auto-detect from current window location
+    const loc = window.location;
+    return `${loc.protocol}//${loc.host}`;
+  });
 
   // Google
   const [googleClientId, setGoogleClientId] = useState("");
@@ -253,6 +258,19 @@ export function SetupPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
+                  <label className="mb-1 block text-sm font-medium text-primary">External URL</label>
+                  <input
+                    type="text"
+                    value={externalUrl}
+                    onChange={(e) => setExternalUrl(e.target.value)}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    placeholder="https://openframe.example.com"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    The URL where this server is accessible. Auto-detected from your browser. Used for OAuth redirects and QR codes.
+                  </p>
+                </div>
+                <div>
                   <label className="mb-1 block text-sm font-medium text-primary">Server Name</label>
                   <input
                     type="text"
@@ -275,6 +293,38 @@ export function SetupPage() {
                     Auto-detected from your browser. Change if needed.
                   </p>
                 </div>
+
+                {/* Show computed redirect URIs */}
+                {externalUrl && (
+                  <div className="rounded-lg border border-border bg-muted/50 p-3">
+                    <p className="text-xs font-medium text-primary mb-2">OAuth Redirect URIs</p>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Use these URLs when configuring OAuth apps in Google Cloud Console, Microsoft Entra, and Spotify Developer Dashboard.
+                    </p>
+                    {[
+                      { label: "Google", path: "/api/v1/auth/oauth/google/callback" },
+                      { label: "Microsoft", path: "/api/v1/auth/oauth/microsoft/callback" },
+                      { label: "Spotify", path: "/api/v1/spotify/auth/callback" },
+                    ].map((item) => {
+                      const uri = `${externalUrl.replace(/\/+$/, "")}${item.path}`;
+                      return (
+                        <div key={item.label} className="flex items-center gap-1 mb-1">
+                          <span className="text-xs font-medium w-16 shrink-0">{item.label}:</span>
+                          <code className="text-xs bg-background border border-border rounded px-1.5 py-0.5 truncate flex-1">{uri}</code>
+                          <button
+                            type="button"
+                            onClick={() => navigator.clipboard.writeText(uri)}
+                            className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-primary"
+                            title="Copy"
+                          >
+                            <Copy className="h-3 w-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={goBack} className="gap-1">
@@ -282,7 +332,25 @@ export function SetupPage() {
                   </Button>
                   <Button
                     className="flex-1 gap-2"
-                    onClick={() => handleSaveSettings("home", { server_name: serverName, timezone })}
+                    onClick={async () => {
+                      setLoading(true);
+                      setError(null);
+                      try {
+                        // Save server settings (external_url) to the server category
+                        if (externalUrl) {
+                          await api.setupConfigure("server", { external_url: externalUrl });
+                          setConfigured((prev) => new Set(prev).add("server"));
+                        }
+                        // Save home settings (server_name, timezone) to the home category
+                        await api.setupConfigure("home", { server_name: serverName, timezone });
+                        setConfigured((prev) => new Set(prev).add("home"));
+                        goNext();
+                      } catch (err: any) {
+                        setError(err.message || "Failed to save settings");
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
                     disabled={loading}
                   >
                     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -587,6 +655,11 @@ export function SetupPage() {
                     <li className="flex items-center gap-2">
                       <Check className="h-3.5 w-3.5 text-primary" /> Admin account created
                     </li>
+                    {configured.has("server") && (
+                      <li className="flex items-center gap-2">
+                        <Check className="h-3.5 w-3.5 text-primary" /> External URL configured
+                      </li>
+                    )}
                     {configured.has("home") && (
                       <li className="flex items-center gap-2">
                         <Check className="h-3.5 w-3.5 text-primary" /> Server settings

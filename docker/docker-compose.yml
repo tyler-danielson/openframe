@@ -48,23 +48,13 @@ services:
       PORT: 3001
       DATABASE_URL: postgresql://${POSTGRES_USER:-openframe}:${POSTGRES_PASSWORD:-openframe}@postgres:5432/${POSTGRES_DB:-openframe}
       REDIS_URL: redis://redis:6379
-      CORS_ORIGINS: ${FRONTEND_URL:-http://localhost:8080}
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
+      CORS_ORIGINS: "*"
       DATA_DIR: /app/data
       # Infrastructure secrets (auto-generated and persisted if not provided)
       JWT_SECRET: ${JWT_SECRET:-}
       COOKIE_SECRET: ${COOKIE_SECRET:-}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
-      # OAuth credentials (optional - can be configured via Setup Wizard / Settings)
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
-      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
-      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
-      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI:-}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      HOME_ASSISTANT_URL: ${HOME_ASSISTANT_URL:-}
-      HOME_ASSISTANT_TOKEN: ${HOME_ASSISTANT_TOKEN:-}
+      # MediaMTX (co-deployed Docker service with fixed internal address)
       MEDIAMTX_API_URL: ${MEDIAMTX_API_URL:-http://mediamtx:9997}
       MEDIAMTX_HOST: ${MEDIAMTX_HOST:-localhost}
       MEDIAMTX_WEBRTC_PORT: ${MEDIAMTX_WEBRTC_PORT:-8889}

@@ -30,6 +30,18 @@ interface ListMediaItemsResponse {
   nextPageToken?: string;
 }
 
+export interface GoogleOAuthCredentials {
+  clientId?: string;
+  clientSecret?: string;
+}
+
+// Module-level credentials that can be set by the route layer
+let _oauthCredentials: GoogleOAuthCredentials = {};
+
+export function setGoogleOAuthCredentials(creds: GoogleOAuthCredentials) {
+  _oauthCredentials = creds;
+}
+
 export async function getAccessToken(token: OAuthToken): Promise<string> {
   if (!token.refreshToken) {
     throw new Error("No refresh token available");
@@ -44,12 +56,15 @@ export async function getAccessToken(token: OAuthToken): Promise<string> {
   }
 
   // Refresh the token
+  const clientId = _oauthCredentials.clientId || process.env.GOOGLE_CLIENT_ID!;
+  const clientSecret = _oauthCredentials.clientSecret || process.env.GOOGLE_CLIENT_SECRET!;
+
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: token.refreshToken,
       grant_type: "refresh_token",
     }),

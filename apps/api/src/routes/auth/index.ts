@@ -96,21 +96,34 @@ setInterval(() => {
   }
 }, 2 * 60 * 1000);
 
+// Helper to get the frontend/external URL from DB settings, falling back to env vars
+async function getFrontendUrl(db: any): Promise<string> {
+  const serverSettings = await getCategorySettings(db, "server");
+  return serverSettings.external_url || process.env.FRONTEND_URL || "http://localhost:3000";
+}
+
 // Helper to get OAuth config from DB settings, falling back to env vars
 async function getOAuthConfig(db: any, provider: "google" | "microsoft") {
   const settings = await getCategorySettings(db, provider);
+  const serverSettings = await getCategorySettings(db, "server");
+  const externalUrl = serverSettings.external_url || process.env.FRONTEND_URL;
+
   if (provider === "google") {
     return {
       clientId: settings.client_id || process.env.GOOGLE_CLIENT_ID,
       clientSecret: settings.client_secret || process.env.GOOGLE_CLIENT_SECRET,
-      redirectUri: process.env.GOOGLE_REDIRECT_URI,
+      redirectUri: externalUrl
+        ? `${externalUrl.replace(/\/+$/, "")}/api/v1/auth/oauth/google/callback`
+        : process.env.GOOGLE_REDIRECT_URI,
     };
   }
   return {
     clientId: settings.client_id || process.env.MICROSOFT_CLIENT_ID,
     clientSecret: settings.client_secret || process.env.MICROSOFT_CLIENT_SECRET,
     tenantId: settings.tenant_id || process.env.MICROSOFT_TENANT_ID || "common",
-    redirectUri: process.env.MICROSOFT_REDIRECT_URI,
+    redirectUri: externalUrl
+      ? `${externalUrl.replace(/\/+$/, "")}/api/v1/auth/oauth/microsoft/callback`
+      : process.env.MICROSOFT_REDIRECT_URI,
   };
 }
 
@@ -502,8 +515,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       // Redirect to frontend with tokens
-      // Use the stored return URL from when OAuth started, fall back to FRONTEND_URL
-      let baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+      // Use the stored return URL from when OAuth started, fall back to external URL from DB
+      const frontendUrl = await getFrontendUrl(fastify.db);
+      let baseUrl = frontendUrl;
       let finalReturnPath = "/dashboard";
 
       if (storedState.returnUrl) {
@@ -745,7 +759,8 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Redirect to frontend with tokens
       // Use the stored return URL from when OAuth started, fall back to FRONTEND_URL
-      let baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+      const frontendUrl = await getFrontendUrl(fastify.db);
+      let baseUrl = frontendUrl;
       let finalReturnPath = "/dashboard";
 
       if (storedState.returnUrl) {
@@ -924,10 +939,11 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
+      const frontendUrl = await getFrontendUrl(fastify.db);
       return {
         success: true,
         data: {
-          frontendUrl: process.env.FRONTEND_URL || `http://localhost:${process.env.PORT || 3000}`,
+          frontendUrl,
         },
       };
     }
@@ -1260,7 +1276,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             enabled: { type: "boolean" },
             timeout: { type: "number", minimum: 30, maximum: 3600 },
             interval: { type: "number", minimum: 3, maximum: 300 },
-            layout: { type: "string", enum: ["fullscreen", "informational", "quad", "scatter", "builder"] },
+            layout: { type: "string", enum: ["fullscreen", "informational", "quad", "scatter", "builder", "skylight"] },
             transition: { type: "string", enum: ["fade", "slide-left", "slide-right", "slide-up", "slide-down", "zoom"] },
             colorScheme: { type: "string", enum: ["default", "homio", "ocean", "forest", "sunset", "lavender"] },
             layoutConfig: { type: "object" },
@@ -1285,7 +1301,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         enabled?: boolean;
         timeout?: number;
         interval?: number;
-        layout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
+        layout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder" | "skylight";
         transition?: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
         colorScheme?: "default" | "homio" | "ocean" | "forest" | "sunset" | "lavender";
         layoutConfig?: Record<string, unknown>;
@@ -1504,10 +1520,11 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       deviceCodeStore.set(deviceCode, entry);
       userCodeIndex.set(userCode, deviceCode);
 
-      // Build verification URL from request origin or FRONTEND_URL
-      const frontendUrl =
-        process.env.FRONTEND_URL ||
-        `${request.protocol}://${request.hostname}`;
+      // Build verification URL from DB external_url or request origin
+      const dbFrontendUrl = await getFrontendUrl(fastify.db);
+      const frontendUrl = dbFrontendUrl !== "http://localhost:3000"
+        ? dbFrontendUrl
+        : `${request.protocol}://${request.hostname}`;
       const verificationUrl = `${frontendUrl}/device-login?code=${userCode}`;
 
       return {
