@@ -459,6 +459,7 @@ export function CalendarView({
       const calendarColor = isHoliday
         ? holidayColor
         : ((event.resource as CalendarEvent & { calendar?: { color: string } }).calendar?.color ?? "#3B82F6");
+      const isPast = new Date(event.resource.endTime) < new Date();
 
       // Use subtle styling for month view
       if (view === "month") {
@@ -470,6 +471,7 @@ export function CalendarView({
             color: isHoliday ? "#9333EA" : "hsl(var(--foreground))",
             borderRadius: "4px",
             fontWeight: isHoliday ? 500 : undefined,
+            opacity: isPast ? 0.4 : undefined,
           },
         };
       }
@@ -479,6 +481,7 @@ export function CalendarView({
           backgroundColor: calendarColor,
           borderColor: calendarColor,
           color: "#fff",
+          opacity: isPast ? 0.4 : undefined,
         },
       };
     },

@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Calendar, Clock, MapPin } from "lucide-react";
 import { format, isSameDay } from "date-fns";
@@ -31,6 +32,39 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
     return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
   });
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [visibleCount, setVisibleCount] = useState(sortedEvents.length);
+
+  useEffect(() => {
+    if (!open) return;
+
+    // Small delay to let the dialog render
+    const timer = setTimeout(() => {
+      const container = scrollRef.current;
+      if (!container) return;
+
+      const visibleIds = new Set<string>();
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            const id = (entry.target as HTMLElement).dataset.eventId;
+            if (!id) continue;
+            if (entry.isIntersecting) visibleIds.add(id);
+            else visibleIds.delete(id);
+          }
+          setVisibleCount(visibleIds.size);
+        },
+        { root: container, threshold: 0.1 }
+      );
+
+      container.querySelectorAll('[data-event-id]').forEach(el => observer.observe(el));
+      return () => observer.disconnect();
+    }, 50);
+
+    return () => clearTimeout(timer);
+  }, [open, sortedEvents.length]);
+
   const handleEventClick = (event: CalendarEvent) => {
     onClose();
     onSelectEvent(event);
@@ -43,11 +77,20 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
         <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-card border border-border rounded-lg shadow-xl w-full max-w-md max-h-[80vh] overflow-hidden z-50">
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-border">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-primary" />
-              <Dialog.Title className="text-lg font-semibold">
-                {format(date, "EEEE, MMMM d, yyyy")}
-              </Dialog.Title>
+            <div>
+              <div className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-primary" />
+                <Dialog.Title className="text-lg font-semibold">
+                  {format(date, "EEEE, MMMM d, yyyy")}
+                </Dialog.Title>
+              </div>
+              {sortedEvents.length > 0 && (
+                <p className="text-sm text-muted-foreground mt-0.5 ml-7">
+                  {visibleCount < sortedEvents.length
+                    ? `${visibleCount} of ${sortedEvents.length}`
+                    : `${sortedEvents.length}`} event{sortedEvents.length !== 1 ? "s" : ""}
+                </p>
+              )}
             </div>
             <Dialog.Close asChild>
               <button className="p-1 hover:bg-muted rounded-full transition-colors">
@@ -57,7 +100,7 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
           </div>
 
           {/* Events List */}
-          <div className="p-4 overflow-y-auto max-h-[calc(80vh-80px)]">
+          <div ref={scrollRef} className="p-4 overflow-y-auto max-h-[calc(80vh-80px)]">
             {sortedEvents.length === 0 ? (
               <p className="text-center text-muted-foreground py-8">
                 No events scheduled for this day
@@ -69,12 +112,16 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
                   const calendarColor = isHoliday
                     ? "#9333EA"
                     : ((event as CalendarEvent & { calendar?: { color: string } }).calendar?.color ?? "#3B82F6");
+                  const isPast = new Date(event.endTime) < new Date();
 
                   return (
                     <button
                       key={event.id}
+                      data-event-id={event.id}
                       onClick={() => handleEventClick(event)}
                       className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                        isPast ? "opacity-40" : ""
+                      } ${
                         isHoliday
                           ? "border-purple-500/40 bg-purple-500/5 hover:bg-purple-500/10"
                           : "border-border hover:bg-muted/50"
@@ -118,6 +165,10 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
                     </button>
                   );
                 })}
+                {/* End-of-list indicator */}
+                <div className="flex justify-center mt-[5px] mb-16">
+                  <div className="w-1/3 h-px bg-primary/30 rounded-full" />
+                </div>
               </div>
             )}
           </div>

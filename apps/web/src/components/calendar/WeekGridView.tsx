@@ -42,6 +42,46 @@ function getEventEndDate(event: CalendarEvent): Date {
 
 const LONG_PRESS_DURATION = 500; // ms
 
+// Counts how many event elements are visible in the scrollable container
+function VisibleEventCount({ totalCount }: { totalCount: number }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [visibleCount, setVisibleCount] = useState(totalCount);
+
+  useEffect(() => {
+    const dayCell = ref.current?.closest('[data-day-cell]');
+    const container = dayCell?.querySelector('[data-events-container]') as HTMLElement | null;
+    if (!container) return;
+
+    const visibleIds = new Set<string>();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).dataset.eventId;
+          if (!id) continue;
+          if (entry.isIntersecting) visibleIds.add(id);
+          else visibleIds.delete(id);
+        }
+        setVisibleCount(visibleIds.size);
+      },
+      { root: container, threshold: 0.1 }
+    );
+
+    container.querySelectorAll('[data-event-id]').forEach(el => observer.observe(el));
+    return () => observer.disconnect();
+  }, [totalCount]);
+
+  return (
+    <span ref={ref} className="text-xs text-muted-foreground font-normal leading-tight">
+      {totalCount === 0
+        ? "0 events"
+        : visibleCount < totalCount
+          ? `${visibleCount} of ${totalCount} event${totalCount !== 1 ? "s" : ""}`
+          : `${totalCount} event${totalCount !== 1 ? "s" : ""}`}
+    </span>
+  );
+}
+
 // Weather icon mapping
 function getWeatherIcon(iconCode: string): string {
   const iconMap: Record<string, string> = {
@@ -326,6 +366,8 @@ export function WeekGridView({
     };
   }, [events, currentDate, weekStartsOn, weekMode]);
 
+  const now = useMemo(() => new Date(), []);
+
   const renderDay = (day: Date, showWeekNumber: boolean = false) => {
     const dateKey = format(day, "yyyy-MM-dd");
     const dayEvents = eventsByDay.get(dateKey) ?? [];
@@ -336,6 +378,7 @@ export function WeekGridView({
     return (
       <div
         key={dateKey}
+        data-day-cell
         className="flex flex-col border-r border-b border-white bg-card cursor-pointer min-h-0"
         onClick={() => handleDayClick(day)}
         onPointerDown={(e) => handleDayPointerDown(day, e)}
@@ -345,7 +388,7 @@ export function WeekGridView({
         onPointerCancel={handleDayPointerUp}
       >
         {/* Day header */}
-        <div className="px-3 py-2 border-b border-white bg-muted h-16 flex flex-col justify-center shrink-0">
+        <div className="px-3 py-1 border-b border-white bg-muted shrink-0 h-[60px] overflow-hidden flex flex-col justify-center">
           <div className="flex items-center justify-between">
             <p className="text-2xl font-bold text-foreground flex items-center gap-2">
               {showWeekNumbers && showWeekNumber && (
@@ -376,10 +419,11 @@ export function WeekGridView({
               </button>
             )}
           </div>
+          <VisibleEventCount totalCount={dayEvents.length} />
         </div>
 
         {/* Events */}
-        <div className="flex-1 p-2 space-y-1 overflow-y-auto min-h-0">
+        <div data-events-container className="flex-1 p-2 space-y-1 overflow-y-auto min-h-0">
           {dayEvents.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-4">
               No events
@@ -391,8 +435,9 @@ export function WeekGridView({
               const eventColor = isHoliday ? "#9333EA" : (cal?.color ?? "#3B82F6");
               const eventIcon = isHoliday ? "🇺🇸" : (cal?.icon ?? "📅");
               const isNextEvent = event.id === nextEventId;
+              const isPast = getEventEndDate(event) < now;
               return (
-                <div key={event.id}>
+                <div key={event.id} data-event-id={event.id} className={cn(isPast && "opacity-40")}>
                   {isNextEvent && (
                     <div className="mb-0.5 ml-1">
                       <p className="text-[10px] text-muted-foreground italic">up next</p>

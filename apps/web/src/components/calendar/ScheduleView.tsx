@@ -245,6 +245,8 @@ export function ScheduleView({
     return { allDayEventsByDay: allDay, timedEventsByDay: timed };
   }, [events, scheduleDays]);
 
+  const now = useMemo(() => new Date(), []);
+
   // Calculate event position and height based on fixed hour height (8 hours visible)
   const getEventStyle = useCallback((event: CalendarEvent) => {
     const start = new Date(event.startTime);
@@ -379,6 +381,7 @@ export function ScheduleView({
                 const eventColor = isHoliday ? "#9333EA" : (cal?.color ?? "#3B82F6");
                 const eventIcon = isHoliday ? "🇺🇸" : cal?.icon;
                 const bgColor = hexToPasstel(eventColor, 0.3);
+                const isPast = getEventEndDate(event) < now;
                 return (
                   <button
                     key={event.id}
@@ -386,7 +389,7 @@ export function ScheduleView({
                       e.stopPropagation();
                       onSelectEvent?.(event);
                     }}
-                    className="w-full text-left text-xs px-2 py-1 rounded-md hover:opacity-80 transition-opacity"
+                    className={`w-full text-left text-xs px-2 py-1 rounded-md hover:opacity-80 transition-opacity ${isPast ? "opacity-40" : ""}`}
                     style={{ backgroundColor: bgColor }}
                   >
                     <span className={`font-medium truncate block ${isHoliday ? "text-purple-600 dark:text-purple-400" : "text-foreground"}`}>
@@ -472,6 +475,7 @@ export function ScheduleView({
                 const columnInfo = eventColumns.get(event.id) ?? { column: 0, totalColumns: 1 };
                 const columnWidth = 100 / columnInfo.totalColumns;
                 const leftOffset = columnInfo.column * columnWidth;
+                const isPast = getEventEndDate(event) < now;
 
                 return (
                   <button
@@ -486,6 +490,7 @@ export function ScheduleView({
                       backgroundColor: bgColor,
                       left: `calc(${leftOffset}% + 2px)`,
                       width: `calc(${columnWidth}% - 4px)`,
+                      opacity: isPast ? 0.4 : undefined,
                     }}
                   >
                     <div className="h-full flex flex-col">

@@ -252,6 +252,8 @@ export function RollingMonthView({
     return nextEvent?.id ?? null;
   }, [eventsByDay]);
 
+  const now = useMemo(() => new Date(), []);
+
   const renderDay = (day: Date, isFirstOfRow: boolean = false) => {
     const dateKey = format(day, "yyyy-MM-dd");
     const dayEvents = eventsByDay.get(dateKey) ?? [];
@@ -318,8 +320,9 @@ export function RollingMonthView({
               const eventColor = isHoliday ? "#9333EA" : (cal?.color ?? "#3B82F6");
               const eventIcon = isHoliday ? "🇺🇸" : (cal?.icon ?? "📅");
               const isNextEvent = event.id === nextEventId;
+              const isPast = getEventEndDate(event) < now;
               return (
-                <div key={event.id}>
+                <div key={event.id} className={cn(isPast && "opacity-40")}>
                   {isNextEvent && (
                     <p className="text-[9px] text-muted-foreground italic mb-0.5 ml-0.5">up next</p>
                   )}
