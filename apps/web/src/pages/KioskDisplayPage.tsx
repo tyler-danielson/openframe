@@ -24,6 +24,7 @@ import { HomeAssistantPage } from "./HomeAssistantPage";
 import { MapPage } from "./MapPage";
 import { KitchenPage } from "./KitchenPage";
 import { ScreensaverDisplayPage } from "./ScreensaverDisplayPage";
+import { MultiViewPage } from "./MultiViewPage";
 
 // Feature to route mapping
 const FEATURE_ROUTES: Record<string, { path: string; element: JSX.Element }> = {
@@ -38,6 +39,7 @@ const FEATURE_ROUTES: Record<string, { path: string; element: JSX.Element }> = {
   map: { path: "map", element: <MapPage /> },
   kitchen: { path: "kitchen/*", element: <KitchenPage /> },
   screensaver: { path: "screensaver", element: <ScreensaverDisplayPage /> },
+  multiview: { path: "multiview", element: <MultiViewPage /> },
 };
 
 // Format time ago for display
@@ -506,6 +508,8 @@ function KioskCommandPoller({ token }: { token: string }) {
   const { isOfflineMode } = useKiosk();
   const navigate = useNavigate();
   const lastCommandTimestamp = useRef(Date.now());
+  const pollIntervalRef = useRef(10000);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const setScreensaverActive = useScreensaverStore((s) => s.setActive);
   const addRemoteCommand = useRemoteControlStore((s) => s.addCommand);
 
@@ -576,6 +580,24 @@ function KioskCommandPoller({ token }: { token: string }) {
           addRemoteCommand(cmd);
           break;
 
+        case "iptv-play":
+        case "camera-view":
+          // Forward cast commands to the remote control store
+          // These will be consumed by IptvPage / CamerasPage
+          console.log(`[Kiosk] Forwarding cast command: ${cmd.type}`);
+          addRemoteCommand(cmd);
+          break;
+
+        case "widget-control": {
+          const payload = cmd.payload as { widgetId?: string; action?: string; data?: Record<string, unknown> } | undefined;
+          if (payload?.widgetId && payload?.action) {
+            console.log(`[Kiosk] Widget control: ${payload.action} on ${payload.widgetId}`);
+            const nav = useBlockNavStore.getState();
+            nav.executeRemoteAction(payload.widgetId, payload.action, payload.data);
+          }
+          break;
+        }
+
         default:
           console.warn(`[Kiosk] Unknown command type: ${cmd.type}`);
       }
@@ -583,25 +605,38 @@ function KioskCommandPoller({ token }: { token: string }) {
     [navigate, setScreensaverActive, addRemoteCommand]
   );
 
-  // Poll for commands - pause when offline
+  // Poll for commands - pause when offline, adaptive interval
   useEffect(() => {
     if (!token || isOfflineMode) return;
 
-    const pollInterval = setInterval(async () => {
+    const poll = async () => {
       try {
-        const { commands } = await api.getKioskCommandsByToken(token, lastCommandTimestamp.current);
+        const { commands, fastPoll } = await api.getKioskCommandsByToken(token, lastCommandTimestamp.current);
         for (const cmd of commands) {
           if (cmd.timestamp > lastCommandTimestamp.current) {
             lastCommandTimestamp.current = cmd.timestamp;
           }
           handleCommand(cmd);
         }
+        // Adjust poll interval based on server response
+        const newInterval = fastPoll ? 2000 : 10000;
+        if (newInterval !== pollIntervalRef.current) {
+          pollIntervalRef.current = newInterval;
+          // Restart timer with new interval
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          pollTimerRef.current = setInterval(poll, newInterval);
+        }
       } catch (error) {
         console.error("Failed to poll kiosk commands:", error);
       }
-    }, 10000);
+    };
 
-    return () => clearInterval(pollInterval);
+    pollIntervalRef.current = 10000;
+    pollTimerRef.current = setInterval(poll, 10000);
+
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    };
   }, [token, isOfflineMode, handleCommand]);
 
   return null;

@@ -2,10 +2,10 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
-import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Tablet, Link2, Unlink, QrCode, Copy } from "lucide-react";
+import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Tablet, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { Camera } from "@openframe/shared";
-import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures } from "../services/api";
+import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type CompanionUser, type CompanionPermissions } from "../services/api";
 import { useAuthStore } from "../stores/auth";
 import { useCalendarStore, type WeekCellWidget } from "../stores/calendar";
 import { useScreensaverStore, type ScreensaverLayout, type ScreensaverTransition, type ClockPosition, type ClockSize, type InfoPaneWidget, type InfoPaneWidgetConfig, type WidgetSize, type WidgetGridSize, LIST_WIDGETS, DEFAULT_WIDGET_CONFIGS, type CompositeWidgetId, type CompositeWidgetConfig, type SubItemConfig, DEFAULT_COMPOSITE_CONFIGS, DEFAULT_SUB_ITEMS } from "../stores/screensaver";
@@ -13,8 +13,11 @@ import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, us
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, BookOpen } from "lucide-react";
-import { ToggleGroup } from "../components/ui/Toggle";
+import { Toggle, ToggleGroup } from "../components/ui/Toggle";
 import { useTasksStore, type TasksLayout } from "../stores/tasks";
+import { useSidebarStore, SIDEBAR_FEATURES, type SidebarFeature } from "../stores/sidebar";
+import { useEntertainmentStore, type EntertainmentFeature } from "../stores/entertainment";
+import { cn } from "../lib/utils";
 import { Button } from "../components/ui/Button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/Card";
 import { LocalPhotoAlbums } from "../components/photos/LocalPhotoAlbums";
@@ -29,33 +32,35 @@ import { HACalendarModal } from "../components/settings/HACalendarModal";
 import { SupportButton } from "../components/settings/SupportButton";
 import { HandwritingCanvas } from "../components/ui/HandwritingCanvas";
 import type { CalendarProvider } from "@openframe/shared";
+import { buildOAuthUrl } from "../utils/oauth-scopes";
 import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings } from "@openframe/shared";
 
 // Parent tabs for URL routing
-type SettingsTab = "account" | "calendars" | "tasks" | "entertainment" | "appearance" | "ai" | "automations" | "cameras" | "homeassistant" | "kiosks" | "system";
+type SettingsTab = "account" | "calendars" | "tasks" | "entertainment" | "appearance" | "ai" | "automations" | "cameras" | "homeassistant" | "kiosks" | "companion" | "system";
 
 // Entertainment sub-tabs
 type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobookshelf" | "news";
 
 // Appearance sub-tabs
-type AppearanceSubTab = "display" | "photos" | "screensaver";
+type AppearanceSubTab = "display" | "photos" | "screensaver" | "sidebar";
 
-const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "entertainment", "appearance", "ai", "automations", "cameras", "homeassistant", "kiosks", "system"];
+const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "entertainment", "appearance", "ai", "automations", "cameras", "homeassistant", "kiosks", "companion", "system"];
 const validEntertainmentSubTabs: EntertainmentSubTab[] = ["sports", "spotify", "iptv", "plex", "audiobookshelf", "news"];
-const validAppearanceSubTabs: AppearanceSubTab[] = ["display", "photos", "screensaver"];
+const validAppearanceSubTabs: AppearanceSubTab[] = ["display", "photos", "screensaver", "sidebar"];
 
-const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
-  { id: "account", label: "Account", icon: <User className="h-4 w-4" /> },
-  { id: "calendars", label: "Calendars", icon: <Calendar className="h-4 w-4" /> },
-  { id: "tasks", label: "Tasks", icon: <ListTodo className="h-4 w-4" /> },
-  { id: "entertainment", label: "Entertainment", icon: <Play className="h-4 w-4" /> },
-  { id: "appearance", label: "Appearance", icon: <Monitor className="h-4 w-4" /> },
-  { id: "ai", label: "AI", icon: <Sparkles className="h-4 w-4" /> },
-  { id: "automations", label: "Automations", icon: <Zap className="h-4 w-4" /> },
-  { id: "cameras", label: "Cameras", icon: <Video className="h-4 w-4" /> },
-  { id: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" /> },
-  { id: "kiosks", label: "Kiosks", icon: <Monitor className="h-4 w-4" /> },
-  { id: "system", label: "System", icon: <Settings className="h-4 w-4" /> },
+const tabs: { id: SettingsTab; label: string; icon: React.ReactNode; description: string }[] = [
+  { id: "account", label: "Account", icon: <User className="h-4 w-4" />, description: "Profile & login" },
+  { id: "calendars", label: "Calendars", icon: <Calendar className="h-4 w-4" />, description: "Sources & sync" },
+  { id: "tasks", label: "Tasks", icon: <ListTodo className="h-4 w-4" />, description: "Lists & layout" },
+  { id: "entertainment", label: "Entertainment", icon: <Play className="h-4 w-4" />, description: "Sports, music & media" },
+  { id: "appearance", label: "Appearance", icon: <Monitor className="h-4 w-4" />, description: "Theme, photos & screensaver" },
+  { id: "ai", label: "AI", icon: <Sparkles className="h-4 w-4" />, description: "Assistant & models" },
+  { id: "automations", label: "Automations", icon: <Zap className="h-4 w-4" />, description: "Triggers & actions" },
+  { id: "cameras", label: "Cameras", icon: <Video className="h-4 w-4" />, description: "Feeds & streams" },
+  { id: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" />, description: "Devices & entities" },
+  { id: "kiosks", label: "Kiosks", icon: <Monitor className="h-4 w-4" />, description: "Displays & remote" },
+  { id: "companion", label: "Companion", icon: <Smartphone className="h-4 w-4" />, description: "Mobile app access" },
+  { id: "system", label: "System", icon: <Settings className="h-4 w-4" />, description: "Backup & advanced" },
 ];
 
 // Sub-tab config for entertainment
@@ -73,6 +78,7 @@ const appearanceSubTabs: { id: AppearanceSubTab; label: string; icon: React.Reac
   { id: "display", label: "Display", icon: <Monitor className="h-4 w-4" /> },
   { id: "photos", label: "Photos", icon: <ImageIcon className="h-4 w-4" /> },
   { id: "screensaver", label: "Screensaver", icon: <Tv className="h-4 w-4" /> },
+  { id: "sidebar", label: "Sidebar", icon: <PanelLeft className="h-4 w-4" /> },
 ];
 
 // Widget labels and icons for the builder (legacy)
@@ -86,6 +92,23 @@ const WIDGET_INFO: Record<InfoPaneWidget, { label: string; icon: string }> = {
   tasks: { label: "Tasks", icon: "✓" },
   notes: { label: "Notes", icon: "📝" },
 };
+
+// Sidebar feature info for settings UI
+const SIDEBAR_FEATURE_INFO: { feature: SidebarFeature; label: string; icon: React.ReactNode }[] = [
+  { feature: "calendar", label: "Calendar", icon: <Calendar className="h-4 w-4" /> },
+  { feature: "tasks", label: "Tasks", icon: <ListTodo className="h-4 w-4" /> },
+  { feature: "dashboard", label: "Dashboard", icon: <LayoutDashboard className="h-4 w-4" /> },
+  { feature: "photos", label: "Photos", icon: <ImageIcon className="h-4 w-4" /> },
+  { feature: "spotify", label: "Spotify", icon: <Music className="h-4 w-4" /> },
+  { feature: "iptv", label: "Live TV", icon: <Tv className="h-4 w-4" /> },
+  { feature: "cameras", label: "Cameras", icon: <CameraIcon className="h-4 w-4" /> },
+  { feature: "multiview", label: "Multi-View", icon: <LayoutGrid className="h-4 w-4" /> },
+  { feature: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" /> },
+  { feature: "map", label: "Map", icon: <MapPin className="h-4 w-4" /> },
+  { feature: "kitchen", label: "Kitchen", icon: <ChefHat className="h-4 w-4" /> },
+  { feature: "chat", label: "Chat", icon: <MessageCircle className="h-4 w-4" /> },
+  { feature: "screensaver", label: "Custom", icon: <Monitor className="h-4 w-4" /> },
+];
 
 // Composite widget info (v2)
 const COMPOSITE_WIDGET_INFO: Record<CompositeWidgetId, {
@@ -1041,157 +1064,6 @@ function VacuumMapCameraSelector({
   );
 }
 
-function KioskSettings() {
-  const queryClient = useQueryClient();
-  const setKioskStatus = useAuthStore((state) => state.setKioskStatus);
-
-  const { data: kioskStatus, isLoading } = useQuery({
-    queryKey: ["kiosk-status-me"],
-    queryFn: () => api.getMyKioskStatus(),
-  });
-
-  // Fetch server config to get configured frontend URL
-  const { data: serverConfig } = useQuery({
-    queryKey: ["server-config"],
-    queryFn: () => api.getServerConfig(),
-    staleTime: Infinity,
-  });
-  const frontendUrl = serverConfig?.frontendUrl || window.location.origin;
-
-  const enableKiosk = useMutation({
-    mutationFn: () => api.enableKiosk(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["kiosk-status-me"] });
-      setKioskStatus(true);
-    },
-  });
-
-  const disableKiosk = useMutation({
-    mutationFn: () => api.disableKiosk(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["kiosk-status-me"] });
-      setKioskStatus(false);
-    },
-  });
-
-  const refreshKiosk = useMutation({
-    mutationFn: () => api.refreshKiosk(),
-  });
-
-  const isEnabled = kioskStatus?.enabled ?? false;
-  const isPending = enableKiosk.isPending || disableKiosk.isPending;
-
-  return (
-    <Card className="border-2 border-primary/40">
-      <CardHeader>
-        <CardTitle>Kiosk Mode</CardTitle>
-        <CardDescription>
-          Allow any device on your network to access the calendar without logging in
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium">Enable Kiosk Mode</p>
-            <p className="text-sm text-muted-foreground">
-              When enabled, any device can view and edit your calendar
-            </p>
-          </div>
-          {isLoading ? (
-            <div className="h-6 w-11 animate-pulse rounded-full bg-muted" />
-          ) : (
-            <button
-              type="button"
-              role="switch"
-              aria-checked={isEnabled}
-              onClick={() => {
-                if (isEnabled) {
-                  disableKiosk.mutate();
-                } else {
-                  enableKiosk.mutate();
-                }
-              }}
-              disabled={isPending}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                isEnabled ? "bg-primary" : "bg-muted"
-              } ${isPending ? "opacity-50" : ""}`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  isEnabled ? "translate-x-6" : "translate-x-1"
-                }`}
-              />
-            </button>
-          )}
-        </div>
-
-        {isEnabled && (
-          <div className="rounded-lg border border-green-300 bg-green-50 p-4 dark:border-green-800 dark:bg-green-950">
-            <div className="flex items-start gap-3">
-              <Tv className="mt-0.5 h-5 w-5 text-green-600 dark:text-green-400" />
-              <div className="flex-1">
-                <p className="font-semibold text-green-900 dark:text-green-100">
-                  Kiosk Mode is Active
-                </p>
-                <p className="mt-1 text-sm text-green-800 dark:text-green-200">
-                  Any device on your local network can now access your calendar at this URL:
-                </p>
-                <code className="mt-2 block rounded bg-white px-3 py-2 text-sm font-mono font-semibold text-gray-900 border border-green-200 dark:bg-gray-900 dark:text-gray-100 dark:border-green-700">
-                  {frontendUrl}
-                </code>
-                <p className="mt-2 text-sm text-green-700 dark:text-green-300">
-                  They will have full access to view and create/edit events.
-                </p>
-                <div className="mt-3 pt-3 border-t border-green-200 dark:border-green-700">
-                  <button
-                    type="button"
-                    onClick={() => refreshKiosk.mutate()}
-                    disabled={refreshKiosk.isPending}
-                    className="inline-flex items-center gap-2 rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${refreshKiosk.isPending ? "animate-spin" : ""}`} />
-                    {refreshKiosk.isPending ? "Refreshing..." : "Refresh All Kiosks"}
-                  </button>
-                  {refreshKiosk.isSuccess && (
-                    <span className="ml-3 text-sm text-green-700 dark:text-green-300">
-                      Refresh command sent
-                    </span>
-                  )}
-                  <p className="mt-2 text-xs text-green-600 dark:text-green-400">
-                    Remotely trigger a full page refresh on all connected kiosk devices
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="rounded-lg border border-border p-4">
-          <h4 className="font-medium">How it works</h4>
-          <ul className="mt-2 space-y-2 text-sm text-muted-foreground">
-            <li className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-              Your Google Calendar credentials are stored securely on the server
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-              Other devices use your credentials to access the calendar
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-              Settings are protected and require login to access
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-              Perfect for tablets, smart displays, or shared family devices
-            </li>
-          </ul>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 // Display type options (device interaction model)
 const DISPLAY_TYPE_OPTIONS: { value: KioskDisplayType; label: string; description: string }[] = [
   { value: "touch", label: "Touch Screen", description: "Standard touch interaction" },
@@ -2116,6 +1988,503 @@ const CLIENT_STORE_KEYS = {
   durationAlerts: "duration-alerts-storage",
 } as const;
 
+function CompanionSettings() {
+  const queryClient = useQueryClient();
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [editingUser, setEditingUser] = useState<string | null>(null);
+  const [addMode, setAddMode] = useState<"invite" | "create">("invite");
+  const [formEmail, setFormEmail] = useState("");
+  const [formName, setFormName] = useState("");
+  const [formPassword, setFormPassword] = useState("");
+  const [formLabel, setFormLabel] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+
+  const { data: companionUsers = [], isLoading } = useQuery({
+    queryKey: ["companion-users"],
+    queryFn: () => api.getCompanionUsers(),
+  });
+
+  const { data: calendars = [] } = useQuery({
+    queryKey: ["calendars"],
+    queryFn: () => api.getCalendars(),
+  });
+
+  const { data: taskLists = [] } = useQuery({
+    queryKey: ["task-lists"],
+    queryFn: () => api.getTaskLists(),
+  });
+
+  const createUser = useMutation({
+    mutationFn: (data: Parameters<typeof api.createCompanionUser>[0]) =>
+      api.createCompanionUser(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["companion-users"] });
+      resetForm();
+    },
+  });
+
+  const updateUser = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<CompanionPermissions> & { label?: string; isActive?: boolean } }) =>
+      api.updateCompanionUser(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["companion-users"] });
+    },
+  });
+
+  const deleteUser = useMutation({
+    mutationFn: (id: string) => api.deleteCompanionUser(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["companion-users"] });
+      setShowDeleteConfirm(null);
+    },
+  });
+
+  const resetForm = () => {
+    setShowAddForm(false);
+    setFormEmail("");
+    setFormName("");
+    setFormPassword("");
+    setFormLabel("");
+    setAddMode("invite");
+  };
+
+  const handleCreate = () => {
+    if (!formEmail.trim()) return;
+    if (addMode === "create" && !formPassword.trim()) return;
+
+    createUser.mutate({
+      type: addMode,
+      email: formEmail.trim(),
+      name: addMode === "create" ? formName.trim() || undefined : undefined,
+      password: addMode === "create" ? formPassword : undefined,
+      label: formLabel.trim() || undefined,
+    });
+  };
+
+  const togglePermission = (user: CompanionUser, key: keyof CompanionPermissions, value: any) => {
+    updateUser.mutate({ id: user.id, data: { [key]: value } });
+  };
+
+  return (
+    <>
+      {/* User List Card */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Companion Users</CardTitle>
+              <CardDescription>Manage who can access the companion mobile app</CardDescription>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => setShowAddForm(true)}
+              className="gap-1"
+            >
+              <Plus className="h-4 w-4" />
+              Add User
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : companionUsers.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Smartphone className="h-10 w-10 mx-auto mb-3 opacity-50" />
+              <p className="text-sm">No companion users yet</p>
+              <p className="text-xs mt-1">Add users to let them access your calendar and tasks from their phone</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {companionUsers.map((user: CompanionUser) => (
+                <div
+                  key={user.id}
+                  className="border border-border rounded-xl p-4"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                        <User className="h-5 w-5 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-foreground truncate">
+                          {user.label || user.userName || user.userEmail}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {user.userEmail}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          user.isActive
+                            ? "bg-green-500/10 text-green-600"
+                            : "bg-red-500/10 text-red-600"
+                        }`}
+                      >
+                        {user.isActive ? "Active" : "Inactive"}
+                      </span>
+                      <button
+                        onClick={() => setEditingUser(editingUser === user.id ? null : user.id)}
+                        className="p-1.5 rounded-lg hover:bg-primary/10 transition-colors"
+                      >
+                        <Settings className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Expanded permission editor */}
+                  {editingUser === user.id && (
+                    <div className="mt-4 pt-4 border-t border-border space-y-4">
+                      {/* Active toggle */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-foreground">Active</span>
+                        <button
+                          onClick={() => updateUser.mutate({ id: user.id, data: { isActive: !user.isActive } })}
+                          className={`w-11 h-6 rounded-full transition-colors relative ${
+                            user.isActive ? "bg-primary" : "bg-muted"
+                          }`}
+                        >
+                          <div
+                            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                              user.isActive ? "translate-x-[22px]" : "translate-x-0.5"
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {/* Calendar access */}
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Calendar Access</label>
+                        <div className="flex gap-2 mt-1.5">
+                          {(["none", "view", "edit"] as const).map((level) => (
+                            <button
+                              key={level}
+                              onClick={() => togglePermission(user, "accessCalendar", level)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                                user.permissions.accessCalendar === level
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-card border border-border text-foreground hover:bg-primary/5"
+                              }`}
+                            >
+                              {level.charAt(0).toUpperCase() + level.slice(1)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Calendar scoping */}
+                      {user.permissions.accessCalendar !== "none" && (
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Allowed Calendars</label>
+                          <div className="mt-1.5 space-y-1">
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={user.permissions.allowedCalendarIds === null}
+                                onChange={() =>
+                                  togglePermission(
+                                    user,
+                                    "allowedCalendarIds",
+                                    user.permissions.allowedCalendarIds === null
+                                      ? (calendars as any[]).map((c) => c.id)
+                                      : null
+                                  )
+                                }
+                                className="rounded border-border"
+                              />
+                              All Calendars
+                            </label>
+                            {user.permissions.allowedCalendarIds !== null && (
+                              <div className="pl-4 space-y-1">
+                                {(calendars as any[]).map((cal) => (
+                                  <label key={cal.id} className="flex items-center gap-2 text-sm">
+                                    <input
+                                      type="checkbox"
+                                      checked={(user.permissions.allowedCalendarIds || []).includes(cal.id)}
+                                      onChange={() => {
+                                        const current = user.permissions.allowedCalendarIds || [];
+                                        const next = current.includes(cal.id)
+                                          ? current.filter((id: string) => id !== cal.id)
+                                          : [...current, cal.id];
+                                        togglePermission(user, "allowedCalendarIds", next);
+                                      }}
+                                      className="rounded border-border"
+                                    />
+                                    <span
+                                      className="w-3 h-3 rounded-full shrink-0"
+                                      style={{ backgroundColor: cal.color || "hsl(var(--primary))" }}
+                                    />
+                                    {cal.name}
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Tasks access */}
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Tasks Access</label>
+                        <div className="flex gap-2 mt-1.5">
+                          {(["none", "view", "edit"] as const).map((level) => (
+                            <button
+                              key={level}
+                              onClick={() => togglePermission(user, "accessTasks", level)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                                user.permissions.accessTasks === level
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-card border border-border text-foreground hover:bg-primary/5"
+                              }`}
+                            >
+                              {level.charAt(0).toUpperCase() + level.slice(1)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Task list scoping */}
+                      {user.permissions.accessTasks !== "none" && (
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Allowed Task Lists</label>
+                          <div className="mt-1.5 space-y-1">
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={user.permissions.allowedTaskListIds === null}
+                                onChange={() =>
+                                  togglePermission(
+                                    user,
+                                    "allowedTaskListIds",
+                                    user.permissions.allowedTaskListIds === null
+                                      ? (taskLists as any[]).map((tl) => tl.id)
+                                      : null
+                                  )
+                                }
+                                className="rounded border-border"
+                              />
+                              All Task Lists
+                            </label>
+                            {user.permissions.allowedTaskListIds !== null && (
+                              <div className="pl-4 space-y-1">
+                                {(taskLists as any[]).map((tl) => (
+                                  <label key={tl.id} className="flex items-center gap-2 text-sm">
+                                    <input
+                                      type="checkbox"
+                                      checked={(user.permissions.allowedTaskListIds || []).includes(tl.id)}
+                                      onChange={() => {
+                                        const current = user.permissions.allowedTaskListIds || [];
+                                        const next = current.includes(tl.id)
+                                          ? current.filter((id: string) => id !== tl.id)
+                                          : [...current, tl.id];
+                                        togglePermission(user, "allowedTaskListIds", next);
+                                      }}
+                                      className="rounded border-border"
+                                    />
+                                    {tl.title}
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Feature toggles */}
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Feature Access</label>
+                        <div className="grid grid-cols-2 gap-2 mt-1.5">
+                          {([
+                            { key: "accessKiosks" as const, label: "Kiosks" },
+                            { key: "accessPhotos" as const, label: "Photos" },
+                            { key: "accessIptv" as const, label: "IPTV" },
+                            { key: "accessHomeAssistant" as const, label: "Home Assistant" },
+                            { key: "accessNews" as const, label: "News" },
+                            { key: "accessWeather" as const, label: "Weather" },
+                            { key: "accessRecipes" as const, label: "Recipes" },
+                          ]).map(({ key, label }) => (
+                            <label key={key} className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={!!user.permissions[key]}
+                                onChange={() => togglePermission(user, key, !user.permissions[key])}
+                                className="rounded border-border"
+                              />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Remove button */}
+                      <div className="pt-2">
+                        {showDeleteConfirm === user.id ? (
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1"
+                              onClick={() => setShowDeleteConfirm(null)}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              className="flex-1 gap-1"
+                              onClick={() => deleteUser.mutate(user.id)}
+                              disabled={deleteUser.isPending}
+                            >
+                              {deleteUser.isPending ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3 w-3" />
+                              )}
+                              Remove
+                            </Button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setShowDeleteConfirm(user.id)}
+                            className="text-xs text-destructive hover:underline"
+                          >
+                            Remove access
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Add User Form */}
+      {showAddForm && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Add Companion User</CardTitle>
+            <CardDescription>Grant someone access to your companion app</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Mode toggle */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setAddMode("invite")}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  addMode === "invite"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-card border border-border text-foreground hover:bg-primary/5"
+                }`}
+              >
+                Invite Existing User
+              </button>
+              <button
+                onClick={() => setAddMode("create")}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  addMode === "create"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-card border border-border text-foreground hover:bg-primary/5"
+                }`}
+              >
+                Create New Account
+              </button>
+            </div>
+
+            {/* Email */}
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Email</label>
+              <input
+                type="email"
+                value={formEmail}
+                onChange={(e) => setFormEmail(e.target.value)}
+                placeholder={addMode === "invite" ? "user@example.com" : "newuser@example.com"}
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+            </div>
+
+            {/* Name (create mode) */}
+            {addMode === "create" && (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Name</label>
+                <input
+                  type="text"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  placeholder="John Doe"
+                  className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+              </div>
+            )}
+
+            {/* Password (create mode) */}
+            {addMode === "create" && (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Password</label>
+                <input
+                  type="password"
+                  value={formPassword}
+                  onChange={(e) => setFormPassword(e.target.value)}
+                  placeholder="Minimum 6 characters"
+                  className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+              </div>
+            )}
+
+            {/* Label */}
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Display Label (optional)</label>
+              <input
+                type="text"
+                value={formLabel}
+                onChange={(e) => setFormLabel(e.target.value)}
+                placeholder="e.g. Mom, Partner, Babysitter"
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+            </div>
+
+            {/* Error */}
+            {createUser.error && (
+              <p className="text-sm text-destructive">
+                {(createUser.error as any)?.message || "Failed to add user"}
+              </p>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" onClick={resetForm} className="flex-1">
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreate}
+                disabled={
+                  !formEmail.trim() ||
+                  (addMode === "create" && !formPassword.trim()) ||
+                  createUser.isPending
+                }
+                className="flex-1 gap-1"
+              >
+                {createUser.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4" />
+                )}
+                {addMode === "invite" ? "Invite" : "Create"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </>
+  );
+}
+
 function RemarkableSettingsCard() {
   const queryClient = useQueryClient();
 
@@ -2697,40 +3066,82 @@ function SystemSettings() {
                   </div>
                 ))}
 
-                {/* Redirect URIs - show computed OAuth redirect URIs when server external_url is set */}
+                {/* Redirect URIs - show computed OAuth redirect URIs for each valid access method */}
                 {categoryDef.category === "server" && (() => {
                   const externalUrl = getSettingValue("server", "external_url");
                   if (!externalUrl) return null;
                   const base = externalUrl.replace(/\/+$/, "");
-                  const redirectUris = [
-                    { label: "Google Redirect URI", value: `${base}/api/v1/auth/oauth/google/callback` },
-                    { label: "Microsoft Redirect URI", value: `${base}/api/v1/auth/oauth/microsoft/callback` },
-                    { label: "Spotify Redirect URI", value: `${base}/api/v1/spotify/auth/callback` },
+
+                  // Check if the configured URL is a private IP
+                  const isPrivateIp = /^https?:\/\/(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(base);
+
+                  // Build list of origins that need redirect URIs registered
+                  const origins: { label: string; base: string }[] = [];
+
+                  if (isPrivateIp) {
+                    // Private IP configured — show localhost URIs instead (with the same port)
+                    try {
+                      const parsed = new URL(base);
+                      const localhostBase = `${parsed.protocol}//localhost${parsed.port ? `:${parsed.port}` : ""}`;
+                      origins.push({ label: "Localhost", base: localhostBase });
+                    } catch {
+                      // Fall through
+                    }
+                  } else if (/^https?:\/\/localhost/.test(base)) {
+                    origins.push({ label: "Localhost", base });
+                  } else {
+                    // Public domain — show both public domain and localhost URIs
+                    origins.push({ label: base.replace(/^https?:\/\//, ""), base });
+                    origins.push({ label: "Localhost (dev)", base: "http://localhost:5176" });
+                  }
+
+                  const callbackPaths = [
+                    { label: "Google", path: "/api/v1/auth/oauth/google/callback" },
+                    { label: "Microsoft", path: "/api/v1/auth/oauth/microsoft/callback" },
+                    { label: "Spotify", path: "/api/v1/spotify/auth/callback" },
                   ];
+
                   return (
                     <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 p-4 mt-2">
                       <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">
                         OAuth Redirect URIs
                       </p>
                       <p className="text-xs text-blue-700 dark:text-blue-300 mb-3">
-                        Use these URLs when configuring OAuth apps in Google Cloud Console, Microsoft Entra, and Spotify Developer Dashboard.
+                        Register these URLs in Google Cloud Console, Microsoft Entra, and Spotify Developer Dashboard.
+                        {origins.length > 1 && " Add all URIs listed below for each access method."}
                       </p>
-                      <div className="space-y-2">
-                        {redirectUris.map((uri) => (
-                          <div key={uri.label} className="flex items-center gap-2">
-                            <div className="flex-1 min-w-0">
-                              <label className="block text-xs font-medium text-blue-800 dark:text-blue-200">{uri.label}</label>
-                              <div className="flex items-center gap-1 mt-0.5">
-                                <code className="text-xs bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-700 rounded px-2 py-1 truncate block flex-1">{uri.value}</code>
-                                <button
-                                  type="button"
-                                  onClick={() => navigator.clipboard.writeText(uri.value)}
-                                  className="shrink-0 rounded p-1 text-blue-600 hover:bg-blue-100 dark:text-blue-400 dark:hover:bg-blue-900"
-                                  title="Copy to clipboard"
-                                >
-                                  <Copy className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
+                      {isPrivateIp && (
+                        <div className="rounded-md bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 p-2.5 mb-3">
+                          <p className="text-xs text-yellow-800 dark:text-yellow-200">
+                            <AlertTriangle className="h-3.5 w-3.5 inline-block mr-1 -mt-0.5" />
+                            Private IP addresses (like {base}) don't work with Google OAuth.
+                            Access via <strong>localhost</strong> or a public domain instead. The URIs below use localhost with the same port.
+                          </p>
+                        </div>
+                      )}
+                      <div className="space-y-3">
+                        {origins.map((origin) => (
+                          <div key={origin.base}>
+                            {origins.length > 1 && (
+                              <p className="text-xs font-medium text-blue-800 dark:text-blue-200 mb-1.5">{origin.label}</p>
+                            )}
+                            <div className="space-y-1.5">
+                              {callbackPaths.map((cb) => {
+                                const uri = `${origin.base}${cb.path}`;
+                                return (
+                                  <div key={uri} className="flex items-center gap-1">
+                                    <code className="text-xs bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-700 rounded px-2 py-1 truncate block flex-1">{uri}</code>
+                                    <button
+                                      type="button"
+                                      onClick={() => navigator.clipboard.writeText(uri)}
+                                      className="shrink-0 rounded p-1 text-blue-600 hover:bg-blue-100 dark:text-blue-400 dark:hover:bg-blue-900"
+                                      title={`Copy ${cb.label} redirect URI`}
+                                    >
+                                      <Copy className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         ))}
@@ -5140,7 +5551,7 @@ function AISettings() {
       </Card>
 
       {/* Three Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         {/* Column 1 - Handwriting Recognition */}
         <HandwritingSettings />
 
@@ -7149,7 +7560,7 @@ function NewsSettings() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
       {/* Preset Feeds */}
       <Card className="border-2 border-primary/40">
         <CardHeader>
@@ -7372,7 +7783,7 @@ function SportsSettings() {
   });
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
       {/* Add Teams Card */}
       <Card className="border-2 border-primary/40">
         <CardHeader>
@@ -7989,10 +8400,13 @@ export function SettingsPage() {
     setExpandAllLists,
   } = useTasksStore();
 
-  // Read initial tab from URL, default to "account"
+  const { features: sidebarFeatures, toggleEnabled: toggleSidebarEnabled, togglePinned: toggleSidebarPinned, resetAll: resetSidebar } = useSidebarStore();
+  const { enabled: entertainmentEnabled, toggleEnabled: toggleEntertainmentEnabled } = useEntertainmentStore();
+
+  // Read initial tab from URL, default to null (menu view)
   const tabFromUrl = searchParams.get("tab") as SettingsTab | null;
-  const initialTab = tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : "account";
-  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  const initialTab = tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : null;
+  const [activeTab, setActiveTab] = useState<SettingsTab | null>(initialTab);
 
   // Entertainment sub-tab state
   const subTabFromUrl = searchParams.get("subtab") as EntertainmentSubTab | null;
@@ -8016,10 +8430,22 @@ export function SettingsPage() {
     staleTime: 0, // Always refetch when query is accessed
   });
 
+  // Sync activeTab when URL search params change externally (e.g., clicking the Settings gear)
+  useEffect(() => {
+    const urlTab = searchParams.get("tab") as SettingsTab | null;
+    const resolved = urlTab && validTabs.includes(urlTab) ? urlTab : null;
+    setActiveTab(resolved);
+  }, [searchParams]);
+
   // Update URL when tab changes
-  const handleTabChange = (tab: SettingsTab) => {
+  const handleTabChange = (tab: SettingsTab | null) => {
     setActiveTab(tab);
-    if (tab === "entertainment") {
+    if (tab === null) {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete("tab");
+      newParams.delete("subtab");
+      setSearchParams(newParams);
+    } else if (tab === "entertainment") {
       setSearchParams({ tab, subtab: activeEntertainmentSubTab });
     } else if (tab === "appearance") {
       setSearchParams({ tab, subtab: activeAppearanceSubTab });
@@ -8129,6 +8555,16 @@ export function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["events"] });
     },
   });
+
+  // Auto-sync after returning from OAuth connection
+  useEffect(() => {
+    if (searchParams.get("connected")) {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete("connected");
+      setSearchParams(newParams, { replace: true });
+      syncAll.mutate();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Track recently favorited calendars for highlight animation
   const [recentlyFavorited, setRecentlyFavorited] = useState<Set<string>>(new Set());
@@ -8261,50 +8697,73 @@ export function SettingsPage() {
         );
       })()}
 
-      {/* Tab Navigation */}
-      <div className="border-b border-border bg-card">
-        <div className="mx-auto max-w-4xl px-4 sm:px-6">
-          {/* Mobile dropdown */}
-          <div className="md:hidden py-3">
-            <select
-              value={activeTab}
-              onChange={(e) => handleTabChange(e.target.value as SettingsTab)}
-              className="w-full min-h-[44px] px-4 py-2 text-sm font-medium bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              {tabs.map((tab) => (
-                <option key={tab.id} value={tab.id}>
-                  {tab.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          {/* Desktop tabs */}
-          <nav className="hidden md:flex justify-center gap-1 -mb-px">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => handleTabChange(tab.id)}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab.id
-                    ? "border-primary text-primary"
-                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-                }`}
-              >
-                {tab.icon}
-                {tab.label}
-              </button>
-            ))}
-          </nav>
+      {/* OAuth error alert from redirect */}
+      {searchParams.get("error") && (
+        <div className="px-4 py-3 flex items-center gap-2 bg-red-500/10 border-b border-red-500/20">
+          <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+          <span className="text-sm text-red-700 dark:text-red-400 flex-1">
+            {decodeURIComponent(searchParams.get("error")!)}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              const newParams = new URLSearchParams(searchParams);
+              newParams.delete("error");
+              setSearchParams(newParams);
+            }}
+            className="shrink-0 rounded p-1 text-red-600 hover:bg-red-500/10"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
-      </div>
+      )}
+
+      {/* Section Header (back button when inside a section) */}
+      {activeTab !== null && (
+        <div className="border-b border-border bg-card">
+          <div className="relative flex items-center justify-center px-4 sm:px-6 py-4">
+            <button
+              onClick={() => handleTabChange(null)}
+              className="absolute left-4 sm:left-6 flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors rounded-lg px-3 py-2 hover:bg-primary/10"
+            >
+              <ArrowLeft className="h-5 w-5" />
+              Back
+            </button>
+            <div className="flex items-center gap-2.5 text-base font-semibold text-primary">
+              {tabs.find((t) => t.id === activeTab)?.icon}
+              {tabs.find((t) => t.id === activeTab)?.label}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tab Content */}
       <div ref={scrollContainerRef} className="flex-1 overflow-auto">
         <div className="p-4 sm:p-6">
+          {/* Settings Menu Grid */}
+          {activeTab === null && (
+            <div className="mx-auto max-w-4xl">
+              <h2 className="text-lg font-semibold text-white mb-4">Settings</h2>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => handleTabChange(tab.id)}
+                    className="flex flex-col items-center gap-2 p-4 sm:p-6 bg-card border-2 border-primary/40 rounded-lg hover:border-primary hover:bg-primary/10 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  >
+                    <div className="flex items-center justify-center h-10 w-10 rounded-lg bg-primary/10 text-primary [&>svg]:h-6 [&>svg]:w-6">
+                      {tab.icon}
+                    </div>
+                    <span className="text-sm font-medium text-white">{tab.label}</span>
+                    <span className="text-xs text-muted-foreground">{tab.description}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {/* Account Tab */}
           {activeTab === "account" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
               <Card className="border-2 border-primary/40">
                 <CardHeader>
                   <CardTitle>Account</CardTitle>
@@ -8353,6 +8812,7 @@ export function SettingsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
+                    {/* Google Account */}
                     <div className="flex items-center justify-between rounded-lg border border-border p-4">
                       <div className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-500/10">
@@ -8376,49 +8836,111 @@ export function SettingsPage() {
                           </svg>
                         </div>
                         <div>
-                          <p className="font-medium">Google Calendar</p>
+                          <p className="font-medium">Google</p>
                           <p className="text-sm text-muted-foreground">
-                            {calendars.filter((c) => c.provider === "google").length}{" "}
-                            calendars synced
+                            {user?.linkedProviders?.includes("google")
+                              ? "Profile linked"
+                              : "Not linked"}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-sm text-green-500">Connected</span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            window.location.href = `/api/v1/auth/oauth/google?returnUrl=${encodeURIComponent(window.location.origin + "/settings?tab=account")}`;
-                          }}
-                        >
-                          <RefreshCw className="mr-1 h-3 w-3" />
-                          Reconnect
-                        </Button>
+                        {user?.linkedProviders?.includes("google") ? (
+                          <>
+                            <span className="flex items-center gap-1 text-sm text-green-500">
+                              <Check className="h-3 w-3" />
+                              Linked
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const token = useAuthStore.getState().accessToken;
+                                window.location.href = buildOAuthUrl("google", "base", token, window.location.origin + "/settings?tab=account");
+                              }}
+                            >
+                              <RefreshCw className="mr-1 h-3 w-3" />
+                              Reconnect
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const token = useAuthStore.getState().accessToken;
+                              window.location.href = buildOAuthUrl("google", "base", token, window.location.origin + "/settings?tab=account");
+                            }}
+                          >
+                            <Link2 className="mr-1 h-3 w-3" />
+                            Link Google Account
+                          </Button>
+                        )}
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Reconnect to grant new permissions (like Google Photos Library access)
-                    </p>
 
-                    <Button
-                      variant="outline"
-                      className="w-full"
-                      onClick={() => {
-                        window.location.href = `/api/v1/auth/oauth/microsoft?returnUrl=${encodeURIComponent(window.location.origin + "/settings?tab=account")}`;
-                      }}
-                    >
-                      <ExternalLink className="mr-2 h-4 w-4" />
-                      Connect Microsoft Outlook
-                    </Button>
+                    {/* Microsoft Account */}
+                    <div className="flex items-center justify-between rounded-lg border border-border p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
+                          <svg className="h-5 w-5" viewBox="0 0 24 24">
+                            <rect fill="#F25022" x="1" y="1" width="10" height="10" />
+                            <rect fill="#7FBA00" x="13" y="1" width="10" height="10" />
+                            <rect fill="#00A4EF" x="1" y="13" width="10" height="10" />
+                            <rect fill="#FFB900" x="13" y="13" width="10" height="10" />
+                          </svg>
+                        </div>
+                        <div>
+                          <p className="font-medium">Microsoft</p>
+                          <p className="text-sm text-muted-foreground">
+                            {user?.linkedProviders?.includes("microsoft")
+                              ? "Profile linked"
+                              : "Not linked"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {user?.linkedProviders?.includes("microsoft") ? (
+                          <>
+                            <span className="flex items-center gap-1 text-sm text-green-500">
+                              <Check className="h-3 w-3" />
+                              Linked
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const token = useAuthStore.getState().accessToken;
+                                window.location.href = buildOAuthUrl("microsoft", "base", token, window.location.origin + "/settings?tab=account");
+                              }}
+                            >
+                              <RefreshCw className="mr-1 h-3 w-3" />
+                              Reconnect
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const token = useAuthStore.getState().accessToken;
+                              window.location.href = buildOAuthUrl("microsoft", "base", token, window.location.origin + "/settings?tab=account");
+                            }}
+                          >
+                            <Link2 className="mr-1 h-3 w-3" />
+                            Link Microsoft Account
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Linking an account enables "Sign in with Google/Microsoft" on the login page. Calendar and task permissions are requested separately when you enable those features.
+                    </p>
                   </div>
                 </CardContent>
               </Card>
-              </div>
 
-              <div className="space-y-6">
-              <KioskSettings />
-              </div>
             </div>
           )}
 
@@ -8461,10 +8983,11 @@ export function SettingsPage() {
                             updateFavoriteTeam.mutate({ id, data: updates })
                           }
                           onConnect={() => {
+                            const authToken = useAuthStore.getState().accessToken;
                             if (selectedCalendarProvider === "google") {
-                              window.location.href = `/api/v1/auth/oauth/google?returnUrl=${encodeURIComponent(window.location.origin + "/settings?tab=calendars")}`;
+                              window.location.href = buildOAuthUrl("google", "calendar", authToken, window.location.origin + "/settings?tab=calendars&connected=true");
                             } else if (selectedCalendarProvider === "microsoft") {
-                              window.location.href = `/api/v1/auth/oauth/microsoft?returnUrl=${encodeURIComponent(window.location.origin + "/settings?tab=calendars")}`;
+                              window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, window.location.origin + "/settings?tab=calendars&connected=true");
                             } else if (selectedCalendarProvider === "sports") {
                               // Navigate to entertainment tab with sports sub-tab
                               window.location.href = "/settings?tab=entertainment&subtab=sports";
@@ -8498,10 +9021,12 @@ export function SettingsPage() {
                 onClose={() => setAddAccountModalView(null)}
                 initialView={addAccountModalView ?? "select"}
                 onConnectGoogle={() => {
-                  window.location.href = `/api/v1/auth/oauth/google?returnUrl=${encodeURIComponent(window.location.origin + "/settings?tab=calendars")}`;
+                  const authToken = useAuthStore.getState().accessToken;
+                  window.location.href = buildOAuthUrl("google", "calendar", authToken, window.location.origin + "/settings?tab=calendars&connected=true");
                 }}
                 onConnectMicrosoft={() => {
-                  window.location.href = `/api/v1/auth/oauth/microsoft?returnUrl=${encodeURIComponent(window.location.origin + "/settings?tab=calendars")}`;
+                  const authToken = useAuthStore.getState().accessToken;
+                  window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, window.location.origin + "/settings?tab=calendars&connected=true");
                 }}
                 onConnectCalDAV={async (url, username, password) => {
                   // TODO: Implement CalDAV connection
@@ -8690,7 +9215,7 @@ export function SettingsPage() {
               {activeEntertainmentSubTab === "sports" && <SportsSettings />}
               {activeEntertainmentSubTab === "spotify" && <SpotifySettings />}
               {activeEntertainmentSubTab === "iptv" && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                   <IptvSettings />
                   <IptvChannelManager />
                 </div>
@@ -8724,7 +9249,7 @@ export function SettingsPage() {
 
               {/* Display sub-tab */}
               {activeAppearanceSubTab === "display" && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                   {/* Display Card */}
                   <Card className="border-2 border-primary/40">
                     <CardHeader>
@@ -9010,7 +9535,7 @@ export function SettingsPage() {
 
               {/* Photos sub-tab */}
               {activeAppearanceSubTab === "photos" && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                   {/* Photo Albums Card */}
                   <Card className="border-2 border-primary/40">
                     <CardHeader>
@@ -9060,7 +9585,7 @@ export function SettingsPage() {
 
               {/* Screensaver sub-tab */}
               {activeAppearanceSubTab === "screensaver" && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                   {/* Screensaver Settings Card */}
                   <Card className="border-2 border-primary/40">
                     <CardHeader>
@@ -9444,48 +9969,147 @@ export function SettingsPage() {
                   </Card>
                 </div>
               )}
+
+              {/* Sidebar sub-tab */}
+              {activeAppearanceSubTab === "sidebar" && (
+                <Card className="border-2 border-primary/40">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle>Sidebar Navigation</CardTitle>
+                        <CardDescription>
+                          Control which features appear as sidebar icons or in the overflow menu
+                        </CardDescription>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={resetSidebar}
+                      >
+                        Reset All
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-1">
+                      {/* Header row */}
+                      <div className="flex items-center gap-3 px-2 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                        <div className="flex-1">Feature</div>
+                        <div className="w-20 text-center">Pinned</div>
+                        <div className="w-20 text-center">Enabled</div>
+                      </div>
+
+                      {SIDEBAR_FEATURE_INFO.map(({ feature, label, icon }) => {
+                        const state = sidebarFeatures[feature];
+                        const isEnabled = state?.enabled !== false;
+                        const isPinned = state?.pinned !== false;
+                        const statusText = !isEnabled ? "Disabled" : isPinned ? "Sidebar" : "More menu";
+
+                        return (
+                          <div
+                            key={feature}
+                            className={cn(
+                              "flex items-center gap-3 px-2 py-2.5 rounded-lg transition-colors",
+                              !isEnabled && "opacity-50"
+                            )}
+                          >
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              <div className={cn(
+                                "flex items-center justify-center h-8 w-8 rounded-md",
+                                isEnabled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                              )}>
+                                {icon}
+                              </div>
+                              <div className="min-w-0">
+                                <p className={cn(
+                                  "text-sm font-medium",
+                                  isEnabled ? "text-foreground" : "text-muted-foreground"
+                                )}>
+                                  {label}
+                                </p>
+                                <p className={cn(
+                                  "text-xs",
+                                  !isEnabled
+                                    ? "text-muted-foreground"
+                                    : isPinned
+                                      ? "text-primary"
+                                      : "text-muted-foreground"
+                                )}>
+                                  {statusText}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="w-20 flex justify-center">
+                              <Toggle
+                                checked={isPinned}
+                                onChange={() => toggleSidebarPinned(feature)}
+                                size="sm"
+                                disabled={!isEnabled}
+                              />
+                            </div>
+                            <div className="w-20 flex justify-center">
+                              <Toggle
+                                checked={isEnabled}
+                                onChange={() => toggleSidebarEnabled(feature)}
+                                size="sm"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           )}
 
 
           {/* Cameras Tab */}
           {activeTab === "cameras" && (
-            <CamerasSettings />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+              <CamerasSettings />
+            </div>
           )}
 
           {/* Home Assistant Tab */}
           {activeTab === "homeassistant" && (
-            <HomeAssistantSettings />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+              <HomeAssistantSettings />
+            </div>
           )}
 
           {/* AI Tab */}
           {activeTab === "ai" && (
-            <div className="space-y-6">
-              <AISettings />
-            </div>
+            <AISettings />
           )}
 
           {/* Automations Tab */}
           {activeTab === "automations" && (
-            <AutomationsSettings />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+              <AutomationsSettings />
+            </div>
           )}
 
           {/* Kiosks Tab */}
           {activeTab === "kiosks" && (
-            <KiosksSettings />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+              <KiosksSettings />
+            </div>
+          )}
+
+          {activeTab === "companion" && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+              <CompanionSettings />
+            </div>
           )}
 
           {/* System Settings Tab */}
           {activeTab === "system" && (
-            <div className="space-y-4">
-              {/* reMarkable Settings Card - Full Width */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
               <RemarkableSettingsCard />
-              {/* Backup & Restore Card - Full Width */}
               <BackupRestoreCard />
-              {/* System Settings Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
-                <SystemSettings />
-              </div>
+              <SystemSettings />
             </div>
           )}
         </div>

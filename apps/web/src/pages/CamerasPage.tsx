@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Camera, RefreshCw, Home, Video } from "lucide-react";
 import { api, type HACamera } from "../services/api";
+import { CastButton } from "../components/cast/CastButton";
 import { Button } from "../components/ui/Button";
 import { CameraThumbnail } from "../components/cameras/CameraThumbnail";
 import { CameraViewer } from "../components/cameras/CameraViewer";
@@ -11,6 +12,7 @@ import { AddCameraModal } from "../components/cameras/AddCameraModal";
 import { SportsTicker } from "../components/SportsTicker";
 import { useScreensaverStore } from "../stores/screensaver";
 import { useCalendarStore } from "../stores/calendar";
+import { useRemoteControlStore } from "../stores/remote-control";
 import { cn } from "../lib/utils";
 import type { Camera as CameraType } from "@openframe/shared";
 
@@ -234,6 +236,21 @@ export function CamerasPage() {
     [cameras, haCameras]
   );
 
+  // Consume camera-view commands from remote control (cast to kiosk)
+  const consumeCommand = useRemoteControlStore((s) => s.consumeCommand);
+  const pendingCount = useRemoteControlStore((s) => s.pendingCommands.length);
+
+  useEffect(() => {
+    if (pendingCount === 0) return;
+    const cmd = consumeCommand();
+    if (!cmd || cmd.type !== "camera-view") return;
+    const cameraId = cmd.payload?.cameraId as string;
+    const cameraType = (cmd.payload?.cameraType as "standalone" | "ha") || "standalone";
+    if (cameraId) {
+      setFullscreenCamera({ id: cameraId, type: cameraType });
+    }
+  }, [pendingCount]);
+
   // Calculate grid layout based on selected count
   const getGridClass = (count: number): string => {
     if (count === 0) return "";
@@ -280,21 +297,37 @@ export function CamerasPage() {
   if (fullscreenCamera) {
     const camera = getCameraById(fullscreenCamera.id, fullscreenCamera.type);
     if (camera) {
+      const castOverlay = (
+        <div className="absolute top-4 right-14 z-20">
+          <CastButton
+            contentType="camera"
+            cameraId={fullscreenCamera.type === "standalone" ? fullscreenCamera.id : undefined}
+            cameraEntityId={fullscreenCamera.type === "ha" ? fullscreenCamera.id : undefined}
+            variant="overlay"
+          />
+        </div>
+      );
       if (fullscreenCamera.type === "standalone") {
         return (
-          <CameraFeed
-            camera={camera as CameraType}
-            isFullscreen
-            onToggleFullscreen={() => setFullscreenCamera(null)}
-          />
+          <div className="relative">
+            {castOverlay}
+            <CameraFeed
+              camera={camera as CameraType}
+              isFullscreen
+              onToggleFullscreen={() => setFullscreenCamera(null)}
+            />
+          </div>
         );
       } else {
         return (
-          <HACameraFeed
-            camera={camera as HACamera}
-            isFullscreen
-            onToggleFullscreen={() => setFullscreenCamera(null)}
-          />
+          <div className="relative">
+            {castOverlay}
+            <HACameraFeed
+              camera={camera as HACamera}
+              isFullscreen
+              onToggleFullscreen={() => setFullscreenCamera(null)}
+            />
+          </div>
         );
       }
     }

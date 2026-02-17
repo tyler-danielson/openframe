@@ -4,6 +4,31 @@ import { cameras, systemSettings } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { mediamtx, MediaMTXService } from "../../services/mediamtx.js";
 
+/**
+ * Derive a Reolink-compatible snapshot URL from an RTSP URL.
+ * Reolink cameras expose snapshots at: http://<host>/cgi-bin/api.cgi?cmd=Snap&channel=<N>
+ * RTSP paths like /h264Preview_01_main → channel 0 (01 = channel 1 in 1-indexed, 0 in API)
+ */
+function deriveSnapshotUrl(rtspUrl: string | null): string | null {
+  if (!rtspUrl) return null;
+  try {
+    const parsed = new URL(rtspUrl);
+    const hostname = parsed.hostname;
+    if (!hostname) return null;
+
+    // Extract channel from RTSP path (e.g., /h264Preview_01_main → channel 0)
+    let channel = 0;
+    const channelMatch = parsed.pathname.match(/(\d{2})_(?:main|sub)/);
+    if (channelMatch) {
+      channel = Math.max(0, parseInt(channelMatch[1]!, 10) - 1);
+    }
+
+    return `http://${hostname}/cgi-bin/api.cgi?cmd=Snap&channel=${channel}&rs=${Date.now()}`;
+  } catch {
+    return null;
+  }
+}
+
 export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
   // List cameras
   fastify.get(
@@ -506,8 +531,15 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.notFound("Camera not found");
       }
 
+      // Use configured snapshot URL, or derive one from RTSP URL
+      const snapshotUrl = camera.snapshotUrl || deriveSnapshotUrl(camera.rtspUrl);
+
+      if (!snapshotUrl) {
+        return reply.badRequest("Camera does not have a snapshot URL configured and none could be derived");
+      }
+
       if (!camera.snapshotUrl) {
-        return reply.badRequest("Camera does not have a snapshot URL configured");
+        console.log(`[Camera] Using derived snapshot URL for ${camera.name}: ${snapshotUrl}`);
       }
 
       try {
@@ -517,7 +549,10 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
           headers.Authorization = `Basic ${auth}`;
         }
 
-        const response = await fetch(camera.snapshotUrl, { headers });
+        const response = await fetch(snapshotUrl, {
+          headers,
+          signal: AbortSignal.timeout(10000),
+        });
 
         if (!response.ok) {
           return reply.status(response.status).send("Failed to fetch snapshot");
@@ -532,6 +567,9 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
           .send(Buffer.from(buffer));
       } catch (error) {
         console.error("Failed to fetch camera snapshot:", error);
+        if ((error as Error).name === "TimeoutError") {
+          return reply.status(504).send("Camera snapshot request timed out");
+        }
         return reply.internalServerError("Failed to fetch snapshot");
       }
     }

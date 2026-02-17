@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LayoutGrid, RefreshCw } from "lucide-react";
 import { api, type HACamera } from "../services/api";
+import { CastButton } from "../components/cast/CastButton";
 import { Button } from "../components/ui/Button";
 import { ViewThumbnail } from "../components/multiview/ViewThumbnail";
 import { MultiViewItem } from "../components/multiview/MultiViewItem";
@@ -13,7 +14,7 @@ import { cn } from "../lib/utils";
 import {
   type MultiViewItem as MultiViewItemType,
   type AvailableItem,
-  type ViewType,
+  type TabType,
   VIEW_TYPE_TABS,
   MULTIVIEW_STORAGE_KEY,
 } from "../components/multiview/types";
@@ -46,18 +47,45 @@ function getWeatherIcon(iconCode: string): string {
 }
 
 export function MultiViewPage() {
-  const [activeTab, setActiveTab] = useState<ViewType>("camera");
+  const [activeTab, setActiveTab] = useState<TabType>("camera");
   const [currentTime, setCurrentTime] = useState(new Date());
   const [timeFade, setTimeFade] = useState(true);
   const updateActivity = useScreensaverStore((state) => state.updateActivity);
   const { familyName, timeFormat, cycleTimeFormat } = useCalendarStore();
 
-  // Load persisted selection from localStorage
+  // Load persisted selection from localStorage (migrates old iptv-{channelId} → iptv-{number})
   const [selectedItems, setSelectedItems] = useState<MultiViewItemType[]>(
     () => {
       try {
         const saved = localStorage.getItem(MULTIVIEW_STORAGE_KEY);
-        return saved ? JSON.parse(saved) : [];
+        if (!saved) return [];
+        const items: MultiViewItemType[] = JSON.parse(saved);
+        let nextNum = 1;
+        return items.map((item) => {
+          // Migrate old format: iptv-{channelId} (non-numeric) → iptv-{number}
+          if (
+            item.type === "iptv" &&
+            item.id.startsWith("iptv-") &&
+            !/^iptv-\d+$/.test(item.id)
+          ) {
+            const migrated = {
+              ...item,
+              id: `iptv-${nextNum}`,
+              name: `TV ${nextNum}`,
+              config: {
+                ...item.config,
+                channelId: item.config.channelId || item.id.replace("iptv-", ""),
+              },
+            };
+            nextNum++;
+            return migrated;
+          }
+          if (item.id.match(/^iptv-\d+$/)) {
+            const num = parseInt(item.id.replace("iptv-", ""), 10);
+            if (num >= nextNum) nextNum = num + 1;
+          }
+          return item;
+        });
       } catch {
         return [];
       }
@@ -167,6 +195,13 @@ export function MultiViewPage() {
     queryFn: () => api.getCalendars(),
   });
 
+  const { data: haEntities = [] } = useQuery({
+    queryKey: ["ha-entities"],
+    queryFn: () => api.getHomeAssistantEntities(),
+    retry: false,
+    enabled: !!haConfig?.url,
+  });
+
   const haConfigured = !!haConfig?.url;
 
   // Build available items list based on active tab
@@ -203,7 +238,8 @@ export function MultiViewPage() {
         });
         break;
 
-      case "map":
+      case "home-assistant":
+        // Map
         if (haConfigured) {
           items.push({
             id: "ha-map",
@@ -213,6 +249,61 @@ export function MultiViewPage() {
             description: "Live family locations",
           });
         }
+        // HA Cameras
+        haCameras.forEach((cam) => {
+          items.push({
+            id: `ha-cam-${cam.entityId}`,
+            type: "ha-camera",
+            name: cam.name,
+            config: { entityId: cam.entityId },
+            description: "Camera feed",
+          });
+        });
+        // HA sensor/binary_sensor entities for Entity widget
+        haEntities
+          .filter((e) => {
+            const domain = e.entityId.split(".")[0];
+            return ["sensor", "binary_sensor", "switch", "light", "climate", "fan", "lock", "cover", "input_boolean", "person"].includes(domain ?? "");
+          })
+          .forEach((entity) => {
+            items.push({
+              id: `ha-entity-${entity.entityId}`,
+              type: "ha-entity",
+              name: entity.displayName || entity.entityId,
+              config: { entityId: entity.entityId },
+              description: entity.entityId,
+            });
+          });
+        // HA numeric sensors for Gauge widget
+        haEntities
+          .filter((e) => {
+            const domain = e.entityId.split(".")[0];
+            return domain === "sensor";
+          })
+          .forEach((entity) => {
+            items.push({
+              id: `ha-gauge-${entity.entityId}`,
+              type: "ha-gauge",
+              name: entity.displayName || entity.entityId,
+              config: { entityId: entity.entityId },
+              description: "Gauge",
+            });
+          });
+        // HA sensor entities for Graph widget
+        haEntities
+          .filter((e) => {
+            const domain = e.entityId.split(".")[0];
+            return domain === "sensor";
+          })
+          .forEach((entity) => {
+            items.push({
+              id: `ha-graph-${entity.entityId}`,
+              type: "ha-graph",
+              name: entity.displayName || entity.entityId,
+              config: { entityId: entity.entityId },
+              description: "Graph",
+            });
+          });
         break;
 
       case "media":
@@ -222,6 +313,27 @@ export function MultiViewPage() {
           name: "Spotify",
           config: {},
           description: "Now playing",
+        });
+        items.push({
+          id: "tv",
+          type: "iptv",
+          name: "TV",
+          config: {},
+          description: "Live TV",
+        });
+        items.push({
+          id: "youtube-tv",
+          type: "youtube",
+          name: "YouTube",
+          config: {},
+          description: "YouTube video",
+        });
+        items.push({
+          id: "news",
+          type: "news",
+          name: "News",
+          config: {},
+          description: "News feed",
         });
         break;
 
@@ -245,6 +357,53 @@ export function MultiViewPage() {
               config: { calendarIds: [cal.id] },
             });
           });
+        // Up Next
+        items.push({
+          id: "up-next",
+          type: "up-next",
+          name: "Up Next",
+          config: {},
+          description: "Next upcoming events",
+        });
+        // Tasks
+        items.push({
+          id: "tasks",
+          type: "tasks",
+          name: "Tasks",
+          config: {},
+          description: "To-do list",
+        });
+        break;
+
+      case "schedule":
+        items.push({
+          id: "day-schedule",
+          type: "day-schedule",
+          name: "Day Schedule",
+          config: {},
+          description: "Today's timeline",
+        });
+        items.push({
+          id: "week-schedule",
+          type: "week-schedule",
+          name: "Week Schedule",
+          config: {},
+          description: "Weekly overview",
+        });
+        items.push({
+          id: "clock",
+          type: "clock",
+          name: "Clock",
+          config: {},
+          description: "Time display",
+        });
+        items.push({
+          id: "countdown",
+          type: "countdown",
+          name: "Countdown",
+          config: {},
+          description: "Count down to a date",
+        });
         break;
 
       case "image":
@@ -273,6 +432,19 @@ export function MultiViewPage() {
             description: preset.description,
           });
         });
+        // Photo feed
+        albums.forEach((album: PhotoAlbum) => {
+          items.push({
+            id: `photo-feed-${album.id}`,
+            type: "photo-feed",
+            name: `${album.name} Feed`,
+            config: {
+              source: "album",
+              albumId: album.id,
+            },
+            description: "Continuous slideshow",
+          });
+        });
         break;
 
       case "weather":
@@ -283,29 +455,99 @@ export function MultiViewPage() {
           config: {},
           description: "Current conditions",
         });
+        items.push({
+          id: "forecast",
+          type: "forecast",
+          name: "Forecast",
+          config: {},
+          description: "Multi-day forecast",
+        });
+        items.push({
+          id: "sports",
+          type: "sports",
+          name: "Sports",
+          config: {},
+          description: "Scores & games",
+        });
         break;
     }
 
     return items;
-  }, [
-    activeTab,
-    cameras,
-    haCameras,
-    albums,
-    calendars,
-    haConfigured,
-  ]);
+  }, [activeTab, cameras, haCameras, haEntities, albums, calendars, haConfigured]);
+
+  // Count of active TV tiles
+  const tvCount = useMemo(
+    () => selectedItems.filter((i) => i.id.match(/^iptv-\d+$/)).length,
+    [selectedItems]
+  );
+
+  // Count of active YouTube tiles
+  const ytCount = useMemo(
+    () => selectedItems.filter((i) => i.id.match(/^youtube-\d+$/)).length,
+    [selectedItems]
+  );
 
   // Check if an item is selected
   const isSelected = useCallback(
     (itemId: string) => {
+      if (itemId === "tv") {
+        return tvCount > 0;
+      }
+      if (itemId === "youtube-tv") {
+        return ytCount > 0;
+      }
       return selectedItems.some((item) => item.id === itemId);
     },
-    [selectedItems]
+    [selectedItems, tvCount, ytCount]
   );
 
-  // Toggle item selection
+  // Toggle item selection (TV/YouTube tiles use add-only with max 4)
   const toggleItem = useCallback((item: AvailableItem) => {
+    if (item.id === "tv") {
+      // Add a new TV tile instance (up to 4)
+      setSelectedItems((prev) => {
+        const existing = prev.filter((i) => i.id.match(/^iptv-\d+$/));
+        if (existing.length >= 4) return prev;
+        // Find next available number (fills gaps)
+        const usedNumbers = new Set(
+          existing.map((i) => parseInt(i.id.replace("iptv-", ""), 10))
+        );
+        let nextNum = 1;
+        while (usedNumbers.has(nextNum)) nextNum++;
+        return [
+          ...prev,
+          {
+            id: `iptv-${nextNum}`,
+            type: "iptv" as const,
+            name: `TV ${nextNum}`,
+            config: { channelId: "" },
+          },
+        ];
+      });
+      return;
+    }
+    if (item.id === "youtube-tv") {
+      // Add a new YouTube tile instance (up to 4)
+      setSelectedItems((prev) => {
+        const existing = prev.filter((i) => i.id.match(/^youtube-\d+$/));
+        if (existing.length >= 4) return prev;
+        const usedNumbers = new Set(
+          existing.map((i) => parseInt(i.id.replace("youtube-", ""), 10))
+        );
+        let nextNum = 1;
+        while (usedNumbers.has(nextNum)) nextNum++;
+        return [
+          ...prev,
+          {
+            id: `youtube-${nextNum}`,
+            type: "youtube" as const,
+            name: `YouTube ${nextNum}`,
+            config: { videoId: "" },
+          },
+        ];
+      });
+      return;
+    }
     setSelectedItems((prev) => {
       const exists = prev.find((i) => i.id === item.id);
       if (exists) {
@@ -485,7 +727,7 @@ export function MultiViewPage() {
             {VIEW_TYPE_TABS.map((tab) => (
               <button
                 key={tab.type}
-                onClick={() => setActiveTab(tab.type)}
+                onClick={() => setActiveTab(tab.type as TabType)}
                 className={cn(
                   "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
                   activeTab === tab.type
@@ -505,6 +747,13 @@ export function MultiViewPage() {
               </span>
             )}
             {selectedItems.length > 0 && (
+              <CastButton
+                contentType="multiview"
+                multiviewItems={selectedItems}
+                variant="toolbar"
+              />
+            )}
+            {selectedItems.length > 0 && (
               <Button variant="outline" size="sm" onClick={clearAll}>
                 Clear All
               </Button>
@@ -516,9 +765,9 @@ export function MultiViewPage() {
         <div className="px-4 py-3 overflow-x-auto">
           {availableItems.length === 0 ? (
             <div className="text-center py-4 text-muted-foreground text-sm">
-              {activeTab === "map" && !haConfigured
-                ? "Connect Home Assistant to use maps"
-                : `No ${activeTab}s available`}
+              {activeTab === "home-assistant" && !haConfigured
+                ? "Connect Home Assistant in settings to use HA widgets"
+                : `No items available`}
             </div>
           ) : (
             <div className="flex gap-2">
@@ -528,6 +777,8 @@ export function MultiViewPage() {
                   item={item}
                   isSelected={isSelected(item.id)}
                   onClick={() => toggleItem(item)}
+                  badge={item.id === "tv" && tvCount > 0 ? `${tvCount}/4` : undefined}
+                  disabled={item.id === "tv" && tvCount >= 4}
                 />
               ))}
             </div>

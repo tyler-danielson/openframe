@@ -6,25 +6,34 @@ import type { Task } from "@openframe/shared";
 
 interface DashboardTasksWidgetProps {
   className?: string;
+  filter?: "today" | "other";
 }
 
-export function DashboardTasksWidget({ className }: DashboardTasksWidgetProps) {
+export function DashboardTasksWidget({ className, filter = "today" }: DashboardTasksWidgetProps) {
   const queryClient = useQueryClient();
   const today = new Date();
 
-  // Fetch tasks due today (incomplete only)
+  // Fetch all incomplete tasks
   const { data: tasks = [], isLoading, error } = useQuery({
-    queryKey: ["tasks", "dashboard", "today"],
+    queryKey: ["tasks", "dashboard", filter],
     queryFn: async () => {
       const allTasks = await api.getTasks({ status: "needsAction" });
-      // Filter for tasks due today
       const startOfToday = startOfDay(today);
       const endOfToday = endOfDay(today);
-      return allTasks.filter((task) => {
-        if (!task.dueDate) return false;
-        const dueDate = new Date(task.dueDate);
-        return dueDate >= startOfToday && dueDate <= endOfToday;
-      });
+
+      if (filter === "today") {
+        return allTasks.filter((task) => {
+          if (!task.dueDate) return false;
+          const dueDate = new Date(task.dueDate);
+          return dueDate >= startOfToday && dueDate <= endOfToday;
+        });
+      } else {
+        return allTasks.filter((task) => {
+          if (!task.dueDate) return true;
+          const dueDate = new Date(task.dueDate);
+          return dueDate < startOfToday || dueDate > endOfToday;
+        });
+      }
     },
     refetchInterval: 60000, // Refresh every minute
   });
@@ -33,10 +42,10 @@ export function DashboardTasksWidget({ className }: DashboardTasksWidgetProps) {
     mutationFn: (taskId: string) => api.completeTask(taskId),
     onMutate: async (taskId) => {
       // Optimistic update
-      await queryClient.cancelQueries({ queryKey: ["tasks", "dashboard", "today"] });
-      const previousTasks = queryClient.getQueryData<Task[]>(["tasks", "dashboard", "today"]);
+      await queryClient.cancelQueries({ queryKey: ["tasks", "dashboard", filter] });
+      const previousTasks = queryClient.getQueryData<Task[]>(["tasks", "dashboard", filter]);
 
-      queryClient.setQueryData<Task[]>(["tasks", "dashboard", "today"], (old) =>
+      queryClient.setQueryData<Task[]>(["tasks", "dashboard", filter], (old) =>
         old?.filter((task) => task.id !== taskId)
       );
 
@@ -45,7 +54,7 @@ export function DashboardTasksWidget({ className }: DashboardTasksWidgetProps) {
     onError: (_err, _taskId, context) => {
       // Rollback on error
       if (context?.previousTasks) {
-        queryClient.setQueryData(["tasks", "dashboard", "today"], context.previousTasks);
+        queryClient.setQueryData(["tasks", "dashboard", filter], context.previousTasks);
       }
     },
     onSettled: () => {
@@ -73,7 +82,7 @@ export function DashboardTasksWidget({ className }: DashboardTasksWidgetProps) {
     return (
       <div className={`flex flex-col items-center justify-center py-8 text-muted-foreground ${className ?? ""}`}>
         <CheckCircle2 className="h-12 w-12 mb-2 opacity-50" />
-        <p className="text-sm">No tasks due today</p>
+        <p className="text-sm">{filter === "today" ? "No tasks due today" : "No other tasks"}</p>
       </div>
     );
   }

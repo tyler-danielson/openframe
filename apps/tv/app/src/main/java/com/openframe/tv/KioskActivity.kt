@@ -37,10 +37,10 @@ class KioskActivity : AppCompatActivity() {
         // Keep screen on
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // Hide system UI for fullscreen kiosk mode
-        hideSystemUI()
-
         setContentView(R.layout.activity_kiosk)
+
+        // Hide system UI for fullscreen kiosk mode (must be after setContentView)
+        hideSystemUI()
 
         container = findViewById(R.id.container)
         webView = findViewById(R.id.webView)

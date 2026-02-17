@@ -1,6 +1,6 @@
 import fp from "fastify-plugin";
 import { eq } from "drizzle-orm";
-import { users, apiKeys, kioskConfig, kiosks } from "@openframe/database/schema";
+import { users, apiKeys, kiosks } from "@openframe/database/schema";
 import { createHash, timingSafeEqual } from "crypto";
 import type { FastifyRequest, FastifyReply } from "fastify";
 
@@ -154,11 +154,11 @@ export const authPlugin = fp(
           return fastify.authenticateAny(request, reply);
         }
 
-        // Check if kiosk mode is enabled (find any enabled kiosk config)
+        // Check if any active kiosk device exists
         const [kiosk] = await fastify.db
           .select()
-          .from(kioskConfig)
-          .where(eq(kioskConfig.enabled, true))
+          .from(kiosks)
+          .where(eq(kiosks.isActive, true))
           .limit(1);
 
         if (kiosk) {

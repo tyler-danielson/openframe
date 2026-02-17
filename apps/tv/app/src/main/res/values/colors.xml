@@ -8,4 +8,7 @@
     <color name="text_secondary">#A1A1AA</color>
     <color name="text_hint">#71717A</color>
     <color name="border">#27272A</color>
+    <color name="success">#22C55E</color>
+    <color name="warning">#EAB308</color>
+    <color name="qr_white">#FFFFFF</color>
 </resources>

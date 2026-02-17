@@ -29,6 +29,7 @@ import {
   newsArticles,
   taskLists,
   tasks,
+  iptvServers,
 } from "@openframe/database/schema";
 import { getRemarkableClient } from "../services/remarkable/client.js";
 import { syncGoogleCalendars } from "../services/calendar-sync/google.js";
@@ -144,9 +145,33 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
   const startIptvCacheScheduler = () => {
     const cacheService = getIptvCacheService(fastify);
 
-    // Initial refresh after startup delay
+    // Immediately load from database on startup (milliseconds, no API calls)
+    (async () => {
+      try {
+        const usersWithServers = await fastify.db
+          .selectDistinct({ userId: iptvServers.userId })
+          .from(iptvServers);
+
+        let loadedCount = 0;
+        for (const { userId } of usersWithServers) {
+          const loaded = await cacheService.loadFromDatabase(userId);
+          if (loaded) loadedCount++;
+        }
+
+        if (usersWithServers.length > 0) {
+          const stats = cacheService.getCacheStats();
+          fastify.log.info(
+            `IPTV DB cache loaded: ${loadedCount}/${usersWithServers.length} users, ${stats.totalChannels} channels, ${stats.totalEpgEntries} EPG entries`
+          );
+        }
+      } catch (error) {
+        fastify.log.error({ err: error }, "Failed to load IPTV cache from database on startup");
+      }
+    })();
+
+    // Initial API refresh after startup delay (updates from live IPTV servers)
     setTimeout(async () => {
-      fastify.log.info("Running initial IPTV cache refresh...");
+      fastify.log.info("Running initial IPTV cache refresh from API...");
       try {
         await cacheService.refreshAllUsersCache();
         const stats = cacheService.getCacheStats();

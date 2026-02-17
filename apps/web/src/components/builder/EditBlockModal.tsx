@@ -29,6 +29,9 @@ import {
   Maximize,
   Newspaper,
   Tv,
+  Youtube,
+  Play,
+  BookOpen,
   LayoutGrid,
   Navigation,
   Loader2,
@@ -37,9 +40,12 @@ import {
   ChevronRight,
   Search,
   Home,
+  Eye,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
-import { type FontSizePreset } from "../../stores/screensaver";
+import { type FontSizePreset, type VisibilityConfig, type VisibilityCondition, type VisibilityConditionType, type ComparisonOperator } from "../../stores/screensaver";
 import { getWidgetDefinition } from "../../lib/widgets/registry";
 import { useBuilder } from "../../hooks/useBuilder";
 import { HAEntityBrowser } from "./HAEntityBrowser";
@@ -74,6 +80,10 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Shapes,
   Maximize,
   Newspaper,
+  Tv,
+  Youtube,
+  Play,
+  BookOpen,
   LayoutGrid,
 };
 
@@ -735,12 +745,472 @@ function IptvConfigFields({
   );
 }
 
+function YouTubeConfigFields({
+  config,
+  handleConfigChange,
+}: {
+  config: Record<string, unknown>;
+  handleConfigChange: (key: string, value: unknown) => void;
+}) {
+  const { data: bookmarks = [] } = useQuery({
+    queryKey: ["youtube-bookmarks"],
+    queryFn: () => api.getYoutubeBookmarks(),
+    staleTime: 60_000,
+  });
+
+  const currentVideoId = config.videoId as string ?? "";
+
+  return (
+    <>
+      <label className="block">
+        <span className="text-sm">Video ID or URL</span>
+        <input
+          type="text"
+          value={currentVideoId}
+          onChange={(e) => {
+            const val = e.target.value.trim();
+            // Try to extract video ID from URL
+            const match = val.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{11})/);
+            handleConfigChange("videoId", match ? match[1] : val);
+          }}
+          className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+          placeholder="Enter video ID or paste URL..."
+        />
+      </label>
+      {bookmarks.length > 0 && (
+        <label className="block">
+          <span className="text-sm">Or select from bookmarks</span>
+          <select
+            value={currentVideoId}
+            onChange={(e) => handleConfigChange("videoId", e.target.value)}
+            className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Select a bookmark...</option>
+            {bookmarks.map((b) => (
+              <option key={b.youtubeId} value={b.youtubeId}>{b.title}</option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label className="flex items-center justify-between">
+        <span className="text-sm">Show Controls</span>
+        <input
+          type="checkbox"
+          checked={config.showControls as boolean ?? true}
+          onChange={(e) => handleConfigChange("showControls", e.target.checked)}
+          className="rounded"
+        />
+      </label>
+      <label className="flex items-center justify-between">
+        <span className="text-sm">Auto Play</span>
+        <input
+          type="checkbox"
+          checked={config.autoPlay as boolean ?? true}
+          onChange={(e) => handleConfigChange("autoPlay", e.target.checked)}
+          className="rounded"
+        />
+      </label>
+      <label className="flex items-center justify-between">
+        <span className="text-sm">Muted</span>
+        <input
+          type="checkbox"
+          checked={config.muted as boolean ?? true}
+          onChange={(e) => handleConfigChange("muted", e.target.checked)}
+          className="rounded"
+        />
+      </label>
+    </>
+  );
+}
+
+function PlexConfigFields({
+  config,
+  handleConfigChange,
+}: {
+  config: Record<string, unknown>;
+  handleConfigChange: (key: string, value: unknown) => void;
+}) {
+  const { data: servers = [] } = useQuery({
+    queryKey: ["plex-servers"],
+    queryFn: () => api.getPlexServers(),
+    staleTime: 60_000,
+  });
+
+  const serverId = config.serverId as string ?? "";
+  const ratingKey = config.ratingKey as string ?? "";
+
+  const { data: libraries = [] } = useQuery({
+    queryKey: ["plex-libraries", serverId],
+    queryFn: () => api.getPlexLibraries(serverId),
+    enabled: !!serverId,
+    staleTime: 60_000,
+  });
+
+  const [selectedLibrary, setSelectedLibrary] = useState("");
+
+  const { data: items = [] } = useQuery({
+    queryKey: ["plex-library-items-config", serverId, selectedLibrary],
+    queryFn: () => api.getPlexLibraryItems(serverId, selectedLibrary),
+    enabled: !!serverId && !!selectedLibrary,
+    staleTime: 60_000,
+  });
+
+  return (
+    <>
+      <label className="block">
+        <span className="text-sm">Plex Server</span>
+        <select
+          value={serverId}
+          onChange={(e) => { handleConfigChange("serverId", e.target.value); handleConfigChange("ratingKey", ""); }}
+          className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+        >
+          <option value="">Select a server...</option>
+          {servers.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+      </label>
+      {serverId && (
+        <label className="block">
+          <span className="text-sm">Library</span>
+          <select
+            value={selectedLibrary}
+            onChange={(e) => setSelectedLibrary(e.target.value)}
+            className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Select a library...</option>
+            {libraries.map((lib) => (
+              <option key={lib.key} value={lib.key}>{lib.title} ({lib.type})</option>
+            ))}
+          </select>
+        </label>
+      )}
+      {selectedLibrary && items.length > 0 && (
+        <label className="block">
+          <span className="text-sm">Content</span>
+          <select
+            value={ratingKey}
+            onChange={(e) => handleConfigChange("ratingKey", e.target.value)}
+            className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Select content...</option>
+            {items.map((item) => (
+              <option key={item.ratingKey} value={item.ratingKey}>
+                {item.title}{item.year ? ` (${item.year})` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label className="flex items-center justify-between">
+        <span className="text-sm">Auto Play</span>
+        <input
+          type="checkbox"
+          checked={config.autoPlay as boolean ?? true}
+          onChange={(e) => handleConfigChange("autoPlay", e.target.checked)}
+          className="rounded"
+        />
+      </label>
+      <label className="flex items-center justify-between">
+        <span className="text-sm">Show Controls</span>
+        <input
+          type="checkbox"
+          checked={config.showControls as boolean ?? true}
+          onChange={(e) => handleConfigChange("showControls", e.target.checked)}
+          className="rounded"
+        />
+      </label>
+    </>
+  );
+}
+
+function PlexAmpConfigFields({
+  config,
+  handleConfigChange,
+}: {
+  config: Record<string, unknown>;
+  handleConfigChange: (key: string, value: unknown) => void;
+}) {
+  const { data: servers = [] } = useQuery({
+    queryKey: ["plex-servers"],
+    queryFn: () => api.getPlexServers(),
+    staleTime: 60_000,
+  });
+
+  const serverId = config.serverId as string ?? "";
+  const ratingKey = config.ratingKey as string ?? "";
+
+  const { data: libraries = [] } = useQuery({
+    queryKey: ["plex-libraries", serverId],
+    queryFn: () => api.getPlexLibraries(serverId),
+    enabled: !!serverId,
+    staleTime: 60_000,
+  });
+
+  const musicLibraries = libraries.filter((l) => l.type === "artist");
+
+  const [selectedLibrary, setSelectedLibrary] = useState("");
+
+  const { data: items = [] } = useQuery({
+    queryKey: ["plex-library-items-config", serverId, selectedLibrary],
+    queryFn: () => api.getPlexLibraryItems(serverId, selectedLibrary),
+    enabled: !!serverId && !!selectedLibrary,
+    staleTime: 60_000,
+  });
+
+  return (
+    <>
+      <label className="block">
+        <span className="text-sm">Plex Server</span>
+        <select
+          value={serverId}
+          onChange={(e) => { handleConfigChange("serverId", e.target.value); handleConfigChange("ratingKey", ""); }}
+          className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+        >
+          <option value="">Select a server...</option>
+          {servers.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+      </label>
+      {serverId && (
+        <label className="block">
+          <span className="text-sm">Music Library</span>
+          <select
+            value={selectedLibrary}
+            onChange={(e) => setSelectedLibrary(e.target.value)}
+            className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Select a library...</option>
+            {musicLibraries.map((lib) => (
+              <option key={lib.key} value={lib.key}>{lib.title}</option>
+            ))}
+          </select>
+        </label>
+      )}
+      {selectedLibrary && items.length > 0 && (
+        <label className="block">
+          <span className="text-sm">Artist / Album</span>
+          <select
+            value={ratingKey}
+            onChange={(e) => handleConfigChange("ratingKey", e.target.value)}
+            className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Select music...</option>
+            {items.map((item) => (
+              <option key={item.ratingKey} value={item.ratingKey}>
+                {item.title}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label className="flex items-center justify-between">
+        <span className="text-sm">Auto Play</span>
+        <input
+          type="checkbox"
+          checked={config.autoPlay as boolean ?? true}
+          onChange={(e) => handleConfigChange("autoPlay", e.target.checked)}
+          className="rounded"
+        />
+      </label>
+    </>
+  );
+}
+
+function AudiobookshelfConfigFields({
+  config,
+  handleConfigChange,
+}: {
+  config: Record<string, unknown>;
+  handleConfigChange: (key: string, value: unknown) => void;
+}) {
+  const { data: servers = [] } = useQuery({
+    queryKey: ["audiobookshelf-servers"],
+    queryFn: () => api.getAudiobookshelfServers(),
+    staleTime: 60_000,
+  });
+
+  const serverId = config.serverId as string ?? "";
+  const itemId = config.itemId as string ?? "";
+
+  const { data: libraries = [] } = useQuery({
+    queryKey: ["abs-libraries", serverId],
+    queryFn: () => api.getAudiobookshelfLibraries(serverId),
+    enabled: !!serverId,
+    staleTime: 60_000,
+  });
+
+  const [selectedLibrary, setSelectedLibrary] = useState("");
+
+  const { data: items = [] } = useQuery({
+    queryKey: ["abs-library-items-config", serverId, selectedLibrary],
+    queryFn: () => api.getAudiobookshelfItems(serverId, selectedLibrary),
+    enabled: !!serverId && !!selectedLibrary,
+    staleTime: 60_000,
+  });
+
+  return (
+    <>
+      <label className="block">
+        <span className="text-sm">Audiobookshelf Server</span>
+        <select
+          value={serverId}
+          onChange={(e) => { handleConfigChange("serverId", e.target.value); handleConfigChange("itemId", ""); }}
+          className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+        >
+          <option value="">Select a server...</option>
+          {servers.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+      </label>
+      {serverId && (
+        <label className="block">
+          <span className="text-sm">Library</span>
+          <select
+            value={selectedLibrary}
+            onChange={(e) => setSelectedLibrary(e.target.value)}
+            className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Select a library...</option>
+            {libraries.map((lib) => (
+              <option key={lib.id} value={lib.id}>{lib.name} ({lib.mediaType})</option>
+            ))}
+          </select>
+        </label>
+      )}
+      {selectedLibrary && items.length > 0 && (
+        <label className="block">
+          <span className="text-sm">Content</span>
+          <select
+            value={itemId}
+            onChange={(e) => handleConfigChange("itemId", e.target.value)}
+            className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Select content...</option>
+            {items.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.title}{item.authorName ? ` - ${item.authorName}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label className="flex items-center justify-between">
+        <span className="text-sm">Auto Play</span>
+        <input
+          type="checkbox"
+          checked={config.autoPlay as boolean ?? true}
+          onChange={(e) => handleConfigChange("autoPlay", e.target.checked)}
+          className="rounded"
+        />
+      </label>
+    </>
+  );
+}
+
+// Add Condition dropdown menu
+function AddConditionMenu({ onAdd }: { onAdd: (type: VisibilityConditionType) => void }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const items: { type: VisibilityConditionType; label: string; icon: React.ElementType }[] = [
+    { type: "time-schedule", label: "Time Schedule", icon: Clock },
+    { type: "ha-entity", label: "HA Entity State", icon: Zap },
+    { type: "spotify-playing", label: "Music Playing", icon: Music },
+    { type: "calendar-event", label: "Calendar Event", icon: Calendar },
+  ];
+
+  return (
+    <div ref={menuRef} className="relative inline-block">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 transition-colors px-3 py-1.5 rounded border border-dashed border-primary/40 hover:bg-primary/5"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Add Condition
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-50 w-52 rounded-lg border border-border bg-card shadow-lg py-1">
+          {items.map(({ type, label, icon: Icon }) => (
+            <button
+              key={type}
+              onClick={() => { onAdd(type); setOpen(false); }}
+              className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted transition-colors text-left"
+            >
+              <Icon className="h-4 w-4 text-primary" />
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Calendar picker for visibility condition
+function CalendarConditionPicker({ selectedIds, onChange }: { selectedIds: string[]; onChange: (ids: string[]) => void }) {
+  const { data: calendars = [] } = useQuery({
+    queryKey: ["calendars"],
+    queryFn: () => api.getCalendars(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const visibleCalendars = calendars.filter((c: CalendarType) => c.isVisible);
+
+  if (visibleCalendars.length === 0) {
+    return <p className="text-xs text-muted-foreground mt-1">No calendars available</p>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-1">
+      {visibleCalendars.map((cal: CalendarType) => {
+        const isSelected = selectedIds.includes(cal.id);
+        return (
+          <button
+            key={cal.id}
+            onClick={() => {
+              const newIds = isSelected
+                ? selectedIds.filter((id) => id !== cal.id)
+                : [...selectedIds, cal.id];
+              onChange(newIds);
+            }}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors border",
+              isSelected
+                ? "bg-primary/10 border-primary/40 text-primary"
+                : "bg-muted border-border text-muted-foreground hover:bg-muted/80"
+            )}
+          >
+            <div
+              className="w-2 h-2 rounded-full flex-shrink-0"
+              style={{ backgroundColor: cal.color ?? "#3B82F6" }}
+            />
+            {cal.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function EditBlockModal({ isOpen, onClose, widgetId }: EditBlockModalProps) {
   const { layoutConfig, updateBuilderWidget } = useBuilder();
   const [activeTab, setActiveTab] = useState<TabId>("setup");
   const [showEntityBrowser, setShowEntityBrowser] = useState(false);
   const [entityBrowserTarget, setEntityBrowserTarget] = useState<string | null>(null);
   const [showAlbumPicker, setShowAlbumPicker] = useState(false);
+  const haGetEntityState = useHAWebSocket((s) => s.getEntityState);
 
   const widgets = layoutConfig.widgets || [];
   const widget = widgets.find((w) => w.id === widgetId);
@@ -783,6 +1253,70 @@ export function EditBlockModal({ isOpen, onClose, widgetId }: EditBlockModalProp
     handleVisibilityChange("daysOfWeek", newDays);
   };
 
+  // ============ Visibility Conditions Handlers ============
+
+  const getVisibilityConditions = (): VisibilityConfig => {
+    return widget.visibilityConditions ?? { enabled: false, logic: "all", conditions: [] };
+  };
+
+  const updateVisibilityConditions = (updates: Partial<VisibilityConfig>) => {
+    const current = getVisibilityConditions();
+    updateBuilderWidget(widgetId, {
+      visibilityConditions: { ...current, ...updates },
+    });
+  };
+
+  const addCondition = (type: VisibilityConditionType) => {
+    const current = getVisibilityConditions();
+    let newCondition: VisibilityCondition;
+    switch (type) {
+      case "time-schedule":
+        newCondition = { type: "time-schedule", startTime: "00:00", endTime: "23:59", daysOfWeek: [] };
+        break;
+      case "ha-entity":
+        newCondition = { type: "ha-entity", entityId: "", operator: "eq", value: "" };
+        break;
+      case "spotify-playing":
+        newCondition = { type: "spotify-playing", isPlaying: true };
+        break;
+      case "calendar-event":
+        newCondition = { type: "calendar-event", hasActiveEvent: true, calendarIds: [] };
+        break;
+    }
+    updateVisibilityConditions({ conditions: [...current.conditions, newCondition] });
+  };
+
+  const updateCondition = (index: number, updates: Partial<VisibilityCondition>) => {
+    const current = getVisibilityConditions();
+    const newConditions = current.conditions.map((c, i) =>
+      i === index ? { ...c, ...updates } as VisibilityCondition : c
+    );
+    updateVisibilityConditions({ conditions: newConditions });
+  };
+
+  const removeCondition = (index: number) => {
+    const current = getVisibilityConditions();
+    updateVisibilityConditions({ conditions: current.conditions.filter((_, i) => i !== index) });
+  };
+
+  // Auto-migrate legacy visibility to new conditions when opening Advanced tab
+  const migrateToConditions = () => {
+    if (widget.visibility?.enabled && !widget.visibilityConditions) {
+      updateBuilderWidget(widgetId, {
+        visibilityConditions: {
+          enabled: true,
+          logic: "all",
+          conditions: [{
+            type: "time-schedule",
+            startTime: widget.visibility.startTime,
+            endTime: widget.visibility.endTime,
+            daysOfWeek: widget.visibility.daysOfWeek,
+          }],
+        },
+      });
+    }
+  };
+
   const openEntityBrowser = (configKey: string) => {
     setEntityBrowserTarget(configKey);
     setShowEntityBrowser(true);
@@ -790,7 +1324,13 @@ export function EditBlockModal({ isOpen, onClose, widgetId }: EditBlockModalProp
 
   const handleEntitySelect = (entityId: string) => {
     if (entityBrowserTarget) {
-      handleConfigChange(entityBrowserTarget, entityId);
+      // Check if this is a visibility condition entity browser
+      if (entityBrowserTarget.startsWith("__visibility_")) {
+        const condIndex = parseInt(entityBrowserTarget.replace("__visibility_", ""), 10);
+        updateCondition(condIndex, { entityId });
+      } else {
+        handleConfigChange(entityBrowserTarget, entityId);
+      }
     }
     setShowEntityBrowser(false);
     setEntityBrowserTarget(null);
@@ -966,6 +1506,18 @@ export function EditBlockModal({ isOpen, onClose, widgetId }: EditBlockModalProp
 
       case "iptv":
         return <IptvConfigFields config={config} handleConfigChange={handleConfigChange} />;
+
+      case "youtube":
+        return <YouTubeConfigFields config={config} handleConfigChange={handleConfigChange} />;
+
+      case "plex":
+        return <PlexConfigFields config={config} handleConfigChange={handleConfigChange} />;
+
+      case "plexamp":
+        return <PlexAmpConfigFields config={config} handleConfigChange={handleConfigChange} />;
+
+      case "audiobookshelf":
+        return <AudiobookshelfConfigFields config={config} handleConfigChange={handleConfigChange} />;
 
       case "ha-entity":
       case "ha-gauge":
@@ -1925,89 +2477,243 @@ export function EditBlockModal({ isOpen, onClose, widgetId }: EditBlockModalProp
     </div>
   );
 
-  // Render Advanced tab
-  const renderAdvancedTab = () => (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Clock className="h-4 w-4 text-muted-foreground" />
-        <h4 className="text-sm font-medium">Visibility Schedule</h4>
-      </div>
-      <div className="space-y-3">
+  // Render Visibility tab (multi-condition builder)
+  const renderAdvancedTab = () => {
+    const vc = getVisibilityConditions();
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Eye className="h-4 w-4 text-primary" />
+          <h4 className="text-sm font-medium">Visibility Conditions</h4>
+        </div>
+
         {/* Enable toggle */}
         <label className="flex items-center justify-between">
-          <span className="text-sm">Enable Schedule</span>
+          <span className="text-sm">Enable Conditions</span>
           <button
-            onClick={() => handleVisibilityChange("enabled", !widget.visibility?.enabled)}
+            onClick={() => {
+              if (!vc.enabled) migrateToConditions();
+              updateVisibilityConditions({ enabled: !vc.enabled });
+            }}
             className={cn(
               "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-              widget.visibility?.enabled ? "bg-primary" : "bg-muted"
+              vc.enabled ? "bg-primary" : "bg-muted"
             )}
           >
             <span
               className={cn(
                 "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                widget.visibility?.enabled ? "translate-x-6" : "translate-x-1"
+                vc.enabled ? "translate-x-6" : "translate-x-1"
               )}
             />
           </button>
         </label>
 
-        {widget.visibility?.enabled && (
-          <>
-            {/* Time range */}
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="text-xs text-muted-foreground">Show from</span>
-                <input
-                  type="time"
-                  value={widget.visibility?.startTime ?? "00:00"}
-                  onChange={(e) => handleVisibilityChange("startTime", e.target.value)}
-                  className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs text-muted-foreground">to</span>
-                <input
-                  type="time"
-                  value={widget.visibility?.endTime ?? "23:59"}
-                  onChange={(e) => handleVisibilityChange("endTime", e.target.value)}
-                  className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
-                />
-              </label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Supports overnight ranges (e.g., 7pm to 7am)
-            </p>
-
-            {/* Days of week */}
-            <div>
-              <span className="text-xs text-muted-foreground">Days (none selected = all days)</span>
-              <div className="flex gap-1 mt-2">
-                {["S", "M", "T", "W", "T", "F", "S"].map((label, index) => {
-                  const isSelected = (widget.visibility?.daysOfWeek ?? []).includes(index);
-                  return (
-                    <button
-                      key={index}
-                      onClick={() => toggleDayOfWeek(index)}
-                      className={cn(
-                        "w-8 h-8 rounded text-xs font-medium transition-colors",
-                        isSelected
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground hover:bg-muted/80"
-                      )}
-                      title={["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][index]}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
+        {vc.enabled && (
+          <div className="space-y-3">
+            {/* Logic selector (only shown when 2+ conditions) */}
+            {vc.conditions.length >= 2 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Show when</span>
+                <select
+                  value={vc.logic}
+                  onChange={(e) => updateVisibilityConditions({ logic: e.target.value as "all" | "any" })}
+                  className="rounded border border-border bg-background px-2 py-1 text-sm"
+                >
+                  <option value="all">all conditions match (AND)</option>
+                  <option value="any">any condition matches (OR)</option>
+                </select>
               </div>
+            )}
+
+            {/* Condition cards */}
+            {vc.conditions.map((condition, index) => (
+              <div key={index} className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium flex items-center gap-2">
+                    {condition.type === "time-schedule" && <><Clock className="h-3.5 w-3.5 text-primary" /> Time Schedule</>}
+                    {condition.type === "ha-entity" && <><Zap className="h-3.5 w-3.5 text-primary" /> HA Entity State</>}
+                    {condition.type === "spotify-playing" && <><Music className="h-3.5 w-3.5 text-primary" /> Music Playing</>}
+                    {condition.type === "calendar-event" && <><Calendar className="h-3.5 w-3.5 text-primary" /> Calendar Event</>}
+                  </span>
+                  <button
+                    onClick={() => removeCondition(index)}
+                    className="text-muted-foreground hover:text-destructive transition-colors p-1 rounded hover:bg-destructive/10"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                {/* Time Schedule condition */}
+                {condition.type === "time-schedule" && (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="block">
+                        <span className="text-xs text-muted-foreground">Show from</span>
+                        <input
+                          type="time"
+                          value={condition.startTime}
+                          onChange={(e) => updateCondition(index, { startTime: e.target.value })}
+                          className="mt-1 block w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs text-muted-foreground">to</span>
+                        <input
+                          type="time"
+                          value={condition.endTime}
+                          onChange={(e) => updateCondition(index, { endTime: e.target.value })}
+                          className="mt-1 block w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+                        />
+                      </label>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Supports overnight ranges (e.g., 7pm to 7am)</p>
+                    <div>
+                      <span className="text-xs text-muted-foreground">Days (none = all days)</span>
+                      <div className="flex gap-1 mt-1">
+                        {["S", "M", "T", "W", "T", "F", "S"].map((label, dayIndex) => {
+                          const isSelected = condition.daysOfWeek.includes(dayIndex);
+                          return (
+                            <button
+                              key={dayIndex}
+                              onClick={() => {
+                                const newDays = isSelected
+                                  ? condition.daysOfWeek.filter((d) => d !== dayIndex)
+                                  : [...condition.daysOfWeek, dayIndex].sort((a, b) => a - b);
+                                updateCondition(index, { daysOfWeek: newDays });
+                              }}
+                              className={cn(
+                                "w-7 h-7 rounded text-xs font-medium transition-colors",
+                                isSelected
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+                              )}
+                              title={["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dayIndex]}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* HA Entity condition */}
+                {condition.type === "ha-entity" && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={condition.entityId}
+                        onChange={(e) => updateCondition(index, { entityId: e.target.value })}
+                        placeholder="sensor.temperature"
+                        className="flex-1 rounded border border-border bg-background px-3 py-1.5 text-sm"
+                      />
+                      <button
+                        onClick={() => {
+                          setEntityBrowserTarget(`__visibility_${index}`);
+                          setShowEntityBrowser(true);
+                        }}
+                        className="px-2 py-1.5 text-xs rounded border border-border hover:bg-muted transition-colors"
+                      >
+                        Browse
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={condition.operator}
+                        onChange={(e) => updateCondition(index, { operator: e.target.value as ComparisonOperator })}
+                        className="rounded border border-border bg-background px-2 py-1.5 text-sm"
+                      >
+                        <option value="eq">is equal to</option>
+                        <option value="neq">is not equal to</option>
+                        <option value="gt">is greater than</option>
+                        <option value="lt">is less than</option>
+                        <option value="gte">is &gt;= to</option>
+                        <option value="lte">is &lt;= to</option>
+                        <option value="contains">contains</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={condition.value}
+                        onChange={(e) => updateCondition(index, { value: e.target.value })}
+                        placeholder="on"
+                        className="rounded border border-border bg-background px-3 py-1.5 text-sm"
+                      />
+                    </div>
+                    {/* Live entity state */}
+                    {condition.entityId && (() => {
+                      const entity = haGetEntityState(condition.entityId);
+                      if (!entity) return (
+                        <p className="text-xs text-muted-foreground italic">Entity not found or HA not connected</p>
+                      );
+                      const friendlyName = entity.attributes.friendly_name as string | undefined;
+                      const unit = entity.attributes.unit_of_measurement as string | undefined;
+                      return (
+                        <div className="flex items-center gap-2 rounded bg-muted/50 px-2.5 py-1.5 text-xs">
+                          <span className="text-muted-foreground">{friendlyName ?? condition.entityId}:</span>
+                          <span className="font-medium text-primary">{entity.state}</span>
+                          {unit && (
+                            <span className="text-muted-foreground">{unit}</span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* Spotify Playing condition */}
+                {condition.type === "spotify-playing" && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Show when music is</span>
+                    <select
+                      value={condition.isPlaying ? "playing" : "not-playing"}
+                      onChange={(e) => updateCondition(index, { isPlaying: e.target.value === "playing" })}
+                      className="rounded border border-border bg-background px-2 py-1.5 text-sm"
+                    >
+                      <option value="playing">Playing</option>
+                      <option value="not-playing">Not Playing</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Calendar Event condition */}
+                {condition.type === "calendar-event" && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Show when event is</span>
+                      <select
+                        value={condition.hasActiveEvent ? "active" : "inactive"}
+                        onChange={(e) => updateCondition(index, { hasActiveEvent: e.target.value === "active" })}
+                        className="rounded border border-border bg-background px-2 py-1.5 text-sm"
+                      >
+                        <option value="active">Active</option>
+                        <option value="inactive">Not Active</option>
+                      </select>
+                    </div>
+                    <div>
+                      <span className="text-xs text-muted-foreground">Calendars (none = any calendar)</span>
+                      <CalendarConditionPicker
+                        selectedIds={condition.calendarIds ?? []}
+                        onChange={(ids) => updateCondition(index, { calendarIds: ids })}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* Add Condition button */}
+            <div className="relative">
+              <AddConditionMenu onAdd={addCondition} />
             </div>
-          </>
+          </div>
         )}
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <>
@@ -2067,8 +2773,8 @@ export function EditBlockModal({ isOpen, onClose, widgetId }: EditBlockModalProp
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              <Clock className="h-4 w-4" />
-              Advanced
+              <Eye className="h-4 w-4" />
+              Visibility
             </button>
           </div>
 

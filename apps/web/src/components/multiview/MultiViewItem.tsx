@@ -6,6 +6,23 @@ import { HAMapWidget } from "../widgets/HAMapWidget";
 import { SpotifyWidget } from "../widgets/SpotifyWidget";
 import { PhotoAlbumWidget } from "../widgets/PhotoAlbumWidget";
 import { WeatherWidget } from "../widgets/WeatherWidget";
+import { IptvWidget } from "../widgets/IptvWidget";
+import { YouTubeWidget } from "../widgets/YouTubeWidget";
+import { HAEntityWidget } from "../widgets/HAEntityWidget";
+import { HAGaugeWidget } from "../widgets/HAGaugeWidget";
+import { HAGraphWidget } from "../widgets/HAGraphWidget";
+import { HACameraWidget } from "../widgets/HACameraWidget";
+import { ClockWidget } from "../widgets/ClockWidget";
+import { ForecastWidget } from "../widgets/ForecastWidget";
+import { UpNextWidget } from "../widgets/UpNextWidget";
+import { TasksWidget } from "../widgets/TasksWidget";
+import { SportsWidget } from "../widgets/SportsWidget";
+import { NewsWidget } from "../widgets/NewsWidget";
+import { DayScheduleWidget } from "../widgets/DayScheduleWidget";
+import { WeekScheduleWidget } from "../widgets/WeekScheduleWidget";
+import { CountdownWidget } from "../widgets/CountdownWidget";
+import { TextWidget } from "../widgets/TextWidget";
+import { PhotoFeedWidget } from "../widgets/PhotoFeedWidget";
 import type { MultiViewItem as MultiViewItemType } from "./types";
 import type { Camera } from "@openframe/shared";
 import type { HACamera } from "../../services/api";
@@ -124,6 +141,210 @@ export function MultiViewItem({
           />
         );
 
+      case "iptv":
+        return (
+          <IptvWidget
+            config={{
+              channelId: item.config.channelId || "",
+              showControls: true,
+              autoPlay: true,
+              muted: true,
+            }}
+          />
+        );
+
+      case "youtube":
+        return (
+          <YouTubeWidget
+            config={{
+              videoId: item.config.videoId || "",
+              showControls: true,
+              autoPlay: true,
+              muted: true,
+            }}
+          />
+        );
+
+      case "ha-entity":
+        return (
+          <HAEntityWidget
+            config={{
+              entityId: item.config.entityId || "",
+              showIcon: true,
+              showName: true,
+              showState: true,
+              showLastChanged: false,
+            }}
+          />
+        );
+
+      case "ha-gauge":
+        return (
+          <HAGaugeWidget
+            config={{
+              entityId: item.config.entityId || "",
+              min: item.config.min ?? 0,
+              max: item.config.max ?? 100,
+              unit: item.config.unit || "",
+              showValue: true,
+              showName: true,
+              warningValue: item.config.warningValue ?? 70,
+              criticalValue: item.config.criticalValue ?? 90,
+            }}
+          />
+        );
+
+      case "ha-graph":
+        return (
+          <HAGraphWidget
+            config={{
+              entityId: item.config.entityId || "",
+              hours: item.config.hours ?? 24,
+              showLabels: true,
+              showGrid: true,
+              lineColor: item.config.lineColor || "#3B82F6",
+            }}
+          />
+        );
+
+      case "ha-camera":
+        return (
+          <HACameraWidget
+            config={{
+              entityId: item.config.entityId || "",
+              refreshInterval: item.config.refreshInterval ?? 10,
+            }}
+          />
+        );
+
+      case "clock":
+        return (
+          <ClockWidget
+            config={{
+              format: "12h",
+              showSeconds: false,
+              showDate: true,
+            }}
+          />
+        );
+
+      case "forecast":
+        return (
+          <ForecastWidget
+            config={{
+              days: 5,
+              showHigh: true,
+              showLow: true,
+              showIcon: true,
+            }}
+          />
+        );
+
+      case "up-next":
+        return (
+          <UpNextWidget
+            config={{
+              maxItems: 3,
+              showTime: true,
+              showCalendarName: true,
+              headerMode: "default",
+            }}
+          />
+        );
+
+      case "tasks":
+        return (
+          <TasksWidget
+            config={{
+              maxItems: 8,
+              showCompleted: false,
+              headerMode: "default",
+            }}
+          />
+        );
+
+      case "sports":
+        return (
+          <SportsWidget
+            config={{
+              showScores: true,
+              showLogos: true,
+              headerMode: "default",
+            }}
+          />
+        );
+
+      case "news":
+        return (
+          <NewsWidget
+            config={{
+              maxItems: 6,
+              showImages: true,
+              headerMode: "default",
+            }}
+          />
+        );
+
+      case "day-schedule":
+        return (
+          <DayScheduleWidget
+            config={{
+              showCurrentTime: true,
+              hourRange: [6, 22],
+              headerMode: "default",
+            }}
+          />
+        );
+
+      case "week-schedule":
+        return (
+          <WeekScheduleWidget
+            config={{
+              showCurrentTime: true,
+              headerMode: "default",
+            }}
+          />
+        );
+
+      case "countdown":
+        return (
+          <CountdownWidget
+            config={{
+              targetDate: item.config.targetDate || "",
+              label: item.config.label || "Countdown",
+              showDays: true,
+              showHours: true,
+              showMinutes: true,
+              showSeconds: true,
+            }}
+          />
+        );
+
+      case "text":
+        return (
+          <TextWidget
+            config={{
+              text: item.config.text || "",
+              alignment: "center",
+            }}
+          />
+        );
+
+      case "photo-feed":
+        return (
+          <PhotoFeedWidget
+            config={{
+              source: item.config.source || "album",
+              albumId: item.config.albumId,
+              subreddit: item.config.subreddit || "EarthPorn",
+              interval: 30,
+              transition: "fade",
+              cropStyle: "crop",
+              shuffle: true,
+            }}
+          />
+        );
+
       default:
         return (
           <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -184,18 +405,20 @@ export function MultiViewItem({
         </button>
       )}
 
-      {/* Title overlay */}
-      <div
-        className={cn(
-          "absolute bottom-0 left-0 right-0 z-10 p-2",
-          "bg-gradient-to-t from-black/70 to-transparent",
-          "opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-        )}
-      >
-        <span className="text-sm font-medium text-white drop-shadow truncate">
-          {item.name}
-        </span>
-      </div>
+      {/* Title overlay - skip for IPTV since it has its own channel name display */}
+      {item.type !== "iptv" && (
+        <div
+          className={cn(
+            "absolute bottom-0 left-0 right-0 z-10 p-2",
+            "bg-gradient-to-t from-black/70 to-transparent",
+            "opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+          )}
+        >
+          <span className="text-sm font-medium text-white drop-shadow truncate">
+            {item.name}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

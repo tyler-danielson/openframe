@@ -37,7 +37,8 @@ export function CameraThumbnail({
   const getSnapshotUrl = () => {
     if (type === "standalone") {
       const cam = camera as CameraType;
-      if (cam.snapshotUrl) {
+      if (cam.snapshotUrl || cam.rtspUrl) {
+        // Backend handles derivation of snapshot URL from RTSP URL
         return `${api.getCameraSnapshotUrl(cam.id)}?token=${accessToken}&t=${Date.now()}`;
       }
       return null;

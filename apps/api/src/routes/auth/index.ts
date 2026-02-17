@@ -8,6 +8,7 @@ import {
   kioskConfig,
   kiosks,
 } from "@openframe/database/schema";
+// Note: kioskConfig is still used for screensaver settings (PUT /kiosk/screensaver)
 import {
   refreshTokenSchema,
   createApiKeySchema,
@@ -17,10 +18,12 @@ import { nanoid } from "nanoid";
 import bcrypt from "bcryptjs";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { getCategorySettings } from "../settings/index.js";
+import { isPrivateIp, getRequestOrigin } from "../../utils/oauth-helpers.js";
+import { getScopesForFeature, type OAuthFeature } from "../../utils/oauth-scopes.js";
 
 // In-memory OAuth state store (for single-server deployments)
 // States expire after 10 minutes
-const oauthStateStore = new Map<string, { createdAt: number; returnUrl?: string }>();
+const oauthStateStore = new Map<string, { createdAt: number; returnUrl?: string; requestOrigin?: string; linkUserId?: string; feature?: OAuthFeature }>();
 
 // In-memory kiosk command store
 // Commands expire after 60 seconds (kiosks should poll every 10-30 seconds)
@@ -102,32 +105,16 @@ async function getFrontendUrl(db: any): Promise<string> {
   return serverSettings.external_url || process.env.FRONTEND_URL || "http://localhost:3000";
 }
 
-// Google OAuth rejects private IPs (e.g. 192.168.x.x) as redirect URIs.
-// Rewrite to localhost so local dev works without extra configuration.
-function rewritePrivateIpToLocalhost(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname;
-    // Match RFC 1918 private ranges: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
-    const isPrivate = /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(host);
-    if (isPrivate) {
-      parsed.hostname = "localhost";
-      return parsed.toString().replace(/\/$/, "");
-    }
-  } catch {
-    // Not a valid URL, return as-is
-  }
-  return url;
-}
-
 // Helper to get OAuth config from DB settings, falling back to env vars
-async function getOAuthConfig(db: any, provider: "google" | "microsoft") {
+// When requestOrigin is provided, use it as the base URL for redirect URIs (derived from the actual HTTP request).
+// When not provided, fall back to stored external_url / env var.
+async function getOAuthConfig(db: any, provider: "google" | "microsoft", requestOrigin?: string) {
   const settings = await getCategorySettings(db, provider);
   const serverSettings = await getCategorySettings(db, "server");
   const externalUrl = serverSettings.external_url || process.env.FRONTEND_URL;
+  const baseUrl = requestOrigin || (externalUrl ? externalUrl.replace(/\/+$/, "") : null);
 
   if (provider === "google") {
-    const baseUrl = externalUrl ? rewritePrivateIpToLocalhost(externalUrl.replace(/\/+$/, "")) : null;
     return {
       clientId: settings.client_id || process.env.GOOGLE_CLIENT_ID,
       clientSecret: settings.client_secret || process.env.GOOGLE_CLIENT_SECRET,
@@ -140,8 +127,8 @@ async function getOAuthConfig(db: any, provider: "google" | "microsoft") {
     clientId: settings.client_id || process.env.MICROSOFT_CLIENT_ID,
     clientSecret: settings.client_secret || process.env.MICROSOFT_CLIENT_SECRET,
     tenantId: settings.tenant_id || process.env.MICROSOFT_TENANT_ID || "common",
-    redirectUri: externalUrl
-      ? `${externalUrl.replace(/\/+$/, "")}/api/v1/auth/oauth/microsoft/callback`
+    redirectUri: baseUrl
+      ? `${baseUrl}/api/v1/auth/oauth/microsoft/callback`
       : process.env.MICROSOFT_REDIRECT_URI,
   };
 }
@@ -325,7 +312,18 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const googleConfig = await getOAuthConfig(fastify.db, "google");
+      // Derive redirect URI from the actual request origin
+      const requestOrigin = getRequestOrigin(request);
+      const originHostname = new URL(requestOrigin).hostname;
+
+      // Block private IPs — OAuth providers reject them and the callback won't reach the server
+      if (isPrivateIp(originHostname)) {
+        const frontendUrl = await getFrontendUrl(fastify.db);
+        const errorMsg = encodeURIComponent("Cannot start OAuth from a private IP address. Please access this page via localhost or a public domain.");
+        return reply.redirect(`${requestOrigin}/settings?tab=system&error=${errorMsg}`);
+      }
+
+      const googleConfig = await getOAuthConfig(fastify.db, "google", requestOrigin);
       const clientId = googleConfig.clientId;
       const redirectUri = googleConfig.redirectUri;
 
@@ -333,18 +331,51 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("Google OAuth not configured");
       }
 
+      // If a token is provided, verify it and store linkUserId to link this OAuth to an existing user
+      const query = request.query as Record<string, string>;
+      let linkUserId: string | undefined;
+      if (query.token) {
+        try {
+          const decoded = fastify.jwt.verify(query.token) as { userId: string };
+          linkUserId = decoded.userId;
+        } catch {
+          return reply.unauthorized("Invalid or expired token");
+        }
+      }
+
       const state = randomBytes(16).toString("hex");
-      const scopes = [
-        "openid",
-        "email",
-        "profile",
-        "https://www.googleapis.com/auth/calendar.readonly",
-        "https://www.googleapis.com/auth/calendar.events",
-        "https://www.googleapis.com/auth/tasks.readonly",
-        "https://www.googleapis.com/auth/tasks",
-        "https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
-        "https://www.googleapis.com/auth/gmail.readonly",
-      ];
+      const feature = (query.feature as OAuthFeature) || "base";
+
+      // Check if user already has a Google OAuth token (incremental auth)
+      let existingToken: { scope: string | null } | undefined;
+      if (linkUserId) {
+        const [token] = await fastify.db
+          .select({ scope: oauthTokens.scope })
+          .from(oauthTokens)
+          .where(
+            and(
+              eq(oauthTokens.userId, linkUserId),
+              eq(oauthTokens.provider, "google")
+            )
+          )
+          .limit(1);
+        existingToken = token;
+      }
+
+      const isIncremental = !!existingToken;
+
+      // Build scopes: for fresh auth include base + feature; for incremental only request feature scopes
+      let scopes: string[];
+      if (isIncremental) {
+        scopes = getScopesForFeature("google", feature);
+      } else {
+        scopes = [
+          ...getScopesForFeature("google", "base"),
+          ...getScopesForFeature("google", feature),
+        ];
+      }
+      // Deduplicate
+      scopes = [...new Set(scopes)];
 
       const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
       url.searchParams.set("client_id", clientId);
@@ -353,10 +384,16 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       url.searchParams.set("scope", scopes.join(" "));
       url.searchParams.set("state", state);
       url.searchParams.set("access_type", "offline");
-      url.searchParams.set("prompt", "consent");
+
+      if (isIncremental) {
+        // Incremental: let Google merge with existing grants, don't force consent
+        url.searchParams.set("include_granted_scopes", "true");
+      } else {
+        // Fresh auth: request consent to get refresh token
+        url.searchParams.set("prompt", "consent");
+      }
 
       // Get the return URL from query param (most reliable) or construct from referer
-      const query = request.query as Record<string, string>;
       let returnUrl = query.returnUrl;
 
       if (!returnUrl) {
@@ -372,7 +409,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Store state in memory for verification (works across proxy boundaries)
-      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl });
+      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl, requestOrigin, linkUserId, feature });
 
       return reply.redirect(url.toString());
     }
@@ -419,8 +456,8 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("Missing OAuth code");
       }
 
-      // Exchange code for tokens using DB config
-      const googleConfig = await getOAuthConfig(fastify.db, "google");
+      // Exchange code for tokens using the same redirect URI from initiation
+      const googleConfig = await getOAuthConfig(fastify.db, "google", storedState.requestOrigin);
 
       const tokenResponse = await fetch(
         "https://oauth2.googleapis.com/token",
@@ -466,22 +503,58 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         picture?: string;
       };
 
-      // Find or create user
-      let [user] = await fastify.db
-        .select()
-        .from(users)
-        .where(eq(users.email, userInfo.email))
-        .limit(1);
-
-      if (!user) {
+      // In link mode, use the authenticated user; otherwise find by email or linked OAuth
+      let user;
+      if (storedState.linkUserId) {
         [user] = await fastify.db
-          .insert(users)
-          .values({
-            email: userInfo.email,
-            name: userInfo.name,
-            avatarUrl: userInfo.picture,
-          })
-          .returning();
+          .select()
+          .from(users)
+          .where(eq(users.id, storedState.linkUserId))
+          .limit(1);
+
+        if (!user) {
+          return reply.badRequest("User not found for linking");
+        }
+      } else {
+        // 1. Try to find user by email
+        [user] = await fastify.db
+          .select()
+          .from(users)
+          .where(eq(users.email, userInfo.email))
+          .limit(1);
+
+        // 2. If not found, check if this Google account is already linked to another user
+        if (!user) {
+          const [linkedToken] = await fastify.db
+            .select({ userId: oauthTokens.userId })
+            .from(oauthTokens)
+            .where(
+              and(
+                eq(oauthTokens.provider, "google"),
+                eq(oauthTokens.externalAccountId, userInfo.email)
+              )
+            )
+            .limit(1);
+
+          if (linkedToken) {
+            [user] = await fastify.db
+              .select()
+              .from(users)
+              .where(eq(users.id, linkedToken.userId))
+              .limit(1);
+          }
+        }
+
+        if (!user) {
+          [user] = await fastify.db
+            .insert(users)
+            .values({
+              email: userInfo.email,
+              name: userInfo.name,
+              avatarUrl: userInfo.picture,
+            })
+            .returning();
+        }
       }
 
       // Store OAuth tokens (encrypted in production)
@@ -504,6 +577,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             refreshToken: tokens.refresh_token ?? existingOAuth.refreshToken,
             expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
             scope: tokens.scope,
+            externalAccountId: userInfo.email,
             updatedAt: new Date(),
           })
           .where(eq(oauthTokens.id, existingOAuth.id));
@@ -515,7 +589,13 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           refreshToken: tokens.refresh_token,
           expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
           scope: tokens.scope,
+          externalAccountId: userInfo.email,
         });
+      }
+
+      // In link mode, just redirect back — the user is already logged in
+      if (storedState.linkUserId && storedState.returnUrl) {
+        return reply.redirect(storedState.returnUrl);
       }
 
       // Create session tokens
@@ -564,7 +644,17 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const msConfig = await getOAuthConfig(fastify.db, "microsoft");
+      // Derive redirect URI from the actual request origin
+      const requestOrigin = getRequestOrigin(request);
+      const originHostname = new URL(requestOrigin).hostname;
+
+      // Block private IPs — OAuth providers reject them and the callback won't reach the server
+      if (isPrivateIp(originHostname)) {
+        const errorMsg = encodeURIComponent("Cannot start OAuth from a private IP address. Please access this page via localhost or a public domain.");
+        return reply.redirect(`${requestOrigin}/settings?tab=system&error=${errorMsg}`);
+      }
+
+      const msConfig = await getOAuthConfig(fastify.db, "microsoft", requestOrigin);
       const clientId = msConfig.clientId;
       const redirectUri = msConfig.redirectUri;
       const tenantId = "tenantId" in msConfig ? msConfig.tenantId : "common";
@@ -573,15 +663,28 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("Microsoft OAuth not configured");
       }
 
+      // If a token is provided, verify it and store linkUserId to link this OAuth to an existing user
+      const query = request.query as Record<string, string>;
+      let linkUserId: string | undefined;
+      if (query.token) {
+        try {
+          const decoded = fastify.jwt.verify(query.token) as { userId: string };
+          linkUserId = decoded.userId;
+        } catch {
+          return reply.unauthorized("Invalid or expired token");
+        }
+      }
+
       const state = randomBytes(16).toString("hex");
+      const feature = (query.feature as OAuthFeature) || "base";
+
+      // Microsoft always needs base scopes (for token format) + feature scopes
       const scopes = [
-        "openid",
-        "email",
-        "profile",
-        "offline_access",
-        "Calendars.ReadWrite",
-        "Tasks.ReadWrite",
+        ...getScopesForFeature("microsoft", "base"),
+        ...getScopesForFeature("microsoft", feature),
       ];
+      // Deduplicate
+      const uniqueScopes = [...new Set(scopes)];
 
       const url = new URL(
         `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`
@@ -589,11 +692,10 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       url.searchParams.set("client_id", clientId);
       url.searchParams.set("redirect_uri", redirectUri);
       url.searchParams.set("response_type", "code");
-      url.searchParams.set("scope", scopes.join(" "));
+      url.searchParams.set("scope", uniqueScopes.join(" "));
       url.searchParams.set("state", state);
 
       // Get the return URL from query param (most reliable) or construct from referer
-      const query = request.query as Record<string, string>;
       let returnUrl = query.returnUrl;
 
       if (!returnUrl) {
@@ -609,7 +711,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Store state in memory for verification (works across proxy boundaries)
-      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl });
+      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl, requestOrigin, linkUserId, feature });
 
       return reply.redirect(url.toString());
     }
@@ -653,12 +755,14 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       // Remove used state
       oauthStateStore.delete(state);
 
+      fastify.log.info(`Microsoft OAuth callback: linkUserId=${storedState.linkUserId || "none"}, returnUrl=${storedState.returnUrl || "none"}`);
+
       if (!code) {
         return reply.badRequest("Missing OAuth code");
       }
 
-      // Exchange code for tokens using DB config
-      const msConfig = await getOAuthConfig(fastify.db, "microsoft");
+      // Exchange code for tokens using the same redirect URI from initiation
+      const msConfig = await getOAuthConfig(fastify.db, "microsoft", storedState.requestOrigin);
       const tenantId = "tenantId" in msConfig ? msConfig.tenantId : "common";
 
       const tokenResponse = await fetch(
@@ -677,6 +781,8 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       );
 
       if (!tokenResponse.ok) {
+        const errorBody = await tokenResponse.text();
+        fastify.log.error(`Microsoft token exchange failed (${tokenResponse.status}): ${errorBody}`);
         return reply.internalServerError("Failed to exchange OAuth code");
       }
 
@@ -696,6 +802,8 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       );
 
       if (!userInfoResponse.ok) {
+        const errorBody = await userInfoResponse.text();
+        fastify.log.error(`Microsoft user info failed (${userInfoResponse.status}): ${errorBody}`);
         return reply.internalServerError("Failed to get user info");
       }
 
@@ -707,24 +815,61 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
       const email = userInfo.mail || userInfo.userPrincipalName;
       if (!email) {
+        fastify.log.error(`Microsoft user info missing email: ${JSON.stringify(userInfo)}`);
         return reply.internalServerError("Failed to get user email");
       }
 
-      // Find or create user
-      let [user] = await fastify.db
-        .select()
-        .from(users)
-        .where(eq(users.email, email))
-        .limit(1);
-
-      if (!user) {
+      // In link mode, use the authenticated user; otherwise find by email or linked OAuth
+      let user;
+      if (storedState.linkUserId) {
         [user] = await fastify.db
-          .insert(users)
-          .values({
-            email: email,
-            name: userInfo.displayName,
-          })
-          .returning();
+          .select()
+          .from(users)
+          .where(eq(users.id, storedState.linkUserId))
+          .limit(1);
+
+        if (!user) {
+          return reply.badRequest("User not found for linking");
+        }
+      } else {
+        // 1. Try to find user by email
+        [user] = await fastify.db
+          .select()
+          .from(users)
+          .where(eq(users.email, email))
+          .limit(1);
+
+        // 2. If not found, check if this Microsoft account is already linked to another user
+        if (!user) {
+          const [linkedToken] = await fastify.db
+            .select({ userId: oauthTokens.userId })
+            .from(oauthTokens)
+            .where(
+              and(
+                eq(oauthTokens.provider, "microsoft"),
+                eq(oauthTokens.externalAccountId, email)
+              )
+            )
+            .limit(1);
+
+          if (linkedToken) {
+            [user] = await fastify.db
+              .select()
+              .from(users)
+              .where(eq(users.id, linkedToken.userId))
+              .limit(1);
+          }
+        }
+
+        if (!user) {
+          [user] = await fastify.db
+            .insert(users)
+            .values({
+              email: email,
+              name: userInfo.displayName,
+            })
+            .returning();
+        }
       }
 
       // Store OAuth tokens (encrypted in production)
@@ -747,6 +892,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             refreshToken: tokens.refresh_token ?? existingOAuth.refreshToken,
             expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
             scope: tokens.scope,
+            externalAccountId: email,
             updatedAt: new Date(),
           })
           .where(eq(oauthTokens.id, existingOAuth.id));
@@ -758,7 +904,13 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           refreshToken: tokens.refresh_token,
           expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
           scope: tokens.scope,
+          externalAccountId: email,
         });
+      }
+
+      // In link mode, just redirect back — the user is already logged in
+      if (storedState.linkUserId && storedState.returnUrl) {
+        return reply.redirect(storedState.returnUrl);
       }
 
       // Create session tokens
@@ -985,6 +1137,11 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
 
+      const linkedOAuth = await fastify.db
+        .select({ provider: oauthTokens.provider, scope: oauthTokens.scope })
+        .from(oauthTokens)
+        .where(eq(oauthTokens.userId, user.id));
+
       return {
         success: true,
         data: {
@@ -994,6 +1151,10 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           avatarUrl: user.avatarUrl,
           timezone: user.timezone,
           preferences: user.preferences,
+          linkedProviders: linkedOAuth.map(o => o.provider),
+          grantedScopes: Object.fromEntries(
+            linkedOAuth.map(o => [o.provider, o.scope ?? ""])
+          ),
         },
       };
     }
@@ -1055,163 +1216,17 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
-      // Check if any user has kiosk mode enabled
+      // Check if any active kiosk device exists
       const [kiosk] = await fastify.db
         .select()
-        .from(kioskConfig)
-        .where(eq(kioskConfig.enabled, true))
+        .from(kiosks)
+        .where(eq(kiosks.isActive, true))
         .limit(1);
 
       return {
         success: true,
         data: {
           enabled: !!kiosk,
-        },
-      };
-    }
-  );
-
-  // Enable kiosk mode - protected
-  fastify.post(
-    "/kiosk/enable",
-    {
-      onRequest: [fastify.authenticate],
-      schema: {
-        description: "Enable kiosk mode for current user",
-        tags: ["Auth", "Kiosk"],
-        security: [{ bearerAuth: [] }],
-        body: {
-          type: "object",
-          properties: {},
-          additionalProperties: false,
-        },
-        response: {
-          200: {
-            type: "object",
-            properties: {
-              success: { type: "boolean" },
-            },
-          },
-        },
-      },
-    },
-    async (request) => {
-      const user = await getCurrentUser(request);
-      if (!user) {
-        throw fastify.httpErrors.unauthorized("Not authenticated");
-      }
-
-      // Disable kiosk mode for all users first
-      await fastify.db
-        .update(kioskConfig)
-        .set({ enabled: false, updatedAt: new Date() })
-        .where(eq(kioskConfig.enabled, true));
-
-      // Check if user already has a kiosk config
-      const [existing] = await fastify.db
-        .select()
-        .from(kioskConfig)
-        .where(eq(kioskConfig.userId, user.id))
-        .limit(1);
-
-      if (existing) {
-        // Update existing config
-        await fastify.db
-          .update(kioskConfig)
-          .set({ enabled: true, updatedAt: new Date() })
-          .where(eq(kioskConfig.userId, user.id));
-      } else {
-        // Create new config
-        await fastify.db.insert(kioskConfig).values({
-          userId: user.id,
-          enabled: true,
-        });
-      }
-
-      return { success: true };
-    }
-  );
-
-  // Disable kiosk mode - protected
-  fastify.post(
-    "/kiosk/disable",
-    {
-      onRequest: [fastify.authenticate],
-      schema: {
-        description: "Disable kiosk mode for current user",
-        tags: ["Auth", "Kiosk"],
-        security: [{ bearerAuth: [] }],
-        body: {
-          type: "object",
-          properties: {},
-          additionalProperties: false,
-        },
-        response: {
-          200: {
-            type: "object",
-            properties: {
-              success: { type: "boolean" },
-            },
-          },
-        },
-      },
-    },
-    async (request) => {
-      const user = await getCurrentUser(request);
-      if (!user) {
-        throw fastify.httpErrors.unauthorized("Not authenticated");
-      }
-
-      await fastify.db
-        .update(kioskConfig)
-        .set({ enabled: false, updatedAt: new Date() })
-        .where(eq(kioskConfig.userId, user.id));
-
-      return { success: true };
-    }
-  );
-
-  // Get kiosk status for current user - protected
-  fastify.get(
-    "/kiosk/me",
-    {
-      onRequest: [fastify.authenticate],
-      schema: {
-        description: "Get kiosk mode status for current user",
-        tags: ["Auth", "Kiosk"],
-        security: [{ bearerAuth: [] }],
-        response: {
-          200: {
-            type: "object",
-            properties: {
-              success: { type: "boolean" },
-              data: {
-                type: "object",
-                properties: {
-                  enabled: { type: "boolean" },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-    async (request) => {
-      const user = await getCurrentUser(request);
-      if (!user) {
-        throw fastify.httpErrors.unauthorized("Not authenticated");
-      }
-
-      const [kiosk] = await fastify.db
-        .select()
-        .from(kioskConfig)
-        .where(eq(kioskConfig.userId, user.id))
-        .limit(1);
-
-      return {
-        success: true,
-        data: {
-          enabled: kiosk?.enabled ?? false,
         },
       };
     }
@@ -1247,33 +1262,35 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
-      // Get the active kiosk config with screensaver settings
-      const [kiosk] = await fastify.db
+      // Find the first active kiosk device's owner, then look up their screensaver settings
+      const [activeKiosk] = await fastify.db
         .select()
-        .from(kioskConfig)
-        .where(eq(kioskConfig.enabled, true))
+        .from(kiosks)
+        .where(eq(kiosks.isActive, true))
         .limit(1);
 
-      const layoutConfig = kiosk?.screensaverLayoutConfig;
-      fastify.log.info({
-        foundKiosk: !!kiosk,
-        kioskId: kiosk?.id,
-        kioskUserId: kiosk?.userId,
-        hasLayoutConfig: !!layoutConfig,
-        layoutConfigType: typeof layoutConfig,
-        widgetCount: (layoutConfig as any)?.widgets?.length ?? 0,
-        layoutConfigRaw: JSON.stringify(layoutConfig)?.slice(0, 200)
-      }, "Kiosk screensaver GET request");
+      // Get screensaver settings from the kiosk owner's kioskConfig
+      let config: typeof kioskConfig.$inferSelect | undefined;
+      if (activeKiosk) {
+        const [c] = await fastify.db
+          .select()
+          .from(kioskConfig)
+          .where(eq(kioskConfig.userId, activeKiosk.userId))
+          .limit(1);
+        config = c;
+      }
+
+      const layoutConfig = config?.screensaverLayoutConfig;
 
       return {
         success: true,
         data: {
-          enabled: kiosk?.screensaverEnabled ?? true,
-          timeout: kiosk?.screensaverTimeout ?? 300,
-          interval: kiosk?.screensaverInterval ?? 15,
-          layout: kiosk?.screensaverLayout ?? "fullscreen",
-          transition: kiosk?.screensaverTransition ?? "fade",
-          colorScheme: kiosk?.colorScheme ?? "default",
+          enabled: config?.screensaverEnabled ?? true,
+          timeout: config?.screensaverTimeout ?? 300,
+          interval: config?.screensaverInterval ?? 15,
+          layout: config?.screensaverLayout ?? "fullscreen",
+          transition: config?.screensaverTransition ?? "fade",
+          colorScheme: config?.colorScheme ?? "default",
           layoutConfig: layoutConfig ?? null,
         },
       };
@@ -1463,14 +1480,14 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       const { since } = request.query as { since?: number };
       const sinceTimestamp = since ?? 0;
 
-      // Get the active kiosk owner
-      const [kiosk] = await fastify.db
+      // Get the active kiosk owner from kiosks table
+      const [activeKiosk] = await fastify.db
         .select()
-        .from(kioskConfig)
-        .where(eq(kioskConfig.enabled, true))
+        .from(kiosks)
+        .where(eq(kiosks.isActive, true))
         .limit(1);
 
-      if (!kiosk) {
+      if (!activeKiosk) {
         return {
           success: true,
           data: { commands: [] },
@@ -1478,7 +1495,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Get commands for this kiosk owner newer than 'since' timestamp
-      const commands = kioskCommands.get(kiosk.userId) ?? [];
+      const commands = kioskCommands.get(activeKiosk.userId) ?? [];
       const newCommands = commands.filter((cmd) => cmd.timestamp > sinceTimestamp);
 
       return {
@@ -1761,25 +1778,6 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       entry.status = "approved";
       entry.kioskToken = newKiosk!.token;
 
-      // Also enable kiosk mode for the user if not already enabled
-      const [existingKioskConfig] = await fastify.db
-        .select()
-        .from(kioskConfig)
-        .where(eq(kioskConfig.userId, user.id))
-        .limit(1);
-
-      if (!existingKioskConfig) {
-        await fastify.db.insert(kioskConfig).values({
-          userId: user.id,
-          enabled: true,
-        });
-      } else if (!existingKioskConfig.enabled) {
-        await fastify.db
-          .update(kioskConfig)
-          .set({ enabled: true, updatedAt: new Date() })
-          .where(eq(kioskConfig.userId, user.id));
-      }
-
       fastify.log.info(
         `Device code approved: user=${user.id}, kiosk=${newKiosk!.id}, name=${name}`
       );
@@ -2041,25 +2039,6 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       // Mark the registration as assigned
       entry.status = "assigned";
       entry.kioskToken = kiosk.token;
-
-      // Enable kiosk config for user if not already enabled
-      const [existingKioskConfig] = await fastify.db
-        .select()
-        .from(kioskConfig)
-        .where(eq(kioskConfig.userId, user.id))
-        .limit(1);
-
-      if (!existingKioskConfig) {
-        await fastify.db.insert(kioskConfig).values({
-          userId: user.id,
-          enabled: true,
-        });
-      } else if (!existingKioskConfig.enabled) {
-        await fastify.db
-          .update(kioskConfig)
-          .set({ enabled: true, updatedAt: new Date() })
-          .where(eq(kioskConfig.userId, user.id));
-      }
 
       fastify.log.info(
         `TV Connect assigned: reg=${registrationId}, kiosk=${kiosk.id}, user=${user.id}`

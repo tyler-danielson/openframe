@@ -30,14 +30,17 @@ type KioskCommandType =
   | "multiview-remove"
   | "multiview-clear"
   | "multiview-set"
-  | "screensaver";
+  | "screensaver"
+  | "widget-control"
+  | "iptv-play"
+  | "camera-view";
 
-interface KioskCommand {
+export interface KioskCommand {
   type: KioskCommandType;
   payload?: Record<string, unknown>;
   timestamp: number;
 }
-const kioskCommands = new Map<string, KioskCommand[]>();
+export const kioskCommands = new Map<string, KioskCommand[]>();
 
 // All valid command types for schema validation
 const VALID_COMMAND_TYPES: KioskCommandType[] = [
@@ -50,7 +53,22 @@ const VALID_COMMAND_TYPES: KioskCommandType[] = [
   "multiview-clear",
   "multiview-set",
   "screensaver",
+  "widget-control",
+  "iptv-play",
+  "camera-view",
 ];
+
+// In-memory widget state store (kioskId -> widgetId -> state)
+interface WidgetStateReport {
+  widgetId: string;
+  widgetType: string;
+  state: Record<string, unknown>;
+  updatedAt: number;
+}
+const kioskWidgetState = new Map<string, Map<string, WidgetStateReport>>();
+
+// In-memory fast-poll tracking (kioskId -> expiry timestamp)
+const kioskFastPoll = new Map<string, number>();
 
 // Clean up expired commands every 5 minutes
 setInterval(() => {
@@ -162,7 +180,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
             screensaverInterval: { type: "number", minimum: 3, maximum: 300 },
             screensaverLayout: {
               type: "string",
-              enum: ["fullscreen", "informational", "quad", "scatter", "builder"],
+              enum: ["fullscreen", "informational", "quad", "scatter", "builder", "skylight"],
             },
             screensaverTransition: {
               type: "string",
@@ -272,7 +290,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
             screensaverInterval: { type: "number", minimum: 3, maximum: 300 },
             screensaverLayout: {
               type: "string",
-              enum: ["fullscreen", "informational", "quad", "scatter", "builder"],
+              enum: ["fullscreen", "informational", "quad", "scatter", "builder", "skylight"],
             },
             screensaverTransition: {
               type: "string",
@@ -664,10 +682,178 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       const commands = kioskCommands.get(kiosk.id) ?? [];
       const newCommands = commands.filter((cmd) => cmd.timestamp > sinceTimestamp);
 
+      // Check if fast poll is active for this kiosk
+      const fastPollExpiry = kioskFastPoll.get(kiosk.id);
+      const fastPoll = fastPollExpiry ? Date.now() < fastPollExpiry : false;
+
       return {
         success: true,
-        data: { commands: newCommands },
+        data: { commands: newCommands, fastPoll },
       };
+    }
+  );
+
+  // Report widget state from kiosk (public, token-based)
+  fastify.put(
+    "/public/:token/widget-state",
+    {
+      schema: {
+        description: "Report widget state from kiosk (public, no auth required)",
+        tags: ["Kiosks", "Public"],
+        params: {
+          type: "object",
+          properties: {
+            token: { type: "string", format: "uuid" },
+          },
+          required: ["token"],
+        },
+        body: {
+          type: "object",
+          required: ["states"],
+          properties: {
+            states: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["widgetId", "widgetType", "state"],
+                properties: {
+                  widgetId: { type: "string" },
+                  widgetType: { type: "string" },
+                  state: { type: "object", additionalProperties: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { token } = request.params as { token: string };
+      const { states } = request.body as {
+        states: Array<{ widgetId: string; widgetType: string; state: Record<string, unknown> }>;
+      };
+
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(eq(kiosks.token, token))
+        .limit(1);
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      if (!kiosk.isActive) {
+        return reply.forbidden("Kiosk is disabled");
+      }
+
+      // Upsert widget states for this kiosk
+      let stateMap = kioskWidgetState.get(kiosk.id);
+      if (!stateMap) {
+        stateMap = new Map();
+        kioskWidgetState.set(kiosk.id, stateMap);
+      }
+
+      const now = Date.now();
+      for (const s of states) {
+        stateMap.set(s.widgetId, {
+          widgetId: s.widgetId,
+          widgetType: s.widgetType,
+          state: s.state,
+          updatedAt: now,
+        });
+      }
+
+      return { success: true };
+    }
+  );
+
+  // Get widget state for a kiosk (authenticated, for companion app)
+  fastify.get(
+    "/:id/widget-state",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Get widget state for a kiosk (for companion app)",
+        tags: ["Kiosks"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("User not found");
+      }
+      const { id } = request.params as { id: string };
+
+      // Verify ownership
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(and(eq(kiosks.id, id), eq(kiosks.userId, user.id)))
+        .limit(1);
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      const stateMap = kioskWidgetState.get(id);
+      const states = stateMap ? Array.from(stateMap.values()) : [];
+
+      return {
+        success: true,
+        data: states,
+      };
+    }
+  );
+
+  // Companion ping - activates fast polling on the kiosk
+  fastify.post(
+    "/:id/companion-ping",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Signal that a companion app is active, enabling fast polling on the kiosk",
+        tags: ["Kiosks"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+          },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("User not found");
+      }
+      const { id } = request.params as { id: string };
+
+      // Verify ownership
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(and(eq(kiosks.id, id), eq(kiosks.userId, user.id)))
+        .limit(1);
+
+      if (!kiosk) {
+        return reply.notFound("Kiosk not found");
+      }
+
+      // Set fast poll for 60 seconds
+      kioskFastPoll.set(id, Date.now() + 60000);
+
+      return { success: true };
     }
   );
 
@@ -1074,11 +1260,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       const now = new Date();
       const expiresAt = new Date(now.getTime() + 30 * 60 * 1000);
 
-      // Initialize uploadTokens if not already done
-      if (!fastify.uploadTokens) {
-        fastify.uploadTokens = new Map();
-      }
-
+      // Upload tokens Map is shared across routes (initialized in app.ts via decorate)
       fastify.uploadTokens.set(uploadToken, {
         userId: kiosk.userId,
         albumId: album.id,

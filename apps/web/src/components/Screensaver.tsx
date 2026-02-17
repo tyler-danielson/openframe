@@ -3,12 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { api, type WeatherData } from "../services/api";
 import { useScreensaverStore, type ScreensaverTransition, type ClockPosition, type ClockSize, type WidgetSize, type CompositeWidgetConfig } from "../stores/screensaver";
-import { useAuthStore } from "../stores/auth";
 import { SportsTicker } from "./SportsTicker";
 import { WidgetRenderer } from "./widgets/WidgetRenderer";
 import { BlockNavOverlay } from "./BlockNavOverlay";
-import { isWidgetVisible } from "../lib/widget-visibility";
+import { isWidgetVisible, type VisibilityContext } from "../lib/widget-visibility";
+import { useHAWebSocket } from "../stores/homeassistant-ws";
 import { useBlockNavStore, type NavigableBlock } from "../stores/block-nav";
+import { useSwipe } from "../hooks/useSwipe";
 import type { SportsGame, CalendarEvent, Calendar, Task } from "@openframe/shared";
 
 // Orientation detection helpers
@@ -283,7 +284,7 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
   // If alwaysActive or inline is true, the screensaver is always shown and cannot be dismissed
   const isActive = alwaysActive || inline || storeIsActive;
 
-  const kioskEnabled = useAuthStore((state) => state.kioskEnabled);
+  const isKioskPath = window.location.pathname.startsWith("/kiosk/");
 
   // Block navigation state for TV display
   const blockNavMode = useBlockNavStore((s) => s.mode);
@@ -298,7 +299,7 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
       // Only clear blocks if we previously registered them (don't clobber dashboard blocks)
       return;
     }
-    const visibleWidgets = (layoutConfig?.widgets || []).filter((w) => isWidgetVisible(w));
+    const visibleWidgets = (layoutConfig?.widgets || []).filter((w) => isWidgetVisible(w, visibilityCtx));
     if (visibleWidgets.length === 0) {
       clearBlocks("page");
       return;
@@ -336,6 +337,14 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
   const [transitioningSide, setTransitioningSide] = useState<'left' | 'right' | null>(null);
   // Track which side to update next (alternates between left/right)
   const nextSideToUpdate = useRef<'left' | 'right'>('left');
+
+  // Skylight layout state
+  const [skylightSlide, setSkylightSlide] = useState<Photo[]>([]);
+  const [prevSkylightSlide, setPrevSkylightSlide] = useState<Photo[]>([]);
+  const [skylightHistory, setSkylightHistory] = useState<Photo[][]>([]);
+  const [skylightHistoryIdx, setSkylightHistoryIdx] = useState(-1);
+  const usedSkylightIndices = useRef<Set<number>>(new Set());
+  const skylightIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Calculate dim opacity based on current time and fade duration
   useEffect(() => {
@@ -471,7 +480,29 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
       .slice(0, 3);
   }, [tasks]);
 
-  // Note: Spotify/Now Playing removed from screensaver - use SpotifyWidget in builder layout instead
+  // Spotify playback state for visibility conditions (shares cache with SpotifyWidget)
+  const { data: spotifyPlayback } = useQuery({
+    queryKey: ["widget-spotify"],
+    queryFn: () => api.getSpotifyPlayback(),
+    staleTime: 10 * 1000,
+    refetchInterval: 10 * 1000,
+    enabled: isActive,
+  });
+
+  // HA entity state for visibility conditions
+  const getEntityState = useHAWebSocket((state) => state.getEntityState);
+
+  // Build visibility context from all data sources
+  const visibilityCtx = useMemo<VisibilityContext>(() => ({
+    now: currentTime,
+    getEntityState,
+    spotifyPlaying: spotifyPlayback?.is_playing,
+    activeEvents: todaysEvents.map((e: CalendarEvent) => ({
+      calendarId: e.calendarId,
+      startTime: e.startTime instanceof Date ? e.startTime.toISOString() : String(e.startTime),
+      endTime: e.endTime instanceof Date ? e.endTime.toISOString() : String(e.endTime),
+    })),
+  }), [currentTime, getEntityState, spotifyPlayback?.is_playing, todaysEvents]);
 
   // Handle user interaction to exit screensaver
   // Stop propagation to prevent clicks from reaching underlying elements
@@ -498,7 +529,7 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
     };
 
     // In kiosk mode, only respond to clicks/taps, not mouse movement
-    const events = kioskEnabled
+    const events = isKioskPath
       ? ["mousedown", "keydown", "touchstart"]
       : ["mousedown", "mousemove", "keydown", "touchstart", "wheel"];
     events.forEach((event) => {
@@ -510,7 +541,7 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
         window.removeEventListener(event, onInteraction);
       });
     };
-  }, [isActive, updateActivity, kioskEnabled, noDismiss]);
+  }, [isActive, updateActivity, isKioskPath, noDismiss]);
 
   // Enter fullscreen when screensaver activates, exit when it deactivates
   // In kiosk mode, don't auto-enter fullscreen - only use fullscreen if already in it
@@ -519,7 +550,7 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
     if (inline) return;
     if (isActive) {
       // Request fullscreen when screensaver becomes active (skip in kiosk mode)
-      if (!kioskEnabled && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+      if (!isKioskPath && document.documentElement.requestFullscreen && !document.fullscreenElement) {
         document.documentElement.requestFullscreen().catch(() => {
           // Fullscreen request may fail if not triggered by user gesture
           // This is expected behavior - silently ignore
@@ -528,13 +559,13 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
     } else {
       // Exit fullscreen when screensaver becomes inactive (only if not in kiosk mode)
       // In kiosk mode, maintain whatever fullscreen state the user had
-      if (!kioskEnabled && document.fullscreenElement) {
+      if (!isKioskPath && document.fullscreenElement) {
         document.exitFullscreen().catch(() => {
           // May fail if already exited - silently ignore
         });
       }
     }
-  }, [isActive, kioskEnabled, inline]);
+  }, [isActive, isKioskPath, inline]);
 
   // Update clock every second
   useEffect(() => {
@@ -625,6 +656,139 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
     return result?.photo ?? null;
   }, [photos, currentIndex]);
 
+  // Skylight: select next slide (either 1 landscape or 2 portraits)
+  const selectNextSkylightSlide = useCallback((): Photo[] => {
+    if (photos.length === 0) return [];
+    if (photos.length < 3) {
+      // Too few photos — just cycle through one at a time
+      const idx = usedSkylightIndices.current.size % photos.length;
+      const photo = photos[idx];
+      return photo ? [photo] : [];
+    }
+
+    // Reset when 80% used
+    if (usedSkylightIndices.current.size >= Math.floor(photos.length * 0.8)) {
+      usedSkylightIndices.current.clear();
+    }
+
+    const landscapePool = photos.filter((p, i) => isLandscape(p) && !usedSkylightIndices.current.has(i));
+    const portraitPool = photos.filter((p, i) => isPortrait(p) && !usedSkylightIndices.current.has(i));
+
+    const canPair = portraitPool.length >= 2;
+    const hasLandscape = landscapePool.length > 0;
+
+    // Weighted random: 60% landscape, 40% portrait-pair (when both available)
+    let showLandscape: boolean;
+    if (hasLandscape && canPair) {
+      showLandscape = Math.random() < 0.6;
+    } else if (hasLandscape) {
+      showLandscape = true;
+    } else if (canPair) {
+      showLandscape = false;
+    } else if (portraitPool.length > 0) {
+      // Single portrait fallback
+      const startIdx = Math.floor(Math.random() * photos.length);
+      const result = findNextPhotoOfType(photos, startIdx, isPortrait, usedSkylightIndices.current);
+      if (result) {
+        usedSkylightIndices.current.add(result.index);
+        return [result.photo];
+      }
+      return [];
+    } else {
+      return [];
+    }
+
+    if (showLandscape) {
+      const startIdx = Math.floor(Math.random() * photos.length);
+      const result = findNextPhotoOfType(photos, startIdx, isLandscape, usedSkylightIndices.current);
+      if (result) {
+        usedSkylightIndices.current.add(result.index);
+        return [result.photo];
+      }
+      return [];
+    } else {
+      // Pick two portraits
+      const startIdx = Math.floor(Math.random() * photos.length);
+      const first = findNextPhotoOfType(photos, startIdx, isPortrait, usedSkylightIndices.current);
+      if (!first) return [];
+      usedSkylightIndices.current.add(first.index);
+      const second = findNextPhotoOfType(photos, (first.index + 1) % photos.length, isPortrait, usedSkylightIndices.current);
+      if (!second) return [first.photo]; // Only one portrait available
+      usedSkylightIndices.current.add(second.index);
+      return [first.photo, second.photo];
+    }
+  }, [photos]);
+
+  // Skylight: advance to next slide
+  const advanceSkylightSlide = useCallback(() => {
+    if (isTransitioning || photos.length === 0) return;
+
+    const next = selectNextSkylightSlide();
+    if (next.length === 0) return;
+
+    setIsTransitioning(true);
+    setPrevSkylightSlide(skylightSlide);
+
+    // Save current to history (cap at 50)
+    if (skylightSlide.length > 0) {
+      setSkylightHistory((prev) => {
+        const newHistory = [...prev.slice(-49), skylightSlide];
+        setSkylightHistoryIdx(newHistory.length);
+        return newHistory;
+      });
+    }
+
+    setTimeout(() => {
+      setSkylightSlide(next);
+    }, 50);
+
+    setTimeout(() => {
+      setIsTransitioning(false);
+      setPrevSkylightSlide([]);
+    }, 750);
+
+    // Reset auto-advance interval
+    if (skylightIntervalRef.current) {
+      clearInterval(skylightIntervalRef.current);
+      skylightIntervalRef.current = null;
+    }
+  }, [isTransitioning, photos.length, selectNextSkylightSlide, skylightSlide]);
+
+  // Skylight: go back to previous slide
+  const goBackSkylightSlide = useCallback(() => {
+    if (isTransitioning || skylightHistory.length === 0) return;
+
+    const targetIdx = skylightHistoryIdx > 0 ? skylightHistoryIdx - 1 : skylightHistory.length - 1;
+    const prev = skylightHistory[targetIdx];
+    if (!prev) return;
+
+    setIsTransitioning(true);
+    setPrevSkylightSlide(skylightSlide);
+
+    setTimeout(() => {
+      setSkylightSlide(prev);
+      setSkylightHistoryIdx(targetIdx);
+    }, 50);
+
+    setTimeout(() => {
+      setIsTransitioning(false);
+      setPrevSkylightSlide([]);
+    }, 750);
+
+    // Reset auto-advance interval
+    if (skylightIntervalRef.current) {
+      clearInterval(skylightIntervalRef.current);
+      skylightIntervalRef.current = null;
+    }
+  }, [isTransitioning, skylightHistory, skylightHistoryIdx, skylightSlide]);
+
+  // Swipe handlers for skylight
+  const swipeHandlers = useSwipe({
+    onSwipeLeft: advanceSkylightSlide,
+    onSwipeRight: goBackSkylightSlide,
+    enabled: layout === "skylight",
+  });
+
   // Initialize informational photos on mount and when photos change
   useEffect(() => {
     if (layout === "informational" && photos.length > 0) {
@@ -638,6 +802,13 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
       }
     }
   }, [layout, photos, portraitPhoto, landscapePhoto, selectNextPortrait, selectNextLandscape]);
+
+  // Initialize skylight slide on mount and when photos change
+  useEffect(() => {
+    if (layout === "skylight" && photos.length > 0 && skylightSlide.length === 0) {
+      setSkylightSlide(selectNextSkylightSlide());
+    }
+  }, [layout, photos, skylightSlide.length, selectNextSkylightSlide]);
 
   // Cycle through photos
   useEffect(() => {
@@ -699,6 +870,8 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
 
         // Alternate to the other side for next time
         nextSideToUpdate.current = side === 'left' ? 'right' : 'left';
+      } else if (layout === "skylight") {
+        advanceSkylightSlide();
       } else {
         // Start transition
         setIsTransitioning(true);
@@ -717,8 +890,18 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
       }
     }, (layout === "informational" ? slideInterval / 2 : slideInterval) * 1000);
 
-    return () => clearInterval(interval);
-  }, [isActive, photos.length, slideInterval, layout, currentIndex, portraitPhoto, landscapePhoto, selectNextPortrait, selectNextLandscape]);
+    // Store ref for skylight manual navigation resets
+    if (layout === "skylight") {
+      skylightIntervalRef.current = interval;
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (layout === "skylight") {
+        skylightIntervalRef.current = null;
+      }
+    };
+  }, [isActive, photos.length, slideInterval, layout, currentIndex, portraitPhoto, landscapePhoto, selectNextPortrait, selectNextLandscape, advanceSkylightSlide]);
 
   // Reset scatter photos and informational layout tracking when layout changes
   useEffect(() => {
@@ -734,6 +917,17 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
       setPrevLandscapePhoto(null);
       setTransitioningSide(null);
       nextSideToUpdate.current = 'left';
+    }
+    if (layout !== "skylight") {
+      usedSkylightIndices.current.clear();
+      setSkylightSlide([]);
+      setPrevSkylightSlide([]);
+      setSkylightHistory([]);
+      setSkylightHistoryIdx(-1);
+      if (skylightIntervalRef.current) {
+        clearInterval(skylightIntervalRef.current);
+        skylightIntervalRef.current = null;
+      }
     }
   }, [layout]);
 
@@ -1242,7 +1436,7 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
             }}
           >
             {(layoutConfig?.widgets || [])
-              .filter((widget) => isWidgetVisible(widget))
+              .filter((widget) => isWidgetVisible(widget, visibilityCtx))
               .map((widget) => {
                 const isFocused = focusedBlockId === widget.id;
                 const isSelecting = blockNavMode === "selecting";
@@ -1278,6 +1472,41 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
               })}
             {blockNavMode !== "idle" && <BlockNavOverlay />}
           </div>
+        </div>
+      ) : layout === "skylight" ? (
+        <div className="absolute inset-0" {...swipeHandlers}>
+          {/* Previous slide (exiting transition) */}
+          {isTransitioning && prevSkylightSlide.length > 0 && (
+            <div className={getTransitionClasses(transition, false)}>
+              {prevSkylightSlide.length === 1 ? (
+                <img src={prevSkylightSlide[0]!.url} alt="" className="max-h-full max-w-full object-contain" />
+              ) : (
+                <div className="flex items-center justify-center gap-4 px-4 h-full w-full">
+                  {prevSkylightSlide.map((photo, i) => (
+                    <img key={photo.id + "-" + i} src={photo.url} alt="" className="max-h-full object-contain" style={{ maxWidth: '48%' }} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {/* Current slide (entering/static) */}
+          {skylightSlide.length > 0 ? (
+            <div className={getTransitionClasses(transition, !isTransitioning)}>
+              {skylightSlide.length === 1 ? (
+                <img src={skylightSlide[0]!.url} alt="" className="max-h-full max-w-full object-contain" />
+              ) : (
+                <div className="flex items-center justify-center gap-4 px-4 h-full w-full">
+                  {skylightSlide.map((photo, i) => (
+                    <img key={photo.id + "-" + i} src={photo.url} alt="" className="max-h-full object-contain" style={{ maxWidth: '48%' }} />
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center text-white/50">
+              Loading photos...
+            </div>
+          )}
         </div>
       ) : layout === "scatter" ? (
         <ScatterLayout photos={scatterPhotos} />

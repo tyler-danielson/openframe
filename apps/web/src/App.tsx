@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "./stores/auth";
 import { useScreensaverStore } from "./stores/screensaver";
@@ -23,10 +23,28 @@ import { KioskDisplayPage } from "./pages/KioskDisplayPage";
 import { KitchenPage } from "./pages/KitchenPage";
 import { MobileRecipeUploadPage } from "./pages/MobileRecipeUploadPage";
 import { DeviceLoginPage } from "./pages/DeviceLoginPage";
+import { ChatPage } from "./pages/ChatPage";
 import { SetupPage } from "./pages/SetupPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { PlannerBuilderPage } from "./pages/PlannerBuilderPage";
 import { ProfileSettingsPage } from "./pages/ProfileSettingsPage";
+import { CompanionLayout } from "./pages/companion/CompanionLayout";
+import { CompanionLoginPage } from "./pages/companion/CompanionLoginPage";
+import { CompanionDashboardPage } from "./pages/companion/CompanionDashboardPage";
+import { CompanionCalendarPage } from "./pages/companion/CompanionCalendarPage";
+import { CompanionEventFormPage } from "./pages/companion/CompanionEventFormPage";
+import { CompanionTasksPage } from "./pages/companion/CompanionTasksPage";
+import { CompanionKiosksPage } from "./pages/companion/CompanionKiosksPage";
+import { CompanionKioskPage } from "./pages/companion/CompanionKioskPage";
+import { CompanionWidgetPage } from "./pages/companion/CompanionWidgetPage";
+import { CompanionMorePage } from "./pages/companion/CompanionMorePage";
+import { CompanionPhotosPage } from "./pages/companion/more/CompanionPhotosPage";
+import { CompanionIptvPage } from "./pages/companion/more/CompanionIptvPage";
+import { CompanionHAPage } from "./pages/companion/more/CompanionHAPage";
+import { CompanionNewsPage } from "./pages/companion/more/CompanionNewsPage";
+import { CompanionWeatherPage } from "./pages/companion/more/CompanionWeatherPage";
+import { CompanionRecipesPage } from "./pages/companion/more/CompanionRecipesPage";
+import { CompanionSettingsPage } from "./pages/companion/more/CompanionSettingsPage";
 import { Toaster } from "./components/ui/Toaster";
 import { Screensaver } from "./components/Screensaver";
 import { NowPlaying } from "./components/spotify/NowPlaying";
@@ -34,23 +52,16 @@ import { useIdleDetector } from "./hooks/useIdleDetector";
 import { useDurationAlertMonitor } from "./hooks/useDurationAlertMonitor";
 import { useHAWebSocket } from "./stores/homeassistant-ws";
 import { DurationAlertBanner } from "./components/alerts/DurationAlertBanner";
+import { ChatDrawer } from "./components/chat/ChatDrawer";
 import { api } from "./services/api";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const kioskEnabled = useAuthStore((state) => state.kioskEnabled);
-  const kioskChecked = useAuthStore((state) => state.kioskChecked);
 
-  // Enable idle detection for authenticated users or kiosk mode
+  // Enable idle detection for authenticated users
   useIdleDetector();
 
-  // Wait for kiosk check to complete
-  if (!kioskChecked) {
-    return null;
-  }
-
-  // Allow access if authenticated or in kiosk mode
-  if (!isAuthenticated && !kioskEnabled) {
+  if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
@@ -68,6 +79,16 @@ function SettingsProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function CompanionProtectedRoute({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+
+  if (!isAuthenticated) {
+    return <Navigate to="/companion/login" replace />;
+  }
+
+  return <>{children}</>;
+}
+
 // Wrapper component that runs the duration alert monitor inside the Toaster context
 function DurationAlertMonitor() {
   useDurationAlertMonitor();
@@ -77,10 +98,6 @@ function DurationAlertMonitor() {
 export default function App() {
   const location = useLocation();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const kioskEnabled = useAuthStore((state) => state.kioskEnabled);
-  const kioskChecked = useAuthStore((state) => state.kioskChecked);
-  const setKioskStatus = useAuthStore((state) => state.setKioskStatus);
-  const setKioskChecked = useAuthStore((state) => state.setKioskChecked);
   const setApiKey = useAuthStore((state) => state.setApiKey);
   const syncScreensaverSettings = useScreensaverStore((state) => state.syncFromServer);
   const colorScheme = useScreensaverStore((state) => state.colorScheme);
@@ -97,7 +114,8 @@ export default function App() {
         path.startsWith("/kiosk/") ||
         path.startsWith("/upload") ||
         path.startsWith("/auth/callback") ||
-        path.startsWith("/setup")
+        path.startsWith("/setup") ||
+        path.startsWith("/companion")
       ) {
         setNeedsSetup(false);
         return;
@@ -117,7 +135,8 @@ export default function App() {
   const isSettingsPage = location.pathname.startsWith("/settings");
   const isUploadPage = location.pathname.startsWith("/upload");
   const isKioskPage = location.pathname.startsWith("/kiosk");
-  const hideNowPlaying = isSettingsPage || isUploadPage || isKioskPage;
+  const isCompanionPage = location.pathname.startsWith("/companion");
+  const hideNowPlaying = isSettingsPage || isUploadPage || isKioskPage || isCompanionPage;
 
   // Apply color scheme on initial render (from persisted store)
   useEffect(() => {
@@ -141,28 +160,14 @@ export default function App() {
     }
   }, [setApiKey]);
 
-  // Check kiosk status and sync settings on app load
+  // Sync screensaver settings on app load
   useEffect(() => {
-    async function checkKioskStatus() {
-      // Skip global settings sync when on kiosk URL - KioskContext handles settings
-      const isKioskUrl = window.location.pathname.startsWith("/kiosk/");
-
-      try {
-        const status = await api.getKioskStatus();
-        setKioskStatus(status.enabled);
-        // Only sync screensaver settings from server if NOT on a kiosk URL
-        // Kiosk URLs use kiosk-specific settings from KioskContext instead
-        if (!isKioskUrl) {
-          await syncScreensaverSettings();
-        }
-      } catch {
-        setKioskStatus(false);
-      } finally {
-        setKioskChecked(true);
-      }
+    // Skip global settings sync when on kiosk URL - KioskContext handles settings
+    const isKioskUrl = window.location.pathname.startsWith("/kiosk/");
+    if (!isKioskUrl) {
+      syncScreensaverSettings().catch(() => {});
     }
-    checkKioskStatus();
-  }, [setKioskStatus, setKioskChecked, syncScreensaverSettings]);
+  }, [syncScreensaverSettings]);
 
   // Connect to Home Assistant WebSocket for real-time updates
   const connectHA = useHAWebSocket((state) => state.connect);
@@ -172,33 +177,8 @@ export default function App() {
     }
   }, [isAuthenticated, connectHA]);
 
-  // Poll for kiosk commands (refresh, etc.) when in kiosk mode
-  const lastCommandTimestamp = useRef(Date.now());
-  useEffect(() => {
-    if (!kioskEnabled) return;
-
-    const pollInterval = setInterval(async () => {
-      try {
-        const { commands } = await api.getKioskCommands(lastCommandTimestamp.current);
-        for (const cmd of commands) {
-          if (cmd.timestamp > lastCommandTimestamp.current) {
-            lastCommandTimestamp.current = cmd.timestamp;
-          }
-          if (cmd.type === "refresh") {
-            console.log("Kiosk refresh command received, reloading page...");
-            window.location.reload();
-          }
-        }
-      } catch (error) {
-        console.error("Failed to poll kiosk commands:", error);
-      }
-    }, 10000); // Poll every 10 seconds
-
-    return () => clearInterval(pollInterval);
-  }, [kioskEnabled]);
-
-  // Show loading while checking kiosk status or setup status
-  if (!kioskChecked || needsSetup === null) {
+  // Show loading while checking setup status
+  if (needsSetup === null) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="animate-pulse text-muted-foreground">Loading...</div>
@@ -254,6 +234,7 @@ export default function App() {
           <Route path="map" element={<MapPage />} />
           <Route path="kitchen" element={<KitchenPage />} />
           <Route path="recipes" element={<Navigate to="/kitchen" replace />} />
+          <Route path="chat" element={<ChatPage />} />
           <Route
             path="remarkable"
             element={
@@ -304,14 +285,43 @@ export default function App() {
           />
         </Route>
 
+        {/* Companion app - mobile companion experience */}
+        <Route path="companion/login" element={<CompanionLoginPage />} />
+        <Route
+          path="companion"
+          element={
+            <CompanionProtectedRoute>
+              <CompanionLayout />
+            </CompanionProtectedRoute>
+          }
+        >
+          <Route index element={<CompanionDashboardPage />} />
+          <Route path="calendar" element={<CompanionCalendarPage />} />
+          <Route path="calendar/event/new" element={<CompanionEventFormPage />} />
+          <Route path="calendar/event/:eventId" element={<CompanionEventFormPage />} />
+          <Route path="tasks" element={<CompanionTasksPage />} />
+          <Route path="kiosks" element={<CompanionKiosksPage />} />
+          <Route path="kiosks/:kioskId" element={<CompanionKioskPage />} />
+          <Route path="kiosks/:kioskId/widget/:widgetId" element={<CompanionWidgetPage />} />
+          <Route path="more" element={<CompanionMorePage />} />
+          <Route path="more/photos" element={<CompanionPhotosPage />} />
+          <Route path="more/iptv" element={<CompanionIptvPage />} />
+          <Route path="more/homeassistant" element={<CompanionHAPage />} />
+          <Route path="more/news" element={<CompanionNewsPage />} />
+          <Route path="more/weather" element={<CompanionWeatherPage />} />
+          <Route path="more/recipes" element={<CompanionRecipesPage />} />
+          <Route path="more/settings" element={<CompanionSettingsPage />} />
+        </Route>
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <DurationAlertMonitor />
-      {(isAuthenticated || kioskEnabled) && (
+      {isAuthenticated && (
         <>
           <DurationAlertBanner />
           <Screensaver />
           {!hideNowPlaying && <NowPlaying />}
+          {!isKioskPage && !isCompanionPage && <ChatDrawer />}
         </>
       )}
     </Toaster>

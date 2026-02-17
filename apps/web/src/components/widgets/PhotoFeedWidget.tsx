@@ -10,6 +10,7 @@ import {
   shuffleArray,
 } from "./PhotoAlbumWidget";
 import { useBlockControls } from "../../hooks/useBlockControls";
+import { useWidgetStateReporter } from "../../hooks/useWidgetStateReporter";
 
 interface PhotoFeedWidgetProps {
   config: Record<string, unknown>;
@@ -126,9 +127,27 @@ export function PhotoFeedWidget({ config, style, isBuilder, widgetId }: PhotoFee
         { key: "right", label: "Next", action: advance },
         { key: "left", label: "Previous", action: goBack },
       ],
+      remoteActions: [
+        { key: "next-photo", label: "Next", execute: () => advance() },
+        { key: "prev-photo", label: "Previous", execute: () => goBack() },
+      ],
     };
   }, [isBuilder, widgetId, advance, goBack]);
   useBlockControls(widgetId, blockControls);
+
+  // Report state for companion app
+  useWidgetStateReporter(
+    isBuilder ? undefined : widgetId,
+    "photo-feed",
+    useMemo(
+      () => ({
+        currentIndex: offset,
+        totalPhotos: photos.length,
+        currentUrl: photos[offset]?.url || null,
+      }),
+      [offset, photos.length, photos[offset]?.url]
+    )
+  );
 
   useEffect(() => {
     if (isBuilder || photos.length === 0) return;

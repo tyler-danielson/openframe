@@ -264,7 +264,7 @@ export function ScreensaverBuilderPage() {
 
   // Render the main builder UI
   const renderBuilderUI = () => (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="flex h-full flex-col bg-background">
       {/* Header - compact */}
       <header className="flex items-center justify-between border-b border-border px-3 py-1.5">
         <div className="flex items-center gap-3">
@@ -655,7 +655,7 @@ export function ScreensaverBuilderPage() {
     // Show loading state while fetching kiosk data
     if (isLoadingKiosk) {
       return (
-        <div className="flex h-screen items-center justify-center bg-background">
+        <div className="flex h-full items-center justify-center bg-background">
           <div className="text-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
             <p className="text-muted-foreground">Loading kiosk...</p>

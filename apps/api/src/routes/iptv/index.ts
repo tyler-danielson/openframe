@@ -905,7 +905,7 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
       };
 
       const cacheService = getIptvCacheService(fastify);
-      const cachedData = cacheService.getCachedData(user.id);
+      const cachedData = await cacheService.getOrLoadCachedData(user.id);
 
       if (!cachedData) {
         // No cache, return empty - client should trigger refresh

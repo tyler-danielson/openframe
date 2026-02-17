@@ -4,6 +4,7 @@ import { taskLists, tasks, oauthTokens } from "@openframe/database/schema";
 import { taskQuerySchema, createTaskSchema, updateTaskSchema } from "@openframe/shared/validators";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { GoogleTasksService } from "../../services/google-tasks.js";
+import { hasRequiredScopes, getScopesForFeature } from "../../utils/oauth-scopes.js";
 
 export const taskRoutes: FastifyPluginAsync = async (fastify) => {
   // Sync tasks from Google
@@ -17,7 +18,7 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
         security: [{ bearerAuth: [] }],
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const user = await getCurrentUser(request);
       if (!user) {
         throw fastify.httpErrors.unauthorized("Not authenticated");
@@ -37,6 +38,18 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!token?.accessToken) {
         return { success: false, error: "Google account not connected" };
+      }
+
+      // Check that the user has granted task scopes
+      const requiredScopes = getScopesForFeature("google", "tasks");
+      if (!hasRequiredScopes(token.scope, requiredScopes)) {
+        return reply.code(403).send({
+          success: false,
+          error: "insufficient_scope",
+          provider: "google",
+          requiredFeature: "tasks",
+          message: "Task access not yet authorized. Please grant task permissions.",
+        });
       }
 
       const googleTasks = new GoogleTasksService(token.accessToken);

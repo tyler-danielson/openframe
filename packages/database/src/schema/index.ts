@@ -140,6 +140,50 @@ export const apiKeys = pgTable(
   (table) => [index("api_keys_key_prefix_idx").on(table.keyPrefix)]
 );
 
+// Companion access - links companion users to owner with granular permissions
+export const companionAccess = pgTable(
+  "companion_access",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    label: text("label"), // Display name for the owner to identify this user
+
+    // Feature access: "none" | "view" | "edit"
+    accessCalendar: text("access_calendar").notNull().default("view"),
+    accessTasks: text("access_tasks").notNull().default("view"),
+
+    // Feature access: boolean (view-only features)
+    accessKiosks: boolean("access_kiosks").notNull().default(false),
+    accessPhotos: boolean("access_photos").notNull().default(false),
+    accessIptv: boolean("access_iptv").notNull().default(false),
+    accessHomeAssistant: boolean("access_home_assistant").notNull().default(false),
+    accessNews: boolean("access_news").notNull().default(true),
+    accessWeather: boolean("access_weather").notNull().default(true),
+    accessRecipes: boolean("access_recipes").notNull().default(true),
+
+    // Scoped access (null = all)
+    allowedCalendarIds: jsonb("allowed_calendar_ids").$type<string[] | null>().default(null),
+    allowedTaskListIds: jsonb("allowed_task_list_ids").$type<string[] | null>().default(null),
+
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("companion_access_owner_idx").on(table.ownerId),
+    index("companion_access_user_idx").on(table.userId),
+  ]
+);
+
 // Refresh tokens for session management
 export const refreshTokens = pgTable(
   "refresh_tokens",
@@ -395,6 +439,7 @@ export const screensaverLayoutEnum = pgEnum("screensaver_layout", [
   "quad",
   "scatter",
   "builder",
+  "skylight",
 ]);
 
 // Screensaver transition enum
@@ -432,10 +477,12 @@ export interface KioskEnabledFeatures {
   photos?: boolean;
   spotify?: boolean;
   iptv?: boolean;
+  youtube?: boolean;
   cameras?: boolean;
   homeassistant?: boolean;
   map?: boolean;
   recipes?: boolean;
+  chat?: boolean;
   screensaver?: boolean;
 }
 
@@ -565,6 +612,19 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   displayConfigs: many(displayConfigs),
   kioskConfig: one(kioskConfig),
   kiosks: many(kiosks),
+}));
+
+export const companionAccessRelations = relations(companionAccess, ({ one }) => ({
+  owner: one(users, {
+    fields: [companionAccess.ownerId],
+    references: [users.id],
+    relationName: "companionAccessOwner",
+  }),
+  user: one(users, {
+    fields: [companionAccess.userId],
+    references: [users.id],
+    relationName: "companionAccessUser",
+  }),
 }));
 
 export const oauthTokensRelations = relations(oauthTokens, ({ one }) => ({
@@ -1601,6 +1661,7 @@ export type CapacitiesSpace = typeof capacitiesSpaces.$inferSelect;
 export type TelegramConfig = typeof telegramConfig.$inferSelect;
 export type TelegramChat = typeof telegramChats.$inferSelect;
 export type Kiosk = typeof kiosks.$inferSelect;
+export type CompanionAccess = typeof companionAccess.$inferSelect;
 export type UserRole = "admin" | "member" | "viewer";
 
 // reMarkable Template Enums
@@ -2116,9 +2177,217 @@ export const profileRemarkableSettingsRelations = relations(profileRemarkableSet
   }),
 }));
 
+// ============ YouTube ============
+
+export const youtubeBookmarkTypeEnum = pgEnum("youtube_bookmark_type", [
+  "video",
+  "live",
+  "playlist",
+  "channel",
+]);
+
+export const youtubeBookmarks = pgTable(
+  "youtube_bookmarks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    youtubeId: text("youtube_id").notNull(),
+    type: youtubeBookmarkTypeEnum("type").notNull().default("video"),
+    title: text("title").notNull(),
+    thumbnailUrl: text("thumbnail_url"),
+    channelTitle: text("channel_title"),
+    channelId: text("channel_id"),
+    duration: text("duration"),
+    isLive: boolean("is_live").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("youtube_bookmarks_user_idx").on(table.userId),
+    index("youtube_bookmarks_user_youtube_idx").on(table.userId, table.youtubeId),
+  ]
+);
+
+export const youtubeWatchHistory = pgTable(
+  "youtube_watch_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    youtubeId: text("youtube_id").notNull(),
+    type: youtubeBookmarkTypeEnum("type").notNull().default("video"),
+    title: text("title").notNull(),
+    thumbnailUrl: text("thumbnail_url"),
+    channelTitle: text("channel_title"),
+    watchedAt: timestamp("watched_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("youtube_watch_history_user_idx").on(table.userId),
+    index("youtube_watch_history_user_youtube_idx").on(table.userId, table.youtubeId),
+    index("youtube_watch_history_watched_idx").on(table.watchedAt),
+  ]
+);
+
+export const youtubeBookmarksRelations = relations(youtubeBookmarks, ({ one }) => ({
+  user: one(users, {
+    fields: [youtubeBookmarks.userId],
+    references: [users.id],
+  }),
+}));
+
+export const youtubeWatchHistoryRelations = relations(youtubeWatchHistory, ({ one }) => ({
+  user: one(users, {
+    fields: [youtubeWatchHistory.userId],
+    references: [users.id],
+  }),
+}));
+
+export type YouTubeBookmark = typeof youtubeBookmarks.$inferSelect;
+export type YouTubeWatchHistoryEntry = typeof youtubeWatchHistory.$inferSelect;
+
+// ============ Chat History ============
+
+// Chat conversations
+export const chatConversations = pgTable(
+  "chat_conversations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("chat_conversations_user_idx").on(table.userId)]
+);
+
+// Chat messages
+export const chatMessages = pgTable(
+  "chat_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => chatConversations.id, { onDelete: "cascade" }),
+    role: text("role").notNull(), // "user" | "assistant" | "system"
+    content: text("content").notNull(),
+    provider: text("provider"), // "claude" | "openai" | "gemini"
+    model: text("model"),
+    tokenUsage: jsonb("token_usage").$type<ChatTokenUsage>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("chat_messages_conversation_idx").on(table.conversationId),
+    index("chat_messages_created_idx").on(table.conversationId, table.createdAt),
+  ]
+);
+
+export interface ChatTokenUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+}
+
+// Chat relations
+export const chatConversationsRelations = relations(
+  chatConversations,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [chatConversations.userId],
+      references: [users.id],
+    }),
+    messages: many(chatMessages),
+  })
+);
+
+export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
+  conversation: one(chatConversations, {
+    fields: [chatMessages.conversationId],
+    references: [chatConversations.id],
+  }),
+}));
+
+// Type exports for chat
+export type ChatConversation = typeof chatConversations.$inferSelect;
+export type ChatMessage = typeof chatMessages.$inferSelect;
+
 // Type exports for family profiles
 export type FamilyProfile = typeof familyProfiles.$inferSelect;
 export type ProfileCalendar = typeof profileCalendars.$inferSelect;
 export type ProfileNewsFeed = typeof profileNewsFeeds.$inferSelect;
 export type ProfilePlannerConfig = typeof profilePlannerConfig.$inferSelect;
 export type ProfileRemarkableSettings = typeof profileRemarkableSettings.$inferSelect;
+
+// Plex Servers
+export const plexServers = pgTable(
+  "plex_servers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    serverUrl: text("server_url").notNull(),
+    accessToken: text("access_token").notNull(),
+    machineId: text("machine_id"),
+    isActive: boolean("is_active").default(true).notNull(),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("plex_servers_user_idx").on(table.userId)]
+);
+
+export const plexServersRelations = relations(plexServers, ({ one }) => ({
+  user: one(users, {
+    fields: [plexServers.userId],
+    references: [users.id],
+  }),
+}));
+
+// Audiobookshelf Servers
+export const audiobookshelfServers = pgTable(
+  "audiobookshelf_servers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    serverUrl: text("server_url").notNull(),
+    accessToken: text("access_token").notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("audiobookshelf_servers_user_idx").on(table.userId)]
+);
+
+export const audiobookshelfServersRelations = relations(audiobookshelfServers, ({ one }) => ({
+  user: one(users, {
+    fields: [audiobookshelfServers.userId],
+    references: [users.id],
+  }),
+}));

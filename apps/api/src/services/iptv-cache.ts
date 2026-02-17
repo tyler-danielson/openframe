@@ -9,6 +9,7 @@ import {
   iptvServers,
   iptvChannels,
   iptvCategories,
+  iptvEpg,
 } from "@openframe/database/schema";
 import { XtremeCodesClient, type XtremeCodesEpgListing } from "./xtreme-codes.js";
 
@@ -84,6 +85,188 @@ export class IptvCacheService {
     const data = this.getCachedData(userId);
     if (!data) return null;
     return data.epg.get(channelId) || [];
+  }
+
+  /**
+   * Load cached data from database (for fast startup without hitting IPTV APIs)
+   */
+  async loadFromDatabase(userId: string): Promise<boolean> {
+    try {
+      // Get user's servers
+      const servers = await this.fastify.db
+        .select()
+        .from(iptvServers)
+        .where(eq(iptvServers.userId, userId));
+
+      if (servers.length === 0) return false;
+
+      const serverIds = servers.map((s) => s.id);
+
+      // Get categories
+      const categories = await this.fastify.db
+        .select()
+        .from(iptvCategories)
+        .where(inArray(iptvCategories.serverId, serverIds));
+
+      // Get channels with category names
+      const channelsWithCategories = await this.fastify.db
+        .select({
+          channel: iptvChannels,
+          categoryName: iptvCategories.name,
+        })
+        .from(iptvChannels)
+        .leftJoin(iptvCategories, eq(iptvChannels.categoryId, iptvCategories.id))
+        .where(inArray(iptvChannels.serverId, serverIds));
+
+      if (channelsWithCategories.length === 0) return false;
+
+      // Count channels per category
+      const categoryChannelCounts = new Map<string, number>();
+      for (const { channel } of channelsWithCategories) {
+        if (channel.categoryId) {
+          categoryChannelCounts.set(
+            channel.categoryId,
+            (categoryChannelCounts.get(channel.categoryId) || 0) + 1
+          );
+        }
+      }
+
+      // Get channel IDs for EPG query
+      const channelIds = channelsWithCategories.map((c) => c.channel.id);
+
+      // Load EPG data from database
+      const epgRows = await this.fastify.db
+        .select()
+        .from(iptvEpg)
+        .where(inArray(iptvEpg.channelId, channelIds));
+
+      if (epgRows.length === 0) return false;
+
+      // Build EPG map
+      const epgMap = new Map<string, CachedEpgEntry[]>();
+      let maxCreatedAt = new Date(0);
+
+      for (const row of epgRows) {
+        const entry: CachedEpgEntry = {
+          id: row.id,
+          channelId: row.channelId,
+          channelExternalId: channelsWithCategories.find(
+            (c) => c.channel.id === row.channelId
+          )?.channel.externalId || "",
+          title: row.title,
+          description: row.description,
+          startTime: row.startTime,
+          endTime: row.endTime,
+        };
+
+        const existing = epgMap.get(row.channelId) || [];
+        existing.push(entry);
+        epgMap.set(row.channelId, existing);
+
+        if (row.createdAt > maxCreatedAt) {
+          maxCreatedAt = row.createdAt;
+        }
+      }
+
+      // Build cache data
+      const cacheData: CachedChannelData = {
+        channels: channelsWithCategories.map(({ channel, categoryName }) => ({
+          id: channel.id,
+          serverId: channel.serverId,
+          categoryId: channel.categoryId,
+          externalId: channel.externalId,
+          name: channel.name,
+          streamUrl: channel.streamUrl,
+          logoUrl: channel.logoUrl,
+          epgChannelId: channel.epgChannelId,
+          categoryName,
+        })),
+        categories: categories.map((cat) => ({
+          id: cat.id,
+          serverId: cat.serverId,
+          externalId: cat.externalId,
+          name: cat.name,
+          channelCount: categoryChannelCounts.get(cat.id) || 0,
+        })),
+        epg: epgMap,
+        lastUpdated: maxCreatedAt,
+      };
+
+      // Store in memory cache
+      userCache.set(userId, cacheData);
+      cacheTimestamps.set(userId, maxCreatedAt);
+
+      this.fastify.log.info(
+        `IPTV cache loaded from DB for user ${userId}: ${cacheData.channels.length} channels, ${epgMap.size} channels with EPG`
+      );
+      return true;
+    } catch (error) {
+      this.fastify.log.error({ err: error, userId }, "Failed to load IPTV cache from database");
+      return false;
+    }
+  }
+
+  /**
+   * Persist current EPG cache to database for fast startup recovery
+   */
+  private async persistToDatabase(userId: string, data: CachedChannelData): Promise<void> {
+    const channelIds = data.channels.map((c) => c.id);
+    if (channelIds.length === 0) return;
+
+    // Delete existing EPG rows for these channels
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < channelIds.length; i += BATCH_SIZE) {
+      const batch = channelIds.slice(i, i + BATCH_SIZE);
+      await this.fastify.db.delete(iptvEpg).where(inArray(iptvEpg.channelId, batch));
+    }
+
+    // Batch insert all EPG entries
+    const allEntries: Array<{
+      channelId: string;
+      title: string;
+      description: string | null;
+      startTime: Date;
+      endTime: Date;
+    }> = [];
+
+    for (const [, entries] of data.epg) {
+      for (const entry of entries) {
+        allEntries.push({
+          channelId: entry.channelId,
+          title: entry.title,
+          description: entry.description,
+          startTime: entry.startTime,
+          endTime: entry.endTime,
+        });
+      }
+    }
+
+    for (let i = 0; i < allEntries.length; i += BATCH_SIZE) {
+      const batch = allEntries.slice(i, i + BATCH_SIZE);
+      await this.fastify.db.insert(iptvEpg).values(batch);
+    }
+
+    this.fastify.log.info(
+      `IPTV EPG persisted to DB for user ${userId}: ${allEntries.length} entries`
+    );
+  }
+
+  /**
+   * Get cached data, falling back to database if in-memory cache is empty
+   */
+  async getOrLoadCachedData(userId: string): Promise<CachedChannelData | null> {
+    // Check in-memory cache first
+    if (this.isCacheValid(userId)) {
+      return userCache.get(userId) || null;
+    }
+
+    // Try loading from database
+    const loaded = await this.loadFromDatabase(userId);
+    if (loaded) {
+      return userCache.get(userId) || null;
+    }
+
+    return null;
   }
 
   /**
@@ -270,6 +453,13 @@ export class IptvCacheService {
       // Store in cache
       userCache.set(userId, cacheData);
       cacheTimestamps.set(userId, new Date());
+
+      // Persist to database for fast startup recovery
+      try {
+        await this.persistToDatabase(userId, cacheData);
+      } catch (persistError) {
+        this.fastify.log.warn({ err: persistError, userId }, "Failed to persist IPTV cache to database (non-fatal)");
+      }
 
       const duration = Date.now() - startTime;
       this.fastify.log.info(

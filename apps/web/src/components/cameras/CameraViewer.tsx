@@ -41,7 +41,8 @@ export function CameraViewer({
       if (useMjpeg && cam.mjpegUrl) {
         return `${api.getCameraStreamUrl(cam.id)}?token=${accessToken}`;
       }
-      if (cam.snapshotUrl) {
+      if (cam.snapshotUrl || cam.rtspUrl) {
+        // Backend handles derivation of snapshot URL from RTSP URL
         return `${api.getCameraSnapshotUrl(cam.id)}?token=${accessToken}&t=${Date.now()}`;
       }
       // Fallback to stream if no snapshot
@@ -130,7 +131,7 @@ export function CameraViewer({
 
   // Check if we can toggle between modes
   const canToggleMode = type === "standalone"
-    ? !!(camera as Camera).mjpegUrl && !!(camera as Camera).snapshotUrl
+    ? !!(camera as Camera).mjpegUrl && !!((camera as Camera).snapshotUrl || (camera as Camera).rtspUrl)
     : true; // HA cameras always support both
 
   return (

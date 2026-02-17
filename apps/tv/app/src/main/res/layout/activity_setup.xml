@@ -15,84 +15,285 @@
         android:textColor="@color/text_secondary"
         android:textSize="16sp"
         android:lineSpacingMultiplier="1.4"
-        android:paddingEnd="48dp" />
+        android:paddingEnd="48dp"
+        android:gravity="center_vertical" />
 
-    <!-- Right side: Form -->
-    <LinearLayout
+    <!-- Right side: ViewFlipper with steps -->
+    <ViewFlipper
+        android:id="@+id/viewFlipper"
         android:layout_width="0dp"
         android:layout_height="match_parent"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:gravity="center_vertical">
+        android:layout_weight="1">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/app_name"
-            android:textColor="@color/text_primary"
-            android:textSize="32sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="32dp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Server URL"
-            android:textColor="@color/text_primary"
-            android:textSize="14sp"
-            android:layout_marginBottom="8dp" />
-
-        <EditText
-            android:id="@+id/serverUrlInput"
+        <!-- Step 1: Server URL Entry -->
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:background="@drawable/input_background"
-            android:hint="https://your-server.com"
-            android:textColorHint="@color/text_hint"
-            android:textColor="@color/text_primary"
-            android:textSize="16sp"
-            android:paddingHorizontal="16dp"
-            android:inputType="textUri"
-            android:imeOptions="actionNext"
-            android:focusable="true"
-            android:focusableInTouchMode="true"
-            android:layout_marginBottom="24dp" />
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center_vertical">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Kiosk Token (optional)"
-            android:textColor="@color/text_primary"
-            android:textSize="14sp"
-            android:layout_marginBottom="8dp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/app_name"
+                android:textColor="@color/text_primary"
+                android:textSize="32sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="32dp" />
 
-        <EditText
-            android:id="@+id/kioskTokenInput"
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Server URL"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/serverUrlInput"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:background="@drawable/input_background"
+                android:hint="https://your-server.com"
+                android:textColorHint="@color/text_hint"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"
+                android:paddingHorizontal="16dp"
+                android:inputType="textUri"
+                android:imeOptions="actionDone"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:layout_marginBottom="24dp" />
+
+            <Button
+                android:id="@+id/connectButton"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:text="Connect"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:background="@drawable/button_background"
+                android:textColor="@android:color/white"
+                android:focusable="true"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:id="@+id/manualSetupLink"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Manual Setup (enter token directly)"
+                android:textColor="@color/text_hint"
+                android:textSize="13sp"
+                android:focusable="true"
+                android:focusableInTouchMode="false"
+                android:background="?android:attr/selectableItemBackground"
+                android:padding="8dp"
+                android:layout_gravity="center_horizontal" />
+
+        </LinearLayout>
+
+        <!-- Step 2: QR Code Display -->
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:background="@drawable/input_background"
-            android:hint="Leave empty for default kiosk"
-            android:textColorHint="@color/text_hint"
-            android:textColor="@color/text_primary"
-            android:textSize="16sp"
-            android:paddingHorizontal="16dp"
-            android:inputType="text"
-            android:imeOptions="actionDone"
-            android:focusable="true"
-            android:focusableInTouchMode="true"
-            android:layout_marginBottom="32dp" />
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center">
 
-        <Button
-            android:id="@+id/saveButton"
+            <!-- Status text (Scan to pair / Approved / Expired) -->
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Scan to pair your device"
+                android:textColor="@color/text_primary"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="24dp" />
+
+            <!-- QR code in white card -->
+            <FrameLayout
+                android:id="@+id/qrContainer"
+                android:layout_width="280dp"
+                android:layout_height="280dp"
+                android:background="@drawable/qr_background"
+                android:layout_marginBottom="20dp">
+
+                <ImageView
+                    android:id="@+id/qrCodeImage"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="QR Code" />
+
+                <ProgressBar
+                    android:id="@+id/qrLoading"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="center"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <!-- User code (formatted XXX-XXX) -->
+            <TextView
+                android:id="@+id/userCodeText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/primary"
+                android:textSize="32sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.15"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="8dp" />
+
+            <!-- Countdown timer -->
+            <TextView
+                android:id="@+id/timerText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp"
+                android:layout_marginBottom="24dp" />
+
+            <!-- Step instructions -->
+            <TextView
+                android:id="@+id/stepInstructions"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_hint"
+                android:textSize="13sp"
+                android:lineSpacingMultiplier="1.5"
+                android:gravity="center"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Retry button (hidden until expired) -->
+            <Button
+                android:id="@+id/retryButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="Generate New Code"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:background="@drawable/button_background"
+                android:textColor="@android:color/white"
+                android:paddingHorizontal="32dp"
+                android:focusable="true"
+                android:visibility="gone" />
+
+            <!-- Back link -->
+            <TextView
+                android:id="@+id/backToUrlLink"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Change server URL"
+                android:textColor="@color/text_hint"
+                android:textSize="13sp"
+                android:focusable="true"
+                android:focusableInTouchMode="false"
+                android:background="?android:attr/selectableItemBackground"
+                android:padding="8dp"
+                android:layout_marginTop="8dp" />
+
+        </LinearLayout>
+
+        <!-- Step 3: Manual Token Entry (fallback) -->
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="Save &amp; Start Kiosk"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:background="@drawable/button_background"
-            android:textColor="@android:color/white"
-            android:focusable="true" />
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center_vertical">
 
-    </LinearLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Manual Setup"
+                android:textColor="@color/text_primary"
+                android:textSize="28sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Enter the kiosk token from Settings → Kiosks in your web app"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp"
+                android:layout_marginBottom="24dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Server URL"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/manualServerUrlInput"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:background="@drawable/input_background"
+                android:hint="https://your-server.com"
+                android:textColorHint="@color/text_hint"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"
+                android:paddingHorizontal="16dp"
+                android:inputType="textUri"
+                android:imeOptions="actionNext"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:layout_marginBottom="24dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Kiosk Token"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/kioskTokenInput"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:background="@drawable/input_background"
+                android:hint="Paste your kiosk token"
+                android:textColorHint="@color/text_hint"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"
+                android:paddingHorizontal="16dp"
+                android:inputType="text"
+                android:imeOptions="actionDone"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:layout_marginBottom="32dp" />
+
+            <Button
+                android:id="@+id/saveManualButton"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:text="Save &amp; Start Kiosk"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:background="@drawable/button_background"
+                android:textColor="@android:color/white"
+                android:focusable="true"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:id="@+id/backToQrLink"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="← Back to QR code setup"
+                android:textColor="@color/text_hint"
+                android:textSize="13sp"
+                android:focusable="true"
+                android:focusableInTouchMode="false"
+                android:background="?android:attr/selectableItemBackground"
+                android:padding="8dp"
+                android:layout_gravity="center_horizontal" />
+
+        </LinearLayout>
+
+    </ViewFlipper>
 
 </LinearLayout>

@@ -4,7 +4,9 @@ import { calendars, oauthTokens } from "@openframe/database/schema";
 import { calendarQuerySchema, syncCalendarSchema } from "@openframe/shared/validators";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { syncGoogleCalendars, setGoogleCalendarCredentials } from "../../services/calendar-sync/google.js";
+import { syncMicrosoftCalendars, setMicrosoftCalendarCredentials } from "../../services/calendar-sync/microsoft.js";
 import { getCategorySettings } from "../settings/index.js";
+import { hasRequiredScopes, getScopesForFeature } from "../../utils/oauth-scopes.js";
 
 export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
   // Set Google OAuth credentials from DB for calendar sync
@@ -13,6 +15,16 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
     setGoogleCalendarCredentials({
       clientId: googleSettings.client_id || undefined,
       clientSecret: googleSettings.client_secret || undefined,
+    });
+  }
+
+  // Set Microsoft OAuth credentials from DB for calendar sync
+  const microsoftSettings = await getCategorySettings(fastify.db, "microsoft");
+  if (microsoftSettings.client_id || microsoftSettings.client_secret) {
+    setMicrosoftCalendarCredentials({
+      clientId: microsoftSettings.client_id || undefined,
+      clientSecret: microsoftSettings.client_secret || undefined,
+      tenantId: microsoftSettings.tenant_id || undefined,
     });
   }
 
@@ -265,6 +277,18 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("No OAuth token found for this calendar provider");
       }
 
+      // Check that the user has granted calendar scopes
+      const requiredScopes = getScopesForFeature(oauthProvider, "calendar");
+      if (!hasRequiredScopes(oauthToken.scope, requiredScopes)) {
+        return reply.code(403).send({
+          success: false,
+          error: "insufficient_scope",
+          provider: oauthProvider,
+          requiredFeature: "calendar",
+          message: "Calendar access not yet authorized. Please grant calendar permissions.",
+        });
+      }
+
       // Perform sync based on provider
       if (calendar.provider === "google") {
         await syncGoogleCalendars(
@@ -273,6 +297,14 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
           oauthToken,
           fullSync ? undefined : calendar.syncToken ?? undefined,
           calendar.externalId
+        );
+      } else if (calendar.provider === "microsoft") {
+        await syncMicrosoftCalendars(
+          fastify.db,
+          user.id,
+          oauthToken,
+          fullSync ? undefined : calendar.syncToken ?? undefined,
+          calendar.id
         );
       }
 
@@ -313,10 +345,15 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(oauthTokens.userId, user.id));
 
       for (const token of tokens) {
+        // Only sync providers where the user has granted calendar scopes
+        const calScopes = getScopesForFeature(token.provider as "google" | "microsoft", "calendar");
+        if (!hasRequiredScopes(token.scope, calScopes)) continue;
+
         if (token.provider === "google") {
           await syncGoogleCalendars(fastify.db, user.id, token);
+        } else if (token.provider === "microsoft") {
+          await syncMicrosoftCalendars(fastify.db, user.id, token);
         }
-        // Add Microsoft sync here
       }
 
       return {

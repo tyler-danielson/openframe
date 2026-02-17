@@ -23,6 +23,7 @@ interface IptvDashboardProps {
   channels: IptvChannel[];
   epg: Record<string, Array<{ id: string; title: string; description: string | null; startTime: string; endTime: string }>>;
   sportsGames: SportsGame[];
+  searchQuery?: string;
   onChannelSelect: (channel: IptvChannel) => void;
   onToggleFavorite: (channelId: string, isFavorite: boolean) => void;
   onViewAllFavorites: () => void;
@@ -36,6 +37,7 @@ export function IptvDashboard({
   channels,
   epg,
   sportsGames,
+  searchQuery,
   onChannelSelect,
   onToggleFavorite,
   onViewAllFavorites,
@@ -91,8 +93,19 @@ export function IptvDashboard({
       }
     }
 
+    // Filter by search query if active
+    let result = channelsWithEpg;
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(
+        (c) =>
+          c.name.toLowerCase().includes(query) ||
+          c.currentProgram?.title.toLowerCase().includes(query)
+      );
+    }
+
     // Sort: favorites first, then alphabetically
-    return channelsWithEpg
+    return result
       .sort((a, b) => {
         const aIsFav = favoriteIds.has(a.id);
         const bIsFav = favoriteIds.has(b.id);
@@ -100,8 +113,8 @@ export function IptvDashboard({
         if (!aIsFav && bIsFav) return 1;
         return a.name.localeCompare(b.name);
       })
-      .slice(0, 50);
-  }, [channels, epg, favorites]);
+      .slice(0, 100);
+  }, [channels, epg, favorites, searchQuery]);
 
   // Filter sports games to live or upcoming (within 2 hours)
   const relevantSportsGames = useMemo(() => {
@@ -125,8 +138,47 @@ export function IptvDashboard({
       });
   }, [sportsGames]);
 
-  const hasFavorites = favorites.length > 0;
-  const hasHistory = history.length > 0;
+  // Filter favorites and history by search query
+  const filteredFavorites = useMemo(() => {
+    if (!searchQuery) return favorites;
+    const query = searchQuery.toLowerCase();
+    const now = new Date();
+    return favorites.filter((c) => {
+      if (c.name.toLowerCase().includes(query)) return true;
+      const channelEpg = epg[c.id];
+      if (channelEpg) {
+        const currentProgram = channelEpg.find((e) => {
+          const start = new Date(e.startTime);
+          const end = new Date(e.endTime);
+          return now >= start && now < end;
+        });
+        if (currentProgram?.title.toLowerCase().includes(query)) return true;
+      }
+      return false;
+    });
+  }, [favorites, searchQuery, epg]);
+
+  const filteredHistory = useMemo(() => {
+    if (!searchQuery) return history;
+    const query = searchQuery.toLowerCase();
+    const now = new Date();
+    return history.filter((c) => {
+      if (c.name.toLowerCase().includes(query)) return true;
+      const channelEpg = epg[c.id];
+      if (channelEpg) {
+        const currentProgram = channelEpg.find((e) => {
+          const start = new Date(e.startTime);
+          const end = new Date(e.endTime);
+          return now >= start && now < end;
+        });
+        if (currentProgram?.title.toLowerCase().includes(query)) return true;
+      }
+      return false;
+    });
+  }, [history, searchQuery, epg]);
+
+  const hasFavorites = filteredFavorites.length > 0;
+  const hasHistory = filteredHistory.length > 0;
   const hasWhatsOn = whatsOnNow.length > 0;
   const hasSports = relevantSportsGames.length > 0;
 
@@ -145,6 +197,36 @@ export function IptvDashboard({
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-8">
+      {/* What's On Now Section - Compact List View (FIRST) */}
+      {hasWhatsOn && (
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Tv className="h-3 w-3 text-green-500" />
+              <h2 className="text-lg font-semibold">Now Playing</h2>
+              <span className="text-sm text-muted-foreground">({whatsOnNow.length})</span>
+            </div>
+            <button
+              onClick={onViewGuide}
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              View Guide
+              <ChevronRight className="h-3 w-3" />
+            </button>
+          </div>
+          <div className="rounded-lg border border-border bg-card overflow-hidden">
+            {whatsOnNow.map((channel, idx) => (
+              <NowPlayingRow
+                key={channel.id}
+                channel={channel}
+                onSelect={() => onChannelSelect(channel)}
+                isLast={idx === whatsOnNow.length - 1}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Sports Section */}
       {hasSports && (
         <section>
@@ -166,10 +248,10 @@ export function IptvDashboard({
           <div className="flex items-center gap-2 mb-4">
             <Star className="h-3 w-3 text-yellow-500" />
             <h2 className="text-lg font-semibold">Favorites</h2>
-            <span className="text-sm text-muted-foreground">({favorites.length})</span>
+            <span className="text-sm text-muted-foreground">({filteredFavorites.length})</span>
           </div>
           <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12">
-            {favorites.map((channel) => (
+            {filteredFavorites.map((channel) => (
               <FavoriteChannelCard
                 key={channel.id}
                 channel={channel}
@@ -198,42 +280,12 @@ export function IptvDashboard({
             </button>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
-            {history.slice(0, 10).map((channel) => (
+            {filteredHistory.slice(0, 10).map((channel) => (
               <DashboardChannelCard
                 key={channel.id}
                 channel={channel}
                 onSelect={() => onChannelSelect(channel)}
                 onToggleFavorite={() => onToggleFavorite(channel.id, !!channel.isFavorite)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* What's On Now Section - Compact List View */}
-      {hasWhatsOn && (
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Tv className="h-3 w-3 text-green-500" />
-              <h2 className="text-lg font-semibold">Now Playing</h2>
-              <span className="text-sm text-muted-foreground">({whatsOnNow.length})</span>
-            </div>
-            <button
-              onClick={onViewGuide}
-              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              View Guide
-              <ChevronRight className="h-3 w-3" />
-            </button>
-          </div>
-          <div className="rounded-lg border border-border bg-card overflow-hidden">
-            {whatsOnNow.map((channel, idx) => (
-              <NowPlayingRow
-                key={channel.id}
-                channel={channel}
-                onSelect={() => onChannelSelect(channel)}
-                isLast={idx === whatsOnNow.length - 1}
               />
             ))}
           </div>

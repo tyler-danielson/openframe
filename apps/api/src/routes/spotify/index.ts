@@ -5,26 +5,15 @@ import { randomBytes } from "crypto";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { SpotifyService, setSpotifyCredentials, type SpotifyAccount } from "../../services/spotify.js";
 import { getCategorySettings } from "../settings/index.js";
-
-// OAuth providers reject private IPs as redirect URIs — rewrite to localhost
-function rewritePrivateIpToLocalhost(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname;
-    if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(host)) {
-      parsed.hostname = "localhost";
-      return parsed.toString().replace(/\/$/, "");
-    }
-  } catch { /* not a valid URL */ }
-  return url;
-}
+import { isPrivateIp, getRequestOrigin } from "../../utils/oauth-helpers.js";
 
 // Helper to get Spotify OAuth config from DB settings, falling back to env vars
-async function getSpotifyConfig(db: any) {
+// When requestOrigin is provided, use it as the base URL for redirect URIs.
+async function getSpotifyConfig(db: any, requestOrigin?: string) {
   const settings = await getCategorySettings(db, "spotify");
   const serverSettings = await getCategorySettings(db, "server");
   const externalUrl = serverSettings.external_url || process.env.FRONTEND_URL;
-  const baseUrl = externalUrl ? rewritePrivateIpToLocalhost(externalUrl.replace(/\/+$/, "")) : null;
+  const baseUrl = requestOrigin || (externalUrl ? externalUrl.replace(/\/+$/, "") : null);
 
   return {
     clientId: settings.client_id || process.env.SPOTIFY_CLIENT_ID,
@@ -42,7 +31,7 @@ async function getFrontendUrl(db: any): Promise<string> {
 }
 
 // In-memory OAuth state store
-const oauthStateStore = new Map<string, { createdAt: number; returnUrl?: string; userId?: string }>();
+const oauthStateStore = new Map<string, { createdAt: number; returnUrl?: string; userId?: string; requestOrigin?: string }>();
 
 // Clean up expired states every 5 minutes
 setInterval(() => {
@@ -263,7 +252,17 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.unauthorized("Invalid or expired token");
       }
 
-      const spotifyConfig = await getSpotifyConfig(fastify.db);
+      // Derive redirect URI from the actual request origin
+      const requestOrigin = getRequestOrigin(request);
+      const originHostname = new URL(requestOrigin).hostname;
+
+      // Block private IPs — OAuth providers reject them and the callback won't reach the server
+      if (isPrivateIp(originHostname)) {
+        const errorMsg = encodeURIComponent("Cannot start OAuth from a private IP address. Please access this page via localhost or a public domain.");
+        return reply.redirect(`${requestOrigin}/settings?tab=entertainment&subtab=spotify&error=${errorMsg}`);
+      }
+
+      const spotifyConfig = await getSpotifyConfig(fastify.db, requestOrigin);
       const clientId = spotifyConfig.clientId;
       const redirectUri = spotifyConfig.redirectUri;
 
@@ -308,8 +307,8 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      // Store userId in state so we can retrieve it in callback
-      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl, userId });
+      // Store userId and requestOrigin in state so we can retrieve them in callback
+      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl, userId, requestOrigin });
 
       return reply.redirect(url.toString());
     }
@@ -357,8 +356,8 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("Missing OAuth code");
       }
 
-      // Exchange code for tokens using DB config
-      const spotifyConfig = await getSpotifyConfig(fastify.db);
+      // Exchange code for tokens using the same redirect URI from initiation
+      const spotifyConfig = await getSpotifyConfig(fastify.db, storedState.requestOrigin);
 
       const tokenResponse = await fetch(
         "https://accounts.spotify.com/api/token",

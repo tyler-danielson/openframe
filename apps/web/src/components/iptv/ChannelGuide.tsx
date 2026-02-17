@@ -16,6 +16,7 @@ interface ChannelGuideProps {
   channels: IptvChannel[];
   epg: Record<string, EpgEntry[]>;
   favorites: IptvChannel[];
+  searchQuery?: string;
   onChannelSelect: (channel: IptvChannel) => void;
 }
 
@@ -30,6 +31,7 @@ export function ChannelGuide({
   channels,
   epg,
   favorites,
+  searchQuery,
   onChannelSelect,
 }: ChannelGuideProps) {
   // Round current time down to nearest 30 minutes for the initial view
@@ -43,17 +45,37 @@ export function ChannelGuide({
   const [hoursToShow] = useState(3);
   const gridRef = useRef<HTMLDivElement>(null);
 
-  // Sort channels: favorites first, then alphabetically
+  // Filter by search, then sort channels: favorites first, then alphabetically
   const sortedChannels = useMemo(() => {
     const favoriteIds = new Set(favorites.map((f) => f.id));
-    return [...channels].sort((a, b) => {
+    let filtered = channels;
+
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const now = new Date();
+      filtered = channels.filter((c) => {
+        if (c.name.toLowerCase().includes(query)) return true;
+        const channelEpg = epg[c.id];
+        if (channelEpg) {
+          const currentProgram = channelEpg.find((e) => {
+            const start = new Date(e.startTime);
+            const end = new Date(e.endTime);
+            return now >= start && now < end;
+          });
+          if (currentProgram?.title.toLowerCase().includes(query)) return true;
+        }
+        return false;
+      });
+    }
+
+    return [...filtered].sort((a, b) => {
       const aIsFav = favoriteIds.has(a.id);
       const bIsFav = favoriteIds.has(b.id);
       if (aIsFav && !bIsFav) return -1;
       if (!aIsFav && bIsFav) return 1;
       return a.name.localeCompare(b.name);
     });
-  }, [channels, favorites]);
+  }, [channels, favorites, searchQuery, epg]);
 
   // Show all channels, not just those with EPG data
   const channelsWithEpg = sortedChannels;

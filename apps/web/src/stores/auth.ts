@@ -8,14 +8,10 @@ interface AuthState {
   refreshToken: string | null;
   apiKey: string | null;
   isAuthenticated: boolean;
-  kioskEnabled: boolean;
-  kioskChecked: boolean;
   setTokens: (accessToken: string, refreshToken: string) => void;
   setApiKey: (apiKey: string) => void;
   setUser: (user: User) => void;
   logout: () => void;
-  setKioskStatus: (enabled: boolean) => void;
-  setKioskChecked: (checked: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -26,8 +22,6 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: null,
       apiKey: null,
       isAuthenticated: false,
-      kioskEnabled: false,
-      kioskChecked: false,
 
       setTokens: (accessToken, refreshToken) => {
         set({
@@ -56,14 +50,6 @@ export const useAuthStore = create<AuthState>()(
           apiKey: null,
           isAuthenticated: false,
         });
-      },
-
-      setKioskStatus: (enabled) => {
-        set({ kioskEnabled: enabled });
-      },
-
-      setKioskChecked: (checked) => {
-        set({ kioskChecked: checked });
       },
     }),
     {

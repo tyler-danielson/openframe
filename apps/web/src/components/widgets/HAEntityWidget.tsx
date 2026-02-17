@@ -7,6 +7,7 @@ import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import { cn } from "../../lib/utils";
 import { useBlockControls } from "../../hooks/useBlockControls";
+import { useWidgetStateReporter } from "../../hooks/useWidgetStateReporter";
 
 interface HAEntityWidgetProps {
   config: Record<string, unknown>;
@@ -71,6 +72,20 @@ export function HAEntityWidget({ config, style, isBuilder, widgetId }: HAEntityW
     };
   }, [isBuilder, widgetId, entityId, callService]);
   useBlockControls(widgetId, blockControls);
+
+  // Report state for companion app
+  useWidgetStateReporter(
+    isBuilder ? undefined : widgetId,
+    "ha-entity",
+    useMemo(
+      () => ({
+        entityId,
+        state: entity?.state || "unknown",
+        friendlyName: (entity?.attributes?.friendly_name as string) || entityId,
+      }),
+      [entityId, entity?.state, entity?.attributes?.friendly_name]
+    )
+  );
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
   const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset as Exclude<FontSizePreset, "custom">];

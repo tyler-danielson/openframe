@@ -50,8 +50,7 @@ function getWeatherIcon(iconCode: string): string {
 export function SpotifyPage() {
   const queryClient = useQueryClient();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const kioskEnabled = useAuthStore((state) => state.kioskEnabled);
-  const isKioskOnly = kioskEnabled && !isAuthenticated;
+  const isKioskOnly = window.location.pathname.startsWith("/kiosk/") && !isAuthenticated;
 
   const [volume, setVolume] = useState(50);
   const [progress, setProgress] = useState(0);
@@ -61,7 +60,7 @@ export function SpotifyPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(undefined);
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [libraryView, setLibraryView] = useState<"playlists" | "podcasts" | "episodes" | "albums" | "liked">("playlists");
+  const [libraryView, setLibraryView] = useState<"playlists" | "podcasts" | "episodes" | "albums" | "liked" | "recent">("playlists");
   const [timeFade, setTimeFade] = useState(true);
 
   const { familyName, timeFormat, cycleTimeFormat } = useCalendarStore();
@@ -323,6 +322,19 @@ export function SpotifyPage() {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const formatRecentTime = (iso: string) => {
+    const date = new Date(iso);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffHr = Math.floor(diffMin / 60);
+
+    if (diffMin < 1) return "Just now";
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHr < 24) return `${diffHr}h ago`;
+    return date.toLocaleDateString([], { month: "short", day: "numeric" });
   };
 
   const cycleRepeat = () => {
@@ -738,6 +750,7 @@ export function SpotifyPage() {
               <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
                 {([
                   { id: "playlists", label: "Playlists", icon: ListMusic },
+                  { id: "recent", label: "Recently Played", icon: History },
                   { id: "podcasts", label: "Podcasts", icon: Podcast },
                   { id: "episodes", label: "New Episodes", icon: Radio },
                   { id: "albums", label: "Albums", icon: Disc },
@@ -891,6 +904,62 @@ export function SpotifyPage() {
                       {(!playlists?.items || playlists.items.length === 0) && (
                         <div className="text-center text-muted-foreground py-8">
                           No playlists found
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Recently Played View */}
+                  {libraryView === "recent" && (
+                    <div>
+                      <h3 className="mb-2 text-sm font-medium text-primary">Recently Played</h3>
+                      <div className="space-y-1">
+                        {recentlyPlayed?.items?.map((item, idx) => (
+                          <button
+                            key={`${item.track.id}-${idx}`}
+                            onClick={() => playMutation.mutate({ uris: [item.track.uri] })}
+                            className={cn(
+                              "flex w-full items-center gap-3 rounded-lg border border-border bg-white dark:bg-gray-800 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left",
+                              currentTrack?.id === item.track.id && "border-green-500 bg-green-50 dark:bg-green-900/20"
+                            )}
+                          >
+                            <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
+                              {item.track.album?.images?.[0]?.url ? (
+                                <img
+                                  src={item.track.album.images[0].url}
+                                  alt={item.track.album.name}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center">
+                                  <Music className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <p className={cn(
+                                  "truncate text-sm font-medium",
+                                  currentTrack?.id === item.track.id
+                                    ? "text-green-600 dark:text-green-400"
+                                    : "text-gray-900 dark:text-gray-100"
+                                )}>
+                                  {item.track.name}
+                                </p>
+                              </div>
+                              <p className="truncate text-xs text-gray-600 dark:text-gray-400">
+                                {item.track.artists?.map((a) => a.name).join(", ")}
+                              </p>
+                            </div>
+                            <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
+                              {formatRecentTime(item.played_at)}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      {(!recentlyPlayed?.items || recentlyPlayed.items.length === 0) && (
+                        <div className="text-center text-muted-foreground py-8">
+                          No recently played tracks
                         </div>
                       )}
                     </div>

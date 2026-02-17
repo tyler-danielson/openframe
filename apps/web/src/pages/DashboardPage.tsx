@@ -105,8 +105,6 @@ export function DashboardPage() {
   const { displayType } = useKiosk();
   const blockNavMode = useBlockNavStore((s) => s.mode);
   const focusedBlockId = useBlockNavStore((s) => s.focusedBlockId);
-  const blockCount = useBlockNavStore((s) => s.blocks.length);
-  const debugTrace = useBlockNavStore((s) => s._debug);
   const registerBlocks = useBlockNavStore((s) => s.registerBlocks);
   const clearBlocks = useBlockNavStore((s) => s.clearBlocks);
 
@@ -179,10 +177,6 @@ export function DashboardPage() {
 
   return (
     <div className="flex h-full flex-col p-6">
-      {/* DEBUG: Block nav state indicator — remove after testing */}
-      <div className="fixed top-2 left-2 z-[9999] bg-black/80 text-white text-xs px-2 py-1 rounded font-mono">
-        BN: mode={blockNavMode} blocks={blockCount} dt={displayType} focused={focusedBlockId ?? "none"} | {debugTrace}
-      </div>
       {/* Header with clock and weather inline */}
       <div className="mb-6 flex items-start justify-between gap-6">
         {/* Clock on the left */}
@@ -281,7 +275,7 @@ export function DashboardPage() {
       <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-6 min-h-0">
         {/* Column 1: Events */}
         <Card className={`flex flex-col min-h-0 transition-all duration-300 ${getBlockNavClasses("dash-events")}`}>
-          <CardHeader className="pb-2">
+          <CardHeader className="pb-0">
             <CardTitle>Today's Events</CardTitle>
           </CardHeader>
           <CardContent ref={eventsScrollRef} className="flex-1 overflow-auto">
@@ -328,21 +322,31 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Column 2: Tasks */}
-        <Card className={`flex flex-col min-h-0 transition-all duration-300 ${getBlockNavClasses("dash-tasks")}`}>
-          <CardHeader className="pb-2">
-            <CardTitle>Today's Tasks</CardTitle>
-          </CardHeader>
-          <CardContent ref={tasksScrollRef} className="flex-1 overflow-auto">
-            <DashboardTasksWidget />
-          </CardContent>
-        </Card>
+        {/* Column 2: Tasks — Today's on top, Other on bottom */}
+        <div className={`flex flex-col gap-6 min-h-0 transition-all duration-300 ${getBlockNavClasses("dash-tasks")}`}>
+          <Card className="flex flex-col flex-1 min-h-0">
+            <CardHeader className="pb-0">
+              <CardTitle>Today's Tasks</CardTitle>
+            </CardHeader>
+            <CardContent ref={tasksScrollRef} className="flex-1 overflow-auto">
+              <DashboardTasksWidget filter="today" />
+            </CardContent>
+          </Card>
+          <Card className="flex flex-col flex-1 min-h-0">
+            <CardHeader className="pb-0">
+              <CardTitle>Other Tasks</CardTitle>
+            </CardHeader>
+            <CardContent className="flex-1 overflow-auto">
+              <DashboardTasksWidget filter="other" />
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Column 3: Map + News */}
         <div className="flex flex-col gap-6 min-h-0">
           {/* Family Locations Map */}
           <Card className={`flex flex-col flex-1 min-h-0 transition-all duration-300 ${getBlockNavClasses("dash-locations")}`}>
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-0">
               <CardTitle>Family Locations</CardTitle>
             </CardHeader>
             <CardContent className="flex-1 p-0 min-h-0">
@@ -352,7 +356,7 @@ export function DashboardPage() {
 
           {/* News/Headlines */}
           <Card className={`flex flex-col flex-1 min-h-0 transition-all duration-300 ${getBlockNavClasses("dash-headlines")}`}>
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-0">
               <CardTitle>Headlines</CardTitle>
             </CardHeader>
             <CardContent ref={newsScrollRef} className="flex-1 overflow-auto">

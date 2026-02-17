@@ -176,6 +176,13 @@ const SETTING_DEFINITIONS: CategoryDefinition[] = [
         isSecret: true,
         placeholder: "AIza...",
       },
+      {
+        key: "youtube_api_key",
+        label: "YouTube Data API Key",
+        description: "For YouTube search, trending, and video details",
+        isSecret: true,
+        placeholder: "AIza...",
+      },
     ],
   },
   {
@@ -315,6 +322,34 @@ const SETTING_DEFINITIONS: CategoryDefinition[] = [
         description: "Which AI to use for extracting recipes from images (gemini, openai, or claude)",
         isSecret: false,
         placeholder: "gemini",
+      },
+    ],
+  },
+  {
+    category: "chat",
+    label: "AI Chat",
+    description: "Configure AI chat assistant settings",
+    settings: [
+      {
+        key: "provider",
+        label: "Default Provider",
+        description: "Which AI provider to use for chat (claude, openai, or gemini)",
+        isSecret: false,
+        placeholder: "claude",
+      },
+      {
+        key: "model",
+        label: "Model Override",
+        description: "Override the default model (e.g., claude-sonnet-4-5-20250929, gpt-4o, gemini-2.5-flash)",
+        isSecret: false,
+        placeholder: "",
+      },
+      {
+        key: "system_prompt_extra",
+        label: "Custom Instructions",
+        description: "Additional instructions appended to the chat system prompt",
+        isSecret: false,
+        placeholder: "Always respond in a casual, friendly tone...",
       },
     ],
   },

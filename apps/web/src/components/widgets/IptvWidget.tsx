@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Hls from "hls.js";
-import { Tv, Volume2, VolumeX, ChevronDown, Star, Clock, AlertCircle, Loader2 } from "lucide-react";
+import { Tv, Volume2, VolumeX, Menu, AlertCircle, Loader2 } from "lucide-react";
 import { api } from "../../services/api";
 import type { WidgetStyle } from "../../stores/screensaver";
 import { useBlockControls } from "../../hooks/useBlockControls";
+import { useWidgetStateReporter } from "../../hooks/useWidgetStateReporter";
+import { IptvTileOverlay } from "../iptv/IptvTileOverlay";
 
 interface IptvWidgetProps {
   config: Record<string, unknown>;
@@ -19,15 +21,15 @@ export function IptvWidget({ config, isBuilder, widgetId }: IptvWidgetProps) {
   const autoPlay = config.autoPlay as boolean ?? true;
   const defaultMuted = config.muted as boolean ?? true;
 
+  const queryClient = useQueryClient();
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(defaultMuted);
-  const [showPicker, setShowPicker] = useState(false);
+  const [showOverlay, setShowOverlay] = useState(false);
   const [activeChannelId, setActiveChannelId] = useState(channelId);
   const [channelName, setChannelName] = useState("");
-  const pickerRef = useRef<HTMLDivElement>(null!)
 
   // Sync activeChannelId when config changes
   useEffect(() => {
@@ -44,20 +46,36 @@ export function IptvWidget({ config, isBuilder, widgetId }: IptvWidgetProps) {
     retry: 2,
   });
 
-  // Fetch favorites for channel picker
+  // Fetch favorites for block controls (channel up/down)
   const { data: favorites = [] } = useQuery({
     queryKey: ["widget-iptv-favorites"],
     queryFn: () => api.getIptvFavorites(),
-    enabled: !isBuilder && showPicker,
+    enabled: !isBuilder,
     staleTime: 60_000,
   });
 
-  // Fetch recent history for channel picker
+  // Fetch recent history for block controls
   const { data: history = [] } = useQuery({
     queryKey: ["widget-iptv-history"],
     queryFn: () => api.getIptvHistory(10),
-    enabled: !isBuilder && showPicker,
+    enabled: !isBuilder,
     staleTime: 60_000,
+  });
+
+  // Toggle favorite mutation
+  const toggleFavoriteMutation = useMutation({
+    mutationFn: async ({ channelId: chId, isFavorite }: { channelId: string; isFavorite: boolean }) => {
+      if (isFavorite) {
+        await api.removeIptvFavorite(chId);
+      } else {
+        await api.addIptvFavorite(chId);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["widget-iptv-favorites"] });
+      queryClient.invalidateQueries({ queryKey: ["iptv-favorites"] });
+      queryClient.invalidateQueries({ queryKey: ["overlay-guide"] });
+    },
   });
 
   // Update channel name when stream data loads
@@ -133,24 +151,19 @@ export function IptvWidget({ config, isBuilder, widgetId }: IptvWidgetProps) {
     }
   }, [isMuted]);
 
-  // Close picker on outside click
-  useEffect(() => {
-    if (!showPicker) return;
-    const handleClick = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setShowPicker(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [showPicker]);
-
   const handleChannelSwitch = useCallback((newChannelId: string) => {
     setActiveChannelId(newChannelId);
-    setShowPicker(false);
+    setShowOverlay(false);
     // Record the watch in history
     api.recordIptvWatch(newChannelId).catch(() => {});
   }, []);
+
+  const handleToggleFavorite = useCallback(
+    (chId: string, isFavorite: boolean) => {
+      toggleFavoriteMutation.mutate({ channelId: chId, isFavorite });
+    },
+    [toggleFavoriteMutation]
+  );
 
   // TV block navigation controls
   const blockControls = useMemo(() => {
@@ -184,13 +197,35 @@ export function IptvWidget({ config, isBuilder, widgetId }: IptvWidgetProps) {
         },
         {
           key: "enter",
-          label: isMuted ? "Unmute" : "Mute",
-          action: () => setIsMuted((m) => !m),
+          label: showOverlay ? "Close Menu" : "Open Menu",
+          action: () => setShowOverlay((v) => !v),
+        },
+      ],
+      remoteActions: [
+        {
+          key: "channel-change",
+          label: "Change Channel",
+          execute: (data?: Record<string, unknown>) => {
+            const chId = data?.channelId as string;
+            if (chId) handleChannelSwitch(chId);
+          },
+        },
+        {
+          key: "mute-toggle",
+          label: "Toggle Mute",
+          execute: () => setIsMuted((m) => !m),
         },
       ],
     };
-  }, [isBuilder, widgetId, favorites, history, activeChannelId, isMuted, handleChannelSwitch]);
+  }, [isBuilder, widgetId, favorites, history, activeChannelId, showOverlay, handleChannelSwitch]);
   useBlockControls(widgetId, blockControls);
+
+  // Report state for companion app
+  useWidgetStateReporter(
+    isBuilder ? undefined : widgetId,
+    "iptv",
+    useMemo(() => ({ activeChannelId, channelName, isMuted }), [activeChannelId, channelName, isMuted])
+  );
 
   // Builder preview - static placeholder
   if (isBuilder) {
@@ -213,15 +248,21 @@ export function IptvWidget({ config, isBuilder, widgetId }: IptvWidgetProps) {
       <div className="flex h-full flex-col items-center justify-center bg-black text-white/50 gap-2 relative">
         <Tv className="h-8 w-8" />
         <span className="text-sm">No channel configured</span>
-        {/* Still allow channel picker in error/empty state */}
-        <ChannelPickerButton
-          showPicker={showPicker}
-          setShowPicker={setShowPicker}
-          pickerRef={pickerRef}
-          favorites={favorites}
-          history={history}
-          onSelect={handleChannelSwitch}
+        <button
+          onClick={() => setShowOverlay(true)}
+          className="absolute top-2 left-2 z-10 bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5 transition-colors"
+        >
+          <Menu className="h-4 w-4" />
+        </button>
+        <IptvTileOverlay
+          isOpen={showOverlay}
+          onClose={() => setShowOverlay(false)}
           activeChannelId={activeChannelId}
+          channelName={channelName}
+          onChannelSelect={handleChannelSwitch}
+          onToggleFavorite={handleToggleFavorite}
+          isMuted={isMuted}
+          onToggleMute={() => setIsMuted((m) => !m)}
         />
       </div>
     );
@@ -233,14 +274,21 @@ export function IptvWidget({ config, isBuilder, widgetId }: IptvWidgetProps) {
       <div className="flex h-full flex-col items-center justify-center bg-black text-white/50 gap-2 relative">
         <AlertCircle className="h-8 w-8 text-red-400" />
         <span className="text-sm">{error}</span>
-        <ChannelPickerButton
-          showPicker={showPicker}
-          setShowPicker={setShowPicker}
-          pickerRef={pickerRef}
-          favorites={favorites}
-          history={history}
-          onSelect={handleChannelSwitch}
+        <button
+          onClick={() => setShowOverlay(true)}
+          className="absolute top-2 left-2 z-10 bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5 transition-colors"
+        >
+          <Menu className="h-4 w-4" />
+        </button>
+        <IptvTileOverlay
+          isOpen={showOverlay}
+          onClose={() => setShowOverlay(false)}
           activeChannelId={activeChannelId}
+          channelName={channelName}
+          onChannelSelect={handleChannelSwitch}
+          onToggleFavorite={handleToggleFavorite}
+          isMuted={isMuted}
+          onToggleMute={() => setIsMuted((m) => !m)}
         />
       </div>
     );
@@ -277,111 +325,25 @@ export function IptvWidget({ config, isBuilder, widgetId }: IptvWidgetProps) {
         </div>
       )}
 
-      {/* Channel picker */}
-      <ChannelPickerButton
-        showPicker={showPicker}
-        setShowPicker={setShowPicker}
-        pickerRef={pickerRef}
-        favorites={favorites}
-        history={history}
-        onSelect={handleChannelSwitch}
-        activeChannelId={activeChannelId}
-      />
-    </div>
-  );
-}
-
-// Channel picker overlay button + dropdown
-function ChannelPickerButton({
-  showPicker,
-  setShowPicker,
-  pickerRef,
-  favorites,
-  history,
-  onSelect,
-  activeChannelId,
-}: {
-  showPicker: boolean;
-  setShowPicker: (v: boolean) => void;
-  pickerRef: React.RefObject<HTMLDivElement>;
-  favorites: { id: string; name: string; logoUrl: string | null }[];
-  history: { id: string; name: string; logoUrl: string | null }[];
-  onSelect: (channelId: string) => void;
-  activeChannelId: string;
-}) {
-  // Filter history to exclude items already in favorites
-  const favoriteIds = new Set(favorites.map((f) => f.id));
-  const filteredHistory = history.filter((h) => !favoriteIds.has(h.id));
-
-  return (
-    <>
+      {/* Menu button to open overlay */}
       <button
-        onClick={() => setShowPicker(!showPicker)}
-        className="absolute top-2 right-2 z-10 bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5 transition-colors"
+        onClick={() => setShowOverlay(true)}
+        className="absolute top-2 left-2 z-10 bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5 transition-colors"
       >
-        <ChevronDown className="h-4 w-4" />
+        <Menu className="h-4 w-4" />
       </button>
 
-      {showPicker && (
-        <div
-          ref={pickerRef}
-          className="absolute top-10 right-2 z-20 w-56 max-h-64 overflow-y-auto bg-black/95 border border-white/20 rounded-lg shadow-xl"
-        >
-          {favorites.length > 0 && (
-            <>
-              <div className="px-3 py-1.5 text-[10px] font-semibold text-white/40 uppercase tracking-wider flex items-center gap-1">
-                <Star className="h-3 w-3" /> Favorites
-              </div>
-              {favorites.map((ch) => (
-                <button
-                  key={ch.id}
-                  onClick={() => onSelect(ch.id)}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-white/10 transition-colors flex items-center gap-2 ${
-                    ch.id === activeChannelId ? "text-blue-400" : "text-white/80"
-                  }`}
-                >
-                  {ch.logoUrl ? (
-                    <img src={ch.logoUrl} alt="" className="h-5 w-5 rounded object-contain bg-white/10" />
-                  ) : (
-                    <Tv className="h-4 w-4 text-white/40" />
-                  )}
-                  <span className="truncate">{ch.name}</span>
-                </button>
-              ))}
-            </>
-          )}
-
-          {filteredHistory.length > 0 && (
-            <>
-              <div className="px-3 py-1.5 text-[10px] font-semibold text-white/40 uppercase tracking-wider flex items-center gap-1">
-                <Clock className="h-3 w-3" /> Recent
-              </div>
-              {filteredHistory.map((ch) => (
-                <button
-                  key={ch.id}
-                  onClick={() => onSelect(ch.id)}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-white/10 transition-colors flex items-center gap-2 ${
-                    ch.id === activeChannelId ? "text-blue-400" : "text-white/80"
-                  }`}
-                >
-                  {ch.logoUrl ? (
-                    <img src={ch.logoUrl} alt="" className="h-5 w-5 rounded object-contain bg-white/10" />
-                  ) : (
-                    <Tv className="h-4 w-4 text-white/40" />
-                  )}
-                  <span className="truncate">{ch.name}</span>
-                </button>
-              ))}
-            </>
-          )}
-
-          {favorites.length === 0 && filteredHistory.length === 0 && (
-            <div className="px-3 py-4 text-sm text-white/40 text-center">
-              No favorites or recent channels
-            </div>
-          )}
-        </div>
-      )}
-    </>
+      {/* Tile overlay */}
+      <IptvTileOverlay
+        isOpen={showOverlay}
+        onClose={() => setShowOverlay(false)}
+        activeChannelId={activeChannelId}
+        channelName={channelName}
+        onChannelSelect={handleChannelSwitch}
+        onToggleFavorite={handleToggleFavorite}
+        isMuted={isMuted}
+        onToggleMute={() => setIsMuted((m) => !m)}
+      />
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { X, Loader2, QrCode, Clock, CheckCircle } from "lucide-react";
 import { Button } from "../ui/Button";
@@ -17,10 +17,17 @@ export function QRUploadModal({ isOpen, onClose, albumId, albumName }: QRUploadM
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<string>("");
+  const generatingRef = useRef(false);
+  const tokenRef = useRef<string | null>(null);
+
+  // Keep tokenRef in sync
+  useEffect(() => {
+    tokenRef.current = token;
+  }, [token]);
 
   // Generate token when modal opens
   useEffect(() => {
-    if (isOpen && !token) {
+    if (isOpen && !token && !generatingRef.current) {
       generateToken();
     }
   }, [isOpen]);
@@ -49,18 +56,18 @@ export function QRUploadModal({ isOpen, onClose, albumId, albumName }: QRUploadM
     return () => clearInterval(interval);
   }, [expiresAt]);
 
-  // Revoke token when modal closes
+  // Revoke token on unmount only
   useEffect(() => {
     return () => {
-      if (token) {
-        api.revokeUploadToken(token).catch(() => {
-          // Ignore errors when revoking
-        });
+      if (tokenRef.current) {
+        api.revokeUploadToken(tokenRef.current).catch(() => {});
       }
     };
-  }, [token]);
+  }, []);
 
   const generateToken = async () => {
+    if (generatingRef.current) return;
+    generatingRef.current = true;
     setIsLoading(true);
     setError(null);
     try {
@@ -72,16 +79,15 @@ export function QRUploadModal({ isOpen, onClose, albumId, albumName }: QRUploadM
       console.error(err);
     } finally {
       setIsLoading(false);
+      generatingRef.current = false;
     }
   };
 
-  const handleClose = async () => {
+  const handleClose = () => {
+    // Token will be revoked by the unmount cleanup via tokenRef,
+    // or if the component stays mounted, revoke explicitly
     if (token) {
-      try {
-        await api.revokeUploadToken(token);
-      } catch {
-        // Ignore errors
-      }
+      api.revokeUploadToken(token).catch(() => {});
     }
     setToken(null);
     setExpiresAt(null);

@@ -23,6 +23,8 @@ import { Button } from "../components/ui/Button";
 import { HandwritingCanvas } from "../components/ui/HandwritingCanvas";
 import { cn } from "../lib/utils";
 import { useTasksStore, type TasksLayout } from "../stores/tasks";
+import { useAuthStore } from "../stores/auth";
+import { buildOAuthUrl } from "../utils/oauth-scopes";
 import type { Task, TaskList } from "@openframe/shared";
 
 export function TasksPage() {
@@ -34,6 +36,7 @@ export function TasksPage() {
   const [showHandwriting, setShowHandwriting] = useState(false);
   const [handwritingStatus, setHandwritingStatus] = useState<"drawing" | "creating" | "success" | "error">("drawing");
   const [handwritingError, setHandwritingError] = useState<string | null>(null);
+  const [insufficientScope, setInsufficientScope] = useState(false);
 
   const { layout, setLayout, showCompleted, setShowCompleted, expandAllLists } = useTasksStore();
 
@@ -61,8 +64,14 @@ export function TasksPage() {
   const syncMutation = useMutation({
     mutationFn: () => api.syncTasks(),
     onSuccess: () => {
+      setInsufficientScope(false);
       queryClient.invalidateQueries({ queryKey: ["task-lists"] });
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+    onError: (error: Error) => {
+      if (error.message === "insufficient_scope") {
+        setInsufficientScope(true);
+      }
     },
   });
 
@@ -227,6 +236,22 @@ export function TasksPage() {
           )}
           Sync Google Tasks
         </Button>
+        {insufficientScope && (
+          <div className="mt-4 rounded-lg border border-primary/30 bg-primary/5 p-4 text-center">
+            <p className="text-sm text-primary">Task access not yet authorized.</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={() => {
+                const token = useAuthStore.getState().accessToken;
+                window.location.href = buildOAuthUrl("google", "tasks", token, window.location.href);
+              }}
+            >
+              Authorize Google Tasks
+            </Button>
+          </div>
+        )}
       </div>
     );
   }
@@ -575,6 +600,22 @@ export function TasksPage() {
           </Button>
         </div>
       </header>
+
+      {insufficientScope && (
+        <div className="mx-4 mt-2 flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-4 py-2">
+          <span className="text-sm text-primary">Task access not yet authorized.</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const token = useAuthStore.getState().accessToken;
+              window.location.href = buildOAuthUrl("google", "tasks", token, window.location.href);
+            }}
+          >
+            Authorize
+          </Button>
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">

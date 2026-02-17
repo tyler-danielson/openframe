@@ -21,6 +21,10 @@ import { DayScheduleWidget } from "./DayScheduleWidget";
 import { WeekScheduleWidget } from "./WeekScheduleWidget";
 import { NewsWidget } from "./NewsWidget";
 import { IptvWidget } from "./IptvWidget";
+import { YouTubeWidget } from "./YouTubeWidget";
+import { PlexWidget } from "./PlexWidget";
+import { PlexAmpWidget } from "./PlexAmpWidget";
+import { AudiobookshelfWidget } from "./AudiobookshelfWidget";
 import { PhotoFeedWidget } from "./PhotoFeedWidget";
 import { SupportWidget } from "./SupportWidget";
 
@@ -81,6 +85,14 @@ export function WidgetRenderer({ widget, isBuilder = false, widgetId }: WidgetRe
       return <NewsWidget {...commonProps} />;
     case "iptv":
       return <IptvWidget {...commonProps} />;
+    case "youtube":
+      return <YouTubeWidget {...commonProps} />;
+    case "plex":
+      return <PlexWidget {...commonProps} />;
+    case "plexamp":
+      return <PlexAmpWidget {...commonProps} />;
+    case "audiobookshelf":
+      return <AudiobookshelfWidget {...commonProps} />;
     case "week-schedule":
       return <WeekScheduleWidget {...commonProps} />;
     case "photo-feed":

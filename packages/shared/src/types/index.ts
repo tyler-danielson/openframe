@@ -6,6 +6,8 @@ export interface User {
   avatarUrl: string | null;
   timezone: string;
   preferences: UserPreferences;
+  linkedProviders?: string[];
+  grantedScopes?: Record<string, string>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -945,10 +947,195 @@ export interface ProfileRemarkableSettings {
   updatedAt: Date;
 }
 
+// ============ YouTube Types ============
+
+export type YouTubeBookmarkType = "video" | "live" | "playlist" | "channel";
+
+export interface YouTubeBookmark {
+  id: string;
+  userId: string;
+  youtubeId: string;
+  type: YouTubeBookmarkType;
+  title: string;
+  thumbnailUrl: string | null;
+  channelTitle: string | null;
+  channelId: string | null;
+  duration: string | null;
+  isLive: boolean;
+  createdAt: Date;
+}
+
+export interface YouTubeSearchResult {
+  youtubeId: string;
+  type: YouTubeBookmarkType;
+  title: string;
+  description: string;
+  thumbnailUrl: string;
+  channelTitle: string;
+  channelId: string;
+  publishedAt: string;
+  isLive: boolean;
+  duration?: string;
+  viewCount?: string;
+}
+
+export interface YouTubeVideoDetails {
+  youtubeId: string;
+  title: string;
+  description: string;
+  thumbnailUrl: string;
+  channelTitle: string;
+  channelId: string;
+  publishedAt: string;
+  duration: string;
+  viewCount: string;
+  likeCount: string;
+  isLive: boolean;
+  tags: string[];
+}
+
+export interface YouTubeChannel {
+  channelId: string;
+  title: string;
+  description: string;
+  thumbnailUrl: string;
+  subscriberCount: string;
+  videoCount: string;
+}
+
+export interface YouTubeWatchHistoryEntry {
+  id: string;
+  userId: string;
+  youtubeId: string;
+  type: YouTubeBookmarkType;
+  title: string;
+  thumbnailUrl: string | null;
+  channelTitle: string | null;
+  watchedAt: Date;
+}
+
+// ============ AI Chat Types ============
+
+export type AIChatProvider = "claude" | "openai" | "gemini";
+
+export interface ChatConversation {
+  id: string;
+  userId: string;
+  title: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  lastMessage?: string;
+  messageCount?: number;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  provider: AIChatProvider | null;
+  model: string | null;
+  tokenUsage: ChatTokenUsage | null;
+  createdAt: Date;
+}
+
+export interface ChatTokenUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+}
+
+export interface ChatSendRequest {
+  message: string;
+  conversationId?: string;
+  provider?: AIChatProvider;
+  model?: string;
+}
+
+export interface ChatStreamEvent {
+  type: "conversation_created" | "token" | "done" | "error";
+  conversationId?: string;
+  token?: string;
+  messageId?: string;
+  error?: string;
+}
+
+export interface ChatProviderStatus {
+  claude: boolean;
+  openai: boolean;
+  gemini: boolean;
+  defaultProvider: AIChatProvider;
+}
+
 export interface PlannerTemplate {
   id: string;
   name: string;
   description: string;
   thumbnail?: string;
   config: PlannerLayoutConfig;
+}
+
+// ============ Plex Types ============
+
+export interface PlexServer {
+  id: string;
+  userId: string;
+  name: string;
+  serverUrl: string;
+  machineId: string | null;
+  isActive: boolean;
+  lastSyncedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface PlexLibrary {
+  key: string;
+  title: string;
+  type: string; // "movie" | "show" | "artist" | "photo"
+  thumb?: string;
+  count?: number;
+}
+
+export interface PlexItem {
+  ratingKey: string;
+  title: string;
+  type: string;
+  year?: number;
+  thumb?: string;
+  art?: string;
+  duration?: number;
+  summary?: string;
+  grandparentTitle?: string;
+  parentTitle?: string;
+}
+
+// ============ Audiobookshelf Types ============
+
+export interface AudiobookshelfServer {
+  id: string;
+  userId: string;
+  name: string;
+  serverUrl: string;
+  isActive: boolean;
+  lastSyncedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AudiobookshelfLibrary {
+  id: string;
+  name: string;
+  mediaType: string; // "book" | "podcast"
+  folders: string[];
+}
+
+export interface AudiobookshelfItem {
+  id: string;
+  title: string;
+  authorName?: string;
+  duration?: number;
+  coverUrl?: string;
+  description?: string;
+  progress?: number;
 }

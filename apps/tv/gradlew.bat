@@ -25,7 +25,7 @@ if not exist "%WRAPPER_JAR%" (
     powershell -Command "& {[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gradle/gradle/v8.2.0/gradle/wrapper/gradle-wrapper.jar' -OutFile '%WRAPPER_JAR%'}"
 )
 
-"%JAVACMD%" -jar "%WRAPPER_JAR%" %*
+"%JAVACMD%" -classpath "%WRAPPER_JAR%" org.gradle.wrapper.GradleWrapperMain %*
 
 :end
 endlocal

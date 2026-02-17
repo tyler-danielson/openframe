@@ -46,6 +46,7 @@ import type {
   ProfileRemarkableSettings,
   DailyBriefing,
   EmailHighlight,
+  AIChatProvider,
 } from "@openframe/shared";
 
 // API Key types
@@ -117,7 +118,7 @@ class ApiClient {
   private refreshPromise: Promise<boolean> | null = null;
 
   private async refreshTokens(): Promise<boolean> {
-    const { refreshToken, setTokens, logout, kioskEnabled } = useAuthStore.getState();
+    const { refreshToken, setTokens, logout } = useAuthStore.getState();
 
     if (!refreshToken) {
       return false;
@@ -134,15 +135,12 @@ class ApiClient {
         const data = await refreshResponse.json();
         setTokens(data.data.accessToken, data.data.refreshToken);
         return true;
-      } else if (!kioskEnabled) {
+      } else {
         logout();
         return false;
       }
-      return false;
     } catch {
-      if (!kioskEnabled) {
-        logout();
-      }
+      logout();
       return false;
     }
   }
@@ -166,7 +164,7 @@ class ApiClient {
     options: RequestInit = {},
     skipAuth = false
   ): Promise<T> {
-    const { accessToken, refreshToken, apiKey, kioskEnabled } =
+    const { accessToken, refreshToken, apiKey } =
       useAuthStore.getState();
 
     const headers: HeadersInit = {
@@ -202,7 +200,7 @@ class ApiClient {
           ...options,
           headers,
         });
-      } else if (!kioskEnabled) {
+      } else {
         throw new Error("Session expired");
       }
     }
@@ -679,33 +677,8 @@ class ApiClient {
   }
 
   // Kiosk mode
-  async getKioskStatus(): Promise<{ enabled: boolean }> {
-    const response = await fetch(`${API_BASE}/auth/kiosk/status`);
-    const result = await response.json();
-    return result.data;
-  }
-
-  async getMyKioskStatus(): Promise<{ enabled: boolean }> {
-    return this.fetch<{ enabled: boolean }>("/auth/kiosk/me");
-  }
-
-  async enableKiosk(): Promise<void> {
-    await this.fetch("/auth/kiosk/enable", { method: "POST", body: JSON.stringify({}) });
-  }
-
-  async disableKiosk(): Promise<void> {
-    await this.fetch("/auth/kiosk/disable", { method: "POST", body: JSON.stringify({}) });
-  }
-
   async refreshKiosk(): Promise<void> {
     await this.fetch("/auth/kiosk/refresh", { method: "POST", body: JSON.stringify({}) });
-  }
-
-  async getKioskCommands(since?: number): Promise<{ commands: Array<{ type: string; timestamp: number }> }> {
-    const params = since ? `?since=${since}` : "";
-    const response = await fetch(`${API_BASE}/auth/kiosk/commands${params}`);
-    const result = await response.json();
-    return result.data;
   }
 
   // Screensaver settings
@@ -713,7 +686,7 @@ class ApiClient {
     enabled: boolean;
     timeout: number;
     interval: number;
-    layout: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
+    layout: "fullscreen" | "informational" | "quad" | "scatter" | "builder" | "skylight" | "skylight";
     transition: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
     colorScheme: ColorScheme;
     layoutConfig?: Record<string, unknown> | null;
@@ -727,7 +700,7 @@ class ApiClient {
     enabled?: boolean;
     timeout?: number;
     interval?: number;
-    layout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
+    layout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder" | "skylight" | "skylight";
     transition?: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
     colorScheme?: ColorScheme;
     layoutConfig?: Record<string, unknown>;
@@ -753,7 +726,7 @@ class ApiClient {
     screensaverEnabled?: boolean;
     screensaverTimeout?: number;
     screensaverInterval?: number;
-    screensaverLayout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
+    screensaverLayout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder" | "skylight";
     screensaverTransition?: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
     screensaverLayoutConfig?: Record<string, unknown>;
   }): Promise<Kiosk> {
@@ -777,7 +750,7 @@ class ApiClient {
       screensaverEnabled?: boolean;
       screensaverTimeout?: number;
       screensaverInterval?: number;
-      screensaverLayout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
+      screensaverLayout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder" | "skylight";
       screensaverTransition?: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
       screensaverLayoutConfig?: Record<string, unknown>;
       screensaverBehavior?: "screensaver" | "hide-toolbar";
@@ -817,6 +790,28 @@ class ApiClient {
     });
   }
 
+  // Widget state reporting (companion app)
+  async reportWidgetState(
+    token: string,
+    states: Array<{ widgetId: string; widgetType: string; state: Record<string, unknown> }>
+  ): Promise<void> {
+    await fetch(`${API_BASE}/kiosks/public/${token}/widget-state`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ states }),
+    });
+  }
+
+  async getKioskWidgetState(kioskId: string): Promise<
+    Array<{ widgetId: string; widgetType: string; state: Record<string, unknown>; updatedAt: number }>
+  > {
+    return this.fetch(`/kiosks/${kioskId}/widget-state`);
+  }
+
+  async companionPing(kioskId: string): Promise<void> {
+    await this.fetch(`/kiosks/${kioskId}/companion-ping`, { method: "POST" });
+  }
+
   // Public kiosk endpoints (token-based, no auth)
   async getKioskByToken(token: string): Promise<KioskConfig> {
     const response = await fetch(`${API_BASE}/kiosks/public/${token}`);
@@ -838,7 +833,7 @@ class ApiClient {
     return result.data;
   }
 
-  async getKioskCommandsByToken(token: string, since?: number): Promise<{ commands: KioskCommand[] }> {
+  async getKioskCommandsByToken(token: string, since?: number): Promise<{ commands: KioskCommand[]; fastPoll?: boolean }> {
     const params = since ? `?since=${since}` : "";
     const response = await fetch(`${API_BASE}/kiosks/public/${token}/commands${params}`);
     if (!response.ok) {
@@ -2797,6 +2792,351 @@ class ApiClient {
       body: JSON.stringify({ email, password }),
     }, true);
   }
+
+  // Cast
+  async getCastTargets(): Promise<CastTarget[]> {
+    return this.fetch<CastTarget[]>("/cast/cast-targets");
+  }
+
+  async castToTarget(data: CastRequest): Promise<void> {
+    await this.fetch("/cast/cast", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Chat
+  async getChatStatus(): Promise<ChatProviderStatus> {
+    return this.fetch<ChatProviderStatus>("/chat/status");
+  }
+
+  async getChatConversations(page = 1, limit = 20): Promise<ChatConversationSummary[]> {
+    return this.fetch<ChatConversationSummary[]>(`/chat/conversations?page=${page}&limit=${limit}`);
+  }
+
+  async getChatConversation(id: string): Promise<ChatConversationWithMessages> {
+    return this.fetch<ChatConversationWithMessages>(`/chat/conversations/${id}`);
+  }
+
+  async deleteChatConversation(id: string): Promise<void> {
+    await this.fetch(`/chat/conversations/${id}`, { method: "DELETE" });
+  }
+
+  async sendChatMessage(data: {
+    message: string;
+    conversationId?: string;
+    provider?: string;
+    model?: string;
+  }): Promise<Response> {
+    // Return raw Response for SSE streaming — bypass the normal fetch wrapper
+    const { accessToken, apiKey } = useAuthStore.getState();
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    if (apiKey) {
+      headers["x-api-key"] = apiKey;
+    } else if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+
+    const response = await fetch(`${API_BASE}/chat`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(
+        typeof err.error === "string" ? err.error : err.error?.message ?? "Chat request failed"
+      );
+    }
+
+    return response;
+  }
+
+  // YouTube
+  async youtubeSearch(q: string, options?: { type?: string; pageToken?: string; maxResults?: number }): Promise<{
+    results: YouTubeSearchResult[];
+    nextPageToken: string | null;
+    totalResults: number;
+  }> {
+    const params = new URLSearchParams({ q });
+    if (options?.type) params.set("type", options.type);
+    if (options?.pageToken) params.set("pageToken", options.pageToken);
+    if (options?.maxResults) params.set("maxResults", options.maxResults.toString());
+    const resp = await this.fetch<{ data: { results: YouTubeSearchResult[]; nextPageToken: string | null; totalResults: number } }>(`/youtube/search?${params}`);
+    return (resp as any).data ?? resp;
+  }
+
+  async getYoutubeTrending(regionCode?: string): Promise<YouTubeSearchResult[]> {
+    const params = new URLSearchParams();
+    if (regionCode) params.set("regionCode", regionCode);
+    const resp = await this.fetch<{ data: YouTubeSearchResult[] }>(`/youtube/trending?${params}`);
+    return (resp as any).data ?? resp;
+  }
+
+  async getYoutubeVideo(videoId: string): Promise<YouTubeVideoDetails> {
+    const resp = await this.fetch<{ data: YouTubeVideoDetails }>(`/youtube/videos/${videoId}`);
+    return (resp as any).data ?? resp;
+  }
+
+  async getYoutubeChannel(channelId: string): Promise<YouTubeChannel> {
+    const resp = await this.fetch<{ data: YouTubeChannel }>(`/youtube/channels/${channelId}`);
+    return (resp as any).data ?? resp;
+  }
+
+  async getYoutubeChannelVideos(channelId: string, pageToken?: string): Promise<{
+    results: YouTubeSearchResult[];
+    nextPageToken: string | null;
+  }> {
+    const params = new URLSearchParams();
+    if (pageToken) params.set("pageToken", pageToken);
+    const resp = await this.fetch<{ data: { results: YouTubeSearchResult[]; nextPageToken: string | null } }>(`/youtube/channels/${channelId}/videos?${params}`);
+    return (resp as any).data ?? resp;
+  }
+
+  async getYoutubeBookmarks(): Promise<YouTubeBookmark[]> {
+    const resp = await this.fetch<{ data: YouTubeBookmark[] }>("/youtube/bookmarks");
+    return (resp as any).data ?? resp;
+  }
+
+  async addYoutubeBookmark(data: {
+    youtubeId: string;
+    type?: string;
+    title: string;
+    thumbnailUrl?: string;
+    channelTitle?: string;
+    channelId?: string;
+    duration?: string;
+    isLive?: boolean;
+  }): Promise<YouTubeBookmark> {
+    const resp = await this.fetch<{ data: YouTubeBookmark }>("/youtube/bookmarks", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return (resp as any).data ?? resp;
+  }
+
+  async removeYoutubeBookmark(id: string): Promise<void> {
+    await this.fetch(`/youtube/bookmarks/${id}`, { method: "DELETE" });
+  }
+
+  async getYoutubeHistory(limit?: number): Promise<YouTubeWatchHistoryEntry[]> {
+    const params = new URLSearchParams();
+    if (limit) params.set("limit", limit.toString());
+    const resp = await this.fetch<{ data: YouTubeWatchHistoryEntry[] }>(`/youtube/history?${params}`);
+    return (resp as any).data ?? resp;
+  }
+
+  async recordYoutubeWatch(data: {
+    youtubeId: string;
+    type?: string;
+    title: string;
+    thumbnailUrl?: string;
+    channelTitle?: string;
+  }): Promise<void> {
+    await this.fetch("/youtube/history", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async resolveYoutubeUrl(url: string): Promise<{ youtubeId: string; type: string }> {
+    const params = new URLSearchParams({ url });
+    const resp = await this.fetch<{ data: { youtubeId: string; type: string } }>(`/youtube/resolve-url?${params}`);
+    return (resp as any).data ?? resp;
+  }
+
+  // Plex
+  async getPlexServers(): Promise<PlexServer[]> {
+    const resp = await this.fetch<{ data: PlexServer[] }>("/plex/servers");
+    return (resp as any).data ?? resp;
+  }
+
+  async addPlexServer(data: { name: string; serverUrl: string; accessToken: string }): Promise<PlexServer> {
+    const resp = await this.fetch<{ data: PlexServer }>("/plex/servers", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return (resp as any).data ?? resp;
+  }
+
+  async deletePlexServer(id: string): Promise<void> {
+    await this.fetch(`/plex/servers/${id}`, { method: "DELETE" });
+  }
+
+  async getPlexLibraries(serverId: string): Promise<PlexLibrary[]> {
+    const resp = await this.fetch<{ data: PlexLibrary[] }>(`/plex/servers/${serverId}/libraries`);
+    return (resp as any).data ?? resp;
+  }
+
+  async getPlexLibraryItems(serverId: string, libraryKey: string, search?: string): Promise<PlexItem[]> {
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    const resp = await this.fetch<{ data: PlexItem[] }>(`/plex/servers/${serverId}/libraries/${libraryKey}/items?${params}`);
+    return (resp as any).data ?? resp;
+  }
+
+  async getPlexItem(serverId: string, ratingKey: string): Promise<PlexItem> {
+    const resp = await this.fetch<{ data: PlexItem }>(`/plex/servers/${serverId}/items/${ratingKey}`);
+    return (resp as any).data ?? resp;
+  }
+
+  async searchPlex(serverId: string, query: string): Promise<PlexItem[]> {
+    const params = new URLSearchParams({ query });
+    const resp = await this.fetch<{ data: PlexItem[] }>(`/plex/servers/${serverId}/search?${params}`);
+    return (resp as any).data ?? resp;
+  }
+
+  getPlexThumbUrl(serverId: string, path: string): string {
+    const params = new URLSearchParams({ path });
+    return `/api/v1/plex/servers/${serverId}/thumb?${params}`;
+  }
+
+  // Audiobookshelf
+  async getAudiobookshelfServers(): Promise<AudiobookshelfServer[]> {
+    const resp = await this.fetch<{ data: AudiobookshelfServer[] }>("/audiobookshelf/servers");
+    return (resp as any).data ?? resp;
+  }
+
+  async addAudiobookshelfServer(data: { name: string; serverUrl: string; accessToken: string }): Promise<AudiobookshelfServer> {
+    const resp = await this.fetch<{ data: AudiobookshelfServer }>("/audiobookshelf/servers", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return (resp as any).data ?? resp;
+  }
+
+  async deleteAudiobookshelfServer(id: string): Promise<void> {
+    await this.fetch(`/audiobookshelf/servers/${id}`, { method: "DELETE" });
+  }
+
+  async getAudiobookshelfLibraries(serverId: string): Promise<AudiobookshelfLibrary[]> {
+    const resp = await this.fetch<{ data: AudiobookshelfLibrary[] }>(`/audiobookshelf/servers/${serverId}/libraries`);
+    return (resp as any).data ?? resp;
+  }
+
+  async getAudiobookshelfItems(serverId: string, libraryId: string, search?: string): Promise<AudiobookshelfItem[]> {
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    const resp = await this.fetch<{ data: AudiobookshelfItem[] }>(`/audiobookshelf/servers/${serverId}/libraries/${libraryId}/items?${params}`);
+    return (resp as any).data ?? resp;
+  }
+
+  async getAudiobookshelfItem(serverId: string, itemId: string): Promise<AudiobookshelfItem> {
+    const resp = await this.fetch<{ data: AudiobookshelfItem }>(`/audiobookshelf/servers/${serverId}/items/${itemId}`);
+    return (resp as any).data ?? resp;
+  }
+
+  getAudiobookshelfCoverUrl(serverId: string, itemId: string): string {
+    const params = new URLSearchParams({ itemId });
+    return `/api/v1/audiobookshelf/servers/${serverId}/cover?${params}`;
+  }
+
+  // ============ Companion Access ============
+
+  async getCompanionAccessMe(): Promise<CompanionContext> {
+    return this.fetch<CompanionContext>("/companion/access/me");
+  }
+
+  async getCompanionUsers(): Promise<CompanionUser[]> {
+    return this.fetch<CompanionUser[]>("/companion/access/users");
+  }
+
+  async createCompanionUser(data: CreateCompanionUserRequest): Promise<CompanionUser> {
+    return this.fetch<CompanionUser>("/companion/access/users", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateCompanionUser(id: string, data: Partial<CompanionPermissions> & { label?: string; isActive?: boolean }): Promise<CompanionUser> {
+    return this.fetch<CompanionUser>(`/companion/access/users/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteCompanionUser(id: string): Promise<void> {
+    await this.fetch(`/companion/access/users/${id}`, { method: "DELETE" });
+  }
+
+  // ============ Companion Data (owner-scoped) ============
+
+  async getCompanionEvents(start: Date, end: Date): Promise<CalendarEvent[]> {
+    const params = new URLSearchParams({
+      start: start.toISOString(),
+      end: end.toISOString(),
+    });
+    return this.fetch<CalendarEvent[]>(`/companion/data/events?${params}`);
+  }
+
+  async getCompanionCalendars(): Promise<Calendar[]> {
+    return this.fetch<Calendar[]>("/companion/data/calendars");
+  }
+
+  async getCompanionTasks(params?: { listId?: string; status?: string }): Promise<Task[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.listId) searchParams.set("listId", params.listId);
+    if (params?.status) searchParams.set("status", params.status);
+    return this.fetch<Task[]>(`/companion/data/tasks?${searchParams}`);
+  }
+
+  async getCompanionTaskLists(): Promise<TaskList[]> {
+    return this.fetch<TaskList[]>("/companion/data/task-lists");
+  }
+
+  async createCompanionEvent(data: {
+    calendarId: string;
+    title: string;
+    startTime: Date;
+    endTime: Date;
+    description?: string;
+    location?: string;
+    isAllDay?: boolean;
+  }): Promise<CalendarEvent> {
+    return this.fetch<CalendarEvent>("/companion/data/events", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateCompanionEvent(id: string, data: Partial<CalendarEvent>): Promise<CalendarEvent> {
+    return this.fetch<CalendarEvent>(`/companion/data/events/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteCompanionEvent(id: string): Promise<void> {
+    await this.fetch(`/companion/data/events/${id}`, { method: "DELETE" });
+  }
+
+  async createCompanionTask(data: {
+    taskListId: string;
+    title: string;
+    notes?: string;
+    dueDate?: Date;
+  }): Promise<Task> {
+    return this.fetch<Task>("/companion/data/tasks", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateCompanionTask(id: string, data: Partial<{ title: string; notes: string; status: "needsAction" | "completed"; dueDate: Date | null }>): Promise<Task> {
+    return this.fetch<Task>(`/companion/data/tasks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteCompanionTask(id: string): Promise<void> {
+    await this.fetch(`/companion/data/tasks/${id}`, { method: "DELETE" });
+  }
 }
 
 // Family Profile types
@@ -2815,6 +3155,25 @@ export interface ProfileNewsFeedVisibility {
   isVisible: boolean;
 }
 
+// Cast types
+export interface CastTarget {
+  id: string;
+  name: string;
+  type: "kiosk" | "media_player";
+  capabilities: ("iptv" | "cameras" | "multiview")[];
+  state?: string;
+}
+
+export interface CastRequest {
+  targetId: string;
+  targetType: "kiosk" | "media_player";
+  contentType: "iptv" | "camera" | "multiview";
+  channelId?: string;
+  cameraId?: string;
+  cameraEntityId?: string;
+  multiviewItems?: unknown[];
+}
+
 // Kiosk types
 export type KioskDisplayMode = "full" | "screensaver-only" | "calendar-only" | "dashboard-only";
 export type KioskDisplayType = "touch" | "tv" | "display";
@@ -2828,7 +3187,10 @@ export type KioskCommandType =
   | "multiview-remove"
   | "multiview-clear"
   | "multiview-set"
-  | "screensaver";
+  | "screensaver"
+  | "widget-control"
+  | "iptv-play"
+  | "camera-view";
 
 export interface KioskCommand {
   type: KioskCommandType;
@@ -2843,11 +3205,13 @@ export interface KioskEnabledFeatures {
   photos?: boolean;
   spotify?: boolean;
   iptv?: boolean;
+  youtube?: boolean;
   cameras?: boolean;
   multiview?: boolean;
   homeassistant?: boolean;
   map?: boolean;
   kitchen?: boolean;
+  chat?: boolean;
   screensaver?: boolean;
 }
 
@@ -2866,7 +3230,7 @@ export interface Kiosk {
   screensaverEnabled: boolean;
   screensaverTimeout: number;
   screensaverInterval: number;
-  screensaverLayout: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
+  screensaverLayout: "fullscreen" | "informational" | "quad" | "scatter" | "builder" | "skylight";
   screensaverTransition: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
   screensaverLayoutConfig: Record<string, unknown> | null;
   screensaverBehavior: "screensaver" | "hide-toolbar";
@@ -2887,7 +3251,7 @@ export interface KioskConfig {
   screensaverEnabled: boolean;
   screensaverTimeout: number;
   screensaverInterval: number;
-  screensaverLayout: "fullscreen" | "informational" | "quad" | "scatter" | "builder";
+  screensaverLayout: "fullscreen" | "informational" | "quad" | "scatter" | "builder" | "skylight";
   screensaverTransition: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
   screensaverLayoutConfig: Record<string, unknown> | null;
   screensaverBehavior: "screensaver" | "hide-toolbar";
@@ -3130,6 +3494,203 @@ export interface RemarkableRecentDocument {
   folderPath: string;
   lastModified: string;
   pinned: boolean;
+}
+
+// Chat types
+export interface ChatProviderStatus {
+  claude: boolean;
+  openai: boolean;
+  gemini: boolean;
+  defaultProvider: AIChatProvider;
+}
+
+export interface ChatConversationSummary {
+  id: string;
+  userId: string;
+  title: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatMessageData {
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  provider: AIChatProvider | null;
+  model: string | null;
+  tokenUsage: { promptTokens?: number; completionTokens?: number; totalTokens?: number } | null;
+  createdAt: string;
+}
+
+export interface ChatConversationWithMessages extends ChatConversationSummary {
+  messages: ChatMessageData[];
+}
+
+// YouTube types for API client
+export interface YouTubeSearchResult {
+  youtubeId: string;
+  type: string;
+  title: string;
+  description: string;
+  thumbnailUrl: string;
+  channelTitle: string;
+  channelId: string;
+  publishedAt: string;
+  isLive: boolean;
+  duration?: string;
+  viewCount?: string;
+}
+
+export interface YouTubeVideoDetails {
+  youtubeId: string;
+  title: string;
+  description: string;
+  thumbnailUrl: string;
+  channelTitle: string;
+  channelId: string;
+  publishedAt: string;
+  duration: string;
+  viewCount: string;
+  likeCount: string;
+  isLive: boolean;
+  tags: string[];
+}
+
+export interface YouTubeChannel {
+  channelId: string;
+  title: string;
+  description: string;
+  thumbnailUrl: string;
+  subscriberCount: string;
+  videoCount: string;
+}
+
+export interface YouTubeBookmark {
+  id: string;
+  youtubeId: string;
+  type: string;
+  title: string;
+  thumbnailUrl: string | null;
+  channelTitle: string | null;
+  channelId: string | null;
+  duration: string | null;
+  isLive: boolean;
+  createdAt: string;
+}
+
+export interface YouTubeWatchHistoryEntry {
+  id: string;
+  youtubeId: string;
+  type: string;
+  title: string;
+  thumbnailUrl: string | null;
+  channelTitle: string | null;
+  watchedAt: string;
+}
+
+// Plex types
+export interface PlexServer {
+  id: string;
+  userId: string;
+  name: string;
+  serverUrl: string;
+  machineId: string | null;
+  isActive: boolean;
+  lastSyncedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlexLibrary {
+  key: string;
+  title: string;
+  type: string;
+  thumb?: string;
+  count?: number;
+}
+
+export interface PlexItem {
+  ratingKey: string;
+  title: string;
+  type: string;
+  year?: number;
+  thumb?: string;
+  art?: string;
+  duration?: number;
+  summary?: string;
+  grandparentTitle?: string;
+  parentTitle?: string;
+}
+
+// Audiobookshelf types
+export interface AudiobookshelfServer {
+  id: string;
+  userId: string;
+  name: string;
+  serverUrl: string;
+  isActive: boolean;
+  lastSyncedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AudiobookshelfLibrary {
+  id: string;
+  name: string;
+  mediaType: string;
+  folders: string[];
+}
+
+export interface AudiobookshelfItem {
+  id: string;
+  title: string;
+  authorName?: string;
+  duration?: number;
+  coverUrl?: string;
+  description?: string;
+  progress?: number;
+}
+
+// ============ Companion Types ============
+
+export interface CompanionPermissions {
+  accessCalendar: "none" | "view" | "edit";
+  accessTasks: "none" | "view" | "edit";
+  accessKiosks: boolean;
+  accessPhotos: boolean;
+  accessIptv: boolean;
+  accessHomeAssistant: boolean;
+  accessNews: boolean;
+  accessWeather: boolean;
+  accessRecipes: boolean;
+  allowedCalendarIds: string[] | null;
+  allowedTaskListIds: string[] | null;
+}
+
+export interface CompanionContext {
+  isOwner: boolean;
+  permissions: CompanionPermissions | null;
+}
+
+export interface CompanionUser {
+  id: string;
+  userId: string;
+  userName: string | null;
+  userEmail: string;
+  label: string | null;
+  isActive: boolean;
+  createdAt?: string;
+  permissions: CompanionPermissions;
+}
+
+export interface CreateCompanionUserRequest {
+  type: "invite" | "create";
+  email: string;
+  name?: string;
+  password?: string;
+  label?: string;
+  permissions?: Partial<CompanionPermissions>;
 }
 
 export const api = new ApiClient();

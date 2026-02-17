@@ -14,8 +14,15 @@ export interface NavigableBlock {
   instantAction?: () => void; // If set, OK triggers this instead of entering controlling mode
 }
 
+export interface WidgetRemoteAction {
+  key: string;         // "channel-change", "mute-toggle", "next-photo", etc.
+  label: string;
+  execute: (data?: Record<string, unknown>) => void;
+}
+
 export interface TVBlockControls {
   actions: TVControlAction[];
+  remoteActions?: WidgetRemoteAction[];
 }
 
 export interface TVControlAction {
@@ -41,6 +48,7 @@ interface BlockNavState {
   navigateDirection: (direction: "up" | "down" | "left" | "right") => void;
   executeControl: (key: string) => boolean;
   updateBlockControls: (blockId: string, controls: TVBlockControls | null) => void;
+  executeRemoteAction: (widgetId: string, actionKey: string, data?: Record<string, unknown>) => boolean;
 }
 
 export const useBlockNavStore = create<BlockNavState>()((set, get) => ({
@@ -221,5 +229,18 @@ export const useBlockNavStore = create<BlockNavState>()((set, get) => ({
       b.id === blockId ? { ...b, controls: controls ?? undefined } : b
     );
     set({ blocks: newBlocks });
+  },
+
+  executeRemoteAction: (widgetId, actionKey, data) => {
+    const { blocks } = get();
+    const block = blocks.find((b) => b.id === widgetId);
+    if (!block?.controls?.remoteActions) return false;
+
+    const remoteAction = block.controls.remoteActions.find((a) => a.key === actionKey);
+    if (remoteAction) {
+      remoteAction.execute(data);
+      return true;
+    }
+    return false;
   },
 }));

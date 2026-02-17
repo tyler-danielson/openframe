@@ -35,6 +35,12 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(sortedEvents.length);
 
+  // Find the next upcoming event index
+  const now = new Date();
+  const nextEventIndex = sortedEvents.findIndex(
+    (event) => new Date(event.endTime) >= now
+  );
+
   useEffect(() => {
     if (!open) return;
 
@@ -42,6 +48,14 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
     const timer = setTimeout(() => {
       const container = scrollRef.current;
       if (!container) return;
+
+      // Scroll to next upcoming event
+      if (nextEventIndex > 0) {
+        const el = container.querySelector(`[data-event-index="${nextEventIndex}"]`);
+        if (el) {
+          el.scrollIntoView({ block: "start" });
+        }
+      }
 
       const visibleIds = new Set<string>();
 
@@ -63,7 +77,7 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
     }, 50);
 
     return () => clearTimeout(timer);
-  }, [open, sortedEvents.length]);
+  }, [open, sortedEvents.length, nextEventIndex]);
 
   const handleEventClick = (event: CalendarEvent) => {
     onClose();
@@ -107,24 +121,28 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
               </p>
             ) : (
               <div className="space-y-3">
-                {sortedEvents.map((event) => {
+                {sortedEvents.map((event, index) => {
                   const isHoliday = event.calendarId === "federal-holidays";
                   const calendarColor = isHoliday
                     ? "#9333EA"
                     : ((event as CalendarEvent & { calendar?: { color: string } }).calendar?.color ?? "#3B82F6");
                   const isPast = new Date(event.endTime) < new Date();
+                  const isNextEvent = index === nextEventIndex;
 
                   return (
                     <button
                       key={event.id}
                       data-event-id={event.id}
+                      data-event-index={index}
                       onClick={() => handleEventClick(event)}
                       className={`w-full text-left p-3 rounded-lg border transition-colors ${
                         isPast ? "opacity-40" : ""
                       } ${
                         isHoliday
                           ? "border-purple-500/40 bg-purple-500/5 hover:bg-purple-500/10"
-                          : "border-border hover:bg-muted/50"
+                          : isNextEvent
+                            ? "border-primary/50 bg-primary/5 hover:bg-primary/10"
+                            : "border-border hover:bg-muted/50"
                       }`}
                     >
                       <div className="flex items-start gap-3">

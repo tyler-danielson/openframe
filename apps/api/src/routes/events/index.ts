@@ -1,10 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
 import { randomUUID } from "crypto";
 import { eq, and, gte, lte, inArray } from "drizzle-orm";
-import { calendars, events } from "@openframe/database/schema";
+import { calendars, events, oauthTokens } from "@openframe/database/schema";
 import { eventQuerySchema, createEventSchema, quickEventSchema } from "@openframe/shared/validators";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { expandRecurringEvents } from "../../services/calendar-sync/recurrence.js";
+import { pushEventToGoogle, updateEventInGoogle, deleteEventFromGoogle } from "../../services/calendar-sync/google.js";
+import { pushEventToMicrosoft, updateEventInMicrosoft, deleteEventFromMicrosoft } from "../../services/calendar-sync/microsoft.js";
 
 export const eventRoutes: FastifyPluginAsync = async (fastify) => {
   // Get events
@@ -228,7 +230,36 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
         })
         .returning();
 
-      // TODO: Sync to provider (Google/Microsoft)
+      // Sync to external calendar provider
+      if ((calendar.provider === "google" || calendar.provider === "microsoft") && event) {
+        const [token] = await fastify.db
+          .select()
+          .from(oauthTokens)
+          .where(
+            and(
+              eq(oauthTokens.userId, user.id),
+              eq(oauthTokens.provider, calendar.provider as "google" | "microsoft")
+            )
+          )
+          .limit(1);
+
+        if (token) {
+          if (calendar.provider === "google") {
+            await pushEventToGoogle(fastify.db, user.id, calendar, event, token);
+          } else {
+            await pushEventToMicrosoft(fastify.db, user.id, calendar, event, token);
+          }
+          // Re-fetch so response includes the updated externalId
+          const [updated] = await fastify.db
+            .select()
+            .from(events)
+            .where(eq(events.id, event.id))
+            .limit(1);
+          if (updated) {
+            return reply.status(201).send({ success: true, data: updated });
+          }
+        }
+      }
 
       return reply.status(201).send({
         success: true,
@@ -300,6 +331,44 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
           isAllDay: parsed.isAllDay,
         })
         .returning();
+
+      // Sync to external calendar provider
+      if (event) {
+        const [cal] = await fastify.db
+          .select()
+          .from(calendars)
+          .where(eq(calendars.id, calendarId))
+          .limit(1);
+
+        if (cal?.provider === "google" || cal?.provider === "microsoft") {
+          const [token] = await fastify.db
+            .select()
+            .from(oauthTokens)
+            .where(
+              and(
+                eq(oauthTokens.userId, user.id),
+                eq(oauthTokens.provider, cal.provider as "google" | "microsoft")
+              )
+            )
+            .limit(1);
+
+          if (token) {
+            if (cal.provider === "google") {
+              await pushEventToGoogle(fastify.db, user.id, cal, event, token);
+            } else {
+              await pushEventToMicrosoft(fastify.db, user.id, cal, event, token);
+            }
+            const [updated] = await fastify.db
+              .select()
+              .from(events)
+              .where(eq(events.id, event.id))
+              .limit(1);
+            if (updated) {
+              return reply.status(201).send({ success: true, data: updated });
+            }
+          }
+        }
+      }
 
       return reply.status(201).send({
         success: true,
@@ -391,6 +460,28 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(events.id, id))
         .returning();
 
+      // Sync update to external calendar provider
+      if ((calendar.provider === "google" || calendar.provider === "microsoft") && event && !event.externalId.startsWith("local_")) {
+        const [token] = await fastify.db
+          .select()
+          .from(oauthTokens)
+          .where(
+            and(
+              eq(oauthTokens.userId, user.id),
+              eq(oauthTokens.provider, calendar.provider as "google" | "microsoft")
+            )
+          )
+          .limit(1);
+
+        if (token) {
+          if (calendar.provider === "google") {
+            await updateEventInGoogle(fastify.db, calendar, event, token);
+          } else {
+            await updateEventInMicrosoft(fastify.db, calendar, event, token);
+          }
+        }
+      }
+
       return {
         success: true,
         data: event,
@@ -450,6 +541,28 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (calendar.isReadOnly) {
         return reply.badRequest("Calendar is read-only");
+      }
+
+      // Sync delete to external calendar before removing locally
+      if ((calendar.provider === "google" || calendar.provider === "microsoft") && !event.externalId.startsWith("local_")) {
+        const [token] = await fastify.db
+          .select()
+          .from(oauthTokens)
+          .where(
+            and(
+              eq(oauthTokens.userId, user.id),
+              eq(oauthTokens.provider, calendar.provider as "google" | "microsoft")
+            )
+          )
+          .limit(1);
+
+        if (token) {
+          if (calendar.provider === "google") {
+            await deleteEventFromGoogle(calendar, event, token);
+          } else {
+            await deleteEventFromMicrosoft(calendar, event, token);
+          }
+        }
       }
 
       await fastify.db.delete(events).where(eq(events.id, id));

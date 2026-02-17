@@ -5,6 +5,7 @@ import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import { cn } from "../../lib/utils";
 import { useBlockControls } from "../../hooks/useBlockControls";
+import { useWidgetStateReporter } from "../../hooks/useWidgetStateReporter";
 
 interface SpotifyWidgetProps {
   config: Record<string, unknown>;
@@ -90,6 +91,21 @@ export function SpotifyWidget({ config, style, isBuilder, widgetId }: SpotifyWid
     };
   }, [isBuilder, widgetId, isPlaying]);
   useBlockControls(widgetId, blockControls);
+
+  // Report state for companion app
+  useWidgetStateReporter(
+    isBuilder ? undefined : widgetId,
+    "spotify",
+    useMemo(
+      () => ({
+        isPlaying,
+        trackName: playback?.item?.name || null,
+        artistName: playback?.item?.artists.map((a) => a.name).join(", ") || null,
+        albumArt: playback?.item?.album.images[0]?.url || null,
+      }),
+      [isPlaying, playback?.item?.name, playback?.item?.artists, playback?.item?.album.images]
+    )
+  );
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
   const presetKey = preset as Exclude<FontSizePreset, "custom">;

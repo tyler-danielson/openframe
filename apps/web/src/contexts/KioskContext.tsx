@@ -69,7 +69,6 @@ export function KioskProvider({ token, children }: KioskProviderProps) {
   const [error, setError] = useState<string | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const setApiKey = useAuthStore((state) => state.setApiKey);
-  const setKioskStatus = useAuthStore((state) => state.setKioskStatus);
   const queryClient = useQueryClient();
 
   // Handle reconnection - invalidate cache and refresh data
@@ -115,10 +114,9 @@ export function KioskProvider({ token, children }: KioskProviderProps) {
   useEffect(() => {
     if (authData?.apiKey) {
       setApiKey(authData.apiKey);
-      setKioskStatus(true);
       setIsAuthReady(true);
     }
-  }, [authData, setApiKey, setKioskStatus]);
+  }, [authData, setApiKey]);
 
   useEffect(() => {
     if (config) {

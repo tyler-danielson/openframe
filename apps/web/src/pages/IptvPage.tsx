@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -14,6 +14,7 @@ import {
   Layers,
   Clock,
   Calendar,
+  Youtube,
 } from "lucide-react";
 import { api } from "../services/api";
 import { useIptvStore } from "../stores/iptv";
@@ -25,16 +26,19 @@ import { EpgBar } from "../components/iptv/EpgBar";
 import { IptvDashboard } from "../components/iptv/IptvDashboard";
 import { ChannelGuide } from "../components/iptv/ChannelGuide";
 import { cn } from "../lib/utils";
+import { useRemoteControlStore } from "../stores/remote-control";
+import { YouTubeTab } from "../components/youtube/YouTubeTab";
 import type { IptvChannel } from "@openframe/shared";
 
-type TabView = "dashboard" | "guide" | "favorites" | "all" | "history";
+type TabView = "dashboard" | "guide" | "favorites" | "all" | "history" | "youtube";
 
 const TABS: { id: TabView; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "dashboard", label: "Now Playing", icon: LayoutDashboard },
   { id: "guide", label: "Guide", icon: Calendar },
   { id: "favorites", label: "Favorites", icon: Star },
   { id: "all", label: "All Channels", icon: Layers },
   { id: "history", label: "Recently Watched", icon: Clock },
+  { id: "youtube", label: "YouTube", icon: Youtube },
 ];
 
 export function IptvPage() {
@@ -71,7 +75,7 @@ export function IptvPage() {
   // Extract categories from guide data
   const categories = guideData?.categories || [];
 
-  // Filter channels from guide based on category and search
+  // Filter channels from guide based on category and search (name + current program title)
   const guideChannels = useMemo(() => {
     if (!guideData?.channels) return [];
     let filtered = guideData.channels;
@@ -80,10 +84,24 @@ export function IptvPage() {
     }
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((c) => c.name.toLowerCase().includes(query));
+      const now = new Date();
+      filtered = filtered.filter((c) => {
+        if (c.name.toLowerCase().includes(query)) return true;
+        // Also match current program title
+        const channelEpg = guideData.epg?.[c.id];
+        if (channelEpg) {
+          const currentProgram = channelEpg.find((e) => {
+            const start = new Date(e.startTime);
+            const end = new Date(e.endTime);
+            return now >= start && now < end;
+          });
+          if (currentProgram?.title.toLowerCase().includes(query)) return true;
+        }
+        return false;
+      });
     }
     return filtered;
-  }, [guideData?.channels, selectedCategoryId, searchQuery]);
+  }, [guideData?.channels, guideData?.epg, selectedCategoryId, searchQuery]);
 
   // Fetch favorites
   const { data: favorites = [], isLoading: loadingFavorites } = useQuery({
@@ -122,19 +140,41 @@ export function IptvPage() {
     );
   }, [favoriteTeams, sportsGames]);
 
-  // Determine which channels to display based on active tab
+  // Determine which channels to display based on active tab (with search filtering)
   const displayedChannels = useMemo(() => {
+    let channels: IptvChannel[];
     switch (activeTab) {
       case "favorites":
-        return favorites;
+        channels = favorites;
+        break;
       case "history":
-        return history;
+        channels = history;
+        break;
       case "all":
-        return guideChannels;
+        return guideChannels; // Already filtered by search
       default:
         return [];
     }
-  }, [activeTab, favorites, history, guideChannels]);
+    // Apply search filter to favorites/history tabs
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const now = new Date();
+      channels = channels.filter((c) => {
+        if (c.name.toLowerCase().includes(query)) return true;
+        const channelEpg = guideData?.epg?.[c.id];
+        if (channelEpg) {
+          const currentProgram = channelEpg.find((e) => {
+            const start = new Date(e.startTime);
+            const end = new Date(e.endTime);
+            return now >= start && now < end;
+          });
+          if (currentProgram?.title.toLowerCase().includes(query)) return true;
+        }
+        return false;
+      });
+    }
+    return channels;
+  }, [activeTab, favorites, history, guideChannels, searchQuery, guideData?.epg]);
 
   const loadingChannels = useMemo(() => {
     switch (activeTab) {
@@ -242,16 +282,27 @@ export function IptvPage() {
     }
   };
 
+  // Consume iptv-play commands from remote control (cast to kiosk)
+  const consumeCommand = useRemoteControlStore((s) => s.consumeCommand);
+  const pendingCount = useRemoteControlStore((s) => s.pendingCommands.length);
+
+  useEffect(() => {
+    if (pendingCount === 0) return;
+    const cmd = consumeCommand();
+    if (!cmd || cmd.type !== "iptv-play") return;
+    const channelId = cmd.payload?.channelId as string;
+    if (channelId && guideData?.channels) {
+      const channel = guideData.channels.find((c) => c.id === channelId);
+      if (channel) handleChannelSelect(channel);
+    }
+  }, [pendingCount]);
+
   // Handle tab selection
   const handleTabSelect = (tab: TabView) => {
     setActiveTab(tab);
     // Clear category selection when switching tabs
     if (tab !== "all") {
       setSelectedCategoryId(null);
-    }
-    // Clear search when switching to dashboard
-    if (tab === "dashboard") {
-      setSearchQuery("");
     }
   };
 
@@ -263,8 +314,10 @@ export function IptvPage() {
   // Show sidebar only on All Channels tab
   const showSidebar = activeTab === "all" && !isFullscreen;
 
-  // No servers state
-  if (servers.length === 0 && !loadingServers) {
+  const isYouTubeTab = activeTab === "youtube";
+
+  // No servers state (skip for YouTube tab)
+  if (servers.length === 0 && !loadingServers && !isYouTubeTab) {
     return (
       <div className="flex h-full flex-col items-center justify-center p-8">
         <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10">
@@ -289,9 +342,9 @@ export function IptvPage() {
       {/* Header */}
       <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
         <div className="flex items-center gap-4">
-          <h1 className="text-xl font-semibold">Live TV</h1>
+          <h1 className="text-xl font-semibold">{isYouTubeTab ? "YouTube" : "Live TV"}</h1>
           {/* Cache status indicator */}
-          {guideData?.cached && guideData.lastUpdated && (
+          {!isYouTubeTab && guideData?.cached && guideData.lastUpdated && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <CheckCircle className="h-3 w-3 text-green-500" />
               <span>
@@ -302,60 +355,62 @@ export function IptvPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Refresh cache button */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => refreshCacheMutation.mutate()}
-            disabled={refreshCacheMutation.isPending}
-            title="Refresh guide data"
-          >
-            <RefreshCw
-              className={cn(
-                "h-4 w-4",
-                refreshCacheMutation.isPending && "animate-spin"
-              )}
-            />
-          </Button>
+          {!isYouTubeTab && (
+            <>
+              {/* Refresh cache button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => refreshCacheMutation.mutate()}
+                disabled={refreshCacheMutation.isPending}
+                title="Refresh guide data"
+              >
+                <RefreshCw
+                  className={cn(
+                    "h-4 w-4",
+                    refreshCacheMutation.isPending && "animate-spin"
+                  )}
+                />
+              </Button>
 
-          {/* Search - hide on dashboard */}
-          {activeTab !== "dashboard" && (
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search channels..."
-                className="h-9 w-64 rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-muted"
-                >
-                  <X className="h-3 w-3 text-muted-foreground" />
-                </button>
-              )}
-            </div>
+              {/* Search - available on all tabs */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search channels & programs..."
+                  className="h-9 w-64 rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-muted"
+                  >
+                    <X className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                )}
+              </div>
+
+              {/* Server settings */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowServerSettings(!showServerSettings)}
+              >
+                <Settings className="mr-2 h-4 w-4" />
+                Servers
+              </Button>
+
+              {/* Settings link */}
+              <Link to="/settings?tab=iptv">
+                <Button variant="outline" size="sm">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </Link>
+            </>
           )}
-
-          {/* Server settings */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowServerSettings(!showServerSettings)}
-          >
-            <Settings className="mr-2 h-4 w-4" />
-            Servers
-          </Button>
-
-          {/* Settings link */}
-          <Link to="/settings?tab=iptv">
-            <Button variant="outline" size="sm">
-              <Settings className="h-4 w-4" />
-            </Button>
-          </Link>
         </div>
       </header>
 
@@ -451,87 +506,96 @@ export function IptvPage() {
       )}
 
       {/* Main content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Category sidebar - only on All Channels tab */}
-        {showSidebar && (
-          <CategorySidebar
-            categories={categories}
-            selectedCategoryId={selectedCategoryId}
-            onSelectCategory={handleCategorySelect}
-            specialViews={{ favorites: false, history: false }}
-            onSelectSpecialView={() => {}}
-            activeSpecialView={null}
-          />
-        )}
-
-        {/* Main area */}
-        <div className="flex flex-1 flex-col overflow-hidden">
-          {/* Video player area */}
-          {currentChannel && (
-            <div className="relative">
-              <div className={cn("bg-black", isFullscreen ? "h-screen" : "h-64 lg:h-80")}>
-                <VideoPlayer
-                  streamUrl={streamUrl}
-                  channelName={currentChannel.name}
-                  onError={setStreamError}
-                />
-              </div>
-              {streamError && (
-                <div className="absolute bottom-4 left-4 rounded-md bg-destructive/90 px-3 py-2 text-sm text-destructive-foreground">
-                  {streamError}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* EPG bar */}
-          {currentChannel && !isFullscreen && (
-            <EpgBar epgEntries={epgEntries} isLoading={loadingEpg} />
-          )}
-
-          {/* Tab content */}
-          {!isFullscreen && (
-            <div className="flex-1 overflow-y-auto">
-              {activeTab === "dashboard" ? (
-                <IptvDashboard
-                  favorites={favorites}
-                  history={history}
-                  channels={guideData?.channels || []}
-                  epg={guideData?.epg || {}}
-                  sportsGames={relevantSportsGames}
-                  onChannelSelect={handleChannelSelect}
-                  onToggleFavorite={(channelId, isFavorite) =>
-                    toggleFavoriteMutation.mutate({ channelId, isFavorite })
-                  }
-                  onViewAllFavorites={() => handleTabSelect("favorites")}
-                  onViewAllHistory={() => handleTabSelect("history")}
-                  onViewGuide={() => handleTabSelect("guide")}
-                />
-              ) : activeTab === "guide" ? (
-                <ChannelGuide
-                  channels={guideData?.channels || []}
-                  epg={guideData?.epg || {}}
-                  favorites={favorites}
-                  onChannelSelect={handleChannelSelect}
-                />
-              ) : loadingChannels ? (
-                <div className="flex h-full items-center justify-center">
-                  <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : (
-                <ChannelGrid
-                  channels={displayedChannels}
-                  currentChannelId={currentChannel?.id}
-                  onChannelSelect={handleChannelSelect}
-                  onToggleFavorite={(channelId, isFavorite) =>
-                    toggleFavoriteMutation.mutate({ channelId, isFavorite })
-                  }
-                />
-              )}
-            </div>
-          )}
+      {isYouTubeTab ? (
+        <div className="flex-1 overflow-hidden">
+          <YouTubeTab />
         </div>
-      </div>
+      ) : (
+        <div className="flex flex-1 overflow-hidden">
+          {/* Category sidebar - only on All Channels tab */}
+          {showSidebar && (
+            <CategorySidebar
+              categories={categories}
+              selectedCategoryId={selectedCategoryId}
+              onSelectCategory={handleCategorySelect}
+              specialViews={{ favorites: false, history: false }}
+              onSelectSpecialView={() => {}}
+              activeSpecialView={null}
+            />
+          )}
+
+          {/* Main area */}
+          <div className="flex flex-1 flex-col overflow-hidden">
+            {/* Video player area */}
+            {currentChannel && (
+              <div className="relative">
+                <div className={cn("bg-black", isFullscreen ? "h-screen" : "h-64 lg:h-80")}>
+                  <VideoPlayer
+                    streamUrl={streamUrl}
+                    channelName={currentChannel.name}
+                    channelId={currentChannel.id}
+                    onError={setStreamError}
+                  />
+                </div>
+                {streamError && (
+                  <div className="absolute bottom-4 left-4 rounded-md bg-destructive/90 px-3 py-2 text-sm text-destructive-foreground">
+                    {streamError}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* EPG bar */}
+            {currentChannel && !isFullscreen && (
+              <EpgBar epgEntries={epgEntries} isLoading={loadingEpg} />
+            )}
+
+            {/* Tab content */}
+            {!isFullscreen && (
+              <div className="flex-1 overflow-y-auto">
+                {activeTab === "dashboard" ? (
+                  <IptvDashboard
+                    favorites={favorites}
+                    history={history}
+                    channels={guideData?.channels || []}
+                    epg={guideData?.epg || {}}
+                    sportsGames={relevantSportsGames}
+                    searchQuery={searchQuery}
+                    onChannelSelect={handleChannelSelect}
+                    onToggleFavorite={(channelId, isFavorite) =>
+                      toggleFavoriteMutation.mutate({ channelId, isFavorite })
+                    }
+                    onViewAllFavorites={() => handleTabSelect("favorites")}
+                    onViewAllHistory={() => handleTabSelect("history")}
+                    onViewGuide={() => handleTabSelect("guide")}
+                  />
+                ) : activeTab === "guide" ? (
+                  <ChannelGuide
+                    channels={guideData?.channels || []}
+                    epg={guideData?.epg || {}}
+                    favorites={favorites}
+                    searchQuery={searchQuery}
+                    onChannelSelect={handleChannelSelect}
+                  />
+                ) : loadingChannels ? (
+                  <div className="flex h-full items-center justify-center">
+                    <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <ChannelGrid
+                    channels={displayedChannels}
+                    currentChannelId={currentChannel?.id}
+                    onChannelSelect={handleChannelSelect}
+                    onToggleFavorite={(channelId, isFavorite) =>
+                      toggleFavoriteMutation.mutate({ channelId, isFavorite })
+                    }
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -39,6 +39,13 @@ import { profileRoutes } from "./routes/profiles/index.js";
 import { gmailRoutes } from "./routes/gmail/index.js";
 import { briefingRoutes } from "./routes/briefing/index.js";
 import { setupRoutes } from "./routes/setup/index.js";
+import { castRoutes } from "./routes/cast/index.js";
+import { chatRoutes } from "./routes/chat/index.js";
+import { youtubeRoutes } from "./routes/youtube/index.js";
+import { plexRoutes } from "./routes/plex/index.js";
+import { audiobookshelfRoutes } from "./routes/audiobookshelf/index.js";
+import { companionAccessRoutes } from "./routes/companion/access.js";
+import { companionDataRoutes } from "./routes/companion/data.js";
 import type { Config } from "./config.js";
 
 export async function buildApp(config: Config): Promise<FastifyInstance> {
@@ -133,6 +140,9 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(authPlugin);
   await app.register(schedulerPlugin);
 
+  // Shared upload tokens Map (must be decorated at app level so all routes share it)
+  app.decorate("uploadTokens", new Map());
+
   // Routes
   await app.register(healthRoutes, { prefix: "/api/v1" });
   await app.register(authRoutes, { prefix: "/api/v1/auth" });
@@ -162,6 +172,13 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(gmailRoutes, { prefix: "/api/v1/gmail" });
   await app.register(briefingRoutes, { prefix: "/api/v1/briefing" });
   await app.register(setupRoutes, { prefix: "/api/v1/setup" });
+  await app.register(castRoutes, { prefix: "/api/v1/cast" });
+  await app.register(chatRoutes, { prefix: "/api/v1/chat" });
+  await app.register(youtubeRoutes, { prefix: "/api/v1/youtube" });
+  await app.register(plexRoutes, { prefix: "/api/v1/plex" });
+  await app.register(audiobookshelfRoutes, { prefix: "/api/v1/audiobookshelf" });
+  await app.register(companionAccessRoutes, { prefix: "/api/v1/companion/access" });
+  await app.register(companionDataRoutes, { prefix: "/api/v1/companion/data" });
 
   // Error handler
   app.setErrorHandler((error: FastifyError, _request, reply) => {

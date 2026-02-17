@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { QrCode, Clock, RefreshCw } from "lucide-react";
 import { api } from "../../services/api";
@@ -16,10 +16,13 @@ export function KioskQRUpload({ className = "" }: KioskQRUploadProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<string>("");
+  const isLoadingRef = useRef(false);
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   const generateToken = useCallback(async () => {
-    if (!kioskToken) return;
+    if (!kioskToken || isLoadingRef.current) return;
 
+    isLoadingRef.current = true;
     setIsLoading(true);
     setError(null);
     try {
@@ -30,7 +33,13 @@ export function KioskQRUpload({ className = "" }: KioskQRUploadProps) {
     } catch (err) {
       setError("Failed to generate QR code");
       console.error("Kiosk upload token error:", err);
+      // Schedule a retry after 10 seconds on failure
+      retryTimeoutRef.current = setTimeout(() => {
+        isLoadingRef.current = false;
+        generateToken();
+      }, 10000);
     } finally {
+      isLoadingRef.current = false;
       setIsLoading(false);
     }
   }, [kioskToken]);
@@ -38,6 +47,9 @@ export function KioskQRUpload({ className = "" }: KioskQRUploadProps) {
   // Generate token on mount
   useEffect(() => {
     generateToken();
+    return () => {
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    };
   }, [generateToken]);
 
   // Update countdown timer and auto-refresh before expiry
@@ -49,16 +61,18 @@ export function KioskQRUpload({ className = "" }: KioskQRUploadProps) {
       const diff = expiresAt.getTime() - now.getTime();
 
       // Refresh token when 2 minutes remaining
-      if (diff <= 2 * 60 * 1000 && diff > 0 && !isLoading) {
-        generateToken();
+      if (diff <= 2 * 60 * 1000 && diff > 0) {
+        if (!isLoadingRef.current) {
+          generateToken();
+        }
         return;
       }
 
       if (diff <= 0) {
         setTimeRemaining("Expired");
-        setUploadUrl(null);
-        // Auto-refresh when expired
-        generateToken();
+        if (!isLoadingRef.current) {
+          generateToken();
+        }
         return;
       }
 
@@ -70,7 +84,7 @@ export function KioskQRUpload({ className = "" }: KioskQRUploadProps) {
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [expiresAt, isLoading, generateToken]);
+  }, [expiresAt, generateToken]);
 
   // Don't render if no kiosk token
   if (!kioskToken) return null;
@@ -89,7 +103,7 @@ export function KioskQRUpload({ className = "" }: KioskQRUploadProps) {
         </div>
       </div>
 
-      {isLoading ? (
+      {isLoading && !uploadUrl ? (
         <div className="w-32 h-32 flex items-center justify-center bg-muted/50 rounded-lg">
           <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>

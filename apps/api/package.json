@@ -7,10 +7,12 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "mcp": "tsx src/mcp-server.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@modelcontextprotocol/sdk": "^1.12.1",
     "@fastify/cookie": "^10.0.1",
     "@fastify/cors": "^10.0.1",
     "@fastify/helmet": "^13.0.2",

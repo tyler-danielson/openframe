@@ -83,12 +83,14 @@ export function CameraFeed({
         } else {
           // Fall back to MJPEG or snapshot
           setStreamMode(camera.mjpegUrl ? "mjpeg" : "snapshot");
+          setIsLoading(false);
         }
       } catch (error) {
         console.error("Failed to start camera stream:", error);
         if (!cancelled) {
           setMediamtxAvailable(false);
           setStreamMode(camera.mjpegUrl ? "mjpeg" : "snapshot");
+          setIsLoading(false);
         }
       }
     };
@@ -105,15 +107,16 @@ export function CameraFeed({
     if (streamMode === "mjpeg" && camera.mjpegUrl) {
       return `${api.getCameraStreamUrl(camera.id)}?token=${accessToken}`;
     }
-    if (camera.snapshotUrl) {
+    if (camera.snapshotUrl || camera.rtspUrl) {
+      // Backend handles derivation of snapshot URL from RTSP URL
       return `${api.getCameraSnapshotUrl(camera.id)}?token=${accessToken}&t=${Date.now()}`;
     }
     return null;
-  }, [camera.id, camera.mjpegUrl, camera.snapshotUrl, streamMode, accessToken]);
+  }, [camera.id, camera.mjpegUrl, camera.snapshotUrl, camera.rtspUrl, streamMode, accessToken]);
 
   // Refresh snapshot periodically
   useEffect(() => {
-    if (streamMode !== "snapshot" || !camera.snapshotUrl) return;
+    if (streamMode !== "snapshot" || (!camera.snapshotUrl && !camera.rtspUrl)) return;
 
     const refresh = () => {
       if (imgRef.current) {
@@ -129,7 +132,15 @@ export function CameraFeed({
         clearInterval(refreshIntervalRef.current);
       }
     };
-  }, [camera.id, camera.snapshotUrl, refreshInterval, streamMode, accessToken]);
+  }, [camera.id, camera.snapshotUrl, camera.rtspUrl, refreshInterval, streamMode, accessToken]);
+
+  // Safety net: clear loading state when there's no image URL and we're not in WebRTC mode
+  useEffect(() => {
+    const webrtcMode = streamMode === "webrtc" || streamMode === "hls";
+    if (!webrtcMode && !getImageUrl()) {
+      setIsLoading(false);
+    }
+  }, [streamMode, getImageUrl]);
 
   const handleLoad = () => {
     setIsLoading(false);
@@ -159,7 +170,7 @@ export function CameraFeed({
     if (camera.mjpegUrl) {
       availableModes.push("mjpeg");
     }
-    if (camera.snapshotUrl) {
+    if (camera.snapshotUrl || camera.rtspUrl) {
       availableModes.push("snapshot");
     }
 
@@ -208,7 +219,7 @@ export function CameraFeed({
 
   const imageUrl = getImageUrl();
   const isWebRTCMode = streamMode === "webrtc" || streamMode === "hls";
-  const canCycleMode = (camera.rtspUrl && mediamtxAvailable) || camera.mjpegUrl || camera.snapshotUrl;
+  const canCycleMode = camera.rtspUrl || camera.mjpegUrl || camera.snapshotUrl;
 
   return (
     <div
@@ -347,7 +358,7 @@ export function CameraFeed({
             )}
 
             {/* Refresh button (snapshot mode only) */}
-            {streamMode === "snapshot" && camera.snapshotUrl && (
+            {streamMode === "snapshot" && (camera.snapshotUrl || camera.rtspUrl) && (
               <button
                 onClick={handleRefresh}
                 className="rounded p-1.5 text-white/80 hover:bg-white/20 hover:text-white"

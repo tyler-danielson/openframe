@@ -59,6 +59,7 @@ export function MobileUploadPage() {
   const { token } = useParams<{ token: string }>();
   const [albumName, setAlbumName] = useState<string>("");
   const [isValid, setIsValid] = useState<boolean | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -72,21 +73,35 @@ export function MobileUploadPage() {
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
 
   // Validate token on mount
-  useEffect(() => {
+  const validateToken = useCallback(() => {
     if (!token) {
       setIsValid(false);
+      setValidationError("No upload token provided");
       return;
     }
+
+    setIsValid(null); // loading state
+    setValidationError(null);
 
     api.getUploadTokenInfo(token)
       .then((info) => {
         setAlbumName(info.albumName);
         setIsValid(true);
       })
-      .catch(() => {
+      .catch((err) => {
         setIsValid(false);
+        // Distinguish between expired token and network errors
+        if (err instanceof TypeError || err.message?.includes("fetch")) {
+          setValidationError("Cannot reach server. Make sure you're on the same network.");
+        } else {
+          setValidationError("Link expired. Please scan a new QR code.");
+        }
       });
   }, [token]);
+
+  useEffect(() => {
+    validateToken();
+  }, [validateToken]);
 
   const onCropComplete = useCallback((_croppedArea: Area, croppedAreaPixels: Area) => {
     setCroppedAreaPixels(croppedAreaPixels);
@@ -208,11 +223,20 @@ export function MobileUploadPage() {
         <div className="text-center">
           <AlertCircle className="h-16 w-16 text-destructive mx-auto mb-6" />
           <h1 className="text-2xl font-bold text-foreground mb-3">
-            Link Expired
+            {validationError?.includes("network") || validationError?.includes("server")
+              ? "Connection Error"
+              : "Link Expired"}
           </h1>
-          <p className="text-lg text-muted-foreground">
-            Please scan a new QR code
+          <p className="text-lg text-muted-foreground mb-6">
+            {validationError || "Please scan a new QR code"}
           </p>
+          <button
+            onClick={validateToken}
+            className="px-6 py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-lg touch-manipulation"
+          >
+            <RotateCw className="h-5 w-5 inline mr-2" />
+            Retry
+          </button>
         </div>
       </div>
     );

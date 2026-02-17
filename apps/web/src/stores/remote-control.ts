@@ -10,7 +10,10 @@ export type KioskCommandType =
   | "multiview-remove"
   | "multiview-clear"
   | "multiview-set"
-  | "screensaver";
+  | "screensaver"
+  | "widget-control"
+  | "iptv-play"
+  | "camera-view";
 
 export interface KioskCommand {
   type: KioskCommandType;

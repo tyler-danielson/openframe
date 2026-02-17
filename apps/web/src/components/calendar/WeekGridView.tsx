@@ -388,7 +388,7 @@ export function WeekGridView({
         onPointerCancel={handleDayPointerUp}
       >
         {/* Day header */}
-        <div className="px-3 py-1 border-b border-white bg-muted shrink-0 h-[60px] overflow-hidden flex flex-col justify-center">
+        <div className="px-3 py-1.5 border-b border-white bg-muted shrink-0 h-[68px] overflow-hidden flex flex-col justify-center">
           <div className="flex items-center justify-between">
             <p className="text-2xl font-bold text-foreground flex items-center gap-2">
               {showWeekNumbers && showWeekNumber && (

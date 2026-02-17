@@ -6,6 +6,7 @@ import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import type { WidgetStyle } from "../../stores/screensaver";
 import { cn } from "../../lib/utils";
 import { useBlockControls } from "../../hooks/useBlockControls";
+import { useWidgetStateReporter } from "../../hooks/useWidgetStateReporter";
 
 interface PhotoAlbumWidgetProps {
   config: Record<string, unknown>;
@@ -209,9 +210,27 @@ export function PhotoAlbumWidget({ config, style, isBuilder, widgetId }: PhotoAl
         { key: "right", label: "Next Photo", action: advancePhoto },
         { key: "left", label: "Previous Photo", action: prevPhoto },
       ],
+      remoteActions: [
+        { key: "next-photo", label: "Next Photo", execute: () => advancePhoto() },
+        { key: "prev-photo", label: "Previous Photo", execute: () => prevPhoto() },
+      ],
     };
   }, [isBuilder, widgetId, advancePhoto, prevPhoto]);
   useBlockControls(widgetId, blockControls);
+
+  // Report state for companion app
+  useWidgetStateReporter(
+    isBuilder ? undefined : widgetId,
+    "photo-album",
+    useMemo(
+      () => ({
+        currentIndex,
+        totalPhotos: photos.length,
+        currentUrl: photos[currentIndex]?.url || null,
+      }),
+      [currentIndex, photos.length, photos[currentIndex]?.url]
+    )
+  );
 
   // Set up slideshow timer with offset support
   useEffect(() => {

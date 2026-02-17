@@ -11,14 +11,16 @@ import {
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useIptvStore } from "../../stores/iptv";
+import { CastButton } from "../cast/CastButton";
 
 interface VideoPlayerProps {
   streamUrl: string | null;
   channelName?: string;
+  channelId?: string;
   onError?: (error: string) => void;
 }
 
-export function VideoPlayer({ streamUrl, channelName, onError }: VideoPlayerProps) {
+export function VideoPlayer({ streamUrl, channelName, channelId, onError }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -251,6 +253,15 @@ export function VideoPlayer({ streamUrl, channelName, onError }: VideoPlayerProp
           </div>
 
           <div className="flex-1" />
+
+          {/* Cast */}
+          {channelId && (
+            <CastButton
+              contentType="iptv"
+              channelId={channelId}
+              variant="overlay"
+            />
+          )}
 
           {/* Fullscreen */}
           <button

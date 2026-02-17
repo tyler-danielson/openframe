@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { api, type ColorScheme } from "../services/api";
 
-export type ScreensaverLayout = "fullscreen" | "informational" | "quad" | "scatter" | "builder";
+export type ScreensaverLayout = "fullscreen" | "informational" | "quad" | "scatter" | "builder" | "skylight";
 export type ScreensaverTransition = "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
 export type ClockPosition = "top-left" | "top-center" | "top-right" | "bottom-left" | "bottom-center" | "bottom-right";
 export type ClockSize = "small" | "medium" | "large" | "extra-large";
@@ -36,6 +36,10 @@ export type BuilderWidgetType =
   | "iptv"
   | "week-schedule"
   | "photo-feed"
+  | "youtube"
+  | "plex"
+  | "plexamp"
+  | "audiobookshelf"
   | "support";
 
 export type FontSizePreset = "xs" | "sm" | "md" | "lg" | "xl" | "custom";
@@ -55,6 +59,44 @@ export interface VisibilitySchedule {
   daysOfWeek: number[]; // 0-6 (0=Sun, 6=Sat), empty = all days
 }
 
+// ============ Visibility Conditions (multi-condition system) ============
+
+export type VisibilityConditionType = "time-schedule" | "ha-entity" | "spotify-playing" | "calendar-event";
+export type ComparisonOperator = "eq" | "neq" | "gt" | "lt" | "gte" | "lte" | "contains";
+
+export interface TimeScheduleCondition {
+  type: "time-schedule";
+  startTime: string;     // "HH:mm"
+  endTime: string;       // "HH:mm"
+  daysOfWeek: number[];  // 0-6, empty = all
+}
+
+export interface HAEntityCondition {
+  type: "ha-entity";
+  entityId: string;
+  operator: ComparisonOperator;
+  value: string;
+}
+
+export interface SpotifyPlayingCondition {
+  type: "spotify-playing";
+  isPlaying: boolean;
+}
+
+export interface CalendarEventCondition {
+  type: "calendar-event";
+  hasActiveEvent: boolean;
+  calendarIds?: string[];  // empty = any
+}
+
+export type VisibilityCondition = TimeScheduleCondition | HAEntityCondition | SpotifyPlayingCondition | CalendarEventCondition;
+
+export interface VisibilityConfig {
+  enabled: boolean;
+  logic: "all" | "any";  // AND vs OR, default "all"
+  conditions: VisibilityCondition[];
+}
+
 export interface WidgetInstance {
   id: string;
   type: BuilderWidgetType;
@@ -65,6 +107,7 @@ export interface WidgetInstance {
   config: Record<string, unknown>; // Type-specific settings
   style?: WidgetStyle;
   visibility?: VisibilitySchedule;
+  visibilityConditions?: VisibilityConfig;  // Multi-condition system, takes precedence over legacy `visibility`
   hidden?: boolean; // Toggle visibility in layers panel
 }
 

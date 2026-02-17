@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Outlet, NavLink, useNavigate, useLocation, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -25,9 +25,12 @@ import {
   PenTool,
   ChefHat,
   Users,
+  MessageCircle,
+  MoreHorizontal,
 } from "lucide-react";
 import { api, type KioskEnabledFeatures, type KioskDisplayType } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
+import { useSidebarStore, type SidebarFeature } from "../../stores/sidebar";
 import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import { useScreensaverStore } from "../../stores/screensaver";
 import { useBlockNavStore, type NavigableBlock } from "../../stores/block-nav";
@@ -48,13 +51,18 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const { logout, setUser, isAuthenticated, kioskEnabled } = useAuthStore();
+  const { logout, setUser, isAuthenticated } = useAuthStore();
+  const isKioskPath = window.location.pathname.startsWith("/kiosk/");
   const setScreensaverActive = useScreensaverStore((state) => state.setActive);
   const screensaverEnabled = useScreensaverStore((state) => state.enabled);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isMediaMenuOpen, setIsMediaMenuOpen] = useState(false);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const sidebarFeatures = useSidebarStore((s) => s.features);
 
   // Detect kiosk mode base path from URL (e.g., /kiosk/abc123)
   const basePath = useMemo(() => {
@@ -189,13 +197,22 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
       { to: buildPath("homeassistant"), icon: Home, label: "Home Assistant", feature: "homeassistant" as const },
       { to: buildPath("map"), icon: MapPin, label: "Map", feature: "map" as const },
       { to: buildPath("kitchen"), icon: ChefHat, label: "Kitchen", feature: "kitchen" as const },
+      { to: buildPath("chat"), icon: MessageCircle, label: "Chat", feature: "chat" as const },
       { to: buildPath("screensaver"), icon: Monitor, label: "Custom", feature: "screensaver" as const },
     ];
 
-    // Filter items based on enabled features (only if kioskEnabledFeatures is provided)
-    const filteredItems = kioskEnabledFeatures
-      ? items.filter(item => isFeatureEnabled(item.feature))
-      : items;
+    // Filter items based on enabled features
+    let filteredItems;
+    if (kioskEnabledFeatures) {
+      // Kiosk mode: use kiosk feature flags
+      filteredItems = items.filter(item => isFeatureEnabled(item.feature));
+    } else {
+      // Normal mode: use sidebar store enabled state
+      filteredItems = items.filter(item => {
+        const feat = item.feature as SidebarFeature;
+        return !sidebarFeatures[feat] || sidebarFeatures[feat].enabled;
+      });
+    }
 
     // Only show reMarkable, profiles, and settings if authenticated AND not accessing via kiosk URL
     if (isAuthenticated && !basePath) {
@@ -207,23 +224,69 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
     }
 
     return filteredItems;
-  }, [buildPath, isAuthenticated, basePath, kioskEnabledFeatures, isFeatureEnabled]);
+  }, [buildPath, isAuthenticated, basePath, kioskEnabledFeatures, isFeatureEnabled, sidebarFeatures]);
 
-  // Check if media features are enabled
-  const showMedia = useMemo(() => {
-    if (!kioskEnabledFeatures) return true;
-    return isFeatureEnabled("spotify") || isFeatureEnabled("iptv");
-  }, [kioskEnabledFeatures, isFeatureEnabled]);
+  // Derive pinned vs more items (non-kiosk only)
+  const pinnedItems = useMemo(() => {
+    if (kioskEnabledFeatures) return navItems; // kiosk: all items are "pinned"
+    return navItems.filter(item => {
+      const feat = item.feature as SidebarFeature;
+      if (!feat) return true; // auth-only items always pinned
+      return !sidebarFeatures[feat] || sidebarFeatures[feat].pinned;
+    });
+  }, [navItems, kioskEnabledFeatures, sidebarFeatures]);
 
-  // Filter media items based on enabled features
+  const moreItems = useMemo(() => {
+    if (kioskEnabledFeatures) return []; // kiosk: no overflow
+    return navItems.filter(item => {
+      const feat = item.feature as SidebarFeature;
+      if (!feat) return false; // auth-only items never in More
+      return sidebarFeatures[feat] && !sidebarFeatures[feat].pinned;
+    });
+  }, [navItems, kioskEnabledFeatures, sidebarFeatures]);
+
+  // Check if media features are enabled and pinned
+  const spotifyEnabled = kioskEnabledFeatures ? isFeatureEnabled("spotify") : (!sidebarFeatures.spotify || sidebarFeatures.spotify.enabled);
+  const iptvEnabled = kioskEnabledFeatures ? isFeatureEnabled("iptv") : (!sidebarFeatures.iptv || sidebarFeatures.iptv.enabled);
+  const spotifyPinned = kioskEnabledFeatures ? true : (!sidebarFeatures.spotify || sidebarFeatures.spotify.pinned);
+  const iptvPinned = kioskEnabledFeatures ? true : (!sidebarFeatures.iptv || sidebarFeatures.iptv.pinned);
+
+  // Show media button in sidebar if at least one media item is enabled AND pinned
+  const showMedia = (spotifyEnabled && spotifyPinned) || (iptvEnabled && iptvPinned);
+
+  // Filter media items for sidebar (pinned ones)
   const filteredMediaItems = useMemo(() => {
-    if (!kioskEnabledFeatures) return mediaItems;
     return mediaItems.filter(item => {
-      if (item.label === "Spotify") return isFeatureEnabled("spotify");
-      if (item.label === "Live TV") return isFeatureEnabled("iptv");
+      if (item.label === "Spotify") return spotifyEnabled && spotifyPinned;
+      if (item.label === "Live TV") return iptvEnabled && iptvPinned;
       return true;
     });
-  }, [mediaItems, kioskEnabledFeatures, isFeatureEnabled]);
+  }, [mediaItems, spotifyEnabled, spotifyPinned, iptvEnabled, iptvPinned]);
+
+  // Media items for More menu (enabled but unpinned)
+  const moreMediaItems = useMemo(() => {
+    if (kioskEnabledFeatures) return [];
+    return mediaItems.filter(item => {
+      if (item.label === "Spotify") return spotifyEnabled && !spotifyPinned;
+      if (item.label === "Live TV") return iptvEnabled && !iptvPinned;
+      return false;
+    });
+  }, [mediaItems, kioskEnabledFeatures, spotifyEnabled, spotifyPinned, iptvEnabled, iptvPinned]);
+
+  // Click outside handler for More menu
+  useEffect(() => {
+    if (!isMoreMenuOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (
+        moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node) &&
+        moreButtonRef.current && !moreButtonRef.current.contains(e.target as Node)
+      ) {
+        setIsMoreMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [isMoreMenuOpen]);
 
   // Screensaver behavior: hide toolbar when idle (smooth slide)
   const screensaverActive = useScreensaverStore((s) => s.isActive);
@@ -322,13 +385,13 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
         </button>
 
         <nav className={cn("flex flex-1 flex-col items-center", isTvMode ? "gap-3" : "gap-2")}>
-          {/* First 4 nav items (before media) */}
-          {navItems.filter(item => ["Calendar", "Tasks", "Dashboard", "Photos"].includes(item.label)).map((item) => (
+          {/* Pinned nav items before media */}
+          {pinnedItems.filter(item => ["Calendar", "Tasks", "Dashboard", "Photos"].includes(item.label)).map((item) => (
             <div key={item.to} className="relative">
               <NavLink
                 to={item.to}
                 tabIndex={isTvMode ? 0 : undefined}
-                onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); }}
+                onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); setIsMoreMenuOpen(false); }}
                 className={({ isActive }) =>
                   cn(
                     "flex items-center justify-center rounded-lg transition-all duration-200",
@@ -351,7 +414,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
             </div>
           ))}
 
-          {/* Media button with submenu - only show if media features are enabled */}
+          {/* Media button with submenu - only show if at least one media item is pinned */}
           {showMedia && (
             <button
               onClick={() => setIsMediaMenuOpen(!isMediaMenuOpen)}
@@ -369,13 +432,13 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
             </button>
           )}
 
-          {/* Remaining nav items (after media) */}
-          {navItems.filter(item => !["Calendar", "Tasks", "Dashboard", "Photos"].includes(item.label)).map((item) => (
+          {/* Remaining pinned nav items (after media) */}
+          {pinnedItems.filter(item => !["Calendar", "Tasks", "Dashboard", "Photos"].includes(item.label)).map((item) => (
             <div key={item.to} className="relative">
               <NavLink
                 to={item.to}
                 tabIndex={isTvMode ? 0 : undefined}
-                onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); }}
+                onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); setIsMoreMenuOpen(false); }}
                 className={({ isActive }) =>
                   cn(
                     "flex items-center justify-center rounded-lg transition-all duration-200",
@@ -397,11 +460,29 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
               )}
             </div>
           ))}
+
+          {/* More button - show overflow items */}
+          {(moreItems.length > 0 || moreMediaItems.length > 0) && (
+            <button
+              ref={moreButtonRef}
+              onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
+              className={cn(
+                "flex items-center justify-center rounded-lg transition-colors",
+                "h-10 w-10",
+                isMoreMenuOpen
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              )}
+              title="More"
+            >
+              <MoreHorizontal className="h-5 w-5" />
+            </button>
+          )}
         </nav>
 
         <div className="flex flex-col items-center gap-2">
           {/* Kiosk mode indicator */}
-          {kioskEnabled && (
+          {isKioskPath && (
             <div
               className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500"
               title="Kiosk Mode"
@@ -439,7 +520,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
             <RefreshCw className={cn("h-5 w-5", isReconnecting && "animate-spin")} />
           </button>
           {/* Hide logout/login in kiosk mode */}
-          {!kioskEnabled && (
+          {!isKioskPath && (
             isAuthenticated ? (
               <button
                 onClick={handleLogout}
@@ -487,9 +568,57 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
         </aside>
       )}
 
+      {/* More Menu Popup - appears to the right of sidebar */}
+      {!hideNav && !hideToolbarForBurnIn && isMoreMenuOpen && (moreItems.length > 0 || moreMediaItems.length > 0) && (
+        <div
+          ref={moreMenuRef}
+          className="fixed z-50 left-16 top-0 h-full w-48 border-r border-border bg-card/95 backdrop-blur-sm py-4 shadow-lg"
+        >
+          <div className="flex flex-col gap-1 px-2">
+            <p className="text-xs font-medium text-muted-foreground px-2 py-1 uppercase tracking-wider">More</p>
+            {moreMediaItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={() => { setIsMobileSidebarOpen(false); setIsMoreMenuOpen(false); }}
+                className={({ isActive }) =>
+                  cn(
+                    "flex items-center gap-3 px-2 py-2 rounded-lg transition-colors text-sm",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )
+                }
+              >
+                <item.icon className="h-4 w-4" />
+                {item.label}
+              </NavLink>
+            ))}
+            {moreItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={() => { setIsMobileSidebarOpen(false); setIsMoreMenuOpen(false); }}
+                className={({ isActive }) =>
+                  cn(
+                    "flex items-center gap-3 px-2 py-2 rounded-lg transition-colors text-sm",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )
+                }
+              >
+                <item.icon className="h-4 w-4" />
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Main content */}
       <main className="relative flex-1 overflow-auto pt-16 lg:pt-0">
-        <Outlet />
+        <Outlet key={location.pathname} />
       </main>
 
     </div>
