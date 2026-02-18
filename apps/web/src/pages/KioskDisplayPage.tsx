@@ -1,6 +1,6 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from "react";
 import { useParams, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { WifiOff, RefreshCw, Maximize } from "lucide-react";
+import { WifiOff, RefreshCw, Maximize, Minimize } from "lucide-react";
 import { api, type KioskCommand } from "../services/api";
 import { KioskProvider, useKiosk } from "../contexts/KioskContext";
 import { useIdleDetector } from "../hooks/useIdleDetector";
@@ -495,6 +495,17 @@ function KioskLayoutWrapper() {
             {error || "This kiosk URL is invalid or has been disabled."}
           </div>
         </div>
+        <button
+          onClick={() => {
+            if (document.fullscreenElement) {
+              document.exitFullscreen().catch(() => {});
+            }
+          }}
+          className="fixed bottom-3 left-3 p-2 rounded-md text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50 transition-colors"
+          title="Exit fullscreen"
+        >
+          <Minimize className="h-4 w-4" />
+        </button>
         <ConnectionStatusIndicator status={connectionStatus} lastOnlineAt={lastOnlineAt} />
       </div>
     );
