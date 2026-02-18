@@ -223,6 +223,9 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         })
         .returning();
 
+      // Sync to cloud if connected
+      fastify.cloudRelay?.syncKiosks();
+
       return reply.status(201).send({
         success: true,
         data: kiosk,
@@ -357,6 +360,9 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.notFound("Kiosk not found");
       }
 
+      // Sync to cloud if connected
+      fastify.cloudRelay?.syncKiosks();
+
       return {
         success: true,
         data: kiosk,
@@ -396,6 +402,9 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       if (!result) {
         return reply.notFound("Kiosk not found");
       }
+
+      // Sync to cloud if connected
+      fastify.cloudRelay?.syncKiosks();
 
       return { success: true };
     }

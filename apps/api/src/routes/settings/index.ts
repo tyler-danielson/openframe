@@ -353,6 +353,41 @@ const SETTING_DEFINITIONS: CategoryDefinition[] = [
       },
     ],
   },
+  {
+    category: "cloud",
+    label: "Cloud",
+    description: "OpenFrame Cloud relay connection for remote management",
+    settings: [
+      {
+        key: "enabled",
+        label: "Enabled",
+        description: "Whether the cloud relay connection is active",
+        isSecret: false,
+        placeholder: "false",
+      },
+      {
+        key: "instance_id",
+        label: "Instance ID",
+        description: "Cloud instance identifier (set automatically during claim)",
+        isSecret: false,
+        placeholder: "",
+      },
+      {
+        key: "relay_secret",
+        label: "Relay Secret",
+        description: "Shared secret for WebSocket authentication (set automatically)",
+        isSecret: true,
+        placeholder: "",
+      },
+      {
+        key: "ws_endpoint",
+        label: "WebSocket Endpoint",
+        description: "Cloud relay WebSocket URL (set automatically)",
+        isSecret: false,
+        placeholder: "wss://openframe.us/relay",
+      },
+    ],
+  },
 ];
 
 export const settingsRoutes: FastifyPluginAsync = async (fastify) => {

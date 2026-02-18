@@ -36,7 +36,7 @@ import { buildOAuthUrl } from "../utils/oauth-scopes";
 import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings } from "@openframe/shared";
 
 // Parent tabs for URL routing
-type SettingsTab = "account" | "calendars" | "tasks" | "entertainment" | "appearance" | "ai" | "automations" | "cameras" | "homeassistant" | "kiosks" | "companion" | "system";
+type SettingsTab = "account" | "calendars" | "tasks" | "entertainment" | "appearance" | "ai" | "automations" | "cameras" | "homeassistant" | "kiosks" | "companion" | "cloud" | "system";
 
 // Entertainment sub-tabs
 type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobookshelf" | "news";
@@ -44,7 +44,7 @@ type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobooksh
 // Appearance sub-tabs
 type AppearanceSubTab = "display" | "photos" | "screensaver" | "sidebar";
 
-const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "entertainment", "appearance", "ai", "automations", "cameras", "homeassistant", "kiosks", "companion", "system"];
+const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "entertainment", "appearance", "ai", "automations", "cameras", "homeassistant", "kiosks", "companion", "cloud", "system"];
 const validEntertainmentSubTabs: EntertainmentSubTab[] = ["sports", "spotify", "iptv", "plex", "audiobookshelf", "news"];
 const validAppearanceSubTabs: AppearanceSubTab[] = ["display", "photos", "screensaver", "sidebar"];
 
@@ -60,6 +60,7 @@ const tabs: { id: SettingsTab; label: string; icon: React.ReactNode; description
   { id: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" />, description: "Devices & entities" },
   { id: "kiosks", label: "Kiosks", icon: <Monitor className="h-4 w-4" />, description: "Displays & remote" },
   { id: "companion", label: "Companion", icon: <Smartphone className="h-4 w-4" />, description: "Mobile app access" },
+  { id: "cloud", label: "Cloud", icon: <Cloud className="h-4 w-4" />, description: "Remote management" },
   { id: "system", label: "System", icon: <Settings className="h-4 w-4" />, description: "Backup & advanced" },
 ];
 
@@ -8344,6 +8345,151 @@ function SpotifySettings() {
   );
 }
 
+function CloudSettings() {
+  const queryClient = useQueryClient();
+  const { data: cloudStatus, isLoading } = useQuery({
+    queryKey: ["cloud-status"],
+    queryFn: () => api.getCloudStatus(),
+    refetchInterval: 10000,
+  });
+
+  const connectMutation = useMutation({
+    mutationFn: (cloudUrl: string) => api.cloudConnect(cloudUrl),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cloud-status"] }),
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: () => api.cloudDisconnect(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cloud-status"] }),
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: () => api.cloudSync(),
+  });
+
+  const [cloudUrl, setCloudUrl] = useState("https://openframe.us");
+  const status = cloudStatus;
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Cloud className="h-5 w-5 text-primary" />
+            OpenFrame Cloud
+          </CardTitle>
+          <CardDescription>
+            Connect to OpenFrame Cloud for remote management of your kiosks from anywhere.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading status...
+            </div>
+          ) : status?.enabled ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                {status.connected ? (
+                  <CheckCircle className="h-5 w-5 text-green-500" />
+                ) : (
+                  <XCircle className="h-5 w-5 text-destructive" />
+                )}
+                <span className="font-medium">
+                  {status.connected ? "Connected" : "Disconnected"}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  ({status.state})
+                </span>
+              </div>
+              {status.instanceId && (
+                <p className="text-sm text-muted-foreground">
+                  Instance ID: <code className="bg-muted px-1 py-0.5 rounded text-xs">{status.instanceId}</code>
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => syncMutation.mutate()}
+                  disabled={!status.connected || syncMutation.isPending}
+                >
+                  {syncMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-1" />
+                  )}
+                  Sync Kiosks
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => disconnectMutation.mutate()}
+                  disabled={disconnectMutation.isPending}
+                >
+                  {disconnectMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  ) : (
+                    <Unlink className="h-4 w-4 mr-1" />
+                  )}
+                  Disconnect
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Not connected. Enter your cloud server URL to begin the connection process.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={cloudUrl}
+                  onChange={(e) => setCloudUrl(e.target.value)}
+                  placeholder="https://openframe.us"
+                  className="flex-1 px-3 py-2 text-sm rounded-md border bg-background"
+                />
+                <Button
+                  size="sm"
+                  onClick={() => connectMutation.mutate(cloudUrl)}
+                  disabled={connectMutation.isPending || !cloudUrl}
+                >
+                  {connectMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  ) : (
+                    <Link2 className="h-4 w-4 mr-1" />
+                  )}
+                  Connect
+                </Button>
+              </div>
+              {connectMutation.isSuccess && connectMutation.data && (
+                <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-2">
+                  <p className="text-sm font-medium text-primary">Claim code generated!</p>
+                  <p className="text-2xl font-mono font-bold tracking-widest text-primary text-center">
+                    {connectMutation.data.code}
+                  </p>
+                  <p className="text-xs text-muted-foreground text-center">
+                    Open the link below and sign in to claim this instance:
+                  </p>
+                  <a
+                    href={connectMutation.data.claimUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-primary hover:underline flex items-center gap-1 justify-center"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Open Cloud Dashboard
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -10101,6 +10247,13 @@ export function SettingsPage() {
           {activeTab === "companion" && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
               <CompanionSettings />
+            </div>
+          )}
+
+          {/* Cloud Settings Tab */}
+          {activeTab === "cloud" && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+              <CloudSettings />
             </div>
           )}
 

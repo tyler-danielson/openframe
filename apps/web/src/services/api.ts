@@ -3137,6 +3137,26 @@ class ApiClient {
   async deleteCompanionTask(id: string): Promise<void> {
     await this.fetch(`/companion/data/tasks/${id}`, { method: "DELETE" });
   }
+
+  // Cloud
+  async getCloudStatus(): Promise<CloudStatus> {
+    return this.fetch<CloudStatus>("/cloud/status");
+  }
+
+  async cloudConnect(cloudUrl: string): Promise<CloudConnectResult> {
+    return this.fetch<CloudConnectResult>("/cloud/connect", {
+      method: "POST",
+      body: JSON.stringify({ cloudUrl }),
+    });
+  }
+
+  async cloudDisconnect(): Promise<void> {
+    await this.fetch("/cloud/disconnect", { method: "POST" });
+  }
+
+  async cloudSync(): Promise<void> {
+    await this.fetch("/cloud/sync", { method: "POST" });
+  }
 }
 
 // Family Profile types
@@ -3691,6 +3711,20 @@ export interface CreateCompanionUserRequest {
   password?: string;
   label?: string;
   permissions?: Partial<CompanionPermissions>;
+}
+
+export interface CloudStatus {
+  enabled: boolean;
+  connected: boolean;
+  state: string;
+  instanceId: string | null;
+  wsEndpoint: string | null;
+}
+
+export interface CloudConnectResult {
+  code: string;
+  expiresAt: string;
+  claimUrl: string;
 }
 
 export const api = new ApiClient();

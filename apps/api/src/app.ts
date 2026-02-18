@@ -46,6 +46,8 @@ import { plexRoutes } from "./routes/plex/index.js";
 import { audiobookshelfRoutes } from "./routes/audiobookshelf/index.js";
 import { companionAccessRoutes } from "./routes/companion/access.js";
 import { companionDataRoutes } from "./routes/companion/data.js";
+import { cloudRoutes } from "./routes/cloud/index.js";
+import { cloudPlugin } from "./plugins/cloud.js";
 import type { Config } from "./config.js";
 
 export async function buildApp(config: Config): Promise<FastifyInstance> {
@@ -139,6 +141,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(databasePlugin, { connectionString: config.databaseUrl });
   await app.register(authPlugin);
   await app.register(schedulerPlugin);
+  await app.register(cloudPlugin);
 
   // Shared upload tokens Map (must be decorated at app level so all routes share it)
   app.decorate("uploadTokens", new Map());
@@ -179,6 +182,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(audiobookshelfRoutes, { prefix: "/api/v1/audiobookshelf" });
   await app.register(companionAccessRoutes, { prefix: "/api/v1/companion/access" });
   await app.register(companionDataRoutes, { prefix: "/api/v1/companion/data" });
+  await app.register(cloudRoutes, { prefix: "/api/v1/cloud" });
 
   // Error handler
   app.setErrorHandler((error: FastifyError, _request, reply) => {
