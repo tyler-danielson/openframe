@@ -9,9 +9,15 @@ import {
   Star,
   Clock,
   Search,
+  List,
   Loader2,
+  Maximize,
+  Minimize,
+  Layers,
 } from "lucide-react";
 import { api } from "../../../services/api";
+
+type FullscreenMode = "normal" | "over" | "under";
 
 interface IptvControlProps {
   kioskId: string;
@@ -22,11 +28,12 @@ interface IptvControlProps {
 
 export function IptvControl({ kioskId, widgetId, widgetState, config }: IptvControlProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<"favorites" | "history" | "search">("favorites");
+  const [activeTab, setActiveTab] = useState<"favorites" | "history" | "search" | "guide">("favorites");
 
   const currentChannel = widgetState?.channelName as string | undefined;
   const currentChannelId = widgetState?.activeChannelId as string | undefined;
   const isMuted = widgetState?.isMuted as boolean | undefined;
+  const currentFullscreenMode = (widgetState?.fullscreenMode as FullscreenMode) ?? "normal";
 
   // Fetch favorites and history
   const { data: favorites = [] } = useQuery({
@@ -48,6 +55,41 @@ export function IptvControl({ kioskId, widgetId, widgetState, config }: IptvCont
     enabled: activeTab === "search" && searchQuery.length >= 2,
     staleTime: 30_000,
   });
+
+  // Fetch guide data (lazy: only when guide tab is active)
+  const { data: guideData, isLoading: loadingGuide } = useQuery({
+    queryKey: ["companion-iptv-guide"],
+    queryFn: () => api.getIptvGuide(),
+    enabled: activeTab === "guide",
+    staleTime: 120_000,
+  });
+
+  // Guide: "what's on now" for favorite channels
+  const favoriteIds = useMemo(() => new Set(favorites.map((f) => f.id)), [favorites]);
+
+  const guideNowPlaying = useMemo(() => {
+    if (!guideData) return [];
+    const now = new Date();
+    const favChannels = guideData.channels.filter((ch) => favoriteIds.has(ch.id));
+
+    return favChannels.map((ch) => {
+      const epg = guideData.epg[ch.id] || [];
+      const currentProgram = epg.find((entry) => {
+        const start = new Date(entry.startTime);
+        const end = new Date(entry.endTime);
+        return now >= start && now < end;
+      });
+
+      let progress = 0;
+      if (currentProgram) {
+        const start = new Date(currentProgram.startTime).getTime();
+        const end = new Date(currentProgram.endTime).getTime();
+        progress = ((now.getTime() - start) / (end - start)) * 100;
+      }
+
+      return { channel: ch, currentProgram, progress };
+    });
+  }, [guideData, favoriteIds]);
 
   // Combined channel list for up/down navigation
   const allChannels = useMemo(() => {
@@ -86,7 +128,17 @@ export function IptvControl({ kioskId, widgetId, widgetState, config }: IptvCont
     sendCommand("mute-toggle");
   };
 
+  const handleFullscreenMode = (mode: FullscreenMode) => {
+    sendCommand("fullscreen-mode", { mode });
+  };
+
   const displayChannels = activeTab === "search" ? searchResults : activeTab === "history" ? history : favorites;
+
+  const fullscreenModes: { mode: FullscreenMode; label: string; icon: typeof Minimize; description: string }[] = [
+    { mode: "normal", label: "Normal", icon: Minimize, description: "Widget tile" },
+    { mode: "over", label: "Over Widgets", icon: Maximize, description: "Fullscreen overlay" },
+    { mode: "under", label: "Under Widgets", icon: Layers, description: "Background video" },
+  ];
 
   return (
     <div className="flex flex-col h-full">
@@ -137,6 +189,25 @@ export function IptvControl({ kioskId, widgetId, widgetState, config }: IptvCont
         </button>
       </div>
 
+      {/* Fullscreen mode controls */}
+      <div className="flex items-center gap-2 px-4 py-3 bg-card border-b border-border shrink-0">
+        <span className="text-xs text-muted-foreground mr-1">Display:</span>
+        {fullscreenModes.map(({ mode, label, icon: Icon }) => (
+          <button
+            key={mode}
+            onClick={() => handleFullscreenMode(mode)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              currentFullscreenMode === mode
+                ? "bg-primary text-primary-foreground"
+                : "bg-primary/10 text-primary hover:bg-primary/20"
+            }`}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Tabs */}
       <div className="flex border-b border-border bg-card shrink-0">
         <button
@@ -148,6 +219,16 @@ export function IptvControl({ kioskId, widgetId, widgetState, config }: IptvCont
           }`}
         >
           <Star className="h-4 w-4" /> Favorites
+        </button>
+        <button
+          onClick={() => setActiveTab("guide")}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors ${
+            activeTab === "guide"
+              ? "text-primary border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <List className="h-4 w-4" /> Guide
         </button>
         <button
           onClick={() => setActiveTab("history")}
@@ -185,58 +266,138 @@ export function IptvControl({ kioskId, widgetId, widgetState, config }: IptvCont
         </div>
       )}
 
-      {/* Channel list */}
-      <div className="flex-1 overflow-y-auto">
-        {searching && (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          </div>
-        )}
+      {/* Guide tab content */}
+      {activeTab === "guide" && (
+        <div className="flex-1 overflow-y-auto">
+          {loadingGuide && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          )}
 
-        {!searching && displayChannels.length === 0 && (
-          <div className="text-center py-8 text-muted-foreground text-sm">
-            {activeTab === "search"
-              ? searchQuery.length < 2
-                ? "Type to search channels"
-                : "No channels found"
-              : `No ${activeTab} channels`}
-          </div>
-        )}
+          {!loadingGuide && guideNowPlaying.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              Add favorite channels to see what's on now
+            </div>
+          )}
 
-        {!searching &&
-          displayChannels.map((channel) => (
-            <button
-              key={channel.id}
-              onClick={() => handleChannelSelect(channel.id)}
-              className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-                channel.id === currentChannelId
-                  ? "bg-primary/10 border-l-2 border-primary"
-                  : "hover:bg-primary/5 border-l-2 border-transparent"
-              }`}
-            >
-              {channel.logoUrl ? (
-                <img
-                  src={channel.logoUrl}
-                  alt=""
-                  className="h-8 w-8 rounded object-contain bg-black/10 shrink-0"
-                />
-              ) : (
-                <div className="h-8 w-8 rounded bg-primary/10 flex items-center justify-center shrink-0">
-                  <Tv className="h-4 w-4 text-primary/60" />
-                </div>
-              )}
-              <span
-                className={`text-sm truncate ${
+          {!loadingGuide && guideNowPlaying.length > 0 && (
+            <div>
+              <div className="px-4 py-2 border-b border-border">
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  What's On Now
+                </span>
+              </div>
+              {guideNowPlaying.map(({ channel, currentProgram, progress }) => {
+                const endTime = currentProgram
+                  ? new Date(currentProgram.endTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                  : null;
+
+                return (
+                  <button
+                    key={channel.id}
+                    onClick={() => handleChannelSelect(channel.id)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
+                      channel.id === currentChannelId
+                        ? "bg-primary/10 border-l-2 border-primary"
+                        : "hover:bg-primary/5 border-l-2 border-transparent"
+                    }`}
+                  >
+                    {channel.logoUrl ? (
+                      <img
+                        src={channel.logoUrl}
+                        alt=""
+                        className="h-8 w-8 rounded object-contain bg-black/10 shrink-0"
+                      />
+                    ) : (
+                      <div className="h-8 w-8 rounded bg-primary/10 flex items-center justify-center shrink-0">
+                        <Tv className="h-4 w-4 text-primary/60" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs text-muted-foreground truncate">{channel.name}</div>
+                      <div className={`text-sm truncate ${
+                        channel.id === currentChannelId ? "text-primary font-medium" : "text-foreground"
+                      }`}>
+                        {currentProgram?.title || "No program info"}
+                      </div>
+                      {/* Progress bar */}
+                      {currentProgram && (
+                        <div className="mt-1 h-1 w-full rounded-full bg-primary/10 overflow-hidden">
+                          <div
+                            className="h-full bg-primary/50 transition-all"
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                    {endTime && (
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        ends {endTime}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Channel list (favorites, history, search) */}
+      {activeTab !== "guide" && (
+        <div className="flex-1 overflow-y-auto">
+          {searching && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          )}
+
+          {!searching && displayChannels.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              {activeTab === "search"
+                ? searchQuery.length < 2
+                  ? "Type to search channels"
+                  : "No channels found"
+                : `No ${activeTab} channels`}
+            </div>
+          )}
+
+          {!searching &&
+            displayChannels.map((channel) => (
+              <button
+                key={channel.id}
+                onClick={() => handleChannelSelect(channel.id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
                   channel.id === currentChannelId
-                    ? "text-primary font-medium"
-                    : "text-foreground"
+                    ? "bg-primary/10 border-l-2 border-primary"
+                    : "hover:bg-primary/5 border-l-2 border-transparent"
                 }`}
               >
-                {channel.name}
-              </span>
-            </button>
-          ))}
-      </div>
+                {channel.logoUrl ? (
+                  <img
+                    src={channel.logoUrl}
+                    alt=""
+                    className="h-8 w-8 rounded object-contain bg-black/10 shrink-0"
+                  />
+                ) : (
+                  <div className="h-8 w-8 rounded bg-primary/10 flex items-center justify-center shrink-0">
+                    <Tv className="h-4 w-4 text-primary/60" />
+                  </div>
+                )}
+                <span
+                  className={`text-sm truncate ${
+                    channel.id === currentChannelId
+                      ? "text-primary font-medium"
+                      : "text-foreground"
+                  }`}
+                >
+                  {channel.name}
+                </span>
+              </button>
+            ))}
+        </div>
+      )}
     </div>
   );
 }

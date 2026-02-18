@@ -511,6 +511,17 @@
   }
 }
 
+/* IPTV Fullscreen "under" mode - backdrop styling for widget tiles */
+[data-iptv-backdrop="true"] .widget-tile:not(.widget-tile-iptv) {
+  background: hsl(var(--background) / 0.7);
+  backdrop-filter: blur(8px);
+  border-radius: 0.75rem;
+}
+
+[data-iptv-backdrop="true"] .widget-tile-iptv {
+  opacity: 0;
+}
+
 /* MapLibre GL Customizations */
 .maplibregl-map {
   font-family: inherit;

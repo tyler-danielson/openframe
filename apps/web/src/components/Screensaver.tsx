@@ -1451,10 +1451,12 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
                   navClasses = "opacity-30";
                 }
 
+                const isIptvWidget = widget.type === "iptv";
+
                 return (
                   <div
                     key={widget.id}
-                    className={`relative transition-all duration-300 ${navClasses}`}
+                    className={`widget-tile ${isIptvWidget ? "widget-tile-iptv" : ""} relative transition-all duration-300 ${navClasses}`}
                     style={{
                       gridColumn: `${widget.x + 1} / span ${widget.width}`,
                       gridRow: `${widget.y + 1} / span ${widget.height}`,

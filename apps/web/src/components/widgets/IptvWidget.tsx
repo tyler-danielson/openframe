@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Hls from "hls.js";
 import { Tv, Volume2, VolumeX, Menu, AlertCircle, Loader2 } from "lucide-react";
@@ -7,6 +8,8 @@ import type { WidgetStyle } from "../../stores/screensaver";
 import { useBlockControls } from "../../hooks/useBlockControls";
 import { useWidgetStateReporter } from "../../hooks/useWidgetStateReporter";
 import { IptvTileOverlay } from "../iptv/IptvTileOverlay";
+
+type FullscreenMode = "normal" | "over" | "under";
 
 interface IptvWidgetProps {
   config: Record<string, unknown>;
@@ -30,6 +33,7 @@ export function IptvWidget({ config, isBuilder, widgetId }: IptvWidgetProps) {
   const [showOverlay, setShowOverlay] = useState(false);
   const [activeChannelId, setActiveChannelId] = useState(channelId);
   const [channelName, setChannelName] = useState("");
+  const [fullscreenMode, setFullscreenMode] = useState<FullscreenMode>("normal");
 
   // Sync activeChannelId when config changes
   useEffect(() => {
@@ -215,17 +219,39 @@ export function IptvWidget({ config, isBuilder, widgetId }: IptvWidgetProps) {
           label: "Toggle Mute",
           execute: () => setIsMuted((m) => !m),
         },
+        {
+          key: "fullscreen-mode",
+          label: "Fullscreen Mode",
+          execute: (data?: Record<string, unknown>) => {
+            const mode = data?.mode as FullscreenMode;
+            if (mode && ["normal", "over", "under"].includes(mode)) {
+              setFullscreenMode(mode);
+            }
+          },
+        },
       ],
     };
-  }, [isBuilder, widgetId, favorites, history, activeChannelId, showOverlay, handleChannelSwitch]);
+  }, [isBuilder, widgetId, favorites, history, activeChannelId, showOverlay, handleChannelSwitch, fullscreenMode]);
   useBlockControls(widgetId, blockControls);
 
   // Report state for companion app
   useWidgetStateReporter(
     isBuilder ? undefined : widgetId,
     "iptv",
-    useMemo(() => ({ activeChannelId, channelName, isMuted }), [activeChannelId, channelName, isMuted])
+    useMemo(() => ({ activeChannelId, channelName, isMuted, fullscreenMode }), [activeChannelId, channelName, isMuted, fullscreenMode])
   );
+
+  // Manage data-iptv-backdrop attribute for "under" mode
+  useEffect(() => {
+    if (fullscreenMode === "under") {
+      document.documentElement.dataset.iptvBackdrop = "true";
+    } else {
+      delete document.documentElement.dataset.iptvBackdrop;
+    }
+    return () => {
+      delete document.documentElement.dataset.iptvBackdrop;
+    };
+  }, [fullscreenMode]);
 
   // Builder preview - static placeholder
   if (isBuilder) {
@@ -294,8 +320,9 @@ export function IptvWidget({ config, isBuilder, widgetId }: IptvWidgetProps) {
     );
   }
 
-  return (
-    <div className="relative h-full w-full bg-black overflow-hidden">
+  // Video + controls content shared between normal and fullscreen modes
+  const videoContent = (
+    <>
       <video
         ref={videoRef}
         className="h-full w-full object-contain"
@@ -344,6 +371,40 @@ export function IptvWidget({ config, isBuilder, widgetId }: IptvWidgetProps) {
         isMuted={isMuted}
         onToggleMute={() => setIsMuted((m) => !m)}
       />
+    </>
+  );
+
+  // Fullscreen portal (over or under modes)
+  if (fullscreenMode !== "normal") {
+    const zIndex = fullscreenMode === "over" ? 9000 : 1;
+    return (
+      <>
+        {/* Placeholder in the widget tile */}
+        <div className={`relative h-full w-full bg-black overflow-hidden flex items-center justify-center ${fullscreenMode === "under" ? "widget-tile-iptv-active" : ""}`}>
+          <div className="text-white/40 text-sm flex flex-col items-center gap-2">
+            <Tv className="h-6 w-6" />
+            <span>Playing fullscreen</span>
+          </div>
+        </div>
+        {/* Portal to body for fullscreen video */}
+        {createPortal(
+          <div
+            style={{ position: "fixed", inset: 0, zIndex }}
+            className="bg-black"
+          >
+            <div className="relative h-full w-full">
+              {videoContent}
+            </div>
+          </div>,
+          document.body
+        )}
+      </>
+    );
+  }
+
+  return (
+    <div className="relative h-full w-full bg-black overflow-hidden">
+      {videoContent}
     </div>
   );
 }
