@@ -1,12 +1,60 @@
 // DEBUG: verify module evaluation
 console.log("[OpenFrame] main.tsx evaluating, basename:", import.meta.env.VITE_BASE_PATH);
 
-import { StrictMode } from "react";
+import { StrictMode, Component } from "react";
+import type { ErrorInfo, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import "./index.css";
+
+// Error boundary to catch React rendering errors (window.onerror won't catch these)
+class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null; errorInfo: ErrorInfo | null }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { error: null, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("[OpenFrame] React error:", error, errorInfo);
+    this.setState({ errorInfo });
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <pre
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "#1a1a2e",
+            color: "#ff6b6b",
+            padding: "20px",
+            fontSize: "14px",
+            fontFamily: "monospace",
+            whiteSpace: "pre-wrap",
+            overflow: "auto",
+            zIndex: 99999,
+          }}
+        >
+          {`OpenFrame React Error:\n\n${this.state.error.toString()}\n\n${this.state.error.stack || ""}\n\nComponent Stack:\n${this.state.errorInfo?.componentStack || "N/A"}`}
+        </pre>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,10 +77,12 @@ if (!rootEl) {
 }
 createRoot(rootEl).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter basename={basename || undefined}>
-        <App />
-      </BrowserRouter>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter basename={basename || undefined}>
+          <App />
+        </BrowserRouter>
+      </QueryClientProvider>
+    </ErrorBoundary>
   </StrictMode>
 );
