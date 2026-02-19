@@ -1,3 +1,6 @@
+// DEBUG: verify module evaluation
+console.log("[OpenFrame] main.tsx evaluating, basename:", import.meta.env.VITE_BASE_PATH);
+
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -18,7 +21,13 @@ const queryClient = new QueryClient({
 const basePath = import.meta.env.VITE_BASE_PATH || "/";
 const basename = basePath.endsWith("/") ? basePath.slice(0, -1) : basePath;
 
-createRoot(document.getElementById("root")!).render(
+console.log("[OpenFrame] mounting React, basename:", basename);
+const rootEl = document.getElementById("root");
+if (!rootEl) {
+  document.body.innerHTML = '<pre style="color:red;padding:20px">FATAL: #root element not found</pre>';
+  throw new Error("#root element not found");
+}
+createRoot(rootEl).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter basename={basename || undefined}>
