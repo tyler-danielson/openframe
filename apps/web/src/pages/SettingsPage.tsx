@@ -2,11 +2,12 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
-import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Tablet, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat } from "lucide-react";
+import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Tablet, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat, CreditCard, Server } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { Camera } from "@openframe/shared";
-import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type CompanionUser, type CompanionPermissions } from "../services/api";
+import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type CompanionUser, type CompanionPermissions, type CloudInstance, type CloudBillingInfo, type PlanLimits } from "../services/api";
 import { useAuthStore } from "../stores/auth";
+import { isCloudMode } from "../App";
 import { useCalendarStore, type WeekCellWidget } from "../stores/calendar";
 import { useScreensaverStore, type ScreensaverLayout, type ScreensaverTransition, type ClockPosition, type ClockSize, type InfoPaneWidget, type InfoPaneWidgetConfig, type WidgetSize, type WidgetGridSize, LIST_WIDGETS, DEFAULT_WIDGET_CONFIGS, type CompositeWidgetId, type CompositeWidgetConfig, type SubItemConfig, DEFAULT_COMPOSITE_CONFIGS, DEFAULT_SUB_ITEMS } from "../stores/screensaver";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -31,12 +32,13 @@ import { AddAccountModal } from "../components/settings/AddAccountModal";
 import { HACalendarModal } from "../components/settings/HACalendarModal";
 import { SupportButton } from "../components/settings/SupportButton";
 import { HandwritingCanvas } from "../components/ui/HandwritingCanvas";
+import { useHAWebSocket } from "../stores/homeassistant-ws";
 import type { CalendarProvider } from "@openframe/shared";
 import { buildOAuthUrl } from "../utils/oauth-scopes";
 import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings } from "@openframe/shared";
 
 // Parent tabs for URL routing
-type SettingsTab = "account" | "calendars" | "tasks" | "entertainment" | "appearance" | "ai" | "automations" | "cameras" | "homeassistant" | "kiosks" | "companion" | "cloud" | "system";
+type SettingsTab = "account" | "calendars" | "tasks" | "entertainment" | "appearance" | "ai" | "automations" | "cameras" | "homeassistant" | "kiosks" | "companion" | "cloud" | "system" | "billing" | "instances";
 
 // Entertainment sub-tabs
 type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobookshelf" | "news";
@@ -44,11 +46,11 @@ type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobooksh
 // Appearance sub-tabs
 type AppearanceSubTab = "display" | "photos" | "screensaver" | "sidebar";
 
-const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "entertainment", "appearance", "ai", "automations", "cameras", "homeassistant", "kiosks", "companion", "cloud", "system"];
+const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "entertainment", "appearance", "ai", "automations", "cameras", "homeassistant", "kiosks", "companion", "cloud", "system", "billing", "instances"];
 const validEntertainmentSubTabs: EntertainmentSubTab[] = ["sports", "spotify", "iptv", "plex", "audiobookshelf", "news"];
 const validAppearanceSubTabs: AppearanceSubTab[] = ["display", "photos", "screensaver", "sidebar"];
 
-const tabs: { id: SettingsTab; label: string; icon: React.ReactNode; description: string }[] = [
+const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; description: string; cloudOnly?: boolean; selfHostedOnly?: boolean }[] = [
   { id: "account", label: "Account", icon: <User className="h-4 w-4" />, description: "Profile & login" },
   { id: "calendars", label: "Calendars", icon: <Calendar className="h-4 w-4" />, description: "Sources & sync" },
   { id: "tasks", label: "Tasks", icon: <ListTodo className="h-4 w-4" />, description: "Lists & layout" },
@@ -60,9 +62,17 @@ const tabs: { id: SettingsTab; label: string; icon: React.ReactNode; description
   { id: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" />, description: "Devices & entities" },
   { id: "kiosks", label: "Kiosks", icon: <Monitor className="h-4 w-4" />, description: "Displays & remote" },
   { id: "companion", label: "Companion", icon: <Smartphone className="h-4 w-4" />, description: "Mobile app access" },
-  { id: "cloud", label: "Cloud", icon: <Cloud className="h-4 w-4" />, description: "Remote management" },
-  { id: "system", label: "System", icon: <Settings className="h-4 w-4" />, description: "Backup & advanced" },
+  { id: "billing", label: "Billing", icon: <CreditCard className="h-4 w-4" />, description: "Plan & subscription", cloudOnly: true },
+  { id: "instances", label: "Instances", icon: <Server className="h-4 w-4" />, description: "Linked instances", cloudOnly: true },
+  { id: "cloud", label: "Cloud", icon: <Cloud className="h-4 w-4" />, description: "Remote management", selfHostedOnly: true },
+  { id: "system", label: "System", icon: <Settings className="h-4 w-4" />, description: "Backup & advanced", selfHostedOnly: true },
 ];
+
+const tabs = allTabs.filter((tab) => {
+  if (isCloudMode && tab.selfHostedOnly) return false;
+  if (!isCloudMode && tab.cloudOnly) return false;
+  return true;
+});
 
 // Sub-tab config for entertainment
 const entertainmentSubTabs: { id: EntertainmentSubTab; label: string; icon: React.ReactNode }[] = [
@@ -6017,6 +6027,12 @@ function HomeAssistantSettings() {
 
   const isConnected = !!(config && config.url);
 
+  // Real-time WebSocket connection status
+  const wsConnected = useHAWebSocket((s) => s.connected);
+  const wsConnecting = useHAWebSocket((s) => s.connecting);
+  const wsError = useHAWebSocket((s) => s.error);
+  const wsConnect = useHAWebSocket((s) => s.connect);
+
   const { data: entities = [] } = useQuery({
     queryKey: ["homeassistant", "entities"],
     queryFn: () => api.getHomeAssistantEntities(),
@@ -6300,7 +6316,7 @@ function HomeAssistantSettings() {
                     <Home className="h-5 w-5 text-green-700 dark:text-green-400" />
                   </div>
                   <div>
-                    <p className="font-medium text-green-800 dark:text-green-200">Connected</p>
+                    <p className="font-medium text-green-800 dark:text-green-200">Configured</p>
                     <p className="text-sm text-green-700 dark:text-green-400">{config.url}</p>
                   </div>
                 </div>
@@ -6326,6 +6342,52 @@ function HomeAssistantSettings() {
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
+              </div>
+
+              {/* Real-time WebSocket connection status */}
+              <div className={cn(
+                "flex items-center justify-between rounded-lg border p-3",
+                wsConnected
+                  ? "border-green-500/40 bg-green-50 dark:bg-green-950/50"
+                  : wsConnecting
+                    ? "border-yellow-500/40 bg-yellow-50 dark:bg-yellow-950/50"
+                    : "border-red-500/40 bg-red-50 dark:bg-red-950/50"
+              )}>
+                <div className="flex items-center gap-2.5">
+                  <div className={cn(
+                    "h-2.5 w-2.5 rounded-full",
+                    wsConnected
+                      ? "bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.4)]"
+                      : wsConnecting
+                        ? "bg-yellow-500 animate-pulse"
+                        : "bg-red-500"
+                  )} />
+                  <div>
+                    <p className={cn(
+                      "text-sm font-medium",
+                      wsConnected
+                        ? "text-green-700 dark:text-green-300"
+                        : wsConnecting
+                          ? "text-yellow-700 dark:text-yellow-300"
+                          : "text-red-700 dark:text-red-300"
+                    )}>
+                      {wsConnected ? "Live Connection Active" : wsConnecting ? "Connecting..." : "Disconnected"}
+                    </p>
+                    {wsError && !wsConnected && (
+                      <p className="text-xs text-red-600 dark:text-red-400">{wsError}</p>
+                    )}
+                  </div>
+                </div>
+                {!wsConnected && !wsConnecting && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => wsConnect()}
+                    className="text-xs"
+                  >
+                    Reconnect
+                  </Button>
+                )}
               </div>
 
               {showConfigForm && (
@@ -8501,6 +8563,230 @@ function CloudSettings() {
   );
 }
 
+// ============ Cloud-Only Components ============
+
+function BillingSettings() {
+  const { data: billing, isLoading } = useQuery({
+    queryKey: ["cloud-billing"],
+    queryFn: () => api.getCloudBillingInfo(),
+    enabled: isCloudMode,
+  });
+
+  const { data: planLimits } = useQuery({
+    queryKey: ["plan-limits"],
+    queryFn: () => api.getUserPlanLimits(),
+    enabled: isCloudMode,
+  });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-primary">Current Plan</CardTitle>
+          <CardDescription>
+            Manage your subscription and billing
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between p-4 rounded-lg border border-primary/30 bg-primary/5">
+            <div>
+              <p className="font-semibold text-primary text-lg">
+                {billing?.plan?.name || "Free"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {billing?.plan?.status === "active" ? "Active" : billing?.plan?.status || "Active"}
+              </p>
+            </div>
+            <a
+              href={billing?.stripePortalUrl || "/billing"}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium"
+            >
+              <CreditCard className="h-4 w-4" />
+              Manage Billing
+            </a>
+          </div>
+        </CardContent>
+      </Card>
+
+      {planLimits && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-primary">Usage</CardTitle>
+            <CardDescription>Current resource usage on your plan</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <UsageBar
+              label="Kiosks"
+              current={billing?.usage?.kiosks?.current ?? 0}
+              limit={planLimits.maxKiosks}
+            />
+            <UsageBar
+              label="Calendars"
+              current={billing?.usage?.calendars?.current ?? 0}
+              limit={planLimits.maxCalendars}
+            />
+            <UsageBar
+              label="Cameras"
+              current={billing?.usage?.cameras?.current ?? 0}
+              limit={planLimits.maxCameras}
+            />
+            <div className="pt-2 border-t border-border">
+              <p className="text-sm font-medium text-primary mb-2">Features</p>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(planLimits.features).map(([feature, enabled]) => (
+                  <div key={feature} className="flex items-center gap-2 text-sm">
+                    {enabled ? (
+                      <CheckCircle className="h-4 w-4 text-accent-foreground" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-muted-foreground" />
+                    )}
+                    <span className={enabled ? "text-foreground" : "text-muted-foreground"}>
+                      {feature.charAt(0).toUpperCase() + feature.slice(1).replace(/([A-Z])/g, " $1")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function UsageBar({ label, current, limit }: { label: string; current: number; limit: number }) {
+  const percentage = limit > 0 ? Math.min((current / limit) * 100, 100) : 0;
+  const isNearLimit = percentage >= 80;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-sm text-foreground">{label}</span>
+        <span className={cn("text-sm font-medium", isNearLimit ? "text-destructive" : "text-muted-foreground")}>
+          {current} / {limit}
+        </span>
+      </div>
+      <div className="h-2 rounded-full bg-muted overflow-hidden">
+        <div
+          className={cn(
+            "h-full rounded-full transition-all",
+            isNearLimit ? "bg-destructive" : "bg-primary"
+          )}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function InstancesSettings() {
+  const { data: instances = [], isLoading } = useQuery({
+    queryKey: ["cloud-instances"],
+    queryFn: () => api.getCloudInstances(),
+    enabled: isCloudMode,
+    refetchInterval: 30000, // Refresh every 30s for online status
+  });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-primary">Your Instances</CardTitle>
+          <CardDescription>
+            Manage your hosted and linked self-hosted instances
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {instances.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No instances found.
+            </p>
+          ) : (
+            instances.map((instance) => (
+              <div
+                key={instance.id}
+                className="flex items-center justify-between p-3 rounded-lg border border-primary/30 bg-card hover:bg-primary/5 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className={cn(
+                    "w-2.5 h-2.5 rounded-full",
+                    instance.isOnline ? "bg-accent" : "bg-muted-foreground"
+                  )} />
+                  <div>
+                    <p className="font-medium text-foreground">{instance.name}</p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className={cn(
+                        "px-1.5 py-0.5 rounded",
+                        instance.instanceType === "hosted" ? "bg-primary/10 text-primary" : "bg-muted"
+                      )}>
+                        {instance.instanceType === "hosted" ? "Cloud Hosted" : "Self-Hosted"}
+                      </span>
+                      <span>{instance.kioskCount} kiosk{instance.kioskCount !== 1 ? "s" : ""}</span>
+                      {instance.version && <span>v{instance.version}</span>}
+                    </div>
+                  </div>
+                </div>
+                <a
+                  href={`/dashboard/instances/${instance.id}`}
+                  className="text-sm text-primary hover:underline flex items-center gap-1"
+                >
+                  Manage <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-primary">Link Self-Hosted Instance</CardTitle>
+          <CardDescription>
+            Connect a self-hosted OpenFrame instance to manage it from the cloud
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-3">
+            In your self-hosted instance, go to Settings &gt; Cloud and click
+            &quot;Connect to Cloud&quot; to generate a claim code.
+          </p>
+          <a
+            href="/dashboard"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium"
+          >
+            <Link2 className="h-4 w-4" />
+            Go to Dashboard
+          </a>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -10276,6 +10562,20 @@ export function SettingsPage() {
               <RemarkableSettingsCard />
               <BackupRestoreCard />
               <SystemSettings />
+            </div>
+          )}
+
+          {/* Billing Tab (cloud mode only) */}
+          {activeTab === "billing" && (
+            <div className="mx-auto max-w-2xl">
+              <BillingSettings />
+            </div>
+          )}
+
+          {/* Instances Tab (cloud mode only) */}
+          {activeTab === "instances" && (
+            <div className="mx-auto max-w-3xl">
+              <InstancesSettings />
             </div>
           )}
         </div>

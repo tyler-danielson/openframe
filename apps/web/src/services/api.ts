@@ -3234,6 +3234,26 @@ class ApiClient {
       body: JSON.stringify({ routineIds }),
     });
   }
+
+  // ============ Cloud Platform Methods ============
+  // These call the Next.js API (same origin in cloud mode)
+
+  async getCloudInstances(): Promise<CloudInstance[]> {
+    const response = await fetch("/api/instances");
+    if (!response.ok) throw new Error("Failed to fetch instances");
+    const data = await response.json();
+    return data;
+  }
+
+  async getCloudBillingInfo(): Promise<CloudBillingInfo> {
+    const response = await fetch("/api/billing/info");
+    if (!response.ok) throw new Error("Failed to fetch billing info");
+    return response.json();
+  }
+
+  async getUserPlanLimits(): Promise<PlanLimits> {
+    return this.fetch<PlanLimits>("/auth/me/plan");
+  }
 }
 
 // Family Profile types
@@ -3803,6 +3823,47 @@ export interface CloudConnectResult {
   code: string;
   expiresAt: string;
   claimUrl: string;
+}
+
+// Cloud platform types
+export interface CloudInstance {
+  id: string;
+  name: string;
+  instanceType: "self_hosted" | "hosted";
+  isOnline: boolean;
+  kioskCount: number;
+  activeKioskCount: number;
+  lastSeenAt: string | null;
+  version: string | null;
+  externalUrl: string | null;
+}
+
+export interface CloudBillingInfo {
+  plan: {
+    id: string;
+    name: string;
+    status: string;
+  };
+  usage: {
+    kiosks: { current: number; limit: number };
+    calendars: { current: number; limit: number };
+    cameras: { current: number; limit: number };
+  };
+  stripePortalUrl?: string;
+}
+
+export interface PlanLimits {
+  maxKiosks: number;
+  maxCalendars: number;
+  maxCameras: number;
+  features: {
+    iptv: boolean;
+    spotify: boolean;
+    ai: boolean;
+    homeAssistant: boolean;
+    automations: boolean;
+    companion: boolean;
+  };
 }
 
 export const api = new ApiClient();

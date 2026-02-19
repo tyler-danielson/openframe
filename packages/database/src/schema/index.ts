@@ -87,6 +87,39 @@ export interface UserPreferences {
   theme?: "light" | "dark" | "auto";
 }
 
+// Plan limits for hosted/cloud mode (synced from cloud platform during provisioning)
+export interface PlanLimits {
+  maxKiosks: number;
+  maxCalendars: number;
+  maxCameras: number;
+  features: {
+    iptv: boolean;
+    spotify: boolean;
+    ai: boolean;
+    homeAssistant: boolean;
+    automations: boolean;
+    companion: boolean;
+  };
+}
+
+export const userPlans = pgTable("user_plans", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" })
+    .unique(),
+  planId: text("plan_id").notNull().default("free"),
+  planName: text("plan_name").notNull().default("Free"),
+  limits: jsonb("limits").$type<PlanLimits>().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
 // OAuth tokens (encrypted at rest)
 export const oauthTokens = pgTable(
   "oauth_tokens",

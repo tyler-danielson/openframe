@@ -390,6 +390,40 @@ const SETTING_DEFINITIONS: CategoryDefinition[] = [
   },
 ];
 
+// Categories fully hidden in hosted mode (platform-managed)
+const HOSTED_HIDDEN_CATEGORIES = ["server", "cloud"];
+
+// Per-category keys hidden in hosted mode (platform provides these)
+const HOSTED_HIDDEN_KEYS: Record<string, string[]> = {
+  google: ["client_id", "client_secret"],
+  microsoft: ["client_id", "client_secret", "tenant_id"],
+  spotify: ["client_id", "client_secret"],
+};
+
+function filterDefinitionsForHostedMode(
+  definitions: CategoryDefinition[]
+): CategoryDefinition[] {
+  return definitions
+    .filter((cat) => !HOSTED_HIDDEN_CATEGORIES.includes(cat.category))
+    .map((cat) => {
+      const hiddenKeys = HOSTED_HIDDEN_KEYS[cat.category];
+      if (!hiddenKeys) return cat;
+      return {
+        ...cat,
+        settings: cat.settings.filter((s) => !hiddenKeys.includes(s.key)),
+      };
+    });
+}
+
+function isCategoryProtectedInHostedMode(
+  category: string,
+  key?: string
+): boolean {
+  if (HOSTED_HIDDEN_CATEGORIES.includes(category)) return true;
+  if (key && HOSTED_HIDDEN_KEYS[category]?.includes(key)) return true;
+  return false;
+}
+
 export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
   const { authenticate } = fastify;
 
@@ -404,9 +438,12 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
+      const definitions = fastify.hostedMode
+        ? filterDefinitionsForHostedMode(SETTING_DEFINITIONS)
+        : SETTING_DEFINITIONS;
       return {
         success: true,
-        data: SETTING_DEFINITIONS,
+        data: definitions,
       };
     }
   );
@@ -427,8 +464,15 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
         .from(systemSettings)
         .orderBy(systemSettings.category, systemSettings.key);
 
+      // Filter out platform-managed settings in hosted mode
+      const filtered = fastify.hostedMode
+        ? settings.filter(
+            (s) => !isCategoryProtectedInHostedMode(s.category, s.key)
+          )
+        : settings;
+
       // Mask secret values
-      const maskedSettings = settings.map((setting) => ({
+      const maskedSettings = filtered.map((setting) => ({
         ...setting,
         value: setting.isSecret && setting.value ? "••••••••" : setting.value,
       }));
@@ -505,9 +549,14 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { category, key } = request.params;
       const { value } = request.body;
+
+      // Block writes to platform-managed settings in hosted mode
+      if (fastify.hostedMode && isCategoryProtectedInHostedMode(category, key)) {
+        return reply.forbidden("This setting is managed by the platform");
+      }
 
       // Find the setting definition to check if it's a secret
       const categoryDef = SETTING_DEFINITIONS.find((c) => c.category === category);
@@ -584,13 +633,23 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { category } = request.params;
       const { settings } = request.body;
 
+      // Block writes to platform-managed categories in hosted mode
+      if (fastify.hostedMode && HOSTED_HIDDEN_CATEGORIES.includes(category)) {
+        return reply.forbidden("This category is managed by the platform");
+      }
+
       const categoryDef = SETTING_DEFINITIONS.find((c) => c.category === category);
+      const hiddenKeys = fastify.hostedMode
+        ? HOSTED_HIDDEN_KEYS[category] || []
+        : [];
 
       for (const [key, value] of Object.entries(settings)) {
+        // Skip platform-managed keys in hosted mode
+        if (hiddenKeys.includes(key)) continue;
         const settingDef = categoryDef?.settings.find((s) => s.key === key);
         const isSecret = settingDef?.isSecret ?? false;
 

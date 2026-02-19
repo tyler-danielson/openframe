@@ -1,6 +1,10 @@
 # Build stage - compiles TypeScript and builds the React app
 FROM node:20-alpine AS builder
 
+# Build arguments for cloud mode deployment
+ARG VITE_BASE_PATH=/
+ARG VITE_CLOUD_MODE=false
+
 RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
 
 WORKDIR /app
@@ -18,6 +22,10 @@ RUN pnpm install --frozen-lockfile
 # Copy source code
 COPY packages/shared/ ./packages/shared/
 COPY apps/web/ ./apps/web/
+
+# Pass build args as env vars for Vite
+ENV VITE_BASE_PATH=$VITE_BASE_PATH
+ENV VITE_CLOUD_MODE=$VITE_CLOUD_MODE
 
 # Build the web app (and its dependencies)
 RUN pnpm turbo build --filter=@openframe/web...

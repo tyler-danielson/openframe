@@ -209,6 +209,77 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
+  // Issue tokens for an existing user - cloud calls this to get JWT tokens for a provisioned user
+  // Protected by PROVISIONING_SECRET, not public
+  fastify.post(
+    "/issue-tokens",
+    {
+      config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+      schema: {
+        description:
+          "Issue JWT tokens for an existing user (cloud platform bridge)",
+        tags: ["Auth"],
+        body: {
+          type: "object",
+          properties: {
+            email: { type: "string", format: "email" },
+          },
+          required: ["email"],
+        },
+      },
+    },
+    async (request, reply) => {
+      // Verify provisioning secret
+      const secret = request.headers["x-provisioning-secret"];
+      if (
+        !fastify.provisioningSecret ||
+        !secret ||
+        secret !== fastify.provisioningSecret
+      ) {
+        return reply.forbidden("Invalid provisioning secret");
+      }
+
+      const { email } = request.body as { email: string };
+
+      // Find user by email
+      const [user] = await fastify.db
+        .select()
+        .from(users)
+        .where(eq(users.email, email))
+        .limit(1);
+
+      if (!user) {
+        return reply.notFound("User not found");
+      }
+
+      // Create session tokens
+      const accessToken = fastify.jwt.sign({ userId: user.id });
+      const refreshToken = randomBytes(32).toString("base64url");
+      const tokenHash = createHash("sha256")
+        .update(refreshToken)
+        .digest("hex");
+      const familyId = randomUUID();
+
+      await fastify.db.insert(refreshTokens).values({
+        userId: user.id,
+        tokenHash,
+        familyId,
+        deviceInfo: "cloud-platform",
+        ipAddress: request.ip,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+
+      return {
+        success: true,
+        data: {
+          accessToken,
+          refreshToken,
+          expiresIn: 900,
+        },
+      };
+    }
+  );
+
   // Email/password login
   fastify.post(
     "/login",
@@ -1231,6 +1302,31 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             linkedOAuth.map(o => [o.provider, o.scope ?? ""])
           ),
         },
+      };
+    }
+  );
+
+  // Get current user's plan limits (hosted mode only)
+  fastify.get(
+    "/me/plan",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Get current user plan limits",
+        tags: ["Auth"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+
+      const limits = await fastify.getUserPlanLimits(user.id);
+      return {
+        success: true,
+        data: limits,
       };
     }
   );

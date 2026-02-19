@@ -49,6 +49,7 @@ import { companionAccessRoutes } from "./routes/companion/access.js";
 import { companionDataRoutes } from "./routes/companion/data.js";
 import { cloudRoutes } from "./routes/cloud/index.js";
 import { cloudPlugin } from "./plugins/cloud.js";
+import { planLimitsPlugin } from "./plugins/plan-limits.js";
 import type { Config } from "./config.js";
 
 export async function buildApp(config: Config): Promise<FastifyInstance> {
@@ -147,6 +148,9 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   // Hosted mode config (SaaS multi-tenant)
   app.decorate("hostedMode", config.hostedMode);
   app.decorate("provisioningSecret", config.provisioningSecret ?? null);
+
+  // Plan limits (active in hosted mode only)
+  await app.register(planLimitsPlugin);
 
   // Shared upload tokens Map (must be decorated at app level so all routes share it)
   app.decorate("uploadTokens", new Map());

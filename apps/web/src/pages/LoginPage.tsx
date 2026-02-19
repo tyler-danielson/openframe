@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../co
 import { useAuthStore } from "../stores/auth";
 import { useEffect, useState } from "react";
 import { api } from "../services/api";
+import { isCloudMode } from "../App";
 
 // Use relative URL - nginx proxies /api to the API service
 const getApiServerUrl = () => {
@@ -15,6 +16,13 @@ export function LoginPage() {
   const navigate = useNavigate();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const setTokens = useAuthStore((state) => state.setTokens);
+
+  // In cloud mode, redirect to the Next.js login page
+  useEffect(() => {
+    if (isCloudMode) {
+      window.location.href = "/login?target=app";
+    }
+  }, []);
 
   const isSafeRedirect = (u: string) => u.startsWith("/") && !u.startsWith("//");
   const rawReturnTo = new URLSearchParams(window.location.search).get("returnTo");

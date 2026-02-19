@@ -14,10 +14,14 @@ const queryClient = new QueryClient({
   },
 });
 
+// In cloud mode, the SPA is served under /app/
+const basePath = import.meta.env.VITE_BASE_PATH || "/";
+const basename = basePath.endsWith("/") ? basePath.slice(0, -1) : basePath;
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <BrowserRouter basename={basename || undefined}>
         <App />
       </BrowserRouter>
     </QueryClientProvider>

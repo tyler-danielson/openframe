@@ -34,6 +34,7 @@ import {
 import { getRemarkableClient } from "../services/remarkable/client.js";
 import { syncGoogleCalendars } from "../services/calendar-sync/google.js";
 import { oauthTokens, users } from "@openframe/database/schema";
+import { hasRequiredScopes, getScopesForFeature } from "../utils/oauth-scopes.js";
 import { generateAgendaPdf, getAgendaFilename, type AgendaEvent } from "../services/remarkable/agenda-generator.js";
 import { generatePlannerPdf, type CalendarEvent, type TaskItem, type NewsItem, type WeatherData, type PlannerGeneratorOptions } from "../services/planner-generator.js";
 import type { PlannerLayoutConfig } from "@openframe/shared";
@@ -446,7 +447,9 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
           .from(oauthTokens)
           .where(eq(oauthTokens.provider, "google"));
 
+        const calScopes = getScopesForFeature("google", "calendar");
         for (const token of tokens) {
+          if (!hasRequiredScopes(token.scope, calScopes)) continue;
           try {
             await syncGoogleCalendars(fastify.db, token.userId, token);
           } catch (err) {

@@ -203,7 +203,9 @@ async function syncCalendarList(
   );
 
   if (!response.ok) {
-    throw new Error("Failed to fetch Google calendars");
+    const errorText = await response.text().catch(() => "");
+    console.error(`[Google Sync] Calendar list fetch failed (${response.status}): ${errorText}`);
+    throw new Error(`Failed to fetch Google calendars: ${response.status}`);
   }
 
   const data = (await response.json()) as GoogleCalendarListResponse;

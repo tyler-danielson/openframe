@@ -58,6 +58,9 @@ import { ConnectionProvider, useConnection } from "./contexts/ConnectionContext"
 import { ConnectionStatusIndicator } from "./components/ConnectionStatusIndicator";
 import { api } from "./services/api";
 
+// Cloud mode: when deployed as part of openframe.us cloud platform
+export const isCloudMode = import.meta.env.VITE_CLOUD_MODE === "true";
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
@@ -108,9 +111,14 @@ export default function App() {
   // Setup status
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
 
-  // Check setup status on app load
+  // Check setup status on app load (skip in cloud mode - always provisioned)
   useEffect(() => {
     async function checkSetupStatus() {
+      if (isCloudMode) {
+        setNeedsSetup(false);
+        return;
+      }
+
       // Skip setup check for kiosk, upload, auth callback, and setup pages
       const path = window.location.pathname;
       if (
