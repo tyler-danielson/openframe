@@ -23,12 +23,12 @@ class ErrorBoundary extends Component<
     return { error };
   }
 
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("[OpenFrame] React error:", error, errorInfo);
     this.setState({ errorInfo });
   }
 
-  render() {
+  override render() {
     if (this.state.error) {
       return (
         <pre
