@@ -7,6 +7,9 @@ import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import type { CalendarEvent, Calendar } from "@openframe/shared";
 import { cn } from "../../lib/utils";
+import { useDataFreshness } from "../../hooks/useDataFreshness";
+import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
+import { StaleDataOverlay } from "./StaleDataOverlay";
 
 interface UpNextWidgetProps {
   config: Record<string, unknown>;
@@ -73,7 +76,7 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
       .map((cal: Calendar) => cal.id);
   }, [calendars, configCalendarIds]);
 
-  const { data: events = [], isLoading } = useQuery({
+  const { data: events = [], isLoading, dataUpdatedAt } = useQuery({
     queryKey: ["widget-events-upnext", activeCalendarIds],
     queryFn: async () => {
       if (activeCalendarIds.length === 0) return [];
@@ -89,6 +92,7 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
     staleTime: 60 * 1000,
     refetchInterval: 60 * 1000,
   });
+  const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.upNext);
 
   const upcomingEvents = useMemo(() => {
     const now = new Date();
@@ -355,11 +359,12 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
   return (
     <div
       className={cn(
-        "flex h-full flex-col p-4 rounded-lg",
+        "relative flex h-full flex-col p-4 rounded-lg",
         "bg-black/40 backdrop-blur-sm"
       )}
       style={{ color: style?.textColor || "#ffffff" }}
     >
+      {isStale && <StaleDataOverlay ageLabel={ageLabel} textColor={style?.textColor} />}
       {headerText && (
         <div
           className={cn(sizeClasses?.label, "opacity-50 uppercase tracking-wide mb-2")}

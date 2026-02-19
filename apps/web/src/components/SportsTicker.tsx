@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
+import { WifiOff } from "lucide-react";
 import { api } from "../services/api";
 import type { SportsGame } from "@openframe/shared";
+import { useDataFreshness } from "../hooks/useDataFreshness";
+import { STALE_THRESHOLDS } from "../lib/stale-thresholds";
 
 interface SportsTickerProps {
   className?: string;
@@ -34,7 +37,7 @@ function formatGame(game: SportsGame): string {
 }
 
 export function SportsTicker({ className = "", variant = "light" }: SportsTickerProps) {
-  const { data: games = [] } = useQuery({
+  const { data: games = [], dataUpdatedAt } = useQuery({
     queryKey: ["sports-ticker"],
     queryFn: () => api.getTodaySportsScores(),
     refetchInterval: (query) => {
@@ -47,9 +50,19 @@ export function SportsTicker({ className = "", variant = "light" }: SportsTicker
     staleTime: 15 * 1000,
     retry: false,
   });
+  const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.sportsTicker);
 
   if (games.length === 0) {
     return null;
+  }
+
+  if (isStale) {
+    return (
+      <div className={`flex items-center justify-center gap-2 h-7 text-xs text-muted-foreground ${className}`}>
+        <WifiOff className="h-3 w-3" />
+        <span>Scores unavailable &middot; Last updated {ageLabel}</span>
+      </div>
+    );
   }
 
   const bgClass = variant === "dark"

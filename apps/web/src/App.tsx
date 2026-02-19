@@ -54,6 +54,8 @@ import { useDurationAlertMonitor } from "./hooks/useDurationAlertMonitor";
 import { useHAWebSocket } from "./stores/homeassistant-ws";
 import { DurationAlertBanner } from "./components/alerts/DurationAlertBanner";
 import { ChatDrawer } from "./components/chat/ChatDrawer";
+import { ConnectionProvider, useConnection } from "./contexts/ConnectionContext";
+import { ConnectionStatusIndicator } from "./components/ConnectionStatusIndicator";
 import { api } from "./services/api";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -200,6 +202,7 @@ export default function App() {
   }
 
   return (
+    <ConnectionProvider>
     <Toaster>
       <Routes>
         <Route path="/setup" element={<SetupPage />} />
@@ -324,8 +327,21 @@ export default function App() {
           <Screensaver />
           {!hideNowPlaying && <NowPlaying />}
           {!isKioskPage && !isCompanionPage && <ChatDrawer />}
+          {!isKioskPage && <AppConnectionStatus />}
         </>
       )}
     </Toaster>
+    </ConnectionProvider>
+  );
+}
+
+/** Renders the connection status indicator for non-kiosk authenticated users. */
+function AppConnectionStatus() {
+  const { connectionStatus, lastOnlineAt } = useConnection();
+  return (
+    <ConnectionStatusIndicator
+      status={connectionStatus}
+      lastOnlineAt={lastOnlineAt}
+    />
   );
 }

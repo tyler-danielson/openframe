@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { ExternalLink, Newspaper, RefreshCw } from "lucide-react";
+import { ExternalLink, Newspaper, RefreshCw, WifiOff } from "lucide-react";
 import { api } from "../../services/api";
 import type { NewsHeadline } from "@openframe/shared";
+import { useDataFreshness } from "../../hooks/useDataFreshness";
+import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
 
 interface HeadlinesWidgetProps {
   limit?: number;
@@ -16,6 +18,7 @@ export function HeadlinesWidget({ limit = 10, className = "" }: HeadlinesWidgetP
     error,
     refetch,
     isFetching,
+    dataUpdatedAt,
   } = useQuery({
     queryKey: ["news-headlines", limit],
     queryFn: () => api.getNewsHeadlines(limit),
@@ -23,6 +26,7 @@ export function HeadlinesWidget({ limit = 10, className = "" }: HeadlinesWidgetP
     staleTime: 2 * 60 * 1000,
     retry: false,
   });
+  const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.headlines);
 
   if (isLoading) {
     return (
@@ -45,6 +49,12 @@ export function HeadlinesWidget({ limit = 10, className = "" }: HeadlinesWidgetP
 
   return (
     <div className={`flex flex-col h-full ${className}`}>
+      {isStale && (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2 px-1">
+          <WifiOff className="h-3 w-3" />
+          <span>Disconnected &middot; Last updated {ageLabel}</span>
+        </div>
+      )}
       <div className="flex-1 overflow-auto space-y-2 pr-1">
         {headlines.map((headline) => (
           <HeadlineItem key={headline.id} headline={headline} />

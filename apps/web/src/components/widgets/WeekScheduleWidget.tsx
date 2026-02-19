@@ -17,6 +17,9 @@ import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import type { CalendarEvent, Calendar } from "@openframe/shared";
 import { cn } from "../../lib/utils";
+import { useDataFreshness } from "../../hooks/useDataFreshness";
+import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
+import { StaleDataOverlay } from "./StaleDataOverlay";
 
 interface WeekScheduleWidgetProps {
   config: Record<string, unknown>;
@@ -197,7 +200,7 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
   const rangeStart = days[0] ? startOfDay(days[0]) : startOfDay(now);
   const rangeEnd = days[days.length - 1] ? endOfDay(days[days.length - 1]!) : endOfDay(now);
 
-  const { data: events = [], isLoading } = useQuery({
+  const { data: events = [], isLoading, dataUpdatedAt } = useQuery({
     queryKey: ["week-schedule-events", activeCalendarIds, rangeStart.toISOString(), rangeEnd.toISOString()],
     queryFn: async () => {
       if (activeCalendarIds.length === 0) return [];
@@ -207,6 +210,7 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
     staleTime: 60 * 1000,
     refetchInterval: 60 * 1000,
   });
+  const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.weekSchedule);
 
   // Group all-day events by day
   const allDayEventsByDay = useMemo(() => {
@@ -497,11 +501,12 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
   return (
     <div
       className={cn(
-        "flex h-full flex-col p-2 rounded-lg overflow-hidden",
+        "relative flex h-full flex-col p-2 rounded-lg overflow-hidden",
         "bg-black/40 backdrop-blur-sm"
       )}
       style={{ color: style?.textColor || "#ffffff" }}
     >
+      {isStale && <StaleDataOverlay ageLabel={ageLabel} textColor={style?.textColor} />}
       {/* Day headers */}
       {showDayHeaders && (
         <div className="flex flex-shrink-0">

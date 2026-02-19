@@ -6,6 +6,9 @@ import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import type { NewsHeadline } from "@openframe/shared";
 import { cn } from "../../lib/utils";
+import { useDataFreshness } from "../../hooks/useDataFreshness";
+import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
+import { StaleDataOverlay } from "./StaleDataOverlay";
 
 interface NewsWidgetProps {
   config: Record<string, unknown>;
@@ -43,7 +46,7 @@ export function NewsWidget({ config, style, isBuilder }: NewsWidgetProps) {
     return `${value * scale}${unit}`;
   };
 
-  const { data: headlines = [], isLoading, error } = useQuery({
+  const { data: headlines = [], isLoading, error, dataUpdatedAt } = useQuery({
     queryKey: ["news-headlines-widget", maxItems],
     queryFn: () => api.getNewsHeadlines(maxItems),
     refetchInterval: 5 * 60 * 1000,
@@ -51,6 +54,7 @@ export function NewsWidget({ config, style, isBuilder }: NewsWidgetProps) {
     enabled: !isBuilder,
     retry: false,
   });
+  const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.news);
 
   // Mock data for builder preview
   const mockHeadlines = [
@@ -88,11 +92,12 @@ export function NewsWidget({ config, style, isBuilder }: NewsWidgetProps) {
   return (
     <div
       className={cn(
-        "flex h-full flex-col p-4 rounded-lg overflow-hidden",
+        "relative flex h-full flex-col p-4 rounded-lg overflow-hidden",
         "bg-black/40 backdrop-blur-sm"
       )}
       style={{ color: style?.textColor || "#ffffff" }}
     >
+      {isStale && <StaleDataOverlay ageLabel={ageLabel} textColor={style?.textColor} />}
       <div className="flex-1 space-y-2 overflow-hidden">
         {displayHeadlines.slice(0, maxItems).map((headline: NewsHeadline | typeof mockHeadlines[0]) => {
           const timeAgo = headline.publishedAt

@@ -3,6 +3,9 @@ import { api } from "../../services/api";
 import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import { cn } from "../../lib/utils";
+import { useDataFreshness } from "../../hooks/useDataFreshness";
+import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
+import { StaleDataOverlay } from "./StaleDataOverlay";
 
 interface WeatherWidgetProps {
   config: Record<string, unknown>;
@@ -56,7 +59,7 @@ export function WeatherWidget({ config, style, isBuilder }: WeatherWidgetProps) 
   const showHumidity = config.showHumidity as boolean ?? true;
   const showWind = config.showWind as boolean ?? true;
 
-  const { data: weather, isLoading, error } = useQuery({
+  const { data: weather, isLoading, error, dataUpdatedAt } = useQuery({
     queryKey: ["widget-weather"],
     queryFn: () => api.getCurrentWeather(),
     staleTime: 10 * 60 * 1000,
@@ -64,6 +67,7 @@ export function WeatherWidget({ config, style, isBuilder }: WeatherWidgetProps) 
     retry: false,
     enabled: !isBuilder,
   });
+  const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.weather);
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);
   const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset as Exclude<FontSizePreset, "custom">];
@@ -129,11 +133,12 @@ export function WeatherWidget({ config, style, isBuilder }: WeatherWidgetProps) 
   return (
     <div
       className={cn(
-        "flex h-full flex-col items-center justify-center p-4 rounded-lg",
+        "relative flex h-full flex-col items-center justify-center p-4 rounded-lg",
         "bg-black/40 backdrop-blur-sm"
       )}
       style={{ color: style?.textColor || "#ffffff" }}
     >
+      {isStale && <StaleDataOverlay ageLabel={ageLabel} textColor={style?.textColor} />}
       <div className="flex items-center gap-3">
         {showIcon && (
           <span

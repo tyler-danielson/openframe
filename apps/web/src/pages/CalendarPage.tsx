@@ -10,7 +10,7 @@ import { Button } from "../components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/Select";
 import { offlineCache, CACHE_KEYS, CACHE_MAX_AGES } from "../lib/offlineCache";
 import { getFederalHolidaysInRange } from "../data/federalHolidays";
-import { useKiosk } from "../contexts/KioskContext";
+import { useConnection } from "../contexts/ConnectionContext";
 import type { CalendarEvent, SportsGame, FavoriteSportsTeam, CalendarVisibility } from "@openframe/shared";
 
 // Weather detail info for popup
@@ -384,14 +384,7 @@ export function CalendarPage() {
   const [selectedGame, setSelectedGame] = useState<SportsGame | null>(null);
   const [weatherCacheAge, setWeatherCacheAge] = useState<number | null>(null);
 
-  // Try to get kiosk context (may not exist if not in kiosk mode)
-  let isOfflineMode = false;
-  try {
-    const kioskContext = useKiosk();
-    isOfflineMode = kioskContext.isOfflineMode;
-  } catch {
-    // Not in kiosk mode, ignore
-  }
+  const { isOffline: isOfflineMode } = useConnection();
 
   // Fetch weather data with caching
   const { data: weather } = useQuery({

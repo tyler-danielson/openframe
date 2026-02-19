@@ -4,6 +4,9 @@ import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import type { SportsGame } from "@openframe/shared";
 import { cn } from "../../lib/utils";
+import { useDataFreshness } from "../../hooks/useDataFreshness";
+import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
+import { StaleDataOverlay } from "./StaleDataOverlay";
 
 interface SportsWidgetProps {
   config: Record<string, unknown>;
@@ -42,7 +45,7 @@ export function SportsWidget({ config, style, isBuilder }: SportsWidgetProps) {
   };
   const headerText = getHeaderText();
 
-  const { data: games = [], isLoading } = useQuery({
+  const { data: games = [], isLoading, dataUpdatedAt } = useQuery({
     queryKey: ["widget-sports"],
     queryFn: () => api.getTodaySportsScores(),
     refetchInterval: (query) => {
@@ -56,6 +59,7 @@ export function SportsWidget({ config, style, isBuilder }: SportsWidgetProps) {
     retry: false,
     enabled: !isBuilder,
   });
+  const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.sports);
 
   const filteredGames = games
     .filter((game: SportsGame) => {
@@ -204,11 +208,12 @@ export function SportsWidget({ config, style, isBuilder }: SportsWidgetProps) {
   return (
     <div
       className={cn(
-        "flex h-full flex-col p-4 rounded-lg",
+        "relative flex h-full flex-col p-4 rounded-lg",
         "bg-black/40 backdrop-blur-sm"
       )}
       style={{ color: style?.textColor || "#ffffff" }}
     >
+      {isStale && <StaleDataOverlay ageLabel={ageLabel} textColor={style?.textColor} />}
       {headerText && (
         <div
           className={cn(sizeClasses?.status, "opacity-50 uppercase tracking-wide mb-3")}

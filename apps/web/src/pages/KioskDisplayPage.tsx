@@ -1,16 +1,16 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from "react";
 import { useParams, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { WifiOff, RefreshCw, Maximize, Minimize } from "lucide-react";
+import { Maximize, Minimize, RefreshCw } from "lucide-react";
 import { api, type KioskCommand } from "../services/api";
 import { KioskProvider, useKiosk } from "../contexts/KioskContext";
 import { useIdleDetector } from "../hooks/useIdleDetector";
 import { Screensaver } from "../components/Screensaver";
 import { TVControlsOverlay } from "../components/TVControlsOverlay";
+import { ConnectionStatusIndicator } from "../components/ConnectionStatusIndicator";
 import { Layout } from "../components/ui/Layout";
 import { useScreensaverStore } from "../stores/screensaver";
 import { useRemoteControlStore } from "../stores/remote-control";
 import { useBlockNavStore } from "../stores/block-nav";
-import type { ConnectionStatus } from "../hooks/useConnectionHealth";
 
 // Import all pages
 import { DashboardPage } from "./DashboardPage";
@@ -41,60 +41,6 @@ const FEATURE_ROUTES: Record<string, { path: string; element: JSX.Element }> = {
   screensaver: { path: "screensaver", element: <ScreensaverDisplayPage /> },
   multiview: { path: "multiview", element: <MultiViewPage /> },
 };
-
-// Format time ago for display
-function formatTimeAgo(date: Date | null): string {
-  if (!date) return "Unknown";
-
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHr = Math.floor(diffMin / 60);
-
-  if (diffSec < 60) return "Just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
-  return date.toLocaleTimeString();
-}
-
-// Connection status indicator component
-function ConnectionStatusIndicator({
-  status,
-  lastOnlineAt,
-}: {
-  status: ConnectionStatus;
-  lastOnlineAt: Date | null;
-}) {
-  if (status === "online") return null;
-
-  return (
-    <div className="fixed bottom-4 right-4 bg-card/95 backdrop-blur-sm border border-border rounded-lg px-4 py-3 shadow-lg z-50 flex items-center gap-3">
-      {status === "offline" && (
-        <>
-          <WifiOff className="h-5 w-5 text-destructive" />
-          <div>
-            <div className="text-sm font-medium text-destructive">Offline</div>
-            <div className="text-xs text-muted-foreground">
-              Last online: {formatTimeAgo(lastOnlineAt)}
-            </div>
-          </div>
-        </>
-      )}
-      {status === "reconnecting" && (
-        <>
-          <RefreshCw className="h-5 w-5 text-yellow-500 animate-spin" />
-          <div>
-            <div className="text-sm font-medium text-yellow-500">Reconnecting...</div>
-            <div className="text-xs text-muted-foreground">
-              Last online: {formatTimeAgo(lastOnlineAt)}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 // Kiosk app content - uses the same Layout and pages as the main app
 function KioskApp() {

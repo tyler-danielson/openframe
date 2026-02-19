@@ -4,6 +4,9 @@ import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import { cn } from "../../lib/utils";
+import { useDataFreshness } from "../../hooks/useDataFreshness";
+import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
+import { StaleDataOverlay } from "./StaleDataOverlay";
 
 interface HAGraphWidgetProps {
   config: Record<string, unknown>;
@@ -38,13 +41,14 @@ export function HAGraphWidget({ config, style, isBuilder }: HAGraphWidgetProps) 
 
   // REST fallback when WebSocket is unavailable
   const useRestFallback = !isBuilder && entityId && (!!wsError || (!connected && !connecting));
-  const { data: restEntity } = useQuery({
+  const { data: restEntity, dataUpdatedAt } = useQuery({
     queryKey: ["ha-entity-rest", entityId],
     queryFn: () => api.getHomeAssistantState(entityId),
     enabled: !!useRestFallback,
     staleTime: 30 * 1000,
     refetchInterval: 30 * 1000,
   });
+  const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.haGraph);
 
   const entity = connected && wsEntity ? wsEntity : restEntity;
 
@@ -109,11 +113,12 @@ export function HAGraphWidget({ config, style, isBuilder }: HAGraphWidgetProps) 
   return (
     <div
       className={cn(
-        "flex h-full flex-col p-4 rounded-lg",
+        "relative flex h-full flex-col p-4 rounded-lg",
         "bg-black/40 backdrop-blur-sm"
       )}
       style={{ color: style?.textColor || "#ffffff" }}
     >
+      {isStale && <StaleDataOverlay ageLabel={ageLabel} textColor={style?.textColor} />}
       <div className="flex items-center justify-between mb-2">
         <div
           className={cn(sizeClasses?.label, "opacity-70 truncate")}

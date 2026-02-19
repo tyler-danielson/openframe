@@ -6,6 +6,9 @@ import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import type { CalendarEvent, Calendar } from "@openframe/shared";
 import { cn } from "../../lib/utils";
+import { useDataFreshness } from "../../hooks/useDataFreshness";
+import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
+import { StaleDataOverlay } from "./StaleDataOverlay";
 
 interface DayScheduleWidgetProps {
   config: Record<string, unknown>;
@@ -141,7 +144,7 @@ export function DayScheduleWidget({ config, style, isBuilder }: DayScheduleWidge
   }, [calendars, configCalendarIds]);
 
   // Fetch today's events
-  const { data: events = [], isLoading } = useQuery({
+  const { data: events = [], isLoading, dataUpdatedAt } = useQuery({
     queryKey: ["day-schedule-events", activeCalendarIds],
     queryFn: async () => {
       if (activeCalendarIds.length === 0) return [];
@@ -152,6 +155,7 @@ export function DayScheduleWidget({ config, style, isBuilder }: DayScheduleWidge
     staleTime: 60 * 1000,
     refetchInterval: 60 * 1000,
   });
+  const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.daySchedule);
 
   // Calculate current time position
   const currentTimePosition = useMemo(() => {
@@ -269,11 +273,12 @@ export function DayScheduleWidget({ config, style, isBuilder }: DayScheduleWidge
   return (
     <div
       className={cn(
-        "flex h-full flex-row p-3 rounded-lg overflow-hidden",
+        "relative flex h-full flex-row p-3 rounded-lg overflow-hidden",
         "bg-black/40 backdrop-blur-sm"
       )}
       style={{ color: style?.textColor || "#ffffff" }}
     >
+      {isStale && <StaleDataOverlay ageLabel={ageLabel} textColor={style?.textColor} />}
       {/* Hour labels */}
       {showHourLabels && (
         <div className="relative pr-2 flex-shrink-0" style={{ width: "2.5rem" }}>

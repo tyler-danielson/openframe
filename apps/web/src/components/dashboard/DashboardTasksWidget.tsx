@@ -1,8 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { startOfDay, endOfDay, format } from "date-fns";
-import { CheckCircle2, Circle, Loader2 } from "lucide-react";
+import { CheckCircle2, Circle, Loader2, WifiOff } from "lucide-react";
 import { api } from "../../services/api";
 import type { Task } from "@openframe/shared";
+import { useDataFreshness } from "../../hooks/useDataFreshness";
+import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
 
 interface DashboardTasksWidgetProps {
   className?: string;
@@ -14,7 +16,7 @@ export function DashboardTasksWidget({ className, filter = "today" }: DashboardT
   const today = new Date();
 
   // Fetch all incomplete tasks
-  const { data: tasks = [], isLoading, error } = useQuery({
+  const { data: tasks = [], isLoading, error, dataUpdatedAt } = useQuery({
     queryKey: ["tasks", "dashboard", filter],
     queryFn: async () => {
       const allTasks = await api.getTasks({ status: "needsAction" });
@@ -37,6 +39,7 @@ export function DashboardTasksWidget({ className, filter = "today" }: DashboardT
     },
     refetchInterval: 60000, // Refresh every minute
   });
+  const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.dashboardTasks);
 
   const completeTask = useMutation({
     mutationFn: (taskId: string) => api.completeTask(taskId),
@@ -89,6 +92,12 @@ export function DashboardTasksWidget({ className, filter = "today" }: DashboardT
 
   return (
     <div className={`space-y-2 ${className ?? ""}`}>
+      {isStale && (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground px-1">
+          <WifiOff className="h-3 w-3" />
+          <span>Disconnected &middot; Last updated {ageLabel}</span>
+        </div>
+      )}
       {tasks.map((task) => (
         <div
           key={task.id}

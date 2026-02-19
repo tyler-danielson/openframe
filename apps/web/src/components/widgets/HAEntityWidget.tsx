@@ -8,6 +8,9 @@ import { getFontSizeConfig } from "../../lib/font-size";
 import { cn } from "../../lib/utils";
 import { useBlockControls } from "../../hooks/useBlockControls";
 import { useWidgetStateReporter } from "../../hooks/useWidgetStateReporter";
+import { useDataFreshness } from "../../hooks/useDataFreshness";
+import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
+import { StaleDataOverlay } from "./StaleDataOverlay";
 
 interface HAEntityWidgetProps {
   config: Record<string, unknown>;
@@ -43,13 +46,14 @@ export function HAEntityWidget({ config, style, isBuilder, widgetId }: HAEntityW
 
   // REST fallback when WebSocket is unavailable
   const useRestFallback = !isBuilder && entityId && (!!wsError || (!connected && !connecting));
-  const { data: restEntity } = useQuery({
+  const { data: restEntity, dataUpdatedAt } = useQuery({
     queryKey: ["ha-entity-rest", entityId],
     queryFn: () => api.getHomeAssistantState(entityId),
     enabled: !!useRestFallback,
     staleTime: 30 * 1000,
     refetchInterval: 30 * 1000,
   });
+  const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.haEntity);
 
   const entity = connected && wsEntity ? wsEntity : restEntity;
 
@@ -163,11 +167,12 @@ export function HAEntityWidget({ config, style, isBuilder, widgetId }: HAEntityW
   return (
     <div
       className={cn(
-        "flex h-full flex-col items-center justify-center p-4 rounded-lg",
+        "relative flex h-full flex-col items-center justify-center p-4 rounded-lg",
         "bg-black/40 backdrop-blur-sm"
       )}
       style={{ color: style?.textColor || "#ffffff" }}
     >
+      {isStale && <StaleDataOverlay ageLabel={ageLabel} textColor={style?.textColor} />}
       {showIcon && (
         <Zap
           className={cn(sizeClasses?.icon, "opacity-70 mb-2")}

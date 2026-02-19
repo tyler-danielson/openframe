@@ -6,6 +6,9 @@ import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import type { Task } from "@openframe/shared";
 import { cn } from "../../lib/utils";
+import { useDataFreshness } from "../../hooks/useDataFreshness";
+import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
+import { StaleDataOverlay } from "./StaleDataOverlay";
 
 interface TasksWidgetProps {
   config: Record<string, unknown>;
@@ -44,13 +47,14 @@ export function TasksWidget({ config, style, isBuilder }: TasksWidgetProps) {
   };
   const headerText = getHeaderText();
 
-  const { data: tasks = [], isLoading } = useQuery({
+  const { data: tasks = [], isLoading, dataUpdatedAt } = useQuery({
     queryKey: ["widget-tasks"],
     queryFn: () => api.getTasks({ status: "needsAction" }),
     staleTime: 5 * 60 * 1000,
     refetchInterval: 5 * 60 * 1000,
     enabled: !isBuilder,
   });
+  const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.tasks);
 
   const upcomingTasks = useMemo(() => {
     const now = new Date();
@@ -167,11 +171,12 @@ export function TasksWidget({ config, style, isBuilder }: TasksWidgetProps) {
   return (
     <div
       className={cn(
-        "flex h-full flex-col p-4 rounded-lg",
+        "relative flex h-full flex-col p-4 rounded-lg",
         "bg-black/40 backdrop-blur-sm"
       )}
       style={{ color: style?.textColor || "#ffffff" }}
     >
+      {isStale && <StaleDataOverlay ageLabel={ageLabel} textColor={style?.textColor} />}
       {headerText && (
         <div
           className={cn(sizeClasses?.label, "opacity-50 uppercase tracking-wide mb-3")}

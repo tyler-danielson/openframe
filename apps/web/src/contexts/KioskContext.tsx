@@ -1,9 +1,10 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api, type KioskConfig, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures } from "../services/api";
 import { useScreensaverStore, type ScreensaverLayoutConfig, DEFAULT_LAYOUT_CONFIG } from "../stores/screensaver";
 import { useAuthStore } from "../stores/auth";
-import { useConnectionHealth, type ConnectionStatus } from "../hooks/useConnectionHealth";
+import { useConnection } from "./ConnectionContext";
+import type { ConnectionStatus } from "../hooks/useConnectionHealth";
 import { offlineCache, CACHE_KEYS, CACHE_MAX_AGES } from "../lib/offlineCache";
 
 interface KioskContextValue {
@@ -69,23 +70,9 @@ export function KioskProvider({ token, children }: KioskProviderProps) {
   const [error, setError] = useState<string | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const setApiKey = useAuthStore((state) => state.setApiKey);
-  const queryClient = useQueryClient();
 
-  // Handle reconnection - invalidate cache and refresh data
-  const handleReconnect = useCallback(() => {
-    console.log("[Kiosk] Connection restored, refreshing data...");
-
-    // Invalidate all queries to refetch fresh data
-    queryClient.invalidateQueries();
-  }, [queryClient]);
-
-  // Connection health monitoring
-  const { status: connectionStatus, lastOnlineAt } = useConnectionHealth({
-    enabled: true,
-    onReconnect: handleReconnect,
-  });
-
-  const isOfflineMode = connectionStatus !== "online";
+  // Delegate to global ConnectionContext (handles health checks + reconnect invalidation)
+  const { connectionStatus, lastOnlineAt, isOffline: isOfflineMode } = useConnection();
 
   // Fetch kiosk API key for authentication
   const { data: authData, error: authError } = useQuery({
