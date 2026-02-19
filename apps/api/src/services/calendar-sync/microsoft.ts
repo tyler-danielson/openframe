@@ -342,31 +342,9 @@ async function syncCalendarList(
   const data = (await response.json()) as MSCalendarListResponse;
 
   for (const mcal of data.value) {
-    const [existing] = await db
-      .select()
-      .from(calendars)
-      .where(
-        and(
-          eq(calendars.userId, userId),
-          eq(calendars.provider, "microsoft"),
-          eq(calendars.externalId, mcal.id)
-        )
-      )
-      .limit(1);
-
-    if (existing) {
-      await db
-        .update(calendars)
-        .set({
-          name: mcal.name,
-          color: msColorToHex(mcal.color),
-          isReadOnly: !mcal.canEdit,
-          ...(oauthTokenId && !existing.oauthTokenId ? { oauthTokenId } : {}),
-          updatedAt: new Date(),
-        })
-        .where(eq(calendars.id, existing.id));
-    } else {
-      await db.insert(calendars).values({
+    await db
+      .insert(calendars)
+      .values({
         userId,
         provider: "microsoft",
         externalId: mcal.id,
@@ -375,8 +353,17 @@ async function syncCalendarList(
         isPrimary: mcal.isDefaultCalendar,
         isReadOnly: !mcal.canEdit,
         ...(oauthTokenId ? { oauthTokenId } : {}),
+      })
+      .onConflictDoUpdate({
+        target: [calendars.userId, calendars.provider, calendars.externalId],
+        set: {
+          name: mcal.name,
+          color: msColorToHex(mcal.color),
+          isReadOnly: !mcal.canEdit,
+          ...(oauthTokenId ? { oauthTokenId } : {}),
+          updatedAt: new Date(),
+        },
       });
-    }
   }
 }
 

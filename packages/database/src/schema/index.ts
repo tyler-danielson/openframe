@@ -245,7 +245,7 @@ export const calendars = pgTable(
   },
   (table) => [
     index("calendars_user_idx").on(table.userId),
-    index("calendars_external_idx").on(table.provider, table.externalId),
+    uniqueIndex("calendars_user_provider_external_idx").on(table.userId, table.provider, table.externalId),
   ]
 );
 

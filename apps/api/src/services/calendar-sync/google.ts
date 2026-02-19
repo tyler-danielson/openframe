@@ -209,34 +209,11 @@ async function syncCalendarList(
   const data = (await response.json()) as GoogleCalendarListResponse;
 
   for (const gcal of data.items) {
-    const [existing] = await db
-      .select()
-      .from(calendars)
-      .where(
-        and(
-          eq(calendars.userId, userId),
-          eq(calendars.provider, "google"),
-          eq(calendars.externalId, gcal.id)
-        )
-      )
-      .limit(1);
-
-    if (existing) {
-      // Note: We don't update isPrimary here - that's a user-controlled setting
-      // that shouldn't be overwritten by sync
-      await db
-        .update(calendars)
-        .set({
-          name: gcal.summary,
-          description: gcal.description,
-          color: gcal.backgroundColor ?? "#3B82F6",
-          isReadOnly: gcal.accessRole === "reader",
-          ...(oauthTokenId && !existing.oauthTokenId ? { oauthTokenId } : {}),
-          updatedAt: new Date(),
-        })
-        .where(eq(calendars.id, existing.id));
-    } else {
-      await db.insert(calendars).values({
+    // Note: isPrimary is intentionally excluded from the update set —
+    // it's a user-controlled setting that shouldn't be overwritten by sync
+    await db
+      .insert(calendars)
+      .values({
         userId,
         provider: "google",
         externalId: gcal.id,
@@ -246,8 +223,18 @@ async function syncCalendarList(
         isPrimary: gcal.primary ?? false,
         isReadOnly: gcal.accessRole === "reader",
         ...(oauthTokenId ? { oauthTokenId } : {}),
+      })
+      .onConflictDoUpdate({
+        target: [calendars.userId, calendars.provider, calendars.externalId],
+        set: {
+          name: gcal.summary,
+          description: gcal.description,
+          color: gcal.backgroundColor ?? "#3B82F6",
+          isReadOnly: gcal.accessRole === "reader",
+          ...(oauthTokenId ? { oauthTokenId } : {}),
+          updatedAt: new Date(),
+        },
       });
-    }
   }
 }
 
