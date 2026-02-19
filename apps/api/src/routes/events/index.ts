@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { randomUUID } from "crypto";
-import { eq, and, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, or, gte, lte, inArray, isNotNull } from "drizzle-orm";
 import { calendars, events, oauthTokens } from "@openframe/database/schema";
 import { eventQuerySchema, createEventSchema, quickEventSchema } from "@openframe/shared/validators";
 import { getCurrentUser } from "../../plugins/auth.js";
@@ -58,15 +58,26 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
         };
       }
 
-      // Get events in range
+      // Get events in range, plus recurring master events that may have
+      // occurrences in range (their endTime is the first occurrence only)
       const eventResults = await fastify.db
         .select()
         .from(events)
         .where(
           and(
             inArray(events.calendarId, calendarIds),
-            lte(events.startTime, query.end),
-            gte(events.endTime, query.start)
+            or(
+              // Normal events: fall within the queried range
+              and(
+                lte(events.startTime, query.end),
+                gte(events.endTime, query.start)
+              ),
+              // Recurring master events: started before range end (may have future occurrences)
+              and(
+                isNotNull(events.recurrenceRule),
+                lte(events.startTime, query.end)
+              )
+            )
           )
         );
 

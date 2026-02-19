@@ -57,9 +57,7 @@ import { ChatDrawer } from "./components/chat/ChatDrawer";
 import { ConnectionProvider, useConnection } from "./contexts/ConnectionContext";
 import { ConnectionStatusIndicator } from "./components/ConnectionStatusIndicator";
 import { api } from "./services/api";
-
-// Cloud mode: when deployed as part of openframe.us cloud platform
-export const isCloudMode = import.meta.env.VITE_CLOUD_MODE === "true";
+import { isCloudMode } from "./lib/cloud";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);

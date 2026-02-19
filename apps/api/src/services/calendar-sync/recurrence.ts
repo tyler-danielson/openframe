@@ -16,22 +16,35 @@ export function expandRecurringEvents(
 ): ExpandedEvent[] {
   const result: ExpandedEvent[] = [];
 
+  // Collect all instances (events with recurringEventId) indexed by their
+  // master's externalId for fast lookup during expansion
+  const instancesByMaster = new Map<string, Event[]>();
+  for (const event of eventList) {
+    if (event.recurringEventId) {
+      const existing = instancesByMaster.get(event.recurringEventId) ?? [];
+      existing.push(event);
+      instancesByMaster.set(event.recurringEventId, existing);
+    }
+  }
+
   for (const event of eventList) {
     if (!event.recurrenceRule) {
-      // Non-recurring event - check if it falls in range
+      // Non-recurring event (including instances) - check if it falls in range
       if (event.startTime <= rangeEnd && event.endTime >= rangeStart) {
         result.push(event);
       }
       continue;
     }
 
-    // Skip instances - they override the master
+    // Skip instances that also have a recurrenceRule (shouldn't happen, but defensive)
     if (event.recurringEventId) {
-      result.push(event);
+      if (event.startTime <= rangeEnd && event.endTime >= rangeStart) {
+        result.push(event);
+      }
       continue;
     }
 
-    // Expand recurring event
+    // Expand recurring event master
     try {
       const rule = RRule.fromString(
         `DTSTART:${formatDateForRRule(event.startTime)}\nRRULE:${event.recurrenceRule}`
@@ -39,18 +52,20 @@ export function expandRecurringEvents(
 
       const duration = event.endTime.getTime() - event.startTime.getTime();
       const occurrences = rule.between(rangeStart, rangeEnd, true);
+      const instances = instancesByMaster.get(event.externalId!) ?? [];
 
       for (const occurrence of occurrences) {
-        // Check if this occurrence has been overridden
-        const override = eventList.find(
+        // Check if this occurrence has a stored instance (override or synced instance)
+        const hasInstance = instances.some(
           (e) =>
-            e.recurringEventId === event.externalId &&
-            e.originalStartTime &&
-            isSameDay(e.originalStartTime, occurrence)
+            // Match by originalStartTime (modified instances)
+            (e.originalStartTime && isSameDay(e.originalStartTime, occurrence)) ||
+            // Match by actual startTime (unmodified instances synced individually)
+            isSameDay(e.startTime, occurrence)
         );
 
-        if (override) {
-          // Use the override instead
+        if (hasInstance) {
+          // Instance already in results from the non-recurring branch above
           continue;
         }
 
@@ -74,10 +89,19 @@ export function expandRecurringEvents(
     }
   }
 
-  // Sort by start time
-  result.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+  // Deduplicate by title + startTime (catches edge cases from sync overlaps)
+  const seen = new Set<string>();
+  const deduplicated = result.filter((event) => {
+    const key = `${event.calendarId}|${event.title}|${event.startTime.getTime()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
-  return result;
+  // Sort by start time
+  deduplicated.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+
+  return deduplicated;
 }
 
 function formatDateForRRule(date: Date): string {

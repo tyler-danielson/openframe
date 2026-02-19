@@ -86,6 +86,7 @@ interface CalendarViewProps {
   onSelectEvent?: (event: CalendarEvent) => void;
   onSelectSlot?: (slotInfo: { start: Date; end: Date }) => void;
   onDateLongPress?: (date: Date) => void;
+  onShowMore?: (date: Date) => void;
   weatherForecast?: WeatherForecast[];
   currentWeather?: WeatherData;
   onWeatherClick?: (date: Date) => void;
@@ -103,6 +104,7 @@ export function CalendarView({
   onSelectEvent,
   onSelectSlot,
   onDateLongPress,
+  onShowMore,
   weatherForecast,
   currentWeather,
   onWeatherClick,
@@ -580,7 +582,8 @@ export function CalendarView({
         onSelectSlot={handleSelectSlotWithLongPressCheck}
         onDrillDown={(date) => onSelectSlot?.({ start: date, end: date })}
         selectable
-        popup
+        popup={false}
+        onShowMore={(_events, date) => onShowMore?.(date)}
         toolbar={false}
         eventPropGetter={eventStyleGetter}
         views={["month", "week", "day", "agenda"]}

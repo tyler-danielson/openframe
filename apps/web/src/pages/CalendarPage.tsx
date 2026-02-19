@@ -957,6 +957,7 @@ export function CalendarPage() {
             onSelectEvent={handleSelectEvent}
             onSelectSlot={handleSelectSlot}
             onDateLongPress={handleDateLongPress}
+            onShowMore={(date) => setDaySummaryDate(date)}
             weatherForecast={forecast}
             currentWeather={weather}
             onWeatherClick={handleWeatherClick}

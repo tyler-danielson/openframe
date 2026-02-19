@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../co
 import { useAuthStore } from "../stores/auth";
 import { useEffect, useState } from "react";
 import { api } from "../services/api";
-import { isCloudMode } from "../App";
+import { isCloudMode } from "../lib/cloud";
 
 // Use relative URL - nginx proxies /api to the API service
 const getApiServerUrl = () => {

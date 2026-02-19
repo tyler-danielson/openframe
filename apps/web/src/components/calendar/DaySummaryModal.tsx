@@ -15,7 +15,7 @@ interface DaySummaryModalProps {
 export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: DaySummaryModalProps) {
   if (!date) return null;
 
-  // Filter events for this specific day
+  // Filter events for this specific day, then deduplicate
   const dayEvents = events.filter((event) => {
     const eventStart = new Date(event.startTime);
     const eventEnd = new Date(event.endTime);
@@ -25,8 +25,17 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
            isSameDay(eventEnd, date);
   });
 
+  // Deduplicate: same title + same start time = duplicate (covers recurring instance expansion)
+  const seen = new Set<string>();
+  const uniqueDayEvents = dayEvents.filter((event) => {
+    const key = `${event.title?.toLowerCase().trim()}|${new Date(event.startTime).getTime()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   // Sort events by start time, all-day events first
-  const sortedEvents = [...dayEvents].sort((a, b) => {
+  const sortedEvents = [...uniqueDayEvents].sort((a, b) => {
     if (a.isAllDay && !b.isAllDay) return -1;
     if (!a.isAllDay && b.isAllDay) return 1;
     return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
