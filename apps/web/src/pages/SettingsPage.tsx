@@ -8465,9 +8465,20 @@ function CloudSettings() {
               {connectMutation.isSuccess && connectMutation.data && (
                 <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-2">
                   <p className="text-sm font-medium text-primary">Claim code generated!</p>
-                  <p className="text-2xl font-mono font-bold tracking-widest text-primary text-center">
-                    {connectMutation.data.code}
-                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    <p className="text-2xl font-mono font-bold tracking-widest text-primary">
+                      {connectMutation.data.code}
+                    </p>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(connectMutation.data.code);
+                      }}
+                      className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors"
+                      title="Copy claim code"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </button>
+                  </div>
                   <p className="text-xs text-muted-foreground text-center">
                     Open the link below and sign in to claim this instance:
                   </p>
@@ -8616,13 +8627,14 @@ export function SettingsPage() {
     queryFn: () => api.getCalendars(),
   });
 
-  // Fetch events to determine which calendars have recent activity
+  // Fetch events for calendar preview and recent activity
   const { data: events = [] } = useQuery({
     queryKey: ["events", "calendar-settings"],
     queryFn: () => {
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      return api.getEvents(thirtyDaysAgo, now);
+      const thirtyDaysAhead = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      return api.getEvents(thirtyDaysAgo, thirtyDaysAhead);
     },
   });
 
@@ -9122,6 +9134,7 @@ export function SettingsPage() {
                           provider={selectedCalendarProvider}
                           calendars={calendars}
                           favoriteTeams={calendarFavoriteTeams}
+                          events={events}
                           onUpdateCalendar={(id, updates) =>
                             updateCalendar.mutate({ id, data: updates })
                           }

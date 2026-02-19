@@ -99,6 +99,52 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
           expiresAt: string;
         };
 
+        // Start polling for claim completion in the background
+        const claimCode = data.code;
+        const pollInterval = setInterval(async () => {
+          try {
+            const pollRes = await fetch(`${cloudUrl}/api/relay/claim?code=${claimCode}`);
+            if (!pollRes.ok) { clearInterval(pollInterval); return; }
+            const pollData = await pollRes.json() as { status: string; instanceId?: string; relaySecret?: string; wsEndpoint?: string };
+            if (pollData.status === "claimed" && pollData.instanceId && pollData.relaySecret && pollData.wsEndpoint) {
+              clearInterval(pollInterval);
+              // Store cloud settings
+              const settings = [
+                { category: "cloud", key: "enabled", value: "true", isSecret: false },
+                { category: "cloud", key: "instance_id", value: pollData.instanceId, isSecret: false },
+                { category: "cloud", key: "relay_secret", value: pollData.relaySecret, isSecret: true },
+                { category: "cloud", key: "ws_endpoint", value: pollData.wsEndpoint, isSecret: false },
+              ];
+              for (const setting of settings) {
+                const [existing] = await fastify.db
+                  .select()
+                  .from(systemSettings)
+                  .where(and(eq(systemSettings.category, setting.category), eq(systemSettings.key, setting.key)))
+                  .limit(1);
+                if (existing) {
+                  await fastify.db.update(systemSettings).set({ value: setting.value, isSecret: setting.isSecret }).where(eq(systemSettings.id, existing.id));
+                } else {
+                  await fastify.db.insert(systemSettings).values(setting);
+                }
+              }
+              // Configure and connect the relay
+              fastify.cloudRelay.configure({ instanceId: pollData.instanceId, relaySecret: pollData.relaySecret, wsEndpoint: pollData.wsEndpoint });
+              fastify.cloudRelay.connect();
+              fastify.cloudRelay.onCommand((kioskId, commandType, cmdData) => {
+                const commands = kioskCommands.get(kioskId) || [];
+                commands.push({ type: commandType as any, payload: cmdData, timestamp: Date.now() });
+                kioskCommands.set(kioskId, commands);
+              });
+              fastify.log.info(`[cloud] Claim code ${claimCode} claimed, relay connected`);
+            }
+          } catch {
+            // Poll failed, keep trying
+          }
+        }, 3000);
+
+        // Stop polling after 10 minutes (code expiry)
+        setTimeout(() => clearInterval(pollInterval), 10 * 60 * 1000);
+
         // Return the claim URL for the frontend to open
         return {
           success: true,

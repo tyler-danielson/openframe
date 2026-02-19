@@ -558,9 +558,9 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
 
         if (token) {
           if (calendar.provider === "google") {
-            await deleteEventFromGoogle(calendar, event, token);
+            await deleteEventFromGoogle(fastify.db, calendar, event, token);
           } else {
-            await deleteEventFromMicrosoft(calendar, event, token);
+            await deleteEventFromMicrosoft(fastify.db, calendar, event, token);
           }
         }
       }

@@ -8,7 +8,10 @@ import {
   jsonb,
   index,
   pgEnum,
+  date,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { relations } from "drizzle-orm";
 import type {
   PlannerLayoutConfig,
@@ -221,6 +224,7 @@ export const calendars = pgTable(
     name: text("name").notNull(),
     description: text("description"),
     color: text("color").default("#3B82F6"),
+    oauthTokenId: uuid("oauth_token_id").references(() => oauthTokens.id, { onDelete: "set null" }),
     icon: text("icon"), // emoji or icon identifier for the calendar
     isVisible: boolean("is_visible").default(true).notNull(),
     isPrimary: boolean("is_primary").default(false).notNull(),
@@ -653,6 +657,10 @@ export const calendarsRelations = relations(calendars, ({ one, many }) => ({
     fields: [calendars.userId],
     references: [users.id],
   }),
+  oauthToken: one(oauthTokens, {
+    fields: [calendars.oauthTokenId],
+    references: [oauthTokens.id],
+  }),
   events: many(events),
 }));
 
@@ -1070,11 +1078,13 @@ export const homeAssistantEntitiesRelations = relations(
   })
 );
 
-// System Settings - stores global configuration (API keys, etc.)
+// System Settings - stores global and per-user configuration (API keys, etc.)
+// userId = null means global/instance-level (self-hosted), non-null = per-user (SaaS hosted)
 export const systemSettings = pgTable(
   "system_settings",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     category: text("category").notNull(), // e.g., "weather", "google", "spotify"
     key: text("key").notNull(), // e.g., "api_key", "client_id", "latitude"
     value: text("value"), // Stored as text, encrypted for sensitive values
@@ -1090,6 +1100,11 @@ export const systemSettings = pgTable(
   (table) => [
     index("system_settings_category_idx").on(table.category),
     index("system_settings_key_idx").on(table.category, table.key),
+    uniqueIndex("system_settings_user_category_key_idx").on(
+      table.userId,
+      table.category,
+      table.key
+    ),
   ]
 );
 
@@ -2391,3 +2406,98 @@ export const audiobookshelfServersRelations = relations(audiobookshelfServers, (
     references: [users.id],
   }),
 }));
+
+// ============ Routines / Habit Tracker ============
+
+export const routineFrequencyEnum = pgEnum("routine_frequency", [
+  "daily",
+  "weekly",
+  "custom",
+]);
+
+export const routines = pgTable(
+  "routines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    icon: text("icon"),
+    category: text("category"),
+    frequency: routineFrequencyEnum("frequency").notNull().default("daily"),
+    daysOfWeek: integer("days_of_week").array(),
+    assignedProfileId: uuid("assigned_profile_id").references(
+      () => familyProfiles.id,
+      { onDelete: "set null" }
+    ),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isActive: boolean("is_active").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("routines_user_idx").on(table.userId)]
+);
+
+export const routineCompletions = pgTable(
+  "routine_completions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    routineId: uuid("routine_id")
+      .notNull()
+      .references(() => routines.id, { onDelete: "cascade" }),
+    completedDate: date("completed_date").notNull(),
+    completedByProfileId: uuid("completed_by_profile_id").references(
+      () => familyProfiles.id,
+      { onDelete: "set null" }
+    ),
+    completedAt: timestamp("completed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("routine_completions_routine_date_idx").on(
+      table.routineId,
+      table.completedDate
+    ),
+    index("routine_completions_date_idx").on(table.completedDate),
+    uniqueIndex("routine_completions_unique_idx").on(
+      table.routineId,
+      table.completedDate,
+      sql`COALESCE(${table.completedByProfileId}, '00000000-0000-0000-0000-000000000000')`
+    ),
+  ]
+);
+
+export const routinesRelations = relations(routines, ({ one, many }) => ({
+  user: one(users, {
+    fields: [routines.userId],
+    references: [users.id],
+  }),
+  assignedProfile: one(familyProfiles, {
+    fields: [routines.assignedProfileId],
+    references: [familyProfiles.id],
+  }),
+  completions: many(routineCompletions),
+}));
+
+export const routineCompletionsRelations = relations(
+  routineCompletions,
+  ({ one }) => ({
+    routine: one(routines, {
+      fields: [routineCompletions.routineId],
+      references: [routines.id],
+    }),
+    completedByProfile: one(familyProfiles, {
+      fields: [routineCompletions.completedByProfileId],
+      references: [familyProfiles.id],
+    }),
+  })
+);
+
+export type Routine = typeof routines.$inferSelect;
+export type RoutineCompletion = typeof routineCompletions.$inferSelect;

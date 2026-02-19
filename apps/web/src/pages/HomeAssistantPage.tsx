@@ -13,6 +13,7 @@ import { RoomSidebar } from "../components/homeassistant/RoomSidebar";
 import { RoomHero } from "../components/homeassistant/RoomHero";
 import { HomioEntityCard } from "../components/homeassistant/HomioEntityCard";
 import { SportsTicker } from "../components/SportsTicker";
+import { AssistChat } from "../components/homeassistant/AssistChat";
 import { api, type HAEntityTimer } from "../services/api";
 import { cn } from "../lib/utils";
 import { useCalendarStore } from "../stores/calendar";
@@ -420,6 +421,9 @@ export function HomeAssistantPage() {
         )}
         </div>
       </div>
+
+      {/* Assist Chat Widget */}
+      <AssistChat />
     </div>
   );
 }

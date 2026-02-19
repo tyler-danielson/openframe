@@ -120,6 +120,20 @@
       "when": 1771200000000,
       "tag": "0028_add_plex_audiobookshelf",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1771300000000,
+      "tag": "0029_add_routines",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1771400000000,
+      "tag": "0030_add_system_settings_user_id",
+      "breakpoints": true
     }
   ]
 }

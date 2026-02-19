@@ -1,5 +1,5 @@
 import { eq, and } from "drizzle-orm";
-import { calendars, events, type oauthTokens } from "@openframe/database/schema";
+import { calendars, events, oauthTokens } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
 
 interface GoogleCalendar {
@@ -75,7 +75,10 @@ function parseLocalDate(dateStr: string): Date {
   return new Date(year, month, day, 0, 0, 0, 0);
 }
 
-async function refreshGoogleToken(token: OAuthToken): Promise<string> {
+async function refreshGoogleToken(
+  db: Database,
+  token: OAuthToken
+): Promise<string> {
   if (!token.refreshToken) {
     throw new Error("No refresh token available");
   }
@@ -84,8 +87,10 @@ async function refreshGoogleToken(token: OAuthToken): Promise<string> {
     return token.accessToken;
   }
 
-  const clientId = _calendarCredentials.clientId || process.env.GOOGLE_CLIENT_ID!;
-  const clientSecret = _calendarCredentials.clientSecret || process.env.GOOGLE_CLIENT_SECRET!;
+  const clientId =
+    _calendarCredentials.clientId || process.env.GOOGLE_CLIENT_ID!;
+  const clientSecret =
+    _calendarCredentials.clientSecret || process.env.GOOGLE_CLIENT_SECRET!;
 
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -99,10 +104,39 @@ async function refreshGoogleToken(token: OAuthToken): Promise<string> {
   });
 
   if (!response.ok) {
-    throw new Error("Failed to refresh Google token");
+    const errorText = await response.text().catch(() => "");
+    console.error(
+      `[Google Sync] Token refresh failed (${response.status}): ${errorText}`
+    );
+    throw new Error(
+      `Failed to refresh Google token: ${response.status}`
+    );
   }
 
-  const data = await response.json() as { access_token: string };
+  const data = (await response.json()) as {
+    access_token: string;
+    expires_in?: number;
+    refresh_token?: string;
+  };
+
+  // Persist the refreshed token back to the database
+  const updates: Record<string, unknown> = {
+    accessToken: data.access_token,
+    updatedAt: new Date(),
+  };
+  if (data.expires_in) {
+    updates.expiresAt = new Date(Date.now() + data.expires_in * 1000);
+  }
+  // Google may issue a new refresh token (rare but possible)
+  if (data.refresh_token) {
+    updates.refreshToken = data.refresh_token;
+  }
+
+  await db
+    .update(oauthTokens)
+    .set(updates)
+    .where(eq(oauthTokens.id, token.id));
+
   return data.access_token;
 }
 
@@ -113,11 +147,11 @@ export async function syncGoogleCalendars(
   syncToken?: string,
   calendarId?: string
 ): Promise<void> {
-  const accessToken = await refreshGoogleToken(token);
+  const accessToken = await refreshGoogleToken(db, token);
 
   // If no specific calendar, sync the calendar list first
   if (!calendarId) {
-    await syncCalendarList(db, userId, accessToken);
+    await syncCalendarList(db, userId, accessToken, token.id);
   }
 
   // Get calendars to sync
@@ -158,7 +192,8 @@ export async function syncGoogleCalendars(
 async function syncCalendarList(
   db: Database,
   userId: string,
-  accessToken: string
+  accessToken: string,
+  oauthTokenId?: string
 ): Promise<void> {
   const response = await fetch(
     "https://www.googleapis.com/calendar/v3/users/me/calendarList",
@@ -196,6 +231,7 @@ async function syncCalendarList(
           description: gcal.description,
           color: gcal.backgroundColor ?? "#3B82F6",
           isReadOnly: gcal.accessRole === "reader",
+          ...(oauthTokenId && !existing.oauthTokenId ? { oauthTokenId } : {}),
           updatedAt: new Date(),
         })
         .where(eq(calendars.id, existing.id));
@@ -209,6 +245,7 @@ async function syncCalendarList(
         color: gcal.backgroundColor ?? "#3B82F6",
         isPrimary: gcal.primary ?? false,
         isReadOnly: gcal.accessRole === "reader",
+        ...(oauthTokenId ? { oauthTokenId } : {}),
       });
     }
   }
@@ -436,7 +473,7 @@ export async function pushEventToGoogle(
   token: OAuthToken
 ): Promise<void> {
   try {
-    const accessToken = await refreshGoogleToken(token);
+    const accessToken = await refreshGoogleToken(db, token);
     const body = buildGoogleEventBody(event);
 
     const response = await fetch(
@@ -483,7 +520,7 @@ export async function updateEventInGoogle(
   if (event.externalId.startsWith("local_")) return;
 
   try {
-    const accessToken = await refreshGoogleToken(token);
+    const accessToken = await refreshGoogleToken(db, token);
     const body = buildGoogleEventBody(event);
 
     const response = await fetch(
@@ -519,6 +556,7 @@ export async function updateEventInGoogle(
 }
 
 export async function deleteEventFromGoogle(
+  db: Database,
   calendar: CalendarRecord,
   event: EventRecord,
   token: OAuthToken
@@ -527,7 +565,7 @@ export async function deleteEventFromGoogle(
   if (event.externalId.startsWith("local_")) return;
 
   try {
-    const accessToken = await refreshGoogleToken(token);
+    const accessToken = await refreshGoogleToken(db, token);
 
     const response = await fetch(
       `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.externalId)}/events/${encodeURIComponent(event.externalId)}`,

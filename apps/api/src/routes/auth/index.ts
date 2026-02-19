@@ -134,6 +134,81 @@ async function getOAuthConfig(db: any, provider: "google" | "microsoft", request
 }
 
 export const authRoutes: FastifyPluginAsync = async (fastify) => {
+  // Provisioning endpoint - cloud calls this to create user accounts on the shared API
+  // Protected by PROVISIONING_SECRET, not public
+  fastify.post(
+    "/register",
+    {
+      config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+      schema: {
+        description:
+          "Register a new user (provisioning endpoint for hosted mode)",
+        tags: ["Auth"],
+        body: {
+          type: "object",
+          properties: {
+            email: { type: "string", format: "email" },
+            name: { type: "string" },
+            password: { type: "string", minLength: 8 },
+          },
+          required: ["email"],
+        },
+      },
+    },
+    async (request, reply) => {
+      // Verify provisioning secret
+      const secret = request.headers["x-provisioning-secret"];
+      if (
+        !fastify.provisioningSecret ||
+        !secret ||
+        secret !== fastify.provisioningSecret
+      ) {
+        return reply.forbidden("Invalid provisioning secret");
+      }
+
+      const { email, name, password } = request.body as {
+        email: string;
+        name?: string;
+        password?: string;
+      };
+
+      // Check if user already exists
+      const [existing] = await fastify.db
+        .select()
+        .from(users)
+        .where(eq(users.email, email))
+        .limit(1);
+
+      if (existing) {
+        return {
+          success: true,
+          data: { userId: existing.id, existing: true },
+        };
+      }
+
+      // Create new user
+      const values: {
+        email: string;
+        name?: string;
+        passwordHash?: string;
+        role: "admin" | "member" | "viewer";
+      } = { email, role: "admin" };
+
+      if (name) values.name = name;
+      if (password) values.passwordHash = await bcrypt.hash(password, 12);
+
+      const [user] = await fastify.db
+        .insert(users)
+        .values(values)
+        .returning();
+
+      return {
+        success: true,
+        data: { userId: user!.id, existing: false },
+      };
+    }
+  );
+
   // Email/password login
   fastify.post(
     "/login",

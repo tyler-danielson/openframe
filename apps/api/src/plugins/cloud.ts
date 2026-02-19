@@ -6,14 +6,19 @@ import { getCategorySettings } from "../routes/settings/index.js";
 declare module "fastify" {
   interface FastifyInstance {
     cloudRelay: CloudRelay;
+    relaySecret: string | null;
+    hostedMode: boolean;
+    provisioningSecret: string | null;
   }
 }
 
 export const cloudPlugin: FastifyPluginAsync = fp(
   async (fastify) => {
-    const relay = new CloudRelay(fastify.db, fastify.log as any);
+    const port = Number(process.env.PORT) || 3001;
+    const relay = new CloudRelay(fastify.db, fastify.log as any, port);
 
     fastify.decorate("cloudRelay", relay);
+    fastify.decorate("relaySecret", null as string | null);
 
     // Try to connect on startup if cloud settings exist
     try {
@@ -24,6 +29,7 @@ export const cloudPlugin: FastifyPluginAsync = fp(
       const enabled = cloudSettings.enabled;
 
       if (enabled === "true" && instanceId && relaySecret && wsEndpoint) {
+        fastify.relaySecret = relaySecret;
         relay.configure({
           instanceId,
           relaySecret,

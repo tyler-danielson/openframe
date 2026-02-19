@@ -24,6 +24,7 @@ import { KitchenPage } from "./pages/KitchenPage";
 import { MobileRecipeUploadPage } from "./pages/MobileRecipeUploadPage";
 import { DeviceLoginPage } from "./pages/DeviceLoginPage";
 import { ChatPage } from "./pages/ChatPage";
+import { RoutinesPage } from "./pages/RoutinesPage";
 import { SetupPage } from "./pages/SetupPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { PlannerBuilderPage } from "./pages/PlannerBuilderPage";
@@ -225,6 +226,7 @@ export default function App() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="tasks" element={<TasksPage />} />
+          <Route path="routines" element={<RoutinesPage />} />
           <Route path="photos" element={<PhotosPage />} />
           <Route path="iptv" element={<IptvPage />} />
           <Route path="cameras" element={<CamerasPage />} />

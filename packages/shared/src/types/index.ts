@@ -66,6 +66,8 @@ export interface Calendar {
   lastSyncAt: Date | null;
   visibility: CalendarVisibility;
   sourceUrl?: string | null; // URL for ICS subscriptions
+  oauthTokenId?: string | null; // Links to the OAuth account this calendar came from
+  accountLabel?: string | null; // Account name or email for display (e.g. "Work" or "user@company.com")
 }
 
 export interface CalendarEvent {
@@ -1138,4 +1140,36 @@ export interface AudiobookshelfItem {
   coverUrl?: string;
   description?: string;
   progress?: number;
+}
+
+// ============ Routine/Habit Tracker Types ============
+
+export type RoutineFrequency = "daily" | "weekly" | "custom";
+
+export interface Routine {
+  id: string;
+  userId: string;
+  title: string;
+  icon: string | null;
+  category: string | null;
+  frequency: RoutineFrequency;
+  daysOfWeek: number[] | null;
+  assignedProfileId: string | null;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface RoutineCompletion {
+  id: string;
+  routineId: string;
+  completedDate: string;
+  completedByProfileId: string | null;
+  completedAt: Date;
+}
+
+export interface RoutineWithCompletions extends Routine {
+  completions: RoutineCompletion[];
+  isCompletedToday?: boolean;
 }

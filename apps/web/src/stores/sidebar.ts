@@ -4,6 +4,7 @@ import { persist } from "zustand/middleware";
 export type SidebarFeature =
   | "calendar"
   | "tasks"
+  | "routines"
   | "dashboard"
   | "photos"
   | "spotify"
@@ -19,6 +20,7 @@ export type SidebarFeature =
 export const SIDEBAR_FEATURES: SidebarFeature[] = [
   "calendar",
   "tasks",
+  "routines",
   "dashboard",
   "photos",
   "spotify",

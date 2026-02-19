@@ -44,6 +44,7 @@ import { chatRoutes } from "./routes/chat/index.js";
 import { youtubeRoutes } from "./routes/youtube/index.js";
 import { plexRoutes } from "./routes/plex/index.js";
 import { audiobookshelfRoutes } from "./routes/audiobookshelf/index.js";
+import { routineRoutes } from "./routes/routines/index.js";
 import { companionAccessRoutes } from "./routes/companion/access.js";
 import { companionDataRoutes } from "./routes/companion/data.js";
 import { cloudRoutes } from "./routes/cloud/index.js";
@@ -143,6 +144,10 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(schedulerPlugin);
   await app.register(cloudPlugin);
 
+  // Hosted mode config (SaaS multi-tenant)
+  app.decorate("hostedMode", config.hostedMode);
+  app.decorate("provisioningSecret", config.provisioningSecret ?? null);
+
   // Shared upload tokens Map (must be decorated at app level so all routes share it)
   app.decorate("uploadTokens", new Map());
 
@@ -180,6 +185,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(youtubeRoutes, { prefix: "/api/v1/youtube" });
   await app.register(plexRoutes, { prefix: "/api/v1/plex" });
   await app.register(audiobookshelfRoutes, { prefix: "/api/v1/audiobookshelf" });
+  await app.register(routineRoutes, { prefix: "/api/v1/routines" });
   await app.register(companionAccessRoutes, { prefix: "/api/v1/companion/access" });
   await app.register(companionDataRoutes, { prefix: "/api/v1/companion/data" });
   await app.register(cloudRoutes, { prefix: "/api/v1/cloud" });

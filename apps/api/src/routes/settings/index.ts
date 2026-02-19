@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import {
   systemSettings,
   kiosks,
@@ -1258,16 +1258,49 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
 };
 
 // Helper function to get a setting value (for use in other services)
+// In multi-tenant mode, tries user-scoped setting first, falls back to global (userId IS NULL)
 export async function getSystemSetting(
   db: any,
   category: string,
-  key: string
+  key: string,
+  userId?: string
 ): Promise<string | null> {
+  // If userId provided, try user-scoped first
+  if (userId) {
+    const [userSetting] = await db
+      .select()
+      .from(systemSettings)
+      .where(
+        and(
+          eq(systemSettings.category, category),
+          eq(systemSettings.key, key),
+          eq(systemSettings.userId, userId)
+        )
+      )
+      .limit(1);
+
+    if (userSetting?.value) {
+      if (userSetting.isSecret) {
+        try {
+          return decrypt(userSetting.value);
+        } catch {
+          return null;
+        }
+      }
+      return userSetting.value;
+    }
+  }
+
+  // Fall back to global setting (userId IS NULL)
   const [setting] = await db
     .select()
     .from(systemSettings)
     .where(
-      and(eq(systemSettings.category, category), eq(systemSettings.key, key))
+      and(
+        eq(systemSettings.category, category),
+        eq(systemSettings.key, key),
+        isNull(systemSettings.userId)
+      )
     )
     .limit(1);
 
@@ -1286,18 +1319,26 @@ export async function getSystemSetting(
 }
 
 // Helper to get multiple settings for a category
+// In multi-tenant mode, merges user-scoped settings over global defaults
 export async function getCategorySettings(
   db: any,
-  category: string
+  category: string,
+  userId?: string
 ): Promise<Record<string, string | null>> {
-  const settings = await db
+  // Get global settings (userId IS NULL)
+  const globalSettings = await db
     .select()
     .from(systemSettings)
-    .where(eq(systemSettings.category, category));
+    .where(
+      and(
+        eq(systemSettings.category, category),
+        isNull(systemSettings.userId)
+      )
+    );
 
   const result: Record<string, string | null> = {};
 
-  for (const setting of settings) {
+  for (const setting of globalSettings) {
     if (setting.value && setting.isSecret) {
       try {
         result[setting.key] = decrypt(setting.value);
@@ -1306,6 +1347,31 @@ export async function getCategorySettings(
       }
     } else {
       result[setting.key] = setting.value;
+    }
+  }
+
+  // If userId provided, overlay user-scoped settings
+  if (userId) {
+    const userSettings = await db
+      .select()
+      .from(systemSettings)
+      .where(
+        and(
+          eq(systemSettings.category, category),
+          eq(systemSettings.userId, userId)
+        )
+      );
+
+    for (const setting of userSettings) {
+      if (setting.value && setting.isSecret) {
+        try {
+          result[setting.key] = decrypt(setting.value);
+        } catch {
+          result[setting.key] = null;
+        }
+      } else {
+        result[setting.key] = setting.value;
+      }
     }
   }
 

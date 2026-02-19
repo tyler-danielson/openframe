@@ -1,5 +1,5 @@
 import { eq, and } from "drizzle-orm";
-import { calendars, events, type oauthTokens } from "@openframe/database/schema";
+import { calendars, events, oauthTokens } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
 
 // --- Interfaces ---
@@ -199,7 +199,10 @@ function msRecurrenceToRRule(recurrence: MSEvent["recurrence"]): string | null {
 
 // --- Token refresh ---
 
-async function refreshMicrosoftToken(token: OAuthToken): Promise<string> {
+async function refreshMicrosoftToken(
+  db: Database,
+  token: OAuthToken
+): Promise<string> {
   if (!token.refreshToken) {
     throw new Error("No refresh token available");
   }
@@ -208,9 +211,14 @@ async function refreshMicrosoftToken(token: OAuthToken): Promise<string> {
     return token.accessToken;
   }
 
-  const clientId = _calendarCredentials.clientId || process.env.MICROSOFT_CLIENT_ID!;
-  const clientSecret = _calendarCredentials.clientSecret || process.env.MICROSOFT_CLIENT_SECRET!;
-  const tenantId = _calendarCredentials.tenantId || process.env.MICROSOFT_TENANT_ID || "common";
+  const clientId =
+    _calendarCredentials.clientId || process.env.MICROSOFT_CLIENT_ID!;
+  const clientSecret =
+    _calendarCredentials.clientSecret || process.env.MICROSOFT_CLIENT_SECRET!;
+  const tenantId =
+    _calendarCredentials.tenantId ||
+    process.env.MICROSOFT_TENANT_ID ||
+    "common";
 
   const response = await fetch(
     `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
@@ -228,10 +236,39 @@ async function refreshMicrosoftToken(token: OAuthToken): Promise<string> {
   );
 
   if (!response.ok) {
-    throw new Error("Failed to refresh Microsoft token");
+    const errorText = await response.text().catch(() => "");
+    console.error(
+      `[Microsoft Sync] Token refresh failed (${response.status}): ${errorText}`
+    );
+    throw new Error(
+      `Failed to refresh Microsoft token: ${response.status}`
+    );
   }
 
-  const data = (await response.json()) as { access_token: string };
+  const data = (await response.json()) as {
+    access_token: string;
+    expires_in?: number;
+    refresh_token?: string;
+  };
+
+  // Persist the refreshed token back to the database
+  const updates: Record<string, unknown> = {
+    accessToken: data.access_token,
+    updatedAt: new Date(),
+  };
+  if (data.expires_in) {
+    updates.expiresAt = new Date(Date.now() + data.expires_in * 1000);
+  }
+  // Microsoft rotates refresh tokens — always save the new one
+  if (data.refresh_token) {
+    updates.refreshToken = data.refresh_token;
+  }
+
+  await db
+    .update(oauthTokens)
+    .set(updates)
+    .where(eq(oauthTokens.id, token.id));
+
   return data.access_token;
 }
 
@@ -244,11 +281,11 @@ export async function syncMicrosoftCalendars(
   syncToken?: string,
   calendarId?: string
 ): Promise<void> {
-  const accessToken = await refreshMicrosoftToken(token);
+  const accessToken = await refreshMicrosoftToken(db, token);
 
   // If no specific calendar, sync the calendar list first
   if (!calendarId) {
-    await syncCalendarList(db, userId, accessToken);
+    await syncCalendarList(db, userId, accessToken, token.id);
   }
 
   // Get calendars to sync
@@ -291,7 +328,8 @@ export async function syncMicrosoftCalendars(
 async function syncCalendarList(
   db: Database,
   userId: string,
-  accessToken: string
+  accessToken: string,
+  oauthTokenId?: string
 ): Promise<void> {
   const response = await fetch("https://graph.microsoft.com/v1.0/me/calendars", {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -323,6 +361,7 @@ async function syncCalendarList(
           name: mcal.name,
           color: msColorToHex(mcal.color),
           isReadOnly: !mcal.canEdit,
+          ...(oauthTokenId && !existing.oauthTokenId ? { oauthTokenId } : {}),
           updatedAt: new Date(),
         })
         .where(eq(calendars.id, existing.id));
@@ -335,6 +374,7 @@ async function syncCalendarList(
         color: msColorToHex(mcal.color),
         isPrimary: mcal.isDefaultCalendar,
         isReadOnly: !mcal.canEdit,
+        ...(oauthTokenId ? { oauthTokenId } : {}),
       });
     }
   }
@@ -528,7 +568,7 @@ export async function pushEventToMicrosoft(
   token: OAuthToken
 ): Promise<void> {
   try {
-    const accessToken = await refreshMicrosoftToken(token);
+    const accessToken = await refreshMicrosoftToken(db, token);
     const body = buildMSEventBody(event);
 
     const response = await fetch(
@@ -575,7 +615,7 @@ export async function updateEventInMicrosoft(
   if (event.externalId.startsWith("local_")) return;
 
   try {
-    const accessToken = await refreshMicrosoftToken(token);
+    const accessToken = await refreshMicrosoftToken(db, token);
     const body = buildMSEventBody(event);
 
     const response = await fetch(
@@ -611,6 +651,7 @@ export async function updateEventInMicrosoft(
 }
 
 export async function deleteEventFromMicrosoft(
+  db: Database,
   calendar: CalendarRecord,
   event: EventRecord,
   token: OAuthToken
@@ -619,7 +660,7 @@ export async function deleteEventFromMicrosoft(
   if (event.externalId.startsWith("local_")) return;
 
   try {
-    const accessToken = await refreshMicrosoftToken(token);
+    const accessToken = await refreshMicrosoftToken(db, token);
 
     const response = await fetch(
       `https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(event.externalId)}`,

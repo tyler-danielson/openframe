@@ -1,6 +1,6 @@
 import WebSocket from "ws";
 import { eq } from "drizzle-orm";
-import { kiosks } from "@openframe/database/schema";
+import { kiosks, calendars } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
 
 // ─── Protocol Types (mirrors openframe-cloud protocol) ──────────
@@ -18,6 +18,13 @@ interface KioskSyncItem {
   enabledFeatures: string[];
 }
 
+interface CalendarSyncItem {
+  id: string;
+  name: string;
+  provider: string;
+  color: string | null;
+}
+
 // ─── Cloud Relay Client ─────────────────────────────────────────
 
 interface CloudRelayConfig {
@@ -33,6 +40,7 @@ export class CloudRelay {
   private ws: WebSocket | null = null;
   private config: CloudRelayConfig | null = null;
   private db: Database;
+  private port: number;
   private state: ConnectionState = "disconnected";
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay = 1000;
@@ -41,8 +49,9 @@ export class CloudRelay {
   private commandHandlers = new Map<string, (kioskId: string, commandType: string, data?: Record<string, unknown>) => void>();
   private logger: { info: (...args: unknown[]) => void; error: (...args: unknown[]) => void; warn: (...args: unknown[]) => void };
 
-  constructor(db: Database, logger?: typeof console) {
+  constructor(db: Database, logger?: typeof console, port = 3001) {
     this.db = db;
+    this.port = port;
     this.logger = logger || console;
   }
 
@@ -151,12 +160,24 @@ export class CloudRelay {
           : [],
       }));
 
+      // Also sync calendars
+      const allCalendars = await this.db
+        .select()
+        .from(calendars);
+
+      const calendarItems: CalendarSyncItem[] = allCalendars.map((c) => ({
+        id: c.id,
+        name: c.name,
+        provider: c.provider,
+        color: c.color,
+      }));
+
       this.send({
         type: "kiosk-sync",
-        payload: { kiosks: syncItems },
+        payload: { kiosks: syncItems, calendars: calendarItems },
       });
 
-      this.logger.info(`[cloud-relay] Synced ${syncItems.length} kiosks`);
+      this.logger.info(`[cloud-relay] Synced ${syncItems.length} kiosks, ${calendarItems.length} calendars`);
     } catch (err) {
       this.logger.error("[cloud-relay] Failed to sync kiosks:", err);
     }
@@ -176,6 +197,10 @@ export class CloudRelay {
 
       case "command":
         this.handleCommand(msg);
+        break;
+
+      case "http-proxy":
+        this.handleHttpProxy(msg);
         break;
 
       case "kiosk-sync-ack":
@@ -245,6 +270,73 @@ export class CloudRelay {
         success: true,
       },
     });
+  }
+
+  private async handleHttpProxy(msg: RelayMessage) {
+    const payload = msg.payload as {
+      method: string;
+      path: string;
+      headers?: Record<string, string>;
+      body?: string;
+      userId?: string;
+    };
+
+    this.logger.info(
+      `[cloud-relay] HTTP proxy: ${payload.method} ${payload.path}${payload.userId ? ` (user: ${payload.userId})` : ""}`
+    );
+
+    try {
+      const url = `http://127.0.0.1:${this.port}${payload.path}`;
+      const headers: Record<string, string> = {
+        ...payload.headers,
+        "x-relay-secret": this.config?.relaySecret || "",
+      };
+
+      // Inject user context from cloud proxy so the API authenticates as the correct user
+      if (payload.userId) {
+        headers["x-relay-user-id"] = payload.userId;
+      }
+
+      if (payload.body) {
+        headers["content-type"] = headers["content-type"] || "application/json";
+      }
+
+      const response = await fetch(url, {
+        method: payload.method,
+        headers,
+        body: payload.method !== "GET" && payload.method !== "HEAD"
+          ? payload.body
+          : undefined,
+      });
+
+      const responseBody = await response.text();
+      const responseHeaders: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        responseHeaders[key] = value;
+      });
+
+      this.send({
+        type: "http-proxy-result",
+        id: msg.id,
+        payload: {
+          requestId: msg.id || "",
+          status: response.status,
+          headers: responseHeaders,
+          body: responseBody,
+        },
+      });
+    } catch (err) {
+      this.logger.error("[cloud-relay] HTTP proxy error:", err);
+      this.send({
+        type: "http-proxy-result",
+        id: msg.id,
+        payload: {
+          requestId: msg.id || "",
+          status: 502,
+          body: JSON.stringify({ error: "Failed to reach local API" }),
+        },
+      });
+    }
   }
 
   private send(msg: RelayMessage) {

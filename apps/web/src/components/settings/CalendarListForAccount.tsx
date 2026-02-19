@@ -1,7 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, Crown, Eye, EyeOff, ExternalLink, RefreshCw } from "lucide-react";
-import type { Calendar, CalendarProvider, CalendarVisibility, FavoriteSportsTeam } from "@openframe/shared";
+import { Star, Crown, Eye, EyeOff, ExternalLink, RefreshCw, ChevronDown, ChevronRight, User } from "lucide-react";
+import type { Calendar, CalendarProvider, CalendarVisibility, CalendarEvent, FavoriteSportsTeam } from "@openframe/shared";
 import { ToggleGroup } from "../ui/Toggle";
 import { Button } from "../ui/Button";
 
@@ -13,6 +13,7 @@ interface CalendarListForAccountProps {
   provider: CalendarProvider;
   calendars: Calendar[];
   favoriteTeams: FavoriteSportsTeam[];
+  events?: CalendarEvent[];
   onUpdateCalendar: (id: string, updates: CalendarUpdate) => void;
   onUpdateTeam: (id: string, updates: TeamUpdate) => void;
   onConnect: () => void;
@@ -69,10 +70,261 @@ const PROVIDER_CONFIG: Record<
   },
 };
 
+// Sort calendars: primary -> favorites -> read-write -> alphabetical
+function sortCalendars(cals: Calendar[]): Calendar[] {
+  return [...cals].sort((a, b) => {
+    if (a.isPrimary && !b.isPrimary) return -1;
+    if (!a.isPrimary && b.isPrimary) return 1;
+    if (a.isFavorite && !b.isFavorite) return -1;
+    if (!a.isFavorite && b.isFavorite) return 1;
+    if (!a.isReadOnly && b.isReadOnly) return -1;
+    if (a.isReadOnly && !b.isReadOnly) return 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+interface AccountGroup {
+  key: string;
+  label: string;
+  calendars: Calendar[];
+}
+
+function CalendarRow({
+  calendar,
+  events,
+  onUpdateCalendar,
+}: {
+  calendar: Calendar;
+  events?: CalendarEvent[];
+  onUpdateCalendar: (id: string, updates: CalendarUpdate) => void;
+}) {
+  const [showPreview, setShowPreview] = useState(false);
+  const visibility = calendar.visibility ?? DEFAULT_VISIBILITY;
+
+  // Get upcoming events for this calendar
+  const calendarEvents = useMemo(() => {
+    if (!events) return [];
+    const now = new Date();
+    return events
+      .filter((e) => e.calendarId === calendar.id && new Date(e.startTime) >= now)
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+      .slice(0, 5);
+  }, [events, calendar.id]);
+
+  // Also get recent past events if no upcoming
+  const recentEvents = useMemo(() => {
+    if (!events || calendarEvents.length > 0) return [];
+    return events
+      .filter((e) => e.calendarId === calendar.id)
+      .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
+      .slice(0, 5);
+  }, [events, calendar.id, calendarEvents]);
+
+  const previewEvents = calendarEvents.length > 0 ? calendarEvents : recentEvents;
+  const hasEvents = events && events.some((e) => e.calendarId === calendar.id);
+
+  return (
+    <div>
+      <motion.div
+        layout
+        layoutId={`cal-${calendar.id}`}
+        initial={false}
+        className={`flex items-center justify-between rounded-lg border p-3 transition-colors ${
+          calendar.isPrimary
+            ? "border-primary/50 bg-primary/5"
+            : calendar.isFavorite
+            ? "border-yellow-500/30 bg-yellow-500/5"
+            : "border-border hover:bg-muted/50"
+        }`}
+      >
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          {/* Hide button */}
+          <button
+            type="button"
+            onClick={() => onUpdateCalendar(calendar.id, { isVisible: false })}
+            className="p-1 rounded-md text-muted-foreground/40 hover:text-muted-foreground transition-colors flex-shrink-0"
+            title="Hide calendar"
+          >
+            <EyeOff className="h-4 w-4" />
+          </button>
+
+          {/* Set as primary */}
+          <button
+            type="button"
+            onClick={() => onUpdateCalendar(calendar.id, { isPrimary: true })}
+            className={`p-1 rounded-md transition-colors flex-shrink-0 ${
+              calendar.isPrimary
+                ? "text-primary"
+                : "text-muted-foreground/40 hover:text-primary"
+            }`}
+            title={calendar.isPrimary ? "Primary calendar" : "Set as primary"}
+            disabled={calendar.isPrimary}
+          >
+            <Crown className={`h-4 w-4 ${calendar.isPrimary ? "fill-current" : ""}`} />
+          </button>
+
+          {/* Favorite star */}
+          <button
+            type="button"
+            onClick={() => onUpdateCalendar(calendar.id, { isFavorite: !calendar.isFavorite })}
+            className={`p-1 rounded-md transition-colors flex-shrink-0 ${
+              calendar.isFavorite
+                ? "text-yellow-500 hover:text-yellow-600"
+                : "text-muted-foreground/40 hover:text-yellow-500"
+            }`}
+            title={calendar.isFavorite ? "Remove from favorites" : "Add to favorites"}
+          >
+            <Star className={`h-4 w-4 ${calendar.isFavorite ? "fill-current" : ""}`} />
+          </button>
+
+          {/* Color indicator */}
+          <div
+            className="h-4 w-4 rounded-md flex-shrink-0"
+            style={{ backgroundColor: calendar.color }}
+          />
+
+          {/* Calendar name + preview toggle */}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => hasEvents && setShowPreview(!showPreview)}
+                className={`font-medium truncate text-left ${hasEvents ? "hover:text-primary cursor-pointer" : ""}`}
+                title={hasEvents ? "Click to preview events" : undefined}
+              >
+                {calendar.name}
+              </button>
+              {hasEvents && (
+                <button
+                  type="button"
+                  onClick={() => setShowPreview(!showPreview)}
+                  className="p-0.5 text-muted-foreground/40 hover:text-primary transition-colors flex-shrink-0"
+                >
+                  {showPreview ? (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              )}
+              {calendar.isPrimary && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/20 text-primary text-xs font-medium flex-shrink-0">
+                  <Crown className="h-3 w-3" />
+                  Primary
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {calendar.isReadOnly ? "Read-only" : "Read-write"}
+            </p>
+          </div>
+        </div>
+
+        {/* Visibility toggles */}
+        <ToggleGroup
+          items={[
+            {
+              key: "week",
+              label: "Week",
+              checked: visibility.week,
+              onChange: (checked) =>
+                onUpdateCalendar(calendar.id, {
+                  visibility: { ...visibility, week: checked },
+                }),
+            },
+            {
+              key: "month",
+              label: "Month",
+              checked: visibility.month,
+              onChange: (checked) =>
+                onUpdateCalendar(calendar.id, {
+                  visibility: { ...visibility, month: checked },
+                }),
+            },
+            {
+              key: "day",
+              label: "Day",
+              checked: visibility.day,
+              onChange: (checked) =>
+                onUpdateCalendar(calendar.id, {
+                  visibility: { ...visibility, day: checked },
+                }),
+            },
+            {
+              key: "popup",
+              label: "Popup",
+              checked: visibility.popup,
+              onChange: (checked) =>
+                onUpdateCalendar(calendar.id, {
+                  visibility: { ...visibility, popup: checked },
+                }),
+            },
+            {
+              key: "screensaver",
+              label: "Screensaver",
+              checked: visibility.screensaver,
+              onChange: (checked) =>
+                onUpdateCalendar(calendar.id, {
+                  visibility: { ...visibility, screensaver: checked },
+                }),
+            },
+          ]}
+        />
+      </motion.div>
+
+      {/* Event preview */}
+      <AnimatePresence>
+        {showPreview && previewEvents.length > 0 && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden ml-8 mr-2"
+          >
+            <div className="py-2 space-y-1">
+              {previewEvents.map((event) => {
+                const start = new Date(event.startTime);
+                const isUpcoming = start >= new Date();
+                return (
+                  <div
+                    key={event.id}
+                    className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-md bg-muted/30"
+                  >
+                    <div
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: calendar.color }}
+                    />
+                    <span className={`font-medium tabular-nums flex-shrink-0 ${isUpcoming ? "text-primary" : "text-muted-foreground"}`}>
+                      {event.isAllDay
+                        ? start.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+                        : start.toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
+                          " " +
+                          start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                    </span>
+                    <span className="truncate text-muted-foreground">
+                      {event.title}
+                    </span>
+                  </div>
+                );
+              })}
+              {!calendarEvents.length && recentEvents.length > 0 && (
+                <p className="text-xs text-muted-foreground/60 px-3 italic">
+                  No upcoming events — showing recent
+                </p>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export function CalendarListForAccount({
   provider,
   calendars,
   favoriteTeams,
+  events,
   onUpdateCalendar,
   onUpdateTeam,
   onConnect,
@@ -85,18 +337,32 @@ export function CalendarListForAccount({
     return calendars.filter((c) => c.provider === provider);
   }, [calendars, provider]);
 
-  // Sort calendars: primary -> favorites -> read-write -> alphabetical
-  const sortedCalendars = useMemo(() => {
-    return [...providerCalendars].sort((a, b) => {
-      if (a.isPrimary && !b.isPrimary) return -1;
-      if (!a.isPrimary && b.isPrimary) return 1;
-      if (a.isFavorite && !b.isFavorite) return -1;
-      if (!a.isFavorite && b.isFavorite) return 1;
-      if (!a.isReadOnly && b.isReadOnly) return -1;
-      if (a.isReadOnly && !b.isReadOnly) return 1;
-      return a.name.localeCompare(b.name);
-    });
+  // Group calendars by account
+  const accountGroups = useMemo(() => {
+    const groups = new Map<string, Calendar[]>();
+
+    for (const cal of providerCalendars) {
+      const key = cal.oauthTokenId || "unlinked";
+      if (!groups.has(key)) {
+        groups.set(key, []);
+      }
+      groups.get(key)!.push(cal);
+    }
+
+    // Convert to array with labels
+    const result: AccountGroup[] = [];
+    for (const [key, cals] of groups) {
+      const label = cals[0]?.accountLabel || "";
+      result.push({ key, label, calendars: sortCalendars(cals) });
+    }
+
+    return result;
   }, [providerCalendars]);
+
+  const hasMultipleAccounts = accountGroups.length > 1;
+
+  // Flat sorted list for single-account view
+  const sortedCalendars = useMemo(() => sortCalendars(providerCalendars), [providerCalendars]);
 
   // Separate visible and hidden calendars
   const { visibleCalendars, hiddenCalendars } = useMemo(() => {
@@ -240,178 +506,128 @@ export function CalendarListForAccount({
         </div>
       </div>
 
-      {/* Calendar list */}
-      <motion.div className="space-y-2" layoutScroll>
-        <AnimatePresence mode="popLayout">
-          {visibleCalendars.map((calendar) => {
-            const visibility = calendar.visibility ?? DEFAULT_VISIBILITY;
+      {/* Calendar list - grouped by account if multiple accounts */}
+      {hasMultipleAccounts ? (
+        <div className="space-y-6">
+          {accountGroups.map((group) => {
+            const groupVisible = group.calendars.filter((c) => c.isVisible);
+            const groupHidden = group.calendars.filter((c) => !c.isVisible);
+            if (groupVisible.length === 0 && groupHidden.length === 0) return null;
+
             return (
-              <motion.div
-                key={calendar.id}
-                layout
-                layoutId={`cal-${calendar.id}`}
-                initial={false}
-                className={`flex items-center justify-between rounded-lg border p-3 transition-colors ${
-                  calendar.isPrimary
-                    ? "border-primary/50 bg-primary/5"
-                    : calendar.isFavorite
-                    ? "border-yellow-500/30 bg-yellow-500/5"
-                    : "border-border hover:bg-muted/50"
-                }`}
-              >
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  {/* Hide button */}
-                  <button
-                    type="button"
-                    onClick={() => onUpdateCalendar(calendar.id, { isVisible: false })}
-                    className="p-1 rounded-md text-muted-foreground/40 hover:text-muted-foreground transition-colors flex-shrink-0"
-                    title="Hide calendar"
-                  >
-                    <EyeOff className="h-4 w-4" />
-                  </button>
-
-                  {/* Set as primary */}
-                  <button
-                    type="button"
-                    onClick={() => onUpdateCalendar(calendar.id, { isPrimary: true })}
-                    className={`p-1 rounded-md transition-colors flex-shrink-0 ${
-                      calendar.isPrimary
-                        ? "text-primary"
-                        : "text-muted-foreground/40 hover:text-primary"
-                    }`}
-                    title={calendar.isPrimary ? "Primary calendar" : "Set as primary"}
-                    disabled={calendar.isPrimary}
-                  >
-                    <Crown className={`h-4 w-4 ${calendar.isPrimary ? "fill-current" : ""}`} />
-                  </button>
-
-                  {/* Favorite star */}
-                  <button
-                    type="button"
-                    onClick={() => onUpdateCalendar(calendar.id, { isFavorite: !calendar.isFavorite })}
-                    className={`p-1 rounded-md transition-colors flex-shrink-0 ${
-                      calendar.isFavorite
-                        ? "text-yellow-500 hover:text-yellow-600"
-                        : "text-muted-foreground/40 hover:text-yellow-500"
-                    }`}
-                    title={calendar.isFavorite ? "Remove from favorites" : "Add to favorites"}
-                  >
-                    <Star className={`h-4 w-4 ${calendar.isFavorite ? "fill-current" : ""}`} />
-                  </button>
-
-                  {/* Color indicator */}
-                  <div
-                    className="h-4 w-4 rounded-md flex-shrink-0"
-                    style={{ backgroundColor: calendar.color }}
-                  />
-
-                  {/* Calendar name */}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium truncate">{calendar.name}</p>
-                      {calendar.isPrimary && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/20 text-primary text-xs font-medium flex-shrink-0">
-                          <Crown className="h-3 w-3" />
-                          Primary
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {calendar.isReadOnly ? "Read-only" : "Read-write"}
-                    </p>
-                  </div>
+              <div key={group.key} className="space-y-2">
+                {/* Account header */}
+                <div className="flex items-center gap-2 py-1">
+                  <User className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-sm font-medium text-primary">
+                    {group.label || "Unknown Account"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    ({groupVisible.length} calendar{groupVisible.length !== 1 ? "s" : ""})
+                  </span>
                 </div>
 
-                {/* Visibility toggles */}
-                <ToggleGroup
-                  items={[
-                    {
-                      key: "week",
-                      label: "Week",
-                      checked: visibility.week,
-                      onChange: (checked) =>
-                        onUpdateCalendar(calendar.id, {
-                          visibility: { ...visibility, week: checked },
-                        }),
-                    },
-                    {
-                      key: "month",
-                      label: "Month",
-                      checked: visibility.month,
-                      onChange: (checked) =>
-                        onUpdateCalendar(calendar.id, {
-                          visibility: { ...visibility, month: checked },
-                        }),
-                    },
-                    {
-                      key: "day",
-                      label: "Day",
-                      checked: visibility.day,
-                      onChange: (checked) =>
-                        onUpdateCalendar(calendar.id, {
-                          visibility: { ...visibility, day: checked },
-                        }),
-                    },
-                    {
-                      key: "popup",
-                      label: "Popup",
-                      checked: visibility.popup,
-                      onChange: (checked) =>
-                        onUpdateCalendar(calendar.id, {
-                          visibility: { ...visibility, popup: checked },
-                        }),
-                    },
-                    {
-                      key: "screensaver",
-                      label: "Screensaver",
-                      checked: visibility.screensaver,
-                      onChange: (checked) =>
-                        onUpdateCalendar(calendar.id, {
-                          visibility: { ...visibility, screensaver: checked },
-                        }),
-                    },
-                  ]}
-                />
-              </motion.div>
+                {/* Visible calendars for this account */}
+                <motion.div className="space-y-2" layoutScroll>
+                  <AnimatePresence mode="popLayout">
+                    {groupVisible.map((calendar) => (
+                      <CalendarRow
+                        key={calendar.id}
+                        calendar={calendar}
+                        events={events}
+                        onUpdateCalendar={onUpdateCalendar}
+                      />
+                    ))}
+                  </AnimatePresence>
+                </motion.div>
+
+                {/* Hidden calendars for this account */}
+                {groupHidden.length > 0 && (
+                  <details className="group ml-5">
+                    <summary className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer list-none">
+                      <EyeOff className="h-3.5 w-3.5" />
+                      <span>{groupHidden.length} hidden</span>
+                    </summary>
+                    <div className="mt-2 space-y-1">
+                      {groupHidden.map((calendar) => (
+                        <div
+                          key={calendar.id}
+                          className="flex items-center gap-3 rounded-lg border border-border/50 bg-muted/30 p-2.5 opacity-60 hover:opacity-80 transition-opacity"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => onUpdateCalendar(calendar.id, { isVisible: true })}
+                            className="p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors"
+                            title="Show calendar"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                          <div
+                            className="h-3.5 w-3.5 rounded-md"
+                            style={{ backgroundColor: calendar.color }}
+                          />
+                          <span className="text-sm">{calendar.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
             );
           })}
-        </AnimatePresence>
-      </motion.div>
-
-      {/* Hidden calendars section */}
-      {hiddenCalendars.length > 0 && (
-        <div className="mt-6 pt-4 border-t border-border">
-          <details className="group">
-            <summary className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer list-none">
-              <EyeOff className="h-4 w-4" />
-              <span>Hidden calendars ({hiddenCalendars.length})</span>
-            </summary>
-            <div className="mt-3 space-y-2">
-              {hiddenCalendars.map((calendar) => (
-                <div
-                  key={calendar.id}
-                  className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/30 p-3 opacity-60 hover:opacity-80 transition-opacity"
-                >
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => onUpdateCalendar(calendar.id, { isVisible: true })}
-                      className="p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors"
-                      title="Show calendar"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </button>
-                    <div
-                      className="h-4 w-4 rounded-md"
-                      style={{ backgroundColor: calendar.color }}
-                    />
-                    <span className="text-sm">{calendar.name}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </details>
         </div>
+      ) : (
+        /* Single account - flat list (original behavior) */
+        <>
+          <motion.div className="space-y-2" layoutScroll>
+            <AnimatePresence mode="popLayout">
+              {visibleCalendars.map((calendar) => (
+                <CalendarRow
+                  key={calendar.id}
+                  calendar={calendar}
+                  events={events}
+                  onUpdateCalendar={onUpdateCalendar}
+                />
+              ))}
+            </AnimatePresence>
+          </motion.div>
+
+          {/* Hidden calendars section */}
+          {hiddenCalendars.length > 0 && (
+            <div className="mt-6 pt-4 border-t border-border">
+              <details className="group">
+                <summary className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer list-none">
+                  <EyeOff className="h-4 w-4" />
+                  <span>Hidden calendars ({hiddenCalendars.length})</span>
+                </summary>
+                <div className="mt-3 space-y-2">
+                  {hiddenCalendars.map((calendar) => (
+                    <div
+                      key={calendar.id}
+                      className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/30 p-3 opacity-60 hover:opacity-80 transition-opacity"
+                    >
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => onUpdateCalendar(calendar.id, { isVisible: true })}
+                          className="p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors"
+                          title="Show calendar"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        <div
+                          className="h-4 w-4 rounded-md"
+                          style={{ backgroundColor: calendar.color }}
+                        />
+                        <span className="text-sm">{calendar.name}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            </div>
+          )}
+        </>
       )}
 
       {/* Add more calendars button */}

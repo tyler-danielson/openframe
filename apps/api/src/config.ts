@@ -21,6 +21,21 @@ const configSchema = z.object({
 
   // Storage
   uploadDir: z.string().default("./uploads"),
+
+  // Hosted SaaS mode
+  hostedMode: z
+    .string()
+    .transform((s) => s === "true")
+    .default("false"),
+  provisioningSecret: z.string().optional(),
+
+  // S3 storage (for hosted mode)
+  storageBackend: z.enum(["local", "s3"]).default("local"),
+  s3Bucket: z.string().optional(),
+  s3Region: z.string().optional(),
+  s3AccessKeyId: z.string().optional(),
+  s3SecretAccessKey: z.string().optional(),
+  s3Endpoint: z.string().optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -98,6 +113,14 @@ export function loadConfig(): Config {
     corsOrigins: process.env.CORS_ORIGINS,
     encryptionKey: envEncryption || autoSecrets?.encryptionKey,
     uploadDir: process.env.UPLOAD_DIR,
+    hostedMode: process.env.HOSTED_MODE,
+    provisioningSecret: emptyToUndefined(process.env.PROVISIONING_SECRET),
+    storageBackend: process.env.STORAGE_BACKEND,
+    s3Bucket: emptyToUndefined(process.env.S3_BUCKET),
+    s3Region: emptyToUndefined(process.env.S3_REGION),
+    s3AccessKeyId: emptyToUndefined(process.env.S3_ACCESS_KEY_ID),
+    s3SecretAccessKey: emptyToUndefined(process.env.S3_SECRET_ACCESS_KEY),
+    s3Endpoint: emptyToUndefined(process.env.S3_ENDPOINT),
   });
 
   if (!result.success) {

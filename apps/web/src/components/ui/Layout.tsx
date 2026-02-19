@@ -16,6 +16,7 @@ import {
   Maximize,
   Minimize,
   ListTodo,
+  ListChecks,
   Music,
   MapPin,
   Menu,
@@ -189,6 +190,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
     const items = [
       { to: buildPath("calendar"), icon: Calendar, label: "Calendar", feature: "calendar" as const },
       { to: buildPath("tasks"), icon: ListTodo, label: "Tasks", feature: "tasks" as const },
+      { to: buildPath("routines"), icon: ListChecks, label: "Routines", feature: "routines" as const },
       { to: buildPath("dashboard"), icon: LayoutDashboard, label: "Dashboard", feature: "dashboard" as const },
       { to: buildPath("photos"), icon: Image, label: "Photos", feature: "photos" as const },
       // Media is handled separately with submenu

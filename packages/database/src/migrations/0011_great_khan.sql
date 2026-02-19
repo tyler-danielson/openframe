@@ -23,9 +23,9 @@ DO $$ BEGIN
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;--> statement-breakpoint
-ALTER TYPE "public"."calendar_provider" ADD VALUE 'ics';--> statement-breakpoint
-ALTER TYPE "public"."calendar_provider" ADD VALUE 'sports';--> statement-breakpoint
-ALTER TYPE "public"."calendar_provider" ADD VALUE 'homeassistant';--> statement-breakpoint
+ALTER TYPE "public"."calendar_provider" ADD VALUE IF NOT EXISTS 'ics';--> statement-breakpoint
+ALTER TYPE "public"."calendar_provider" ADD VALUE IF NOT EXISTS 'sports';--> statement-breakpoint
+ALTER TYPE "public"."calendar_provider" ADD VALUE IF NOT EXISTS 'homeassistant';--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "capacities_config" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,

@@ -123,12 +123,63 @@ export const authPlugin = fp(
       }
     );
 
-    // Accept either JWT or API key
+    // Accept either JWT, API key, or relay secret
     fastify.decorate(
       "authenticateAny",
       async (request: FastifyRequest, reply: FastifyReply) => {
         const authHeader = request.headers.authorization;
         const apiKey = request.headers["x-api-key"];
+        const relaySecret = request.headers["x-relay-secret"];
+
+        // Relay secret auth (used by cloud proxy)
+        if (relaySecret && typeof relaySecret === "string") {
+          if (fastify.relaySecret && relaySecret === fastify.relaySecret) {
+            // In hosted mode, require x-relay-user-id header to identify the user
+            const relayUserId = request.headers["x-relay-user-id"];
+            if (fastify.hostedMode) {
+              if (!relayUserId || typeof relayUserId !== "string") {
+                return reply.unauthorized(
+                  "x-relay-user-id header required in hosted mode"
+                );
+              }
+              const [targetUser] = await fastify.db
+                .select()
+                .from(users)
+                .where(eq(users.id, relayUserId))
+                .limit(1);
+              if (targetUser) {
+                request.user = { userId: targetUser.id };
+                return;
+              }
+              return reply.unauthorized("User not found");
+            }
+
+            // Self-hosted: use x-relay-user-id if provided, else fall back to first user
+            if (relayUserId && typeof relayUserId === "string") {
+              const [targetUser] = await fastify.db
+                .select()
+                .from(users)
+                .where(eq(users.id, relayUserId))
+                .limit(1);
+              if (targetUser) {
+                request.user = { userId: targetUser.id };
+                return;
+              }
+            }
+
+            // Fall back to instance owner (first user) for self-hosted
+            const [ownerUser] = await fastify.db
+              .select()
+              .from(users)
+              .limit(1);
+
+            if (ownerUser) {
+              request.user = { userId: ownerUser.id };
+              return;
+            }
+          }
+          return reply.unauthorized("Invalid relay secret");
+        }
 
         if (authHeader?.startsWith("Bearer ")) {
           return fastify.authenticate(request, reply);
@@ -148,13 +199,19 @@ export const authPlugin = fp(
       async (request: FastifyRequest, reply: FastifyReply) => {
         const authHeader = request.headers.authorization;
         const apiKey = request.headers["x-api-key"];
+        const relaySecret = request.headers["x-relay-secret"];
 
         // If user has auth credentials, use normal authentication
-        if (authHeader?.startsWith("Bearer ") || apiKey) {
+        if (authHeader?.startsWith("Bearer ") || apiKey || relaySecret) {
           return fastify.authenticateAny(request, reply);
         }
 
-        // Check if any active kiosk device exists
+        // In hosted mode, always require explicit auth - no anonymous kiosk fallback
+        if (fastify.hostedMode) {
+          return reply.unauthorized("Authentication required");
+        }
+
+        // Self-hosted only: check if any active kiosk device exists
         const [kiosk] = await fastify.db
           .select()
           .from(kiosks)

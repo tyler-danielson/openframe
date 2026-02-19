@@ -47,6 +47,8 @@ import type {
   DailyBriefing,
   EmailHighlight,
   AIChatProvider,
+  Routine,
+  RoutineWithCompletions,
 } from "@openframe/shared";
 
 // API Key types
@@ -1423,6 +1425,22 @@ class ApiClient {
 
   async syncHomeAssistantCalendar(id: string): Promise<void> {
     await this.fetch(`/homeassistant/calendars/${id}/sync`, { method: "POST" });
+  }
+
+  // Home Assistant Assist Pipeline
+  async runAssistPipeline(data: {
+    text: string;
+    pipeline?: string;
+    conversationId?: string;
+  }): Promise<{ speech: string; responseType: string; conversationId: string | null }> {
+    return this.fetch("/homeassistant/assist/run", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getAssistPipelines(): Promise<Array<{ id: string; name: string; language: string }>> {
+    return this.fetch("/homeassistant/assist/pipelines");
   }
 
   // Spotify
@@ -3157,6 +3175,65 @@ class ApiClient {
   async cloudSync(): Promise<void> {
     await this.fetch("/cloud/sync", { method: "POST" });
   }
+
+  // Routines
+  async getRoutines(date?: string): Promise<RoutineWithCompletions[]> {
+    const params = date ? `?date=${date}` : "";
+    return this.fetch<RoutineWithCompletions[]>(`/routines${params}`);
+  }
+
+  async createRoutine(data: {
+    title: string;
+    icon?: string | null;
+    category?: string | null;
+    frequency?: "daily" | "weekly" | "custom";
+    daysOfWeek?: number[] | null;
+    assignedProfileId?: string | null;
+  }): Promise<Routine> {
+    return this.fetch<Routine>("/routines", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateRoutine(
+    id: string,
+    data: {
+      title?: string;
+      icon?: string | null;
+      category?: string | null;
+      frequency?: "daily" | "weekly" | "custom";
+      daysOfWeek?: number[] | null;
+      assignedProfileId?: string | null;
+      isActive?: boolean;
+    }
+  ): Promise<Routine> {
+    return this.fetch<Routine>(`/routines/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteRoutine(id: string): Promise<void> {
+    await this.fetch(`/routines/${id}`, { method: "DELETE" });
+  }
+
+  async toggleRoutineCompletion(
+    id: string,
+    data: { date: string; profileId?: string | null }
+  ): Promise<{ completed: boolean }> {
+    return this.fetch<{ completed: boolean }>(`/routines/${id}/complete`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async reorderRoutines(routineIds: string[]): Promise<void> {
+    await this.fetch("/routines/reorder", {
+      method: "PATCH",
+      body: JSON.stringify({ routineIds }),
+    });
+  }
 }
 
 // Family Profile types
@@ -3222,6 +3299,7 @@ export interface KioskEnabledFeatures {
   calendar?: boolean;
   dashboard?: boolean;
   tasks?: boolean;
+  routines?: boolean;
   photos?: boolean;
   spotify?: boolean;
   iptv?: boolean;

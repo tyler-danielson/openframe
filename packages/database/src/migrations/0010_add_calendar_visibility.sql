@@ -8,7 +8,7 @@ DO $$ BEGIN
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;--> statement-breakpoint
-ALTER TYPE "public"."oauth_provider" ADD VALUE 'spotify';--> statement-breakpoint
+ALTER TYPE "public"."oauth_provider" ADD VALUE IF NOT EXISTS 'spotify';--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "cameras" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,

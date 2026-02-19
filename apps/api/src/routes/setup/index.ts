@@ -17,6 +17,18 @@ export const setupRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
+      // In hosted mode, setup is never needed (users are provisioned by cloud)
+      if (fastify.hostedMode) {
+        return {
+          success: true,
+          data: {
+            needsSetup: false,
+            hasAdmin: true,
+            isComplete: true,
+          },
+        };
+      }
+
       // Check if any admin user exists
       const [adminUser] = await fastify.db
         .select({ id: users.id })
@@ -71,6 +83,11 @@ export const setupRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
+      // Disabled in hosted mode - users are provisioned by cloud
+      if (fastify.hostedMode) {
+        return reply.notFound("Not available in hosted mode");
+      }
+
       const { email, password, name } = request.body as {
         email: string;
         password: string;

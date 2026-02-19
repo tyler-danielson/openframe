@@ -30,6 +30,17 @@ function deriveSnapshotUrl(rtspUrl: string | null): string | null {
 }
 
 export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
+  // In hosted mode, cameras require LAN access and are not available
+  if (fastify.hostedMode) {
+    fastify.addHook("onRequest", async (_request, reply) => {
+      return reply.status(403).send({
+        success: false,
+        error: "Camera features are not available in hosted mode (requires LAN access)",
+      });
+    });
+    return;
+  }
+
   // List cameras
   fastify.get(
     "/",

@@ -53,44 +53,42 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const query = calendarQuerySchema.parse(request.query);
 
-      let dbQuery = fastify.db
-        .select()
+      const conditions = query.provider
+        ? and(eq(calendars.userId, user.id), eq(calendars.provider, query.provider))
+        : eq(calendars.userId, user.id);
+
+      const results = await fastify.db
+        .select({
+          calendar: calendars,
+          accountName: oauthTokens.accountName,
+          accountEmail: oauthTokens.externalAccountId,
+        })
         .from(calendars)
-        .where(eq(calendars.userId, user.id));
+        .leftJoin(oauthTokens, eq(calendars.oauthTokenId, oauthTokens.id))
+        .where(conditions);
 
-      if (query.provider) {
-        dbQuery = fastify.db
-          .select()
-          .from(calendars)
-          .where(
-            and(
-              eq(calendars.userId, user.id),
-              eq(calendars.provider, query.provider)
-            )
-          );
-      }
-
-      const results = await dbQuery;
       const filtered = query.includeHidden
         ? results
-        : results.filter((c) => c.isVisible);
+        : results.filter((r) => r.calendar.isVisible);
 
       return {
         success: true,
-        data: filtered.map((cal) => ({
-          id: cal.id,
-          provider: cal.provider,
-          name: cal.name,
-          description: cal.description,
-          color: cal.color,
-          isVisible: cal.isVisible,
-          isPrimary: cal.isPrimary,
-          isFavorite: cal.isFavorite,
-          isReadOnly: cal.isReadOnly,
-          syncEnabled: cal.syncEnabled,
-          showOnDashboard: cal.showOnDashboard,
-          lastSyncAt: cal.lastSyncAt,
-          visibility: cal.visibility ?? { week: false, month: false, day: false, popup: true, screensaver: false },
+        data: filtered.map((r) => ({
+          id: r.calendar.id,
+          provider: r.calendar.provider,
+          name: r.calendar.name,
+          description: r.calendar.description,
+          color: r.calendar.color,
+          isVisible: r.calendar.isVisible,
+          isPrimary: r.calendar.isPrimary,
+          isFavorite: r.calendar.isFavorite,
+          isReadOnly: r.calendar.isReadOnly,
+          syncEnabled: r.calendar.syncEnabled,
+          showOnDashboard: r.calendar.showOnDashboard,
+          lastSyncAt: r.calendar.lastSyncAt,
+          visibility: r.calendar.visibility ?? { week: false, month: false, day: false, popup: true, screensaver: false },
+          oauthTokenId: r.calendar.oauthTokenId,
+          accountLabel: r.accountName || r.accountEmail || null,
         })),
       };
     }

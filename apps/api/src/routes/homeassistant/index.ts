@@ -2096,6 +2096,116 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
       return { success: true, message: "Calendar synced" };
     }
   );
+
+  // ==================== ASSIST PIPELINE ====================
+
+  // Run Assist Pipeline - process natural language command
+  fastify.post(
+    "/assist/run",
+    {
+      schema: {
+        description: "Run HA Assist Pipeline to process a natural language command",
+        tags: ["Home Assistant"],
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("Not authenticated");
+      }
+
+      const [config] = await fastify.db
+        .select()
+        .from(homeAssistantConfig)
+        .where(eq(homeAssistantConfig.userId, user!.id))
+        .limit(1);
+
+      if (!config) {
+        return reply.badRequest("Home Assistant not configured");
+      }
+
+      const body = request.body as {
+        text: string;
+        pipeline?: string;
+        conversationId?: string;
+      };
+
+      if (!body.text) {
+        return reply.badRequest("text is required");
+      }
+
+      try {
+        const response = await fetchFromHA(
+          config.url,
+          config.accessToken,
+          "/conversation/process",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              text: body.text,
+              language: "en",
+              agent_id: body.pipeline || undefined,
+              conversation_id: body.conversationId || undefined,
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          return reply.code(response.status).send({
+            error: "Assist pipeline request failed",
+          });
+        }
+
+        const result = await response.json() as Record<string, unknown>;
+        const responseObj = result.response as Record<string, unknown> | undefined;
+        const speechObj = responseObj?.speech as Record<string, unknown> | undefined;
+        const plain = speechObj?.plain as Record<string, string> | undefined;
+
+        return {
+          success: true,
+          data: {
+            speech: plain?.speech || "",
+            responseType: (responseObj?.response_type as string) || "action_done",
+            conversationId: (result.conversation_id as string) || null,
+          },
+        };
+      } catch (err) {
+        request.log.error(err, "Assist pipeline run failed");
+        return reply.internalServerError("Failed to run assist pipeline");
+      }
+    }
+  );
+
+  // List available Assist Pipelines
+  fastify.get(
+    "/assist/pipelines",
+    {
+      schema: {
+        description: "List available HA Assist pipelines",
+        tags: ["Home Assistant"],
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        return reply.unauthorized("Not authenticated");
+      }
+
+      const [config] = await fastify.db
+        .select()
+        .from(homeAssistantConfig)
+        .where(eq(homeAssistantConfig.userId, user!.id))
+        .limit(1);
+
+      if (!config) {
+        return reply.badRequest("Home Assistant not configured");
+      }
+
+      // The REST API doesn't have a direct pipeline list endpoint;
+      // return empty for direct connections (cloud relay uses WebSocket)
+      return { success: true, data: [] };
+    }
+  );
 };
 
 // Helper function to sync events from a Home Assistant calendar
