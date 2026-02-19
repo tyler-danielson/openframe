@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { ArrowLeft, Eye, Grid3X3, Settings, Monitor, X, Play, Square, Send, Check, Plus, Link2, Copy, CheckCircle } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../components/ui/Button";
@@ -268,9 +268,12 @@ export function ScreensaverBuilderPage() {
       {/* Header - compact */}
       <header className="flex items-center justify-between border-b border-border px-3 py-1.5">
         <div className="flex items-center gap-3">
-          <Link to={isKioskMode ? "/settings?tab=kiosks" : "/settings"} className="text-muted-foreground hover:text-foreground">
+          <button
+            onClick={() => { window.location.href = isKioskMode ? "/settings?tab=kiosks" : "/settings"; }}
+            className="text-muted-foreground hover:text-foreground"
+          >
             <ArrowLeft className="h-4 w-4" />
-          </Link>
+          </button>
           <h1 className="text-sm font-medium">
             {isKioskMode ? (isLoadingKiosk ? "Loading..." : kiosk?.name || "Screensaver") : "Screensaver Builder"}
           </h1>

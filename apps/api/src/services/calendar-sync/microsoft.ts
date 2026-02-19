@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, notInArray } from "drizzle-orm";
 import { calendars, events, oauthTokens } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
 
@@ -10,6 +10,7 @@ interface MSCalendar {
   color: string;
   isDefaultCalendar: boolean;
   canEdit: boolean;
+  owner?: { name?: string; address?: string };
 }
 
 interface MSEvent {
@@ -331,7 +332,7 @@ async function syncCalendarList(
   accessToken: string,
   oauthTokenId?: string
 ): Promise<void> {
-  const response = await fetch("https://graph.microsoft.com/v1.0/me/calendars", {
+  const response = await fetch("https://graph.microsoft.com/v1.0/me/calendars?$select=id,name,color,isDefaultCalendar,canEdit,owner", {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
@@ -341,14 +342,26 @@ async function syncCalendarList(
 
   const data = (await response.json()) as MSCalendarListResponse;
 
+  // Detect duplicate calendar names across mailboxes and disambiguate with owner
+  const nameCounts = new Map<string, number>();
   for (const mcal of data.value) {
+    nameCounts.set(mcal.name, (nameCounts.get(mcal.name) ?? 0) + 1);
+  }
+
+  for (const mcal of data.value) {
+    const isDuplicateName = (nameCounts.get(mcal.name) ?? 0) > 1;
+    const ownerLabel = mcal.owner?.name || mcal.owner?.address;
+    const displayName = isDuplicateName && ownerLabel
+      ? `${mcal.name} (${ownerLabel})`
+      : mcal.name;
+
     await db
       .insert(calendars)
       .values({
         userId,
         provider: "microsoft",
         externalId: mcal.id,
-        name: mcal.name,
+        name: displayName,
         color: msColorToHex(mcal.color),
         isPrimary: mcal.isDefaultCalendar,
         isReadOnly: !mcal.canEdit,
@@ -357,13 +370,27 @@ async function syncCalendarList(
       .onConflictDoUpdate({
         target: [calendars.userId, calendars.provider, calendars.externalId],
         set: {
-          name: mcal.name,
+          name: displayName,
           color: msColorToHex(mcal.color),
           isReadOnly: !mcal.canEdit,
           ...(oauthTokenId ? { oauthTokenId } : {}),
           updatedAt: new Date(),
         },
       });
+  }
+
+  // Remove calendars no longer returned by the API (stale/orphaned from previous sessions)
+  const currentExternalIds = data.value.map((mcal) => mcal.id);
+  if (currentExternalIds.length > 0) {
+    await db
+      .delete(calendars)
+      .where(
+        and(
+          eq(calendars.userId, userId),
+          eq(calendars.provider, "microsoft"),
+          notInArray(calendars.externalId, currentExternalIds)
+        )
+      );
   }
 }
 

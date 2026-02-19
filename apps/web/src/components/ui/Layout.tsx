@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { Outlet, NavLink, useNavigate, useLocation, useParams } from "react-router-dom";
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
+import { NavLink, Outlet, useNavigate, useLocation, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Calendar,
@@ -53,6 +53,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
   const location = useLocation();
   const queryClient = useQueryClient();
   const { logout, setUser, isAuthenticated } = useAuthStore();
+
   const isKioskPath = window.location.pathname.startsWith("/kiosk/");
   const setScreensaverActive = useScreensaverStore((state) => state.setActive);
   const screensaverEnabled = useScreensaverStore((state) => state.enabled);
@@ -347,6 +348,19 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
     return focusedBlockId === blockId;
   };
 
+  // React Router v7 wraps navigations in startTransition which can fail to commit
+  // from certain pages (builder pages). Force a hard navigation as a workaround.
+  const handleNavClick = useCallback((to: string) => (e: React.MouseEvent<HTMLAnchorElement>) => {
+    setIsMobileSidebarOpen(false);
+    setIsMediaMenuOpen(false);
+    setIsMoreMenuOpen(false);
+    const path = window.location.pathname;
+    if (path.includes("/screensaver-builder") || path.includes("/planner")) {
+      e.preventDefault();
+      window.location.href = to;
+    }
+  }, []);
+
   return (
     <div className="flex h-screen bg-background">
       {/* Mobile Menu Button */}
@@ -393,7 +407,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
               <NavLink
                 to={item.to}
                 tabIndex={isTvMode ? 0 : undefined}
-                onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); setIsMoreMenuOpen(false); }}
+                onClick={handleNavClick(item.to)}
                 className={({ isActive }) =>
                   cn(
                     "flex items-center justify-center rounded-lg transition-all duration-200",
@@ -440,7 +454,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
               <NavLink
                 to={item.to}
                 tabIndex={isTvMode ? 0 : undefined}
-                onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); setIsMoreMenuOpen(false); }}
+                onClick={handleNavClick(item.to)}
                 className={({ isActive }) =>
                   cn(
                     "flex items-center justify-center rounded-lg transition-all duration-200",
@@ -552,7 +566,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
               <NavLink
                 key={item.to}
                 to={item.to}
-                onClick={() => { setIsMobileSidebarOpen(false); setIsMediaMenuOpen(false); }}
+                onClick={handleNavClick(item.to)}
                 className={({ isActive }) =>
                   cn(
                     "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
@@ -582,7 +596,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
               <NavLink
                 key={item.to}
                 to={item.to}
-                onClick={() => { setIsMobileSidebarOpen(false); setIsMoreMenuOpen(false); }}
+                onClick={handleNavClick(item.to)}
                 className={({ isActive }) =>
                   cn(
                     "flex items-center gap-3 px-2 py-2 rounded-lg transition-colors text-sm",
@@ -600,7 +614,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
               <NavLink
                 key={item.to}
                 to={item.to}
-                onClick={() => { setIsMobileSidebarOpen(false); setIsMoreMenuOpen(false); }}
+                onClick={handleNavClick(item.to)}
                 className={({ isActive }) =>
                   cn(
                     "flex items-center gap-3 px-2 py-2 rounded-lg transition-colors text-sm",
@@ -620,7 +634,9 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
 
       {/* Main content */}
       <main className="relative flex-1 overflow-auto pt-16 lg:pt-0">
-        <Outlet key={location.pathname} />
+        <Suspense fallback={null}>
+          <Outlet />
+        </Suspense>
       </main>
 
     </div>
