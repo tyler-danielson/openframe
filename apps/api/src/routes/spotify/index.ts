@@ -394,8 +394,9 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
       // If we don't have a user, redirect to login
       if (!userId) {
         const frontendUrl = await getFrontendUrl(fastify.db);
+        const spotifyBasePath = (process.env.SPA_BASE_PATH || "").replace(/\/+$/, "");
         return reply.redirect(
-          `${frontendUrl}/login?error=spotify_auth_failed&reason=not_logged_in`
+          `${frontendUrl}${spotifyBasePath}/login?error=spotify_auth_failed&reason=not_logged_in`
         );
       }
 
@@ -477,7 +478,8 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         ? new URL(storedState.returnUrl).origin
         : frontendUrl;
 
-      return reply.redirect(`${baseUrl}/settings?tab=spotify&connected=true`);
+      const spotifyBasePath = (process.env.SPA_BASE_PATH || "").replace(/\/+$/, "");
+      return reply.redirect(`${baseUrl}${spotifyBasePath}/settings?tab=spotify&connected=true`);
     }
   );
 

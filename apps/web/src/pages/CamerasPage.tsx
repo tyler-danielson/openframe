@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Camera, RefreshCw, Home, Video } from "lucide-react";
 import { api, type HACamera } from "../services/api";
+import { appPath } from "../lib/cloud";
 import { CastButton } from "../components/cast/CastButton";
 import { Button } from "../components/ui/Button";
 import { CameraThumbnail } from "../components/cameras/CameraThumbnail";
@@ -278,7 +279,7 @@ export function CamerasPage() {
             Add Camera
           </Button>
           {!haConfigured && (
-            <Button variant="outline" onClick={() => window.location.href = "/settings?tab=homeassistant"}>
+            <Button variant="outline" onClick={() => window.location.href = appPath("/settings?tab=homeassistant")}>
               <Home className="mr-2 h-4 w-4" />
               Connect Home Assistant
             </Button>

@@ -1,5 +1,6 @@
 import { Home, Settings } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { appPath } from "../../lib/cloud";
 import { ClockDisplay } from "./ClockDisplay";
 import type { HomeAssistantRoom } from "@openframe/shared";
 
@@ -64,7 +65,7 @@ export function RoomSidebar({
       {/* Settings Link */}
       <div className="px-6 pt-4">
         <button
-          onClick={() => window.location.href = "/settings?tab=homeassistant"}
+          onClick={() => window.location.href = appPath("/settings?tab=homeassistant")}
           className="homio-sidebar-item flex items-center gap-2 text-sm opacity-60 hover:opacity-100"
         >
           <Settings className="h-4 w-4" />

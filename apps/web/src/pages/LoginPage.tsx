@@ -5,10 +5,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../co
 import { useAuthStore } from "../stores/auth";
 import { useEffect, useState } from "react";
 import { api } from "../services/api";
-// Use relative URL - nginx/caddy proxies /api to the API service
-const getApiServerUrl = () => {
-  return '';
-};
+import { appUrl } from "../lib/cloud";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -41,13 +38,13 @@ export function LoginPage() {
   }, []);
 
   const handleGoogleLogin = () => {
-    const returnUrl = encodeURIComponent(window.location.origin + returnTo);
-    window.location.href = `${getApiServerUrl()}/api/v1/auth/oauth/google?returnUrl=${returnUrl}`;
+    const returnUrl = encodeURIComponent(appUrl(returnTo));
+    window.location.href = `/api/v1/auth/oauth/google?returnUrl=${returnUrl}`;
   };
 
   const handleMicrosoftLogin = () => {
-    const returnUrl = encodeURIComponent(window.location.origin + returnTo);
-    window.location.href = `${getApiServerUrl()}/api/v1/auth/oauth/microsoft?returnUrl=${returnUrl}`;
+    const returnUrl = encodeURIComponent(appUrl(returnTo));
+    window.location.href = `/api/v1/auth/oauth/microsoft?returnUrl=${returnUrl}`;
   };
 
   const handlePasswordLogin = async (e: React.FormEvent) => {

@@ -16,6 +16,7 @@ import { SportsTicker } from "../components/SportsTicker";
 import { AssistChat } from "../components/homeassistant/AssistChat";
 import { api, type HAEntityTimer } from "../services/api";
 import { cn } from "../lib/utils";
+import { appPath } from "../lib/cloud";
 import { useCalendarStore } from "../stores/calendar";
 import type { HomeAssistantEntityState } from "@openframe/shared";
 
@@ -236,7 +237,7 @@ export function HomeAssistantPage() {
           instance in Settings to get started.
         </p>
         <Button
-          onClick={() => window.location.href = "/settings?tab=homeassistant"}
+          onClick={() => window.location.href = appPath("/settings?tab=homeassistant")}
           className="bg-[var(--homio-accent)] hover:bg-[var(--homio-accent-light)] text-black"
         >
           <Settings className="mr-2 h-4 w-4" />
@@ -359,7 +360,7 @@ export function HomeAssistantPage() {
                 : "Add entities in Settings to control them here."}
             </p>
             <Button
-              onClick={() => window.location.href = "/settings?tab=homeassistant"}
+              onClick={() => window.location.href = appPath("/settings?tab=homeassistant")}
               className="bg-[var(--homio-accent)] hover:bg-[var(--homio-accent-light)] text-black"
             >
               <Settings className="mr-2 h-4 w-4" />

@@ -11,6 +11,7 @@ import { BuilderProvider } from "../contexts/BuilderContext";
 import { useScreensaverStore, ASPECT_RATIO_PRESETS, GRID_PRESETS, DEFAULT_LAYOUT_CONFIG, type CanvasSizeMode, type AspectRatioPreset, type ScreensaverLayoutConfig, type BuilderWidgetType } from "../stores/screensaver";
 import { WIDGET_REGISTRY } from "../lib/widgets/registry";
 import { api } from "../services/api";
+import { appPath } from "../lib/cloud";
 
 export function ScreensaverBuilderPage() {
   const [searchParams] = useSearchParams();
@@ -269,7 +270,7 @@ export function ScreensaverBuilderPage() {
       <header className="flex items-center justify-between border-b border-border px-3 py-1.5">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => { window.location.href = isKioskMode ? "/settings?tab=kiosks" : "/settings"; }}
+            onClick={() => { window.location.href = appPath(isKioskMode ? "/settings?tab=kiosks" : "/settings"); }}
             className="text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" />

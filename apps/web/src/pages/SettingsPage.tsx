@@ -7,7 +7,7 @@ import { QRCodeSVG } from "qrcode.react";
 import type { Camera } from "@openframe/shared";
 import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type CompanionUser, type CompanionPermissions, type CloudInstance, type CloudBillingInfo, type PlanLimits } from "../services/api";
 import { useAuthStore } from "../stores/auth";
-import { isCloudMode } from "../lib/cloud";
+import { isCloudMode, appPath, appUrl } from "../lib/cloud";
 import { useCalendarStore, type WeekCellWidget } from "../stores/calendar";
 import { useScreensaverStore, type ScreensaverLayout, type ScreensaverTransition, type ClockPosition, type ClockSize, type InfoPaneWidget, type InfoPaneWidgetConfig, type WidgetSize, type WidgetGridSize, LIST_WIDGETS, DEFAULT_WIDGET_CONFIGS, type CompositeWidgetId, type CompositeWidgetConfig, type SubItemConfig, DEFAULT_COMPOSITE_CONFIGS, DEFAULT_SUB_ITEMS } from "../stores/screensaver";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -4914,7 +4914,7 @@ function CamerasSettings() {
                 <Button
                   variant="outline"
                   className="mt-4"
-                  onClick={() => window.location.href = "/settings?tab=homeassistant"}
+                  onClick={() => window.location.href = appPath("/settings?tab=homeassistant")}
                 >
                   <Plus className="mr-2 h-4 w-4" />
                   Add Cameras in Home Assistant Settings
@@ -4945,7 +4945,7 @@ function CamerasSettings() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.location.href = "/settings?tab=homeassistant"}
+                  onClick={() => window.location.href = appPath("/settings?tab=homeassistant")}
                 >
                   Manage in Home Assistant Settings
                 </Button>
@@ -9085,7 +9085,7 @@ export function SettingsPage() {
                 onClick={() => {
                   api.logout().catch(() => {});
                   logout();
-                  window.location.href = "/login";
+                  window.location.href = appPath("/login");
                 }}
                 className="text-sm"
               >
@@ -9109,7 +9109,7 @@ export function SettingsPage() {
                 size="sm"
                 onClick={() => {
                   logout();
-                  window.location.href = "/login";
+                  window.location.href = appPath("/login");
                 }}
                 className="text-sm"
               >
@@ -9131,7 +9131,7 @@ export function SettingsPage() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => window.location.href = "/login"}
+              onClick={() => window.location.href = appPath("/login")}
               className="text-sm"
             >
               <LogIn className="h-4 w-4 mr-1" />
@@ -9300,7 +9300,7 @@ export function SettingsPage() {
                               size="sm"
                               onClick={() => {
                                 const token = useAuthStore.getState().accessToken;
-                                window.location.href = buildOAuthUrl("google", "base", token, window.location.origin + "/settings?tab=account");
+                                window.location.href = buildOAuthUrl("google", "base", token, appUrl("/settings?tab=account"));
                               }}
                             >
                               <RefreshCw className="mr-1 h-3 w-3" />
@@ -9313,7 +9313,7 @@ export function SettingsPage() {
                             size="sm"
                             onClick={() => {
                               const token = useAuthStore.getState().accessToken;
-                              window.location.href = buildOAuthUrl("google", "base", token, window.location.origin + "/settings?tab=account");
+                              window.location.href = buildOAuthUrl("google", "base", token, appUrl("/settings?tab=account"));
                             }}
                           >
                             <Link2 className="mr-1 h-3 w-3" />
@@ -9355,7 +9355,7 @@ export function SettingsPage() {
                               size="sm"
                               onClick={() => {
                                 const token = useAuthStore.getState().accessToken;
-                                window.location.href = buildOAuthUrl("microsoft", "base", token, window.location.origin + "/settings?tab=account");
+                                window.location.href = buildOAuthUrl("microsoft", "base", token, appUrl("/settings?tab=account"));
                               }}
                             >
                               <RefreshCw className="mr-1 h-3 w-3" />
@@ -9368,7 +9368,7 @@ export function SettingsPage() {
                             size="sm"
                             onClick={() => {
                               const token = useAuthStore.getState().accessToken;
-                              window.location.href = buildOAuthUrl("microsoft", "base", token, window.location.origin + "/settings?tab=account");
+                              window.location.href = buildOAuthUrl("microsoft", "base", token, appUrl("/settings?tab=account"));
                             }}
                           >
                             <Link2 className="mr-1 h-3 w-3" />
@@ -9430,12 +9430,12 @@ export function SettingsPage() {
                           onConnect={() => {
                             const authToken = useAuthStore.getState().accessToken;
                             if (selectedCalendarProvider === "google") {
-                              window.location.href = buildOAuthUrl("google", "calendar", authToken, window.location.origin + "/settings?tab=calendars&connected=true");
+                              window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings?tab=calendars&connected=true"));
                             } else if (selectedCalendarProvider === "microsoft") {
-                              window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, window.location.origin + "/settings?tab=calendars&connected=true");
+                              window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings?tab=calendars&connected=true"));
                             } else if (selectedCalendarProvider === "sports") {
                               // Navigate to entertainment tab with sports sub-tab
-                              window.location.href = "/settings?tab=entertainment&subtab=sports";
+                              window.location.href = appPath("/settings?tab=entertainment&subtab=sports");
                             } else if (selectedCalendarProvider === "ics") {
                               setAddAccountModalView("ics");
                             } else if (selectedCalendarProvider === "caldav") {
@@ -9447,7 +9447,7 @@ export function SettingsPage() {
                             }
                           }}
                           onManageTeams={() => {
-                            window.location.href = "/settings?tab=entertainment&subtab=sports";
+                            window.location.href = appPath("/settings?tab=entertainment&subtab=sports");
                           }}
                         />
                       ) : (
@@ -9467,11 +9467,11 @@ export function SettingsPage() {
                 initialView={addAccountModalView ?? "select"}
                 onConnectGoogle={() => {
                   const authToken = useAuthStore.getState().accessToken;
-                  window.location.href = buildOAuthUrl("google", "calendar", authToken, window.location.origin + "/settings?tab=calendars&connected=true");
+                  window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings?tab=calendars&connected=true"));
                 }}
                 onConnectMicrosoft={() => {
                   const authToken = useAuthStore.getState().accessToken;
-                  window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, window.location.origin + "/settings?tab=calendars&connected=true");
+                  window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings?tab=calendars&connected=true"));
                 }}
                 onConnectCalDAV={async (url, username, password) => {
                   // TODO: Implement CalDAV connection
@@ -9485,7 +9485,7 @@ export function SettingsPage() {
                 }}
                 onManageSports={() => {
                   setAddAccountModalView(null);
-                  window.location.href = "/settings?tab=entertainment&subtab=sports";
+                  window.location.href = appPath("/settings?tab=entertainment&subtab=sports");
                 }}
               />
 

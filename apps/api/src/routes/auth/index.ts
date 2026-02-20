@@ -105,6 +105,9 @@ async function getFrontendUrl(db: any): Promise<string> {
   return serverSettings.external_url || process.env.FRONTEND_URL || "http://localhost:3000";
 }
 
+// SPA base path (e.g. "/app" in cloud mode, "" in self-hosted)
+const spaBasePath = (process.env.SPA_BASE_PATH || "").replace(/\/+$/, "");
+
 // Helper to get OAuth config from DB settings, falling back to env vars
 // When requestOrigin is provided, use it as the base URL for redirect URIs (derived from the actual HTTP request).
 // When not provided, fall back to stored external_url / env var.
@@ -466,7 +469,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       if (isPrivateIp(originHostname)) {
         const frontendUrl = await getFrontendUrl(fastify.db);
         const errorMsg = encodeURIComponent("Cannot start OAuth from a private IP address. Please access this page via localhost or a public domain.");
-        return reply.redirect(`${requestOrigin}/settings?tab=system&error=${errorMsg}`);
+        return reply.redirect(`${requestOrigin}${spaBasePath}/settings?tab=system&error=${errorMsg}`);
       }
 
       const googleConfig = await getOAuthConfig(fastify.db, "google", requestOrigin);
@@ -771,10 +774,15 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         finalReturnPath = returnUrlParsed.pathname + returnUrlParsed.search;
       }
 
-      const redirectUrl = new URL(`${baseUrl}/auth/callback`);
+      // Strip the SPA base path prefix from returnTo since React Router adds it back
+      const routerReturnPath = spaBasePath && finalReturnPath.startsWith(spaBasePath)
+        ? finalReturnPath.slice(spaBasePath.length) || "/"
+        : finalReturnPath;
+
+      const redirectUrl = new URL(`${baseUrl}${spaBasePath}/auth/callback`);
       redirectUrl.searchParams.set("accessToken", accessToken);
       redirectUrl.searchParams.set("refreshToken", refreshToken);
-      redirectUrl.searchParams.set("returnTo", finalReturnPath);
+      redirectUrl.searchParams.set("returnTo", routerReturnPath);
 
       return reply.redirect(redirectUrl.toString());
     }
@@ -797,7 +805,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       // Block private IPs — OAuth providers reject them and the callback won't reach the server
       if (isPrivateIp(originHostname)) {
         const errorMsg = encodeURIComponent("Cannot start OAuth from a private IP address. Please access this page via localhost or a public domain.");
-        return reply.redirect(`${requestOrigin}/settings?tab=system&error=${errorMsg}`);
+        return reply.redirect(`${requestOrigin}${spaBasePath}/settings?tab=system&error=${errorMsg}`);
       }
 
       const msConfig = await getOAuthConfig(fastify.db, "microsoft", requestOrigin);
@@ -1086,10 +1094,15 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         finalReturnPath = returnUrlParsed.pathname + returnUrlParsed.search;
       }
 
-      const redirectUrl = new URL(`${baseUrl}/auth/callback`);
+      // Strip the SPA base path prefix from returnTo since React Router adds it back
+      const routerReturnPath = spaBasePath && finalReturnPath.startsWith(spaBasePath)
+        ? finalReturnPath.slice(spaBasePath.length) || "/"
+        : finalReturnPath;
+
+      const redirectUrl = new URL(`${baseUrl}${spaBasePath}/auth/callback`);
       redirectUrl.searchParams.set("accessToken", accessToken);
       redirectUrl.searchParams.set("refreshToken", refreshToken);
-      redirectUrl.searchParams.set("returnTo", finalReturnPath);
+      redirectUrl.searchParams.set("returnTo", routerReturnPath);
 
       return reply.redirect(redirectUrl.toString());
     }
