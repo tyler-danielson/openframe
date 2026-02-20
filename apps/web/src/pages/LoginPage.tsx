@@ -18,11 +18,12 @@ export function LoginPage() {
   const setTokens = useAuthStore((state) => state.setTokens);
 
   // In cloud mode, redirect to the Next.js login page
-  useEffect(() => {
-    if (isCloudMode) {
-      window.location.href = "/login?target=app";
-    }
-  }, []);
+  // (temporarily disabled for debugging blank page issue)
+  // useEffect(() => {
+  //   if (isCloudMode) {
+  //     window.location.href = "/login?target=app";
+  //   }
+  // }, []);
 
   const isSafeRedirect = (u: string) => u.startsWith("/") && !u.startsWith("//");
   const rawReturnTo = new URLSearchParams(window.location.search).get("returnTo");
