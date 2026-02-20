@@ -1,6 +1,3 @@
-// DEBUG: verify module evaluation
-console.log("[OpenFrame] main.tsx evaluating, basename:", import.meta.env.VITE_BASE_PATH);
-
 import { StrictMode, Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -9,7 +6,7 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import "./index.css";
 
-// Error boundary to catch React rendering errors (window.onerror won't catch these)
+// Error boundary to catch React rendering errors
 class ErrorBoundary extends Component<
   { children: ReactNode },
   { error: Error | null; errorInfo: ErrorInfo | null }
@@ -48,7 +45,7 @@ class ErrorBoundary extends Component<
             zIndex: 99999,
           }}
         >
-          {`OpenFrame React Error:\n\n${this.state.error.toString()}\n\n${this.state.error.stack || ""}\n\nComponent Stack:\n${this.state.errorInfo?.componentStack || "N/A"}`}
+          {`OpenFrame Error:\n\n${this.state.error.toString()}\n\n${this.state.error.stack || ""}\n\nComponent Stack:\n${this.state.errorInfo?.componentStack || "N/A"}`}
         </pre>
       );
     }
@@ -69,13 +66,7 @@ const queryClient = new QueryClient({
 const basePath = import.meta.env.VITE_BASE_PATH || "/";
 const basename = basePath.endsWith("/") ? basePath.slice(0, -1) : basePath;
 
-console.log("[OpenFrame] mounting React, basename:", basename);
-const rootEl = document.getElementById("root");
-if (!rootEl) {
-  document.body.innerHTML = '<pre style="color:red;padding:20px">FATAL: #root element not found</pre>';
-  throw new Error("#root element not found");
-}
-createRoot(rootEl).render(
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
