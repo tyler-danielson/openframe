@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, type AdminStats } from "../../services/api";
 import { Card } from "../../components/ui/Card";
-import { Users, UserCheck, UserPlus, MessageSquare } from "lucide-react";
+import { Users, UserCheck, UserPlus, MessageSquare, AlertTriangle, RefreshCw } from "lucide-react";
+import { Button } from "../../components/ui/Button";
 import { cn } from "../../lib/utils";
 
 const PLAN_COLORS: Record<string, string> = {
@@ -12,9 +13,10 @@ const PLAN_COLORS: Record<string, string> = {
 };
 
 export function AdminDashboardPage() {
-  const { data: stats, isLoading } = useQuery<AdminStats>({
+  const { data: stats, isLoading, isError, error, refetch } = useQuery<AdminStats>({
     queryKey: ["admin", "stats"],
     queryFn: () => api.getAdminStats(),
+    retry: 1,
   });
 
   if (isLoading) {
@@ -33,7 +35,24 @@ export function AdminDashboardPage() {
     );
   }
 
-  if (!stats) return null;
+  if (isError || !stats) {
+    return (
+      <div className="p-6">
+        <h1 className="text-2xl font-bold text-primary mb-6">Dashboard</h1>
+        <Card className="p-8 text-center">
+          <AlertTriangle className="h-10 w-10 text-amber-500 mx-auto mb-3" />
+          <h2 className="text-lg font-semibold mb-1">Failed to load dashboard stats</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            {(error as Error)?.message || "The admin stats endpoint returned no data. The database may need migrations."}
+          </p>
+          <Button variant="outline" className="gap-2" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4" />
+            Retry
+          </Button>
+        </Card>
+      </div>
+    );
+  }
 
   const statCards = [
     { label: "Total Users", value: stats.totalUsers, icon: Users },
