@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and, sql, desc, ilike, or, count } from "drizzle-orm";
+import { eq, and, sql, desc, ilike, or, count, gte } from "drizzle-orm";
 import {
   users,
   userPlans,
@@ -115,7 +115,7 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const activeUsersLast30d = await getCount(db,
       db.select({ total: count() }).from(users)
-        .where(sql`${users.updatedAt} >= ${thirtyDaysAgo}`)
+        .where(gte(users.updatedAt, thirtyDaysAgo))
     );
 
     // New users last 7 days
@@ -123,7 +123,7 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const newUsersLast7d = await getCount(db,
       db.select({ total: count() }).from(users)
-        .where(sql`${users.createdAt} >= ${sevenDaysAgo}`)
+        .where(gte(users.createdAt, sevenDaysAgo))
     );
 
     // Plan distribution
@@ -179,7 +179,7 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
         count: count(),
       })
       .from(users)
-      .where(sql`${users.createdAt} >= ${thirtyDaysAgo}`)
+      .where(gte(users.createdAt, thirtyDaysAgo))
       .groupBy(sql`date_trunc('day', ${users.createdAt})::date`)
       .orderBy(sql`date_trunc('day', ${users.createdAt})::date`);
 
