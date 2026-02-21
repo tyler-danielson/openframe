@@ -14,6 +14,7 @@ import { IptvPage } from "./pages/IptvPage";
 import { CamerasPage } from "./pages/CamerasPage";
 import { MultiViewPage } from "./pages/MultiViewPage";
 import { HomeAssistantPage } from "./pages/HomeAssistantPage";
+import { MatterPage } from "./pages/MatterPage";
 import { SpotifyPage } from "./pages/SpotifyPage";
 import { MapPage } from "./pages/MapPage";
 import { MobileUploadPage } from "./pages/MobileUploadPage";
@@ -46,6 +47,13 @@ import { CompanionNewsPage } from "./pages/companion/more/CompanionNewsPage";
 import { CompanionWeatherPage } from "./pages/companion/more/CompanionWeatherPage";
 import { CompanionRecipesPage } from "./pages/companion/more/CompanionRecipesPage";
 import { CompanionSettingsPage } from "./pages/companion/more/CompanionSettingsPage";
+import { AdminLayout } from "./pages/admin/AdminLayout";
+import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
+import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
+import { AdminUserDetailPage } from "./pages/admin/AdminUserDetailPage";
+import { AdminSupportPage } from "./pages/admin/AdminSupportPage";
+import { AdminTicketDetailPage } from "./pages/admin/AdminTicketDetailPage";
+import { AdminTopologyPage } from "./pages/admin/AdminTopologyPage";
 import { Toaster } from "./components/ui/Toaster";
 import { Screensaver } from "./components/Screensaver";
 import { NowPlaying } from "./components/spotify/NowPlaying";
@@ -58,6 +66,8 @@ import { ConnectionProvider, useConnection } from "./contexts/ConnectionContext"
 import { ConnectionStatusIndicator } from "./components/ConnectionStatusIndicator";
 import { api } from "./services/api";
 import { isCloudMode } from "./lib/cloud";
+import { useModuleStore } from "./stores/modules";
+import { ModuleGate } from "./components/ModuleGate";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -178,6 +188,14 @@ export default function App() {
     }
   }, [syncScreensaverSettings]);
 
+  // Fetch module enabled state on auth
+  const fetchModules = useModuleStore((state) => state.fetchModules);
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchModules();
+    }
+  }, [isAuthenticated, fetchModules]);
+
   // Connect to Home Assistant WebSocket for real-time updates
   const connectHA = useHAWebSocket((state) => state.connect);
   useEffect(() => {
@@ -235,22 +253,23 @@ export default function App() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="tasks" element={<TasksPage />} />
-          <Route path="routines" element={<RoutinesPage />} />
-          <Route path="photos" element={<PhotosPage />} />
-          <Route path="iptv" element={<IptvPage />} />
-          <Route path="cameras" element={<CamerasPage />} />
-          <Route path="multiview" element={<MultiViewPage />} />
-          <Route path="homeassistant" element={<HomeAssistantPage />} />
-          <Route path="spotify" element={<SpotifyPage />} />
-          <Route path="map" element={<MapPage />} />
-          <Route path="kitchen" element={<KitchenPage />} />
+          <Route path="routines" element={<ModuleGate moduleId="routines"><RoutinesPage /></ModuleGate>} />
+          <Route path="photos" element={<ModuleGate moduleId="photos"><PhotosPage /></ModuleGate>} />
+          <Route path="iptv" element={<ModuleGate moduleId="iptv"><IptvPage /></ModuleGate>} />
+          <Route path="cameras" element={<ModuleGate moduleId="cameras"><CamerasPage /></ModuleGate>} />
+          <Route path="multiview" element={<ModuleGate moduleId="cameras"><MultiViewPage /></ModuleGate>} />
+          <Route path="homeassistant" element={<ModuleGate moduleId="homeassistant"><HomeAssistantPage /></ModuleGate>} />
+          <Route path="matter" element={<ModuleGate moduleId="matter"><MatterPage /></ModuleGate>} />
+          <Route path="spotify" element={<ModuleGate moduleId="spotify"><SpotifyPage /></ModuleGate>} />
+          <Route path="map" element={<ModuleGate moduleId="map"><MapPage /></ModuleGate>} />
+          <Route path="kitchen" element={<ModuleGate moduleId="recipes"><KitchenPage /></ModuleGate>} />
           <Route path="recipes" element={<Navigate to="/kitchen" replace />} />
-          <Route path="chat" element={<ChatPage />} />
+          <Route path="chat" element={<ModuleGate moduleId="ai-chat"><ChatPage /></ModuleGate>} />
           <Route
             path="remarkable"
             element={
               <SettingsProtectedRoute>
-                <RemarkablePage />
+                <ModuleGate moduleId="remarkable"><RemarkablePage /></ModuleGate>
               </SettingsProtectedRoute>
             }
           />
@@ -315,29 +334,66 @@ export default function App() {
           <Route path="kiosks/:kioskId" element={<CompanionKioskPage />} />
           <Route path="kiosks/:kioskId/widget/:widgetId" element={<CompanionWidgetPage />} />
           <Route path="more" element={<CompanionMorePage />} />
-          <Route path="more/photos" element={<CompanionPhotosPage />} />
-          <Route path="more/iptv" element={<CompanionIptvPage />} />
-          <Route path="more/homeassistant" element={<CompanionHAPage />} />
-          <Route path="more/news" element={<CompanionNewsPage />} />
-          <Route path="more/weather" element={<CompanionWeatherPage />} />
-          <Route path="more/recipes" element={<CompanionRecipesPage />} />
+          <Route path="more/photos" element={<ModuleGate moduleId="photos"><CompanionPhotosPage /></ModuleGate>} />
+          <Route path="more/iptv" element={<ModuleGate moduleId="iptv"><CompanionIptvPage /></ModuleGate>} />
+          <Route path="more/homeassistant" element={<ModuleGate moduleId="homeassistant"><CompanionHAPage /></ModuleGate>} />
+          <Route path="more/news" element={<ModuleGate moduleId="news"><CompanionNewsPage /></ModuleGate>} />
+          <Route path="more/weather" element={<ModuleGate moduleId="weather"><CompanionWeatherPage /></ModuleGate>} />
+          <Route path="more/recipes" element={<ModuleGate moduleId="recipes"><CompanionRecipesPage /></ModuleGate>} />
           <Route path="more/settings" element={<CompanionSettingsPage />} />
+        </Route>
+
+        {/* Admin dashboard - cloud mode, admin role only */}
+        <Route
+          path="admin"
+          element={
+            <ProtectedRoute>
+              <AdminLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<AdminDashboardPage />} />
+          <Route path="users" element={<AdminUsersPage />} />
+          <Route path="users/:userId" element={<AdminUserDetailPage />} />
+          <Route path="support" element={<AdminSupportPage />} />
+          <Route path="support/:ticketId" element={<AdminTicketDetailPage />} />
+          <Route path="topology" element={<AdminTopologyPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <DurationAlertMonitor />
       {isAuthenticated && (
-        <>
-          <DurationAlertBanner />
-          <Screensaver />
-          {!hideNowPlaying && <NowPlaying />}
-          {!isKioskPage && !isCompanionPage && <ChatDrawer />}
-          {!isKioskPage && <AppConnectionStatus />}
-        </>
+        <ModuleAwareOverlays
+          hideNowPlaying={hideNowPlaying}
+          isKioskPage={isKioskPage}
+          isCompanionPage={isCompanionPage}
+        />
       )}
     </Toaster>
     </ConnectionProvider>
+  );
+}
+
+/** Module-aware global overlays. */
+function ModuleAwareOverlays({
+  hideNowPlaying,
+  isKioskPage,
+  isCompanionPage,
+}: {
+  hideNowPlaying: boolean;
+  isKioskPage: boolean;
+  isCompanionPage: boolean;
+}) {
+  const isModuleEnabled = useModuleStore((s) => s.isEnabled);
+  return (
+    <>
+      <DurationAlertBanner />
+      <Screensaver />
+      {!hideNowPlaying && isModuleEnabled("spotify") && <NowPlaying />}
+      {!isKioskPage && !isCompanionPage && isModuleEnabled("ai-chat") && <ChatDrawer />}
+      {!isKioskPage && <AppConnectionStatus />}
+    </>
   );
 }
 
