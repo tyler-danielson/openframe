@@ -1,8 +1,10 @@
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
-import { Shield, LayoutDashboard, Users, LifeBuoy, Network, ArrowLeft } from "lucide-react";
+import { Shield, LayoutDashboard, Users, LifeBuoy, Network, ArrowLeft, Loader2 } from "lucide-react";
 import { useAuthStore } from "../../stores/auth";
 import { isCloudMode } from "../../lib/cloud";
 import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../../services/api";
 
 const navItems = [
   { path: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
@@ -14,16 +16,43 @@ const navItems = [
 export function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
 
-  // Guard: redirect if not cloud mode or not admin
+  // Fetch user data if not already loaded
+  const { data: fetchedUser, isLoading } = useQuery({
+    queryKey: ["me"],
+    queryFn: () => api.getMe(),
+    retry: false,
+    enabled: isAuthenticated && !user,
+  });
+
   useEffect(() => {
-    if (!isCloudMode || !user || user.role !== "admin") {
+    if (fetchedUser && !isLoading) {
+      setUser(fetchedUser);
+    }
+  }, [fetchedUser, isLoading, setUser]);
+
+  const currentUser = user || fetchedUser;
+
+  // Guard: redirect if not cloud mode or not admin (only after user is loaded)
+  useEffect(() => {
+    if (currentUser && (!isCloudMode || currentUser.role !== "admin")) {
       navigate("/", { replace: true });
     }
-  }, [isCloudMode, user, navigate]);
+  }, [currentUser, navigate]);
 
-  if (!isCloudMode || !user || user.role !== "admin") {
+  // Show loading while fetching user data
+  if (isLoading || (!currentUser && isAuthenticated)) {
+    return (
+      <div className="flex h-[100dvh] items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!isCloudMode || !currentUser || currentUser.role !== "admin") {
     return null;
   }
 
