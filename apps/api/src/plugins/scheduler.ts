@@ -6,7 +6,7 @@
 
 import type { FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
-import { eq, and, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, inArray, isNotNull } from "drizzle-orm";
 import { getIptvCacheService } from "../services/iptv-cache.js";
 import { getAutomationEngine } from "../services/automation-engine.js";
 import { getNewsCacheService } from "../services/news-cache.js";
@@ -30,9 +30,12 @@ import {
   taskLists,
   tasks,
   iptvServers,
+  matterDevices,
 } from "@openframe/database/schema";
 import { getRemarkableClient } from "../services/remarkable/client.js";
 import { syncGoogleCalendars } from "../services/calendar-sync/google.js";
+import { syncMicrosoftCalendars } from "../services/calendar-sync/microsoft.js";
+import { syncICSCalendar } from "../services/calendar-sync/ics.js";
 import { oauthTokens, users } from "@openframe/database/schema";
 import { hasRequiredScopes, getScopesForFeature } from "../utils/oauth-scopes.js";
 import { generateAgendaPdf, getAgendaFilename, type AgendaEvent } from "../services/remarkable/agenda-generator.js";
@@ -79,8 +82,14 @@ const REMARKABLE_AGENDA_CHECK_INTERVAL_MS = 60 * 1000;
 // Profile planner check interval (1 minute - to check if push time reached)
 const PROFILE_PLANNER_CHECK_INTERVAL_MS = 60 * 1000;
 
+// Matter device reachability check interval (2 minutes)
+const MATTER_REACHABILITY_INTERVAL_MS = 2 * 60 * 1000;
+
 // Calendar sync interval (2 minutes)
 const CALENDAR_SYNC_INTERVAL_MS = 2 * 60 * 1000;
+
+// ICS feed sync interval (15 minutes - full re-fetch each time)
+const ICS_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 
 // Determine the appropriate polling interval based on game states
 function determineSportsPollingInterval(games: SportsGame[]): number {
@@ -136,6 +145,8 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
   let remarkableAgendaInterval: NodeJS.Timeout | null = null;
   let profilePlannerInterval: NodeJS.Timeout | null = null;
   let calendarSyncInterval: NodeJS.Timeout | null = null;
+  let icsSyncInterval: NodeJS.Timeout | null = null;
+  let matterReachabilityInterval: NodeJS.Timeout | null = null;
   let currentSportsPollingInterval = SPORTS_POLL_IDLE;
   // Track which users have already pushed agenda today
   const agendaPushedToday = new Map<string, string>(); // userId -> dateString
@@ -442,20 +453,39 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     const syncAllCalendars = async () => {
       try {
         // Get all users with Google OAuth tokens
-        const tokens = await fastify.db
+        const googleTokens = await fastify.db
           .select()
           .from(oauthTokens)
           .where(eq(oauthTokens.provider, "google"));
 
-        const calScopes = getScopesForFeature("google", "calendar");
-        for (const token of tokens) {
-          if (!hasRequiredScopes(token.scope, calScopes)) continue;
+        const googleCalScopes = getScopesForFeature("google", "calendar");
+        for (const token of googleTokens) {
+          if (!hasRequiredScopes(token.scope, googleCalScopes)) continue;
           try {
             await syncGoogleCalendars(fastify.db, token.userId, token);
           } catch (err) {
             fastify.log.error(
               { err, userId: token.userId },
               "Failed to sync Google calendars"
+            );
+          }
+        }
+
+        // Get all users with Microsoft OAuth tokens
+        const microsoftTokens = await fastify.db
+          .select()
+          .from(oauthTokens)
+          .where(eq(oauthTokens.provider, "microsoft"));
+
+        const msCalScopes = getScopesForFeature("microsoft", "calendar");
+        for (const token of microsoftTokens) {
+          if (!hasRequiredScopes(token.scope, msCalScopes)) continue;
+          try {
+            await syncMicrosoftCalendars(fastify.db, token.userId, token);
+          } catch (err) {
+            fastify.log.error(
+              { err, userId: token.userId },
+              "Failed to sync Microsoft calendars"
             );
           }
         }
@@ -479,6 +509,54 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
         `Calendar sync scheduler started (refresh every ${CALENDAR_SYNC_INTERVAL_MS / 1000 / 60} minutes)`
       );
     }, STARTUP_DELAY_MS + 10000); // Start 10 seconds after other services
+  };
+
+  // Start ICS feed sync scheduler
+  const startIcsSyncScheduler = () => {
+    const syncAllIcsFeeds = async () => {
+      try {
+        // Get all ICS calendars with sync enabled and a source URL
+        const icsCalendars = await fastify.db
+          .select()
+          .from(calendars)
+          .where(
+            and(
+              eq(calendars.provider, "ics"),
+              eq(calendars.syncEnabled, true),
+              isNotNull(calendars.sourceUrl)
+            )
+          );
+
+        for (const calendar of icsCalendars) {
+          try {
+            await syncICSCalendar(fastify.db, calendar.id, calendar.sourceUrl!);
+          } catch (err) {
+            fastify.log.error(
+              { err, calendarId: calendar.id },
+              "Failed to sync ICS feed"
+            );
+          }
+        }
+      } catch (error) {
+        fastify.log.error({ err: error }, "ICS feed sync scheduler failed");
+      }
+    };
+
+    // Initial sync after startup delay
+    setTimeout(async () => {
+      fastify.log.info("Running initial ICS feed sync...");
+      await syncAllIcsFeeds();
+
+      // Schedule periodic sync
+      icsSyncInterval = setInterval(async () => {
+        fastify.log.info("Running scheduled ICS feed sync...");
+        await syncAllIcsFeeds();
+      }, ICS_SYNC_INTERVAL_MS);
+
+      fastify.log.info(
+        `ICS feed sync scheduler started (refresh every ${ICS_SYNC_INTERVAL_MS / 1000 / 60} minutes)`
+      );
+    }, STARTUP_DELAY_MS + 12000); // Start 12 seconds after other services
   };
 
   // Start reMarkable note polling scheduler
@@ -1129,6 +1207,61 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     }, STARTUP_DELAY_MS + 30000); // Start 30 seconds after IPTV
   };
 
+  // Start Matter device reachability checker
+  const startMatterReachabilityScheduler = () => {
+    const checkReachability = async () => {
+      try {
+        if (!fastify.matterController?.isInitialized()) return;
+
+        const allDevices = await fastify.db
+          .select()
+          .from(matterDevices);
+
+        if (allDevices.length === 0) return;
+
+        let states;
+        try {
+          states = await fastify.matterController.getAllDeviceStates();
+        } catch {
+          return; // Controller may have been shut down
+        }
+
+        const stateMap = new Map(states.map((s) => [s.nodeId, s]));
+        const now = new Date();
+
+        for (const device of allDevices) {
+          const live = stateMap.get(device.nodeId);
+          const isReachable = live?.isReachable ?? false;
+
+          if (isReachable !== device.isReachable) {
+            await fastify.db
+              .update(matterDevices)
+              .set({
+                isReachable,
+                lastSeenAt: isReachable ? now : device.lastSeenAt,
+                updatedAt: now,
+              })
+              .where(eq(matterDevices.id, device.id));
+          } else if (isReachable) {
+            await fastify.db
+              .update(matterDevices)
+              .set({ lastSeenAt: now, updatedAt: now })
+              .where(eq(matterDevices.id, device.id));
+          }
+        }
+      } catch (error) {
+        fastify.log.error({ err: error }, "Matter reachability check failed");
+      }
+    };
+
+    setTimeout(async () => {
+      fastify.log.info("Starting Matter reachability scheduler (2 min interval)...");
+      await checkReachability();
+
+      matterReachabilityInterval = setInterval(checkReachability, MATTER_REACHABILITY_INTERVAL_MS);
+    }, STARTUP_DELAY_MS + 35000); // Start 35 seconds after IPTV
+  };
+
   // Start scheduler when server is ready
   fastify.addHook("onReady", async () => {
     startIptvCacheScheduler();
@@ -1137,9 +1270,11 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     startAutomationScheduler();
     startNewsScheduler();
     startCalendarSyncScheduler();
+    startIcsSyncScheduler();
     startRemarkableNoteScheduler();
     startRemarkableAgendaScheduler();
     startProfilePlannerScheduler();
+    startMatterReachabilityScheduler();
   });
 
   // Clean up on server close
@@ -1174,6 +1309,11 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
       calendarSyncInterval = null;
       fastify.log.info("Calendar sync scheduler stopped");
     }
+    if (icsSyncInterval) {
+      clearInterval(icsSyncInterval);
+      icsSyncInterval = null;
+      fastify.log.info("ICS feed sync scheduler stopped");
+    }
     if (remarkableNoteInterval) {
       clearInterval(remarkableNoteInterval);
       remarkableNoteInterval = null;
@@ -1188,6 +1328,11 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
       clearInterval(profilePlannerInterval);
       profilePlannerInterval = null;
       fastify.log.info("Profile planner scheduler stopped");
+    }
+    if (matterReachabilityInterval) {
+      clearInterval(matterReachabilityInterval);
+      matterReachabilityInterval = null;
+      fastify.log.info("Matter reachability scheduler stopped");
     }
   });
 };

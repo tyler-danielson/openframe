@@ -2534,3 +2534,173 @@ export const routineCompletionsRelations = relations(
 
 export type Routine = typeof routines.$inferSelect;
 export type RoutineCompletion = typeof routineCompletions.$inferSelect;
+
+// ============ Support Tickets ============
+
+export const ticketStatusEnum = pgEnum("ticket_status", [
+  "open",
+  "in_progress",
+  "waiting_on_user",
+  "resolved",
+  "closed",
+]);
+
+export const ticketPriorityEnum = pgEnum("ticket_priority", [
+  "low",
+  "normal",
+  "high",
+  "urgent",
+]);
+
+export const ticketCategoryEnum = pgEnum("ticket_category", [
+  "billing",
+  "bug",
+  "feature_request",
+  "account",
+  "general",
+]);
+
+export const supportTickets = pgTable(
+  "support_tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    subject: text("subject").notNull(),
+    status: ticketStatusEnum("status").notNull().default("open"),
+    priority: ticketPriorityEnum("priority").notNull().default("normal"),
+    category: ticketCategoryEnum("category").notNull().default("general"),
+    assignedAdminId: uuid("assigned_admin_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("support_tickets_user_idx").on(table.userId),
+    index("support_tickets_status_idx").on(table.status),
+    index("support_tickets_assigned_idx").on(table.assignedAdminId),
+    index("support_tickets_created_idx").on(table.createdAt),
+  ]
+);
+
+export const supportMessages = pgTable(
+  "support_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => supportTickets.id, { onDelete: "cascade" }),
+    senderId: uuid("sender_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    content: text("content").notNull(),
+    isAdminReply: boolean("is_admin_reply").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("support_messages_ticket_idx").on(table.ticketId),
+    index("support_messages_created_idx").on(table.createdAt),
+  ]
+);
+
+export const supportTicketsRelations = relations(
+  supportTickets,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [supportTickets.userId],
+      references: [users.id],
+    }),
+    assignedAdmin: one(users, {
+      fields: [supportTickets.assignedAdminId],
+      references: [users.id],
+    }),
+    messages: many(supportMessages),
+  })
+);
+
+export const supportMessagesRelations = relations(
+  supportMessages,
+  ({ one }) => ({
+    ticket: one(supportTickets, {
+      fields: [supportMessages.ticketId],
+      references: [supportTickets.id],
+    }),
+    sender: one(users, {
+      fields: [supportMessages.senderId],
+      references: [users.id],
+    }),
+  })
+);
+
+export type SupportTicket = typeof supportTickets.$inferSelect;
+export type SupportMessage = typeof supportMessages.$inferSelect;
+
+// ==================== Matter Devices ====================
+
+export const matterDeviceTypeEnum = pgEnum("matter_device_type", [
+  "onOffLight",
+  "dimmableLight",
+  "colorTemperatureLight",
+  "thermostat",
+  "doorLock",
+  "contactSensor",
+  "occupancySensor",
+  "temperatureSensor",
+  "humiditySensor",
+  "onOffSwitch",
+  "windowCovering",
+  "fan",
+  "unknown",
+]);
+
+export const matterDevices = pgTable(
+  "matter_devices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    nodeId: text("node_id").notNull(),
+    vendorName: text("vendor_name"),
+    productName: text("product_name"),
+    deviceType: matterDeviceTypeEnum("device_type").notNull().default("unknown"),
+    displayName: text("display_name").notNull(),
+    roomId: uuid("room_id").references(() => homeAssistantRooms.id, { onDelete: "set null" }),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    isReachable: boolean("is_reachable").default(false).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("matter_devices_user_idx").on(table.userId),
+    index("matter_devices_node_idx").on(table.nodeId),
+  ]
+);
+
+export const matterDevicesRelations = relations(
+  matterDevices,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [matterDevices.userId],
+      references: [users.id],
+    }),
+    room: one(homeAssistantRooms, {
+      fields: [matterDevices.roomId],
+      references: [homeAssistantRooms.id],
+    }),
+  })
+);

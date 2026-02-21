@@ -12,6 +12,7 @@ export type SidebarFeature =
   | "cameras"
   | "multiview"
   | "homeassistant"
+  | "matter"
   | "map"
   | "kitchen"
   | "chat"
@@ -28,6 +29,7 @@ export const SIDEBAR_FEATURES: SidebarFeature[] = [
   "cameras",
   "multiview",
   "homeassistant",
+  "matter",
   "map",
   "kitchen",
   "chat",

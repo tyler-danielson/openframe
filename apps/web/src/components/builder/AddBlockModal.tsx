@@ -32,6 +32,7 @@ import {
   getWidgetsByCategory,
 } from "../../lib/widgets/registry";
 import { type BuilderWidgetType } from "../../stores/screensaver";
+import { useModuleStore } from "../../stores/modules";
 
 interface AddBlockModalProps {
   isOpen: boolean;
@@ -67,17 +68,21 @@ const ICON_MAP: Record<string, React.ElementType> = {
 export function AddBlockModal({ isOpen, onClose, onAddWidget }: AddBlockModalProps) {
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const isModuleEnabled = useModuleStore((s) => s.isEnabled);
 
-  // Get all widget types
+  // Get all widget types (filtered by enabled modules)
   const allWidgetTypes = useMemo(
-    () => Object.keys(WIDGET_REGISTRY) as BuilderWidgetType[],
-    []
+    () => (Object.keys(WIDGET_REGISTRY) as BuilderWidgetType[]).filter((type) => {
+      const def = WIDGET_REGISTRY[type];
+      return !def.moduleId || isModuleEnabled(def.moduleId);
+    }),
+    [isModuleEnabled]
   );
 
   // Filter widgets based on search and category
   const filteredWidgets = useMemo(() => {
     let widgets = selectedCategory
-      ? getWidgetsByCategory(selectedCategory)
+      ? getWidgetsByCategory(selectedCategory, isModuleEnabled)
       : allWidgetTypes;
 
     if (search) {
@@ -167,7 +172,7 @@ export function AddBlockModal({ isOpen, onClose, onAddWidget }: AddBlockModalPro
               </button>
               {WIDGET_CATEGORIES.map((category) => {
                 const Icon = ICON_MAP[category.icon] || Shapes;
-                const count = getWidgetsByCategory(category.id).length;
+                const count = getWidgetsByCategory(category.id, isModuleEnabled).length;
                 return (
                   <button
                     key={category.id}

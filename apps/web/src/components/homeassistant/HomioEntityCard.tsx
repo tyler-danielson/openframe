@@ -46,6 +46,13 @@ import { useLongPress } from "../../hooks/useLongPress";
 import { EntityTimerMenu, type EntityTimer } from "./EntityTimerMenu";
 import { VacuumControlCard } from "./VacuumControlCard";
 import { VacuumControlModal } from "./VacuumControlModal";
+import { MotionSensorCard } from "./MotionSensorCard";
+import { MotionSensorModal } from "./MotionSensorModal";
+import { SpeedtestCard } from "./SpeedtestCard";
+import { SpeedtestModal } from "./SpeedtestModal";
+import { LaundryCard } from "./LaundryCard";
+import { LaundryModal } from "./LaundryModal";
+import { isMotionSensorEntity, isLaundryEntity, isSpeedtestEntity } from "./sensorDetection";
 import { api } from "../../services/api";
 
 interface HomioEntityCardProps {
@@ -62,6 +69,9 @@ export function HomioEntityCard({ state, displayName, onCallService, activeTimer
   const [isLoading, setIsLoading] = useState(false);
   const [timerMenuOpen, setTimerMenuOpen] = useState(false);
   const [vacuumModalOpen, setVacuumModalOpen] = useState(false);
+  const [motionModalOpen, setMotionModalOpen] = useState(false);
+  const [speedtestModalOpen, setSpeedtestModalOpen] = useState(false);
+  const [laundryModalOpen, setLaundryModalOpen] = useState(false);
   const [remainingTime, setRemainingTime] = useState<string | null>(null);
 
   const domain = state.entity_id.split(".")[0];
@@ -88,6 +98,67 @@ export function HomioEntityCard({ state, displayName, onCallService, activeTimer
       </>
     );
   }
+
+  // Handle motion sensor entities with dedicated components
+  if (isMotionSensorEntity(state)) {
+    return (
+      <>
+        <MotionSensorCard
+          state={state}
+          displayName={displayName}
+          onOpenModal={() => setMotionModalOpen(true)}
+        />
+        <MotionSensorModal
+          isOpen={motionModalOpen}
+          onClose={() => setMotionModalOpen(false)}
+          state={state}
+          displayName={displayName}
+          allEntities={allEntities}
+        />
+      </>
+    );
+  }
+
+  // Handle laundry entities with dedicated components
+  if (isLaundryEntity(state)) {
+    return (
+      <>
+        <LaundryCard
+          state={state}
+          displayName={displayName}
+          onOpenModal={() => setLaundryModalOpen(true)}
+        />
+        <LaundryModal
+          isOpen={laundryModalOpen}
+          onClose={() => setLaundryModalOpen(false)}
+          state={state}
+          displayName={displayName}
+          allEntities={allEntities}
+        />
+      </>
+    );
+  }
+
+  // Handle speedtest entities with dedicated components
+  if (isSpeedtestEntity(state)) {
+    return (
+      <>
+        <SpeedtestCard
+          state={state}
+          displayName={displayName}
+          onOpenModal={() => setSpeedtestModalOpen(true)}
+        />
+        <SpeedtestModal
+          isOpen={speedtestModalOpen}
+          onClose={() => setSpeedtestModalOpen(false)}
+          state={state}
+          displayName={displayName}
+          allEntities={allEntities}
+        />
+      </>
+    );
+  }
+
   const friendlyName = state.attributes.friendly_name;
   const entityName = displayName || (typeof friendlyName === "string" ? friendlyName : null) || state.entity_id;
   const isOn = state.state === "on" || state.state === "playing" || state.state === "unlocked" || state.state === "open";

@@ -50,6 +50,9 @@ importers:
       '@fastify/websocket':
         specifier: ^11.0.1
         version: 11.2.0
+      '@matter/main':
+        specifier: ^0.16.0
+        version: 0.16.9
       '@modelcontextprotocol/sdk':
         specifier: ^1.12.1
         version: 1.26.0(zod@3.25.76)
@@ -175,6 +178,8 @@ importers:
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
+
+  apps/echo-show: {}
 
   apps/mobile:
     dependencies:
@@ -2374,6 +2379,28 @@ packages:
   '@maplibre/vt-pbf@4.2.1':
     resolution: {integrity: sha512-IxZBGq/+9cqf2qdWlFuQ+ZfoMhWpxDUGQZ/poPHOJBvwMUT1GuxLo6HgYTou+xxtsOsjfbcjI8PZaPCtmt97rA==}
 
+  '@matter/general@0.16.9':
+    resolution: {integrity: sha512-vhQ5ZzFleq2zCEPj15pXiyglrFoquVnSBYLBYNP0agGRJkv1IMyXj8NByto730LgQDHY0IFaBfcTlp3uytezMQ==}
+
+  '@matter/main@0.16.9':
+    resolution: {integrity: sha512-hbAMuNzWkhwaTfxVbO9KysfkQUBlJHAAIwdasBhcHOgc6vtOhSxCYTEcHeh6fdCib4yISrZvznqb6lxTFw1vjg==}
+
+  '@matter/model@0.16.9':
+    resolution: {integrity: sha512-i63hKJk6XFGMba/qv7QzbKEcUQlQcR3RwCoX7xSrbvAxi4bc6Ur/VdskUHs8S2FggsCigBKGoQR5n7+qEj58VA==}
+
+  '@matter/node@0.16.9':
+    resolution: {integrity: sha512-ssjEAZJnR+R2mxk51yg0GoRLNmwbfAyJnBErUiWNX+7an68RaU5ag5KBurC9eT2QrHPKsBnFZcnhXm96muacew==}
+
+  '@matter/nodejs@0.16.9':
+    resolution: {integrity: sha512-RU8N6OsoebWnnm7JUWKh8oz4gepywOmzL4qJeAT3Dnv8vJss1MlPKEtOCKSJNXbwO0wQBoxbS1Y2Jvd9Uq8WDg==}
+    engines: {node: '>=20.19.0 <22.0.0 || >=22.13.0'}
+
+  '@matter/protocol@0.16.9':
+    resolution: {integrity: sha512-KiTwykb5JMEdN/CswjSrfuco+TuOXAFAwXBtMk9JLVKjz1j0G7lsKts+KH0g6kprsUt8RSQnVAXJg4e3qUR4Pw==}
+
+  '@matter/types@0.16.9':
+    resolution: {integrity: sha512-Mb4LKeDAzUuNlFtPyC6eVBwhi9uo0U9PtcdozlFmnoEReR6nustUJyN2+eNqYu/tZoiPLnoMyqYY5Bn+QlQoCA==}
+
   '@modelcontextprotocol/sdk@1.26.0':
     resolution: {integrity: sha512-Y5RmPncpiDtTXDbLKswIJzTqu2hyBKxTNsgKqKclDbhIgg1wgtf1fRuvxgTnRfcnxtvvgbIEcqUOzZrJ6iSReg==}
     engines: {node: '>=18'}
@@ -2416,6 +2443,14 @@ packages:
 
   '@napi-rs/wasm-runtime@0.2.12':
     resolution: {integrity: sha512-ZVWUcfwY4E/yPitQJl481FjFo3K22D6qF0DuFH6Y/nbnE11GY5uguDxZMGXPQ8WQ0128MXQD7TnfHyK4oWoIJQ==}
+
+  '@noble/curves@2.0.1':
+    resolution: {integrity: sha512-vs1Az2OOTBiP4q0pwjW5aF0xp9n4MxVrmkFBxc6EKZc6ddYx5gaZiAsZoq0uRRXWbi3AT/sBqn05eRPtn1JCPw==}
+    engines: {node: '>= 20.19.0'}
+
+  '@noble/hashes@2.0.1':
+    resolution: {integrity: sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw==}
+    engines: {node: '>= 20.19.0'}
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
@@ -10272,6 +10307,50 @@ snapshots:
       pbf: 4.0.1
       supercluster: 8.0.1
 
+  '@matter/general@0.16.9':
+    dependencies:
+      '@noble/curves': 2.0.1
+
+  '@matter/main@0.16.9':
+    dependencies:
+      '@matter/general': 0.16.9
+      '@matter/model': 0.16.9
+      '@matter/node': 0.16.9
+      '@matter/protocol': 0.16.9
+      '@matter/types': 0.16.9
+    optionalDependencies:
+      '@matter/nodejs': 0.16.9
+
+  '@matter/model@0.16.9':
+    dependencies:
+      '@matter/general': 0.16.9
+
+  '@matter/node@0.16.9':
+    dependencies:
+      '@matter/general': 0.16.9
+      '@matter/model': 0.16.9
+      '@matter/protocol': 0.16.9
+      '@matter/types': 0.16.9
+
+  '@matter/nodejs@0.16.9':
+    dependencies:
+      '@matter/general': 0.16.9
+      '@matter/node': 0.16.9
+      '@matter/protocol': 0.16.9
+      '@matter/types': 0.16.9
+    optional: true
+
+  '@matter/protocol@0.16.9':
+    dependencies:
+      '@matter/general': 0.16.9
+      '@matter/model': 0.16.9
+      '@matter/types': 0.16.9
+
+  '@matter/types@0.16.9':
+    dependencies:
+      '@matter/general': 0.16.9
+      '@matter/model': 0.16.9
+
   '@modelcontextprotocol/sdk@1.26.0(zod@3.25.76)':
     dependencies:
       '@hono/node-server': 1.19.9(hono@4.11.9)
@@ -10318,6 +10397,12 @@ snapshots:
       '@emnapi/runtime': 1.8.1
       '@tybys/wasm-util': 0.10.1
     optional: true
+
+  '@noble/curves@2.0.1':
+    dependencies:
+      '@noble/hashes': 2.0.1
+
+  '@noble/hashes@2.0.1': {}
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:

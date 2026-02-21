@@ -209,6 +209,7 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
     enabled: !isBuilder && activeCalendarIds.length > 0,
     staleTime: 60 * 1000,
     refetchInterval: 60 * 1000,
+    refetchIntervalInBackground: true,
   });
   const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.weekSchedule);
 

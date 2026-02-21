@@ -25,6 +25,7 @@ export interface PlannerWidgetDefinition {
   maxSize: { width: number; height: number };
   defaultConfig: Record<string, unknown>;
   previewColor: string;
+  moduleId: string | null;
 }
 
 export const PLANNER_WIDGET_REGISTRY: Record<PlannerWidgetType, PlannerWidgetDefinition> = {
@@ -45,6 +46,7 @@ export const PLANNER_WIDGET_REGISTRY: Record<PlannerWidgetType, PlannerWidgetDef
       fillHeight: true,
     },
     previewColor: "#dbeafe",
+    moduleId: null,
   },
   "calendar-week": {
     name: "Week View",
@@ -61,6 +63,7 @@ export const PLANNER_WIDGET_REGISTRY: Record<PlannerWidgetType, PlannerWidgetDef
       weekStartsOn: 0, // Sunday
     },
     previewColor: "#dbeafe",
+    moduleId: null,
   },
   "calendar-month": {
     name: "Month Grid",
@@ -77,6 +80,7 @@ export const PLANNER_WIDGET_REGISTRY: Record<PlannerWidgetType, PlannerWidgetDef
       weekStartsOn: 0,
     },
     previewColor: "#dbeafe",
+    moduleId: null,
   },
   tasks: {
     name: "Task List",
@@ -93,6 +97,7 @@ export const PLANNER_WIDGET_REGISTRY: Record<PlannerWidgetType, PlannerWidgetDef
       includeCompleted: false,
     },
     previewColor: "#dcfce7",
+    moduleId: null,
   },
   "news-headlines": {
     name: "News Headlines",
@@ -108,6 +113,7 @@ export const PLANNER_WIDGET_REGISTRY: Record<PlannerWidgetType, PlannerWidgetDef
       showDescription: false,
     },
     previewColor: "#fef3c7",
+    moduleId: "news",
   },
   weather: {
     name: "Weather Forecast",
@@ -123,6 +129,7 @@ export const PLANNER_WIDGET_REGISTRY: Record<PlannerWidgetType, PlannerWidgetDef
       forecastDays: 3,
     },
     previewColor: "#e0f2fe",
+    moduleId: "weather",
   },
   notes: {
     name: "Notes Area",
@@ -139,6 +146,7 @@ export const PLANNER_WIDGET_REGISTRY: Record<PlannerWidgetType, PlannerWidgetDef
       lineStyle: "ruled", // "ruled" | "dotted" | "grid" | "blank"
     },
     previewColor: "#f3f4f6",
+    moduleId: null,
   },
   text: {
     name: "Text / Header",
@@ -155,6 +163,7 @@ export const PLANNER_WIDGET_REGISTRY: Record<PlannerWidgetType, PlannerWidgetDef
       textAlign: "center",
     },
     previewColor: "#f3f4f6",
+    moduleId: null,
   },
   divider: {
     name: "Divider",
@@ -170,6 +179,7 @@ export const PLANNER_WIDGET_REGISTRY: Record<PlannerWidgetType, PlannerWidgetDef
       thickness: 1,
     },
     previewColor: "#e5e7eb",
+    moduleId: null,
   },
   habits: {
     name: "Habit Tracker",
@@ -187,6 +197,7 @@ export const PLANNER_WIDGET_REGISTRY: Record<PlannerWidgetType, PlannerWidgetDef
       showLabels: false,
     },
     previewColor: "#fae8ff",
+    moduleId: null,
   },
   "ai-briefing": {
     name: "AI Briefing",
@@ -201,6 +212,7 @@ export const PLANNER_WIDGET_REGISTRY: Record<PlannerWidgetType, PlannerWidgetDef
       showHighlights: true,
     },
     previewColor: "#fef9c3",
+    moduleId: "ai-briefing",
   },
   "email-highlights": {
     name: "Email Highlights",
@@ -217,6 +229,7 @@ export const PLANNER_WIDGET_REGISTRY: Record<PlannerWidgetType, PlannerWidgetDef
       showTime: true,
     },
     previewColor: "#fee2e2",
+    moduleId: "gmail",
   },
 };
 
@@ -227,9 +240,14 @@ export const PLANNER_WIDGET_CATEGORIES = [
   { id: "tracking", name: "Tracking", icon: "Target" },
 ] as const;
 
-export function getPlannerWidgetsByCategory(category: string): PlannerWidgetType[] {
+export function getPlannerWidgetsByCategory(category: string, isModuleEnabled?: (id: string) => boolean): PlannerWidgetType[] {
   return (Object.keys(PLANNER_WIDGET_REGISTRY) as PlannerWidgetType[]).filter(
-    (type) => PLANNER_WIDGET_REGISTRY[type].category === category
+    (type) => {
+      const def = PLANNER_WIDGET_REGISTRY[type];
+      if (def.category !== category) return false;
+      if (isModuleEnabled && def.moduleId && !isModuleEnabled(def.moduleId)) return false;
+      return true;
+    }
   );
 }
 

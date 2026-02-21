@@ -49,6 +49,11 @@ import type {
   AIChatProvider,
   Routine,
   RoutineWithCompletions,
+  MatterDevice,
+  MatterDeviceState,
+  MatterDeviceAttributes,
+  MatterCommissionRequest,
+  MatterCommandRequest,
 } from "@openframe/shared";
 
 // API Key types
@@ -3254,6 +3259,182 @@ class ApiClient {
   async getUserPlanLimits(): Promise<PlanLimits> {
     return this.fetch<PlanLimits>("/auth/me/plan");
   }
+
+  // Modules
+  async getModules(): Promise<ModulesResponse> {
+    return this.fetch<ModulesResponse>("/modules");
+  }
+
+  async setModuleEnabled(moduleId: string, enabled: boolean): Promise<ModuleToggleResponse> {
+    return this.fetch<ModuleToggleResponse>(`/modules/${moduleId}`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
+  // ============ Admin ============
+
+  async getAdminStats(): Promise<AdminStats> {
+    return this.fetch<AdminStats>("/admin/stats");
+  }
+
+  async getAdminPlans(): Promise<AdminPlan[]> {
+    return this.fetch<AdminPlan[]>("/admin/plans");
+  }
+
+  async getAdminUsers(params?: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    role?: string;
+    planId?: string;
+  }): Promise<AdminUserListResponse> {
+    const query = new URLSearchParams();
+    if (params?.page) query.set("page", String(params.page));
+    if (params?.pageSize) query.set("pageSize", String(params.pageSize));
+    if (params?.search) query.set("search", params.search);
+    if (params?.role) query.set("role", params.role);
+    if (params?.planId) query.set("planId", params.planId);
+    const qs = query.toString();
+    return this.fetch<AdminUserListResponse>(`/admin/users${qs ? `?${qs}` : ""}`);
+  }
+
+  async getAdminUser(id: string): Promise<AdminUserDetail> {
+    return this.fetch<AdminUserDetail>(`/admin/users/${id}`);
+  }
+
+  async updateAdminUser(id: string, data: { role: string }): Promise<{ id: string; role: string }> {
+    return this.fetch(`/admin/users/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateUserPlan(id: string, data: { planId: string; expiresAt?: string | null }): Promise<AdminPlan> {
+    return this.fetch<AdminPlan>(`/admin/users/${id}/plan`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getAdminTickets(params?: {
+    page?: number;
+    pageSize?: number;
+    status?: string;
+    category?: string;
+    search?: string;
+  }): Promise<AdminTicketListResponse> {
+    const query = new URLSearchParams();
+    if (params?.page) query.set("page", String(params.page));
+    if (params?.pageSize) query.set("pageSize", String(params.pageSize));
+    if (params?.status) query.set("status", params.status);
+    if (params?.category) query.set("category", params.category);
+    if (params?.search) query.set("search", params.search);
+    const qs = query.toString();
+    return this.fetch<AdminTicketListResponse>(`/admin/support${qs ? `?${qs}` : ""}`);
+  }
+
+  async getAdminTicket(id: string): Promise<AdminTicketDetail> {
+    return this.fetch<AdminTicketDetail>(`/admin/support/${id}`);
+  }
+
+  async updateAdminTicket(id: string, data: {
+    status?: string;
+    priority?: string;
+    category?: string;
+    assignedAdminId?: string | null;
+  }): Promise<any> {
+    return this.fetch(`/admin/support/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async postAdminTicketMessage(ticketId: string, content: string): Promise<any> {
+    return this.fetch(`/admin/support/${ticketId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  // ============ User Support ============
+
+  async createSupportTicket(data: {
+    subject: string;
+    category?: string;
+    message: string;
+  }): Promise<SupportTicketSummary> {
+    return this.fetch<SupportTicketSummary>("/support", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getMyTickets(status?: string): Promise<SupportTicketSummary[]> {
+    const qs = status ? `?status=${status}` : "";
+    return this.fetch<SupportTicketSummary[]>(`/support${qs}`);
+  }
+
+  async getMyTicket(id: string): Promise<MyTicketDetail> {
+    return this.fetch<MyTicketDetail>(`/support/${id}`);
+  }
+
+  async postTicketMessage(ticketId: string, content: string): Promise<any> {
+    return this.fetch(`/support/${ticketId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  // ============ Matter ============
+
+  async getMatterStatus(): Promise<{ initialized: boolean; deviceCount: number }> {
+    return this.fetch<{ initialized: boolean; deviceCount: number }>("/matter/status");
+  }
+
+  async getMatterDevices(): Promise<MatterDeviceWithState[]> {
+    return this.fetch<MatterDeviceWithState[]>("/matter/devices");
+  }
+
+  async getMatterDevice(id: string): Promise<MatterDeviceWithState> {
+    return this.fetch<MatterDeviceWithState>(`/matter/devices/${id}`);
+  }
+
+  async commissionMatterDevice(data: MatterCommissionRequest): Promise<MatterDevice> {
+    return this.fetch<MatterDevice>("/matter/commission", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async decommissionMatterDevice(id: string): Promise<void> {
+    await this.fetch(`/matter/devices/${id}`, { method: "DELETE" });
+  }
+
+  async updateMatterDevice(id: string, data: {
+    displayName?: string;
+    roomId?: string | null;
+    sortOrder?: number;
+  }): Promise<MatterDevice> {
+    return this.fetch<MatterDevice>(`/matter/devices/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async sendMatterCommand(deviceId: string, command: MatterCommandRequest): Promise<void> {
+    await this.fetch(`/matter/devices/${deviceId}/command`, {
+      method: "POST",
+      body: JSON.stringify(command),
+    });
+  }
+
+  async reorderMatterDevices(deviceIds: string[]): Promise<void> {
+    await this.fetch("/matter/devices/reorder", {
+      method: "POST",
+      body: JSON.stringify({ deviceIds }),
+    });
+  }
 }
 
 // Family Profile types
@@ -3863,6 +4044,159 @@ export interface PlanLimits {
     homeAssistant: boolean;
     automations: boolean;
     companion: boolean;
+  };
+}
+
+// Module types
+export interface ModuleInfo {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  category: string;
+  dependsOn: string[];
+  enabled: boolean;
+  available: boolean;
+}
+
+export interface ModulesResponse {
+  modules: ModuleInfo[];
+  categories: { id: string; label: string }[];
+}
+
+export interface ModuleToggleResponse {
+  moduleId: string;
+  enabled: boolean;
+  cascadeDisabled: string[];
+}
+
+// ============ Admin Types ============
+
+export interface AdminStats {
+  totalUsers: number;
+  activeUsersLast30d: number;
+  newUsersLast7d: number;
+  planDistribution: { planId: string; planName: string; count: number }[];
+  ticketStats: { open: number; inProgress: number; resolved: number };
+  recentSignups: { date: string; count: number }[];
+}
+
+export interface AdminPlan {
+  id: string;
+  name: string;
+  limits: PlanLimits;
+}
+
+export interface AdminUserSummary {
+  id: string;
+  email: string;
+  name: string | null;
+  avatarUrl: string | null;
+  role: string;
+  planId: string;
+  planName: string;
+  createdAt: string;
+}
+
+export interface AdminUserListResponse {
+  items: AdminUserSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
+export interface AdminUserDetail {
+  id: string;
+  email: string;
+  name: string | null;
+  avatarUrl: string | null;
+  role: string;
+  createdAt: string;
+  plan: {
+    planId: string;
+    planName: string;
+    limits: PlanLimits;
+    expiresAt: string | null;
+  };
+  usage: {
+    calendars: number;
+    kiosks: number;
+    cameras: number;
+  };
+}
+
+export interface AdminTicketSummary {
+  id: string;
+  subject: string;
+  status: string;
+  priority: string;
+  category: string;
+  createdAt: string;
+  updatedAt: string;
+  user: { id: string; name: string | null; email: string };
+}
+
+export interface AdminTicketListResponse {
+  items: AdminTicketSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
+export interface AdminTicketDetail {
+  id: string;
+  subject: string;
+  status: string;
+  priority: string;
+  category: string;
+  assignedAdminId: string | null;
+  closedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user: { id: string; name: string | null; email: string; avatarUrl: string | null };
+  messages: {
+    id: string;
+    content: string;
+    isAdminReply: boolean;
+    createdAt: string;
+    sender: { id: string; name: string | null; email: string; avatarUrl: string | null };
+  }[];
+}
+
+export interface SupportTicketSummary {
+  id: string;
+  subject: string;
+  status: string;
+  priority: string;
+  category: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MyTicketDetail {
+  id: string;
+  subject: string;
+  status: string;
+  priority: string;
+  category: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: {
+    id: string;
+    content: string;
+    isAdminReply: boolean;
+    createdAt: string;
+    sender: { id: string; name: string | null };
+  }[];
+}
+
+// Matter types
+export interface MatterDeviceWithState extends MatterDevice {
+  state: {
+    isReachable: boolean;
+    attributes: MatterDeviceAttributes;
   };
 }
 

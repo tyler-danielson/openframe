@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, isToday, isTomorrow, differenceInMinutes, differenceInHours, differenceInDays } from "date-fns";
 import { MapPin } from "lucide-react";
@@ -53,6 +53,14 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
   const headerMode = config.headerMode as string ?? "default";
   const customHeader = config.customHeader as string ?? "";
 
+  // Tick every 30 seconds so countdown text and event filtering stay current
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    if (isBuilder) return;
+    const timer = setInterval(() => setNow(new Date()), 30 * 1000);
+    return () => clearInterval(timer);
+  }, [isBuilder]);
+
   const getHeaderText = () => {
     if (headerMode === "hidden") return null;
     if (headerMode === "custom") return customHeader || null;
@@ -91,11 +99,11 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
     enabled: !isBuilder && activeCalendarIds.length > 0,
     staleTime: 60 * 1000,
     refetchInterval: 60 * 1000,
+    refetchIntervalInBackground: true,
   });
   const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.upNext);
 
   const upcomingEvents = useMemo(() => {
-    const now = new Date();
     let filtered = [...events]
       .filter((event) => new Date(event.endTime) > now)
       .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
@@ -119,7 +127,7 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
     }
 
     return filtered.slice(0, maxItems);
-  }, [events, hideBlankEvents, hideAllDayEvents, hideDuplicates, maxItems]);
+  }, [events, now, hideBlankEvents, hideAllDayEvents, hideDuplicates, maxItems]);
 
   const groupedEvents = useMemo(() => {
     const groups = new Map<string, CalendarEvent[]>();
@@ -144,7 +152,6 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
   };
 
   const getCountdownText = (event: CalendarEvent) => {
-    const now = new Date();
     const startTime = new Date(event.startTime);
     const endTime = new Date(event.endTime);
 

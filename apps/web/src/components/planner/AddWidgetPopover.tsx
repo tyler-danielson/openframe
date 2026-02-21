@@ -7,6 +7,7 @@ import {
   PLANNER_WIDGET_CATEGORIES,
   getPlannerWidgetsByCategory,
 } from "../../lib/planner/widget-registry";
+import { useModuleStore } from "../../stores/modules";
 import {
   Calendar,
   CalendarDays,
@@ -32,6 +33,7 @@ interface AddWidgetPopoverProps {
 
 export function AddWidgetPopover({ onAddWidget }: AddWidgetPopoverProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const isModuleEnabled = useModuleStore((s) => s.isEnabled);
 
   const handleAddWidget = (type: PlannerWidgetType) => {
     const definition = PLANNER_WIDGET_REGISTRY[type];
@@ -94,7 +96,7 @@ export function AddWidgetPopover({ onAddWidget }: AddWidgetPopoverProps) {
 
             <div className="max-h-80 overflow-auto p-2">
               {PLANNER_WIDGET_CATEGORIES.map((category) => {
-                const widgetTypes = getPlannerWidgetsByCategory(category.id);
+                const widgetTypes = getPlannerWidgetsByCategory(category.id, isModuleEnabled);
                 if (widgetTypes.length === 0) return null;
 
                 return (

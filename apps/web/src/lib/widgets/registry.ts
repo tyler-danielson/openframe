@@ -8,6 +8,7 @@ export interface WidgetDefinition {
   minSize: { width: number; height: number };
   maxSize: { width: number; height: number };
   defaultConfig: Record<string, unknown>;
+  moduleId: string | null; // null = core widget (always available)
 }
 
 export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
@@ -23,6 +24,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showDate: true,
       format24h: false,
     },
+    moduleId: null,
   },
   countdown: {
     name: "Countdown",
@@ -41,6 +43,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       eventId: "",           // Selected event ID (takes precedence over targetDate)
       displayMode: "full",   // "full" | "days"
     },
+    moduleId: null,
   },
   weather: {
     name: "Current Weather",
@@ -55,6 +58,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showHumidity: true,
       showWind: true,
     },
+    moduleId: "weather",
   },
   forecast: {
     name: "Weather Forecast",
@@ -68,6 +72,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showHighLow: true,
       showIcons: true,
     },
+    moduleId: "weather",
   },
   calendar: {
     name: "Calendar Events",
@@ -84,6 +89,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       calendarIds: [],            // Empty = all screensaver-visible calendars
       showUpcomingOnly: true,     // Filter out past events
     },
+    moduleId: null,
   },
   "up-next": {
     name: "Up Next",
@@ -103,6 +109,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       hideDuplicates: false,
       hideAllDayEvents: false,
     },
+    moduleId: null,
   },
   tasks: {
     name: "Tasks",
@@ -116,6 +123,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showDueDate: true,
       showOverdue: true,
     },
+    moduleId: null,
   },
   sports: {
     name: "Sports Scores",
@@ -129,6 +137,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showLiveOnly: false,
       showScheduled: true,
     },
+    moduleId: "sports",
   },
   spotify: {
     name: "Spotify Now Playing",
@@ -142,6 +151,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showProgress: true,
       showArtist: true,
     },
+    moduleId: "spotify",
   },
   "ha-entity": {
     name: "HA Entity",
@@ -157,6 +167,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showState: true,
       showLastChanged: false,
     },
+    moduleId: "homeassistant",
   },
   "ha-gauge": {
     name: "HA Gauge",
@@ -175,6 +186,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       warningValue: 70,
       criticalValue: 90,
     },
+    moduleId: "homeassistant",
   },
   "ha-graph": {
     name: "HA Graph",
@@ -190,6 +202,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showGrid: true,
       lineColor: "#3B82F6",
     },
+    moduleId: "homeassistant",
   },
   "ha-camera": {
     name: "HA Camera",
@@ -202,6 +215,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       entityId: "",
       refreshInterval: 10,
     },
+    moduleId: "homeassistant",
   },
   text: {
     name: "Text",
@@ -216,6 +230,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       textAlign: "center",
       fontWeight: "normal",
     },
+    moduleId: null,
   },
   image: {
     name: "Image",
@@ -229,6 +244,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       fit: "contain",
       refreshInterval: 0,
     },
+    moduleId: null,
   },
   "photo-album": {
     name: "Photo Album",
@@ -251,6 +267,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       fit: "cover",              // "cover" | "contain"
       shuffle: true,
     },
+    moduleId: "photos",
   },
   "fullscreen-toggle": {
     name: "Fullscreen Toggle",
@@ -264,6 +281,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       label: "Fullscreen",
       iconSize: "medium",       // "small" | "medium" | "large"
     },
+    moduleId: null,
   },
   "day-schedule": {
     name: "Day Schedule",
@@ -282,6 +300,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showCurrentTime: true,
       showHourLabels: true,
     },
+    moduleId: null,
   },
   news: {
     name: "News Headlines",
@@ -296,6 +315,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showSource: true,
       showTime: true,
     },
+    moduleId: "news",
   },
   "ha-map": {
     name: "HA Map",
@@ -314,6 +334,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       selectedZones: [],
       deviceIcons: {},
     },
+    moduleId: "homeassistant",
   },
   iptv: {
     name: "Live TV",
@@ -329,6 +350,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       autoPlay: true,
       muted: true,
     },
+    moduleId: "iptv",
   },
   "week-schedule": {
     name: "Week Schedule",
@@ -351,6 +373,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showAllDayEvents: true,
       showDayHeaders: true,
     },
+    moduleId: null,
   },
   "photo-feed": {
     name: "Photo Feed",
@@ -373,6 +396,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showTitles: false,
       roundedCorners: true,
     },
+    moduleId: "photos",
   },
   youtube: {
     name: "YouTube",
@@ -388,6 +412,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       muted: true,
       showControls: true,
     },
+    moduleId: "youtube",
   },
   plex: {
     name: "Plex",
@@ -402,6 +427,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       autoPlay: true,
       showControls: true,
     },
+    moduleId: "plex",
   },
   plexamp: {
     name: "PlexAmp",
@@ -415,6 +441,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       ratingKey: "",
       autoPlay: true,
     },
+    moduleId: "plex",
   },
   audiobookshelf: {
     name: "Audiobookshelf",
@@ -428,6 +455,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       itemId: "",
       autoPlay: true,
     },
+    moduleId: "audiobookshelf",
   },
   support: {
     name: "Support",
@@ -440,6 +468,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       buttonStyle: "both",
       label: "Buy me a beer",
     },
+    moduleId: null,
   },
 };
 
@@ -452,9 +481,14 @@ export const WIDGET_CATEGORIES = [
   { id: "custom", name: "Custom", icon: "Shapes" },
 ] as const;
 
-export function getWidgetsByCategory(category: string): BuilderWidgetType[] {
+export function getWidgetsByCategory(category: string, isModuleEnabled?: (id: string) => boolean): BuilderWidgetType[] {
   return (Object.keys(WIDGET_REGISTRY) as BuilderWidgetType[]).filter(
-    (type) => WIDGET_REGISTRY[type].category === category
+    (type) => {
+      const def = WIDGET_REGISTRY[type];
+      if (def.category !== category) return false;
+      if (isModuleEnabled && def.moduleId && !isModuleEnabled(def.moduleId)) return false;
+      return true;
+    }
   );
 }
 

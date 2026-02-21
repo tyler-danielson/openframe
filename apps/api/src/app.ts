@@ -45,11 +45,18 @@ import { youtubeRoutes } from "./routes/youtube/index.js";
 import { plexRoutes } from "./routes/plex/index.js";
 import { audiobookshelfRoutes } from "./routes/audiobookshelf/index.js";
 import { routineRoutes } from "./routes/routines/index.js";
+import { moduleRoutes } from "./routes/modules/index.js";
+import { moduleGateHook } from "./plugins/module-gate.js";
 import { companionAccessRoutes } from "./routes/companion/access.js";
 import { companionDataRoutes } from "./routes/companion/data.js";
 import { cloudRoutes } from "./routes/cloud/index.js";
+import { adminRoutes } from "./routes/admin/index.js";
+import { supportRoutes } from "./routes/support/index.js";
+import { matterRoutes } from "./routes/matter/index.js";
 import { cloudPlugin } from "./plugins/cloud.js";
+import { matterPlugin } from "./plugins/matter.js";
 import { planLimitsPlugin } from "./plugins/plan-limits.js";
+import { requireAdminPlugin } from "./plugins/require-admin.js";
 import type { Config } from "./config.js";
 
 export async function buildApp(config: Config): Promise<FastifyInstance> {
@@ -144,6 +151,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(authPlugin);
   await app.register(schedulerPlugin);
   await app.register(cloudPlugin);
+  await app.register(matterPlugin);
 
   // Hosted mode config (SaaS multi-tenant)
   app.decorate("hostedMode", config.hostedMode);
@@ -152,8 +160,14 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   // Plan limits (active in hosted mode only)
   await app.register(planLimitsPlugin);
 
+  // Admin access guard
+  await app.register(requireAdminPlugin);
+
   // Shared upload tokens Map (must be decorated at app level so all routes share it)
   app.decorate("uploadTokens", new Map());
+
+  // Module gate: block requests to disabled modules
+  app.addHook("onRequest", moduleGateHook());
 
   // Routes
   await app.register(healthRoutes, { prefix: "/api/v1" });
@@ -190,9 +204,13 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(plexRoutes, { prefix: "/api/v1/plex" });
   await app.register(audiobookshelfRoutes, { prefix: "/api/v1/audiobookshelf" });
   await app.register(routineRoutes, { prefix: "/api/v1/routines" });
+  await app.register(moduleRoutes, { prefix: "/api/v1/modules" });
   await app.register(companionAccessRoutes, { prefix: "/api/v1/companion/access" });
   await app.register(companionDataRoutes, { prefix: "/api/v1/companion/data" });
   await app.register(cloudRoutes, { prefix: "/api/v1/cloud" });
+  await app.register(adminRoutes, { prefix: "/api/v1/admin" });
+  await app.register(supportRoutes, { prefix: "/api/v1/support" });
+  await app.register(matterRoutes, { prefix: "/api/v1/matter" });
 
   // Error handler
   app.setErrorHandler((error: FastifyError, _request, reply) => {

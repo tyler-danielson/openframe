@@ -4,6 +4,7 @@ export interface User {
   email: string;
   name: string | null;
   avatarUrl: string | null;
+  role: "admin" | "member" | "viewer";
   timezone: string;
   preferences: UserPreferences;
   linkedProviders?: string[];
@@ -1173,3 +1174,80 @@ export interface RoutineWithCompletions extends Routine {
   completions: RoutineCompletion[];
   isCompletedToday?: boolean;
 }
+
+// ============ Support Ticket Types ============
+
+// ============ Matter Types ============
+
+export type MatterDeviceType =
+  | "onOffLight"
+  | "dimmableLight"
+  | "colorTemperatureLight"
+  | "thermostat"
+  | "doorLock"
+  | "contactSensor"
+  | "occupancySensor"
+  | "temperatureSensor"
+  | "humiditySensor"
+  | "onOffSwitch"
+  | "windowCovering"
+  | "fan"
+  | "unknown";
+
+export interface MatterDevice {
+  id: string;
+  userId: string;
+  nodeId: string;
+  vendorName: string | null;
+  productName: string | null;
+  deviceType: MatterDeviceType;
+  displayName: string;
+  roomId: string | null;
+  sortOrder: number;
+  isReachable: boolean;
+  lastSeenAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface MatterDeviceAttributes {
+  onOff?: boolean;
+  currentLevel?: number;
+  colorTemperatureMireds?: number;
+  localTemperature?: number;
+  occupiedHeatingSetpoint?: number;
+  occupiedCoolingSetpoint?: number;
+  systemMode?: number;
+  lockState?: number;
+  contactState?: boolean;
+  occupancy?: boolean;
+  measuredTemperature?: number;
+  measuredHumidity?: number;
+  currentPosition?: number;
+  fanMode?: number;
+  fanSpeed?: number;
+}
+
+export interface MatterDeviceState {
+  nodeId: string;
+  deviceType: MatterDeviceType;
+  isReachable: boolean;
+  attributes: MatterDeviceAttributes;
+}
+
+export interface MatterCommissionRequest {
+  pairingCode: string;
+  displayName?: string;
+}
+
+export interface MatterCommandRequest {
+  clusterId: string;
+  commandId: string;
+  payload?: Record<string, unknown>;
+}
+
+// ============ Support Ticket Types ============
+
+export type TicketStatus = "open" | "in_progress" | "waiting_on_user" | "resolved" | "closed";
+export type TicketPriority = "low" | "normal" | "high" | "urgent";
+export type TicketCategory = "billing" | "bug" | "feature_request" | "account" | "general";

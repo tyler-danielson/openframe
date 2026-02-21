@@ -97,6 +97,7 @@ export function CalendarWidget({ config, style, isBuilder }: CalendarWidgetProps
     enabled: !isBuilder && activeCalendarIds.length > 0,
     staleTime: 60 * 1000, // 1 minute
     refetchInterval: 60 * 1000, // Refresh every minute
+    refetchIntervalInBackground: true,
   });
   const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.calendar);
 

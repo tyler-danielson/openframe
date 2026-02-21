@@ -546,6 +546,8 @@ export function CalendarPage() {
   const { data: calendarsData } = useQuery({
     queryKey: ["calendars"],
     queryFn: () => api.getCalendars(),
+    refetchInterval: autoRefreshInterval > 0 ? autoRefreshInterval * 60 * 1000 : false,
+    staleTime: 5 * 60 * 1000,
   });
 
   useEffect(() => {

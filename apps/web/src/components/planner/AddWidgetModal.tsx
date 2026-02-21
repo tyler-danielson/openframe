@@ -6,6 +6,7 @@ import {
   PLANNER_WIDGET_CATEGORIES,
   getPlannerWidgetsByCategory,
 } from "../../lib/planner/widget-registry";
+import { useModuleStore } from "../../stores/modules";
 import {
   Calendar,
   CalendarDays,
@@ -29,6 +30,7 @@ interface AddWidgetModalProps {
 
 export function AddWidgetModal({ isOpen, onClose, onSelectWidget }: AddWidgetModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
+  const isModuleEnabled = useModuleStore((s) => s.isEnabled);
 
   // Close on escape key
   useEffect(() => {
@@ -118,7 +120,7 @@ export function AddWidgetModal({ isOpen, onClose, onSelectWidget }: AddWidgetMod
         {/* Content */}
         <div className="max-h-[60vh] overflow-auto p-4 space-y-5">
           {PLANNER_WIDGET_CATEGORIES.map((category) => {
-            const widgetTypes = getPlannerWidgetsByCategory(category.id);
+            const widgetTypes = getPlannerWidgetsByCategory(category.id, isModuleEnabled);
             if (widgetTypes.length === 0) return null;
 
             return (

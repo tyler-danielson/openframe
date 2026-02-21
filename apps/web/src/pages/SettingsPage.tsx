@@ -2,10 +2,10 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
-import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Tablet, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat, CreditCard, Server } from "lucide-react";
+import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Tablet, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat, CreditCard, Server, Puzzle, LifeBuoy, Send } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { Camera } from "@openframe/shared";
-import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type CompanionUser, type CompanionPermissions, type CloudInstance, type CloudBillingInfo, type PlanLimits } from "../services/api";
+import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type CompanionUser, type CompanionPermissions, type CloudInstance, type CloudBillingInfo, type PlanLimits, type SupportTicketSummary, type MyTicketDetail } from "../services/api";
 import { useAuthStore } from "../stores/auth";
 import { isCloudMode, appPath, appUrl } from "../lib/cloud";
 import { useCalendarStore, type WeekCellWidget } from "../stores/calendar";
@@ -33,12 +33,14 @@ import { HACalendarModal } from "../components/settings/HACalendarModal";
 import { SupportButton } from "../components/settings/SupportButton";
 import { HandwritingCanvas } from "../components/ui/HandwritingCanvas";
 import { useHAWebSocket } from "../stores/homeassistant-ws";
+import { useModuleStore } from "../stores/modules";
+import { MODULE_REGISTRY, MODULE_CATEGORIES, type ModuleId } from "@openframe/shared";
 import type { CalendarProvider } from "@openframe/shared";
 import { buildOAuthUrl } from "../utils/oauth-scopes";
 import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings } from "@openframe/shared";
 
 // Parent tabs for URL routing
-type SettingsTab = "account" | "calendars" | "tasks" | "entertainment" | "appearance" | "ai" | "automations" | "cameras" | "homeassistant" | "kiosks" | "companion" | "cloud" | "system" | "billing" | "instances";
+type SettingsTab = "account" | "calendars" | "tasks" | "modules" | "entertainment" | "appearance" | "ai" | "automations" | "cameras" | "homeassistant" | "kiosks" | "companion" | "cloud" | "system" | "billing" | "instances" | "support";
 
 // Entertainment sub-tabs
 type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobookshelf" | "news";
@@ -46,28 +48,57 @@ type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobooksh
 // Appearance sub-tabs
 type AppearanceSubTab = "display" | "photos" | "screensaver" | "sidebar";
 
-const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "entertainment", "appearance", "ai", "automations", "cameras", "homeassistant", "kiosks", "companion", "cloud", "system", "billing", "instances"];
+const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "modules", "entertainment", "appearance", "ai", "automations", "cameras", "homeassistant", "kiosks", "companion", "cloud", "system", "billing", "instances", "support"];
 const validEntertainmentSubTabs: EntertainmentSubTab[] = ["sports", "spotify", "iptv", "plex", "audiobookshelf", "news"];
 const validAppearanceSubTabs: AppearanceSubTab[] = ["display", "photos", "screensaver", "sidebar"];
 
-const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; description: string; cloudOnly?: boolean; selfHostedOnly?: boolean }[] = [
+const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; description: string; cloudOnly?: boolean; selfHostedOnly?: boolean; moduleId?: string | null }[] = [
   { id: "account", label: "Account", icon: <User className="h-4 w-4" />, description: "Profile & login" },
   { id: "calendars", label: "Calendars", icon: <Calendar className="h-4 w-4" />, description: "Sources & sync" },
   { id: "tasks", label: "Tasks", icon: <ListTodo className="h-4 w-4" />, description: "Lists & layout" },
-  { id: "entertainment", label: "Entertainment", icon: <Play className="h-4 w-4" />, description: "Sports, music & media" },
+  { id: "modules", label: "Modules", icon: <Puzzle className="h-4 w-4" />, description: "Add & manage features" },
+  { id: "entertainment", label: "Entertainment", icon: <Play className="h-4 w-4" />, description: "Sports, music & media", moduleId: "__entertainment__" },
   { id: "appearance", label: "Appearance", icon: <Monitor className="h-4 w-4" />, description: "Theme, photos & screensaver" },
-  { id: "ai", label: "AI", icon: <Sparkles className="h-4 w-4" />, description: "Assistant & models" },
-  { id: "automations", label: "Automations", icon: <Zap className="h-4 w-4" />, description: "Triggers & actions" },
-  { id: "cameras", label: "Cameras", icon: <Video className="h-4 w-4" />, description: "Feeds & streams" },
-  { id: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" />, description: "Devices & entities" },
+  { id: "ai", label: "AI", icon: <Sparkles className="h-4 w-4" />, description: "Assistant & models", moduleId: "__ai__" },
+  { id: "automations", label: "Automations", icon: <Zap className="h-4 w-4" />, description: "Triggers & actions", moduleId: "automations" },
+  { id: "cameras", label: "Cameras", icon: <Video className="h-4 w-4" />, description: "Feeds & streams", moduleId: "cameras" },
+  { id: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" />, description: "Devices & entities", moduleId: "homeassistant" },
   { id: "kiosks", label: "Kiosks", icon: <Monitor className="h-4 w-4" />, description: "Displays & remote" },
-  { id: "companion", label: "Companion", icon: <Smartphone className="h-4 w-4" />, description: "Mobile app access" },
+  { id: "companion", label: "Companion", icon: <Smartphone className="h-4 w-4" />, description: "Mobile app access", moduleId: "companion" },
   { id: "billing", label: "Billing", icon: <CreditCard className="h-4 w-4" />, description: "Plan & subscription", cloudOnly: true },
   { id: "instances", label: "Instances", icon: <Server className="h-4 w-4" />, description: "Linked instances", cloudOnly: true },
   { id: "cloud", label: "Cloud", icon: <Cloud className="h-4 w-4" />, description: "Remote management", selfHostedOnly: true },
   { id: "system", label: "System", icon: <Settings className="h-4 w-4" />, description: "Backup & advanced", selfHostedOnly: true },
+  { id: "support", label: "Support", icon: <LifeBuoy className="h-4 w-4" />, description: "Help & tickets", cloudOnly: true, moduleId: null },
 ];
 
+// Entertainment module IDs — show tab if any are enabled
+const ENTERTAINMENT_MODULE_IDS = ["spotify", "iptv", "youtube", "plex", "audiobookshelf", "sports", "news"];
+// AI module IDs — show tab if any are enabled
+const AI_MODULE_IDS = ["ai-chat", "ai-briefing", "gmail", "telegram", "capacities"];
+
+function useFilteredTabs() {
+  const isModuleEnabled = useModuleStore((s) => s.isEnabled);
+  return useMemo(() => {
+    return allTabs.filter((tab) => {
+      if (isCloudMode && tab.selfHostedOnly) return false;
+      if (!isCloudMode && tab.cloudOnly) return false;
+      // Module gating
+      if (tab.moduleId === "__entertainment__") {
+        return ENTERTAINMENT_MODULE_IDS.some((id) => isModuleEnabled(id));
+      }
+      if (tab.moduleId === "__ai__") {
+        return AI_MODULE_IDS.some((id) => isModuleEnabled(id));
+      }
+      if (tab.moduleId) {
+        return isModuleEnabled(tab.moduleId);
+      }
+      return true;
+    });
+  }, [isModuleEnabled]);
+}
+
+// Static fallback for initial render (used where hooks can't be called)
 const tabs = allTabs.filter((tab) => {
   if (isCloudMode && tab.selfHostedOnly) return false;
   if (!isCloudMode && tab.cloudOnly) return false;
@@ -8787,6 +8818,458 @@ function InstancesSettings() {
   );
 }
 
+// Lucide icon mapping for module cards
+const MODULE_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  CloudSun: Cloud,
+  Image: ImageIcon,
+  Camera: CameraIcon,
+  Home: Home,
+  Zap: Zap,
+  MapPin: MapPin,
+  Cast: Speaker,
+  Music: Music,
+  Tv: Tv,
+  Youtube: Play,
+  Play: Play,
+  BookOpen: BookOpen,
+  Trophy: Trophy,
+  Newspaper: Newspaper,
+  ListChecks: ListTodo,
+  ChefHat: ChefHat,
+  PenTool: PenTool,
+  FileText: HardDrive,
+  MessageCircle: MessageCircle,
+  Sparkles: Sparkles,
+  Mail: Globe,
+  Send: MessageCircle,
+  Smartphone: Smartphone,
+};
+
+function ModulesTab({
+  isModuleEnabled,
+  moduleList,
+  modulesLoading,
+  onInstall,
+  onUninstall,
+}: {
+  isModuleEnabled: (id: string) => boolean;
+  moduleList: import("../services/api").ModuleInfo[];
+  modulesLoading: boolean;
+  onInstall: (id: string) => Promise<void>;
+  onUninstall: (id: string) => Promise<void>;
+}) {
+  const [toggling, setToggling] = useState<string | null>(null);
+
+  const handleToggle = async (moduleId: string, currentlyEnabled: boolean) => {
+    setToggling(moduleId);
+    try {
+      if (currentlyEnabled) {
+        await onUninstall(moduleId);
+      } else {
+        await onInstall(moduleId);
+      }
+    } catch (error: any) {
+      console.error("Module toggle failed:", error);
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  // Group modules by category using the canonical order
+  const modulesByCategory = useMemo(() => {
+    const map = new Map<string, typeof moduleList>();
+    for (const cat of MODULE_CATEGORIES) {
+      const mods = moduleList.filter((m) => m.category === cat.id);
+      if (mods.length > 0) map.set(cat.id, mods);
+    }
+    return map;
+  }, [moduleList]);
+
+  const enabledCount = moduleList.filter((m) => isModuleEnabled(m.id)).length;
+
+  return (
+    <div className="mx-auto max-w-4xl space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Modules</h2>
+          <p className="text-sm text-muted-foreground">
+            {enabledCount} of {moduleList.length} modules enabled
+          </p>
+        </div>
+        {modulesLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+      </div>
+
+      {MODULE_CATEGORIES.map((category) => {
+        const mods = modulesByCategory.get(category.id);
+        if (!mods) return null;
+        return (
+          <section key={category.id}>
+            <h3 className="text-sm font-medium text-primary mb-3">{category.label}</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {mods.map((mod) => {
+                const enabled = isModuleEnabled(mod.id);
+                const isToggling = toggling === mod.id;
+                const IconComponent = MODULE_ICON_MAP[mod.icon] || Puzzle;
+                const depsNotMet = mod.dependsOn.length > 0 && mod.dependsOn.some((dep) => !isModuleEnabled(dep));
+                const depNames = mod.dependsOn
+                  .filter((dep) => !isModuleEnabled(dep))
+                  .map((dep) => MODULE_REGISTRY[dep as ModuleId]?.name ?? dep);
+
+                return (
+                  <div
+                    key={mod.id}
+                    className={cn(
+                      "flex items-start gap-3 p-3 rounded-lg border-2 transition-colors",
+                      enabled
+                        ? "border-primary/40 bg-primary/5"
+                        : "border-border bg-card"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                        enabled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      <IconComponent className="h-5 w-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={cn("text-sm font-medium truncate", enabled ? "text-primary" : "text-foreground")}>
+                          {mod.name}
+                        </span>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={enabled}
+                          disabled={isToggling || (!enabled && depsNotMet) || !mod.available}
+                          onClick={() => handleToggle(mod.id, enabled)}
+                          className={cn(
+                            "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
+                            enabled ? "bg-primary" : "bg-muted",
+                            (isToggling || (!enabled && depsNotMet) || !mod.available) && "opacity-50 cursor-not-allowed"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "inline-block h-3.5 w-3.5 transform rounded-full bg-background transition-transform",
+                              enabled ? "translate-x-[18px]" : "translate-x-[3px]"
+                            )}
+                          />
+                        </button>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{mod.description}</p>
+                      {!enabled && depsNotMet && (
+                        <p className="text-xs text-destructive mt-1">
+                          Requires: {depNames.join(", ")}
+                        </p>
+                      )}
+                      {!mod.available && (
+                        <p className="text-xs text-destructive mt-1">
+                          <a href="https://openframe.us/billing" target="_blank" rel="noopener noreferrer" className="underline">
+                            Upgrade plan
+                          </a>{" "}to enable
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============ Support Tab ============
+
+const STATUS_BADGE_COLORS: Record<string, string> = {
+  open: "bg-amber-500/10 text-amber-600 border-amber-500/30",
+  in_progress: "bg-blue-500/10 text-blue-600 border-blue-500/30",
+  waiting_on_user: "bg-purple-500/10 text-purple-600 border-purple-500/30",
+  resolved: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  closed: "bg-muted text-muted-foreground border-border",
+};
+
+const CATEGORY_OPTIONS = [
+  { value: "general", label: "General" },
+  { value: "billing", label: "Billing" },
+  { value: "bug", label: "Bug Report" },
+  { value: "feature_request", label: "Feature Request" },
+  { value: "account", label: "Account" },
+];
+
+function SupportTab() {
+  const queryClient = useQueryClient();
+  const [view, setView] = useState<"list" | "new" | "detail">("list");
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [newSubject, setNewSubject] = useState("");
+  const [newCategory, setNewCategory] = useState("general");
+  const [newMessage, setNewMessage] = useState("");
+  const [replyContent, setReplyContent] = useState("");
+
+  const { data: tickets, isLoading: ticketsLoading } = useQuery<SupportTicketSummary[]>({
+    queryKey: ["support", "my-tickets"],
+    queryFn: () => api.getMyTickets(),
+  });
+
+  const { data: ticketDetail } = useQuery<MyTicketDetail>({
+    queryKey: ["support", "ticket", selectedTicketId],
+    queryFn: () => api.getMyTicket(selectedTicketId!),
+    enabled: !!selectedTicketId && view === "detail",
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      api.createSupportTicket({
+        subject: newSubject,
+        category: newCategory,
+        message: newMessage,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["support", "my-tickets"] });
+      setNewSubject("");
+      setNewCategory("general");
+      setNewMessage("");
+      setView("list");
+    },
+  });
+
+  const replyMutation = useMutation({
+    mutationFn: () => api.postTicketMessage(selectedTicketId!, replyContent),
+    onSuccess: () => {
+      setReplyContent("");
+      queryClient.invalidateQueries({ queryKey: ["support", "ticket", selectedTicketId] });
+    },
+  });
+
+  // New ticket form
+  if (view === "new") {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => setView("list")}
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to tickets
+        </button>
+        <Card className="p-5">
+          <h3 className="font-semibold text-primary mb-4">New Support Ticket</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium block mb-1">Subject</label>
+              <input
+                type="text"
+                value={newSubject}
+                onChange={(e) => setNewSubject(e.target.value)}
+                placeholder="Briefly describe your issue..."
+                className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium block mb-1">Category</label>
+              <select
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+                className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              >
+                {CATEGORY_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium block mb-1">Message</label>
+              <textarea
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="Describe your issue in detail..."
+                rows={5}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+              />
+            </div>
+            <Button
+              onClick={() => createMutation.mutate()}
+              disabled={!newSubject.trim() || !newMessage.trim() || createMutation.isPending}
+            >
+              {createMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4 mr-2" />
+              )}
+              Submit Ticket
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // Ticket detail view
+  if (view === "detail" && ticketDetail) {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => {
+            setView("list");
+            setSelectedTicketId(null);
+          }}
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to tickets
+        </button>
+
+        <Card className="p-5">
+          <div className="flex items-start justify-between gap-3 mb-4">
+            <div>
+              <h3 className="font-semibold">{ticketDetail.subject}</h3>
+              <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                <span
+                  className={cn(
+                    "px-2 py-0.5 rounded-full border capitalize",
+                    STATUS_BADGE_COLORS[ticketDetail.status] || ""
+                  )}
+                >
+                  {ticketDetail.status.replace(/_/g, " ")}
+                </span>
+                <span className="capitalize">{ticketDetail.category.replace(/_/g, " ")}</span>
+                <span>&middot;</span>
+                <span>{new Date(ticketDetail.createdAt).toLocaleDateString()}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Messages */}
+          <div className="space-y-3 mb-4">
+            {ticketDetail.messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={cn(
+                  "rounded-lg px-4 py-3 text-sm",
+                  msg.isAdminReply
+                    ? "bg-primary/10 border border-primary/20 ml-6"
+                    : "bg-accent border border-border mr-6"
+                )}
+              >
+                <div className="flex items-center gap-2 mb-1 text-xs">
+                  <span className="font-medium">
+                    {msg.isAdminReply ? "Support Team" : msg.sender.name || "You"}
+                  </span>
+                  {msg.isAdminReply && (
+                    <span className="px-1.5 py-0.5 rounded bg-primary/20 text-primary text-[10px] font-medium">
+                      Admin
+                    </span>
+                  )}
+                  <span className="text-muted-foreground">
+                    {new Date(msg.createdAt).toLocaleString()}
+                  </span>
+                </div>
+                <p className="whitespace-pre-wrap">{msg.content}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Reply */}
+          {ticketDetail.status !== "closed" && (
+            <div className="flex gap-3 pt-3 border-t border-border">
+              <textarea
+                value={replyContent}
+                onChange={(e) => setReplyContent(e.target.value)}
+                placeholder="Type a reply..."
+                rows={2}
+                className="flex-1 px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && replyContent.trim()) {
+                    replyMutation.mutate();
+                  }
+                }}
+              />
+              <Button
+                size="sm"
+                onClick={() => replyMutation.mutate()}
+                disabled={!replyContent.trim() || replyMutation.isPending}
+                className="self-end"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
+  // Ticket list (default view)
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-primary">Support Tickets</h3>
+        <Button size="sm" onClick={() => setView("new")}>
+          <Plus className="h-4 w-4 mr-2" />
+          New Ticket
+        </Button>
+      </div>
+
+      {ticketsLoading ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <Card key={i} className="p-4 animate-pulse">
+              <div className="h-4 bg-muted rounded w-48 mb-2" />
+              <div className="h-3 bg-muted rounded w-24" />
+            </Card>
+          ))}
+        </div>
+      ) : tickets && tickets.length > 0 ? (
+        <div className="space-y-2">
+          {tickets.map((ticket) => (
+            <Card
+              key={ticket.id}
+              className="p-4 hover:bg-primary/5 cursor-pointer transition-colors"
+              onClick={() => {
+                setSelectedTicketId(ticket.id);
+                setView("detail");
+              }}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-sm truncate">{ticket.subject}</div>
+                  <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                    <span className="capitalize">{ticket.category.replace(/_/g, " ")}</span>
+                    <span>&middot;</span>
+                    <span>{new Date(ticket.updatedAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                <span
+                  className={cn(
+                    "px-2 py-0.5 rounded-full text-xs border capitalize whitespace-nowrap",
+                    STATUS_BADGE_COLORS[ticket.status] || ""
+                  )}
+                >
+                  {ticket.status.replace(/_/g, " ")}
+                </span>
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Card className="p-8 text-center">
+          <LifeBuoy className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">No tickets yet.</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Need help? Create a new support ticket.
+          </p>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -8845,6 +9328,8 @@ export function SettingsPage() {
 
   const { features: sidebarFeatures, toggleEnabled: toggleSidebarEnabled, togglePinned: toggleSidebarPinned, resetAll: resetSidebar } = useSidebarStore();
   const { enabled: entertainmentEnabled, toggleEnabled: toggleEntertainmentEnabled } = useEntertainmentStore();
+  const filteredTabs = useFilteredTabs();
+  const { isEnabled: isModuleEnabled, installModule, uninstallModule, moduleList, fetchModules: refetchModules, loading: modulesLoading } = useModuleStore();
 
   // Read initial tab from URL, default to null (menu view)
   const tabFromUrl = searchParams.get("tab") as SettingsTab | null;
@@ -9174,8 +9659,8 @@ export function SettingsPage() {
               Back
             </button>
             <div className="flex items-center gap-2.5 text-base font-semibold text-primary">
-              {tabs.find((t) => t.id === activeTab)?.icon}
-              {tabs.find((t) => t.id === activeTab)?.label}
+              {filteredTabs.find((t) => t.id === activeTab)?.icon}
+              {filteredTabs.find((t) => t.id === activeTab)?.label}
             </div>
           </div>
         </div>
@@ -9189,7 +9674,7 @@ export function SettingsPage() {
             <div className="mx-auto max-w-4xl">
               <h2 className="text-lg font-semibold text-white mb-4">Settings</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                {tabs.map((tab) => (
+                {filteredTabs.map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => handleTabChange(tab.id)}
@@ -9204,6 +9689,22 @@ export function SettingsPage() {
                 ))}
               </div>
             </div>
+          )}
+          {/* Modules Tab */}
+          {activeTab === "modules" && (
+            <ModulesTab
+              isModuleEnabled={isModuleEnabled}
+              moduleList={moduleList}
+              modulesLoading={modulesLoading}
+              onInstall={async (id) => {
+                await installModule(id);
+                refetchModules();
+              }}
+              onUninstall={async (id) => {
+                await uninstallModule(id);
+                refetchModules();
+              }}
+            />
           )}
           {/* Account Tab */}
           {activeTab === "account" && (
@@ -10576,6 +11077,13 @@ export function SettingsPage() {
           {activeTab === "instances" && (
             <div className="mx-auto max-w-3xl">
               <InstancesSettings />
+            </div>
+          )}
+
+          {/* Support Tab (cloud mode only) */}
+          {activeTab === "support" && (
+            <div className="mx-auto max-w-3xl">
+              <SupportTab />
             </div>
           )}
         </div>

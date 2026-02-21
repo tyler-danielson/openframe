@@ -28,10 +28,14 @@ import {
   Users,
   MessageCircle,
   MoreHorizontal,
+  Shield,
+  Cpu,
 } from "lucide-react";
 import { api, type KioskEnabledFeatures, type KioskDisplayType } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
+import { isCloudMode } from "../../lib/cloud";
 import { useSidebarStore, type SidebarFeature } from "../../stores/sidebar";
+import { useModuleStore } from "../../stores/modules";
 import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import { useScreensaverStore } from "../../stores/screensaver";
 import { useBlockNavStore, type NavigableBlock } from "../../stores/block-nav";
@@ -52,7 +56,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const { logout, setUser, isAuthenticated } = useAuthStore();
+  const { logout, setUser, isAuthenticated, user: authUser } = useAuthStore();
 
   const isKioskPath = window.location.pathname.startsWith("/kiosk/");
   const setScreensaverActive = useScreensaverStore((state) => state.setActive);
@@ -65,6 +69,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarFeatures = useSidebarStore((s) => s.features);
+  const isModuleEnabled = useModuleStore((s) => s.isEnabled);
 
   // Detect kiosk mode base path from URL (e.g., /kiosk/abc123)
   const basePath = useMemo(() => {
@@ -188,46 +193,60 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
 
   // Build nav items based on authentication status (with kiosk prefix if needed)
   const navItems = useMemo(() => {
-    const items = [
-      { to: buildPath("calendar"), icon: Calendar, label: "Calendar", feature: "calendar" as const },
-      { to: buildPath("tasks"), icon: ListTodo, label: "Tasks", feature: "tasks" as const },
-      { to: buildPath("routines"), icon: ListChecks, label: "Routines", feature: "routines" as const },
-      { to: buildPath("dashboard"), icon: LayoutDashboard, label: "Dashboard", feature: "dashboard" as const },
-      { to: buildPath("photos"), icon: Image, label: "Photos", feature: "photos" as const },
+    const items: { to: string; icon: any; label: string; feature: string | undefined; moduleId: string | null }[] = [
+      { to: buildPath("calendar"), icon: Calendar, label: "Calendar", feature: "calendar", moduleId: null },
+      { to: buildPath("tasks"), icon: ListTodo, label: "Tasks", feature: "tasks", moduleId: null },
+      { to: buildPath("routines"), icon: ListChecks, label: "Routines", feature: "routines", moduleId: "routines" },
+      { to: buildPath("dashboard"), icon: LayoutDashboard, label: "Dashboard", feature: "dashboard", moduleId: null },
+      { to: buildPath("photos"), icon: Image, label: "Photos", feature: "photos", moduleId: "photos" },
       // Media is handled separately with submenu
-      { to: buildPath("cameras"), icon: Camera, label: "Cameras", feature: "cameras" as const },
-      { to: buildPath("multiview"), icon: LayoutGrid, label: "Multi-View", feature: "multiview" as const },
-      { to: buildPath("homeassistant"), icon: Home, label: "Home Assistant", feature: "homeassistant" as const },
-      { to: buildPath("map"), icon: MapPin, label: "Map", feature: "map" as const },
-      { to: buildPath("kitchen"), icon: ChefHat, label: "Kitchen", feature: "kitchen" as const },
-      { to: buildPath("chat"), icon: MessageCircle, label: "Chat", feature: "chat" as const },
-      { to: buildPath("screensaver"), icon: Monitor, label: "Custom", feature: "screensaver" as const },
+      { to: buildPath("cameras"), icon: Camera, label: "Cameras", feature: "cameras", moduleId: "cameras" },
+      { to: buildPath("multiview"), icon: LayoutGrid, label: "Multi-View", feature: "multiview", moduleId: "cameras" },
+      { to: buildPath("homeassistant"), icon: Home, label: "Home Assistant", feature: "homeassistant", moduleId: "homeassistant" },
+      { to: buildPath("matter"), icon: Cpu, label: "Matter", feature: "matter", moduleId: "matter" },
+      { to: buildPath("map"), icon: MapPin, label: "Map", feature: "map", moduleId: "map" },
+      { to: buildPath("kitchen"), icon: ChefHat, label: "Kitchen", feature: "kitchen", moduleId: "recipes" },
+      { to: buildPath("chat"), icon: MessageCircle, label: "Chat", feature: "chat", moduleId: "ai-chat" },
+      { to: buildPath("screensaver"), icon: Monitor, label: "Custom", feature: "screensaver", moduleId: null },
     ];
 
-    // Filter items based on enabled features
-    let filteredItems;
+    // First filter: remove items whose module is not enabled
+    let filteredItems = items.filter(item => !item.moduleId || isModuleEnabled(item.moduleId));
+
+    // Second filter: apply kiosk or sidebar feature flags
     if (kioskEnabledFeatures) {
       // Kiosk mode: use kiosk feature flags
-      filteredItems = items.filter(item => isFeatureEnabled(item.feature));
+      filteredItems = filteredItems.filter(item =>
+        !item.feature || isFeatureEnabled(item.feature as keyof KioskEnabledFeatures)
+      );
     } else {
       // Normal mode: use sidebar store enabled state
-      filteredItems = items.filter(item => {
+      filteredItems = filteredItems.filter(item => {
         const feat = item.feature as SidebarFeature;
+        if (!feat) return true;
         return !sidebarFeatures[feat] || sidebarFeatures[feat].enabled;
       });
     }
 
     // Only show reMarkable, profiles, and settings if authenticated AND not accessing via kiosk URL
     if (isAuthenticated && !basePath) {
-      filteredItems.push(
-        { to: "/remarkable", icon: PenTool, label: "reMarkable", feature: undefined as any },
-        { to: "/profiles", icon: Users, label: "Family", feature: undefined as any },
-        { to: "/settings", icon: Settings, label: "Settings", feature: undefined as any },
-      );
+      const authItems: typeof items = [
+        { to: "/profiles", icon: Users, label: "Family", feature: undefined, moduleId: null },
+        { to: "/settings", icon: Settings, label: "Settings", feature: undefined, moduleId: null },
+      ];
+      // Only show reMarkable if module is enabled
+      if (isModuleEnabled("remarkable")) {
+        authItems.unshift({ to: "/remarkable", icon: PenTool, label: "reMarkable", feature: undefined, moduleId: "remarkable" });
+      }
+      // Admin link (cloud mode + admin role only)
+      if (isCloudMode && authUser?.role === "admin") {
+        authItems.push({ to: "/admin", icon: Shield, label: "Admin", feature: undefined, moduleId: null });
+      }
+      filteredItems.push(...authItems);
     }
 
     return filteredItems;
-  }, [buildPath, isAuthenticated, basePath, kioskEnabledFeatures, isFeatureEnabled, sidebarFeatures]);
+  }, [buildPath, isAuthenticated, basePath, kioskEnabledFeatures, isFeatureEnabled, sidebarFeatures, isModuleEnabled, authUser]);
 
   // Derive pinned vs more items (non-kiosk only)
   const pinnedItems = useMemo(() => {
@@ -248,9 +267,11 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
     });
   }, [navItems, kioskEnabledFeatures, sidebarFeatures]);
 
-  // Check if media features are enabled and pinned
-  const spotifyEnabled = kioskEnabledFeatures ? isFeatureEnabled("spotify") : (!sidebarFeatures.spotify || sidebarFeatures.spotify.enabled);
-  const iptvEnabled = kioskEnabledFeatures ? isFeatureEnabled("iptv") : (!sidebarFeatures.iptv || sidebarFeatures.iptv.enabled);
+  // Check if media features are enabled (module + sidebar/kiosk)
+  const spotifyModuleOn = isModuleEnabled("spotify");
+  const iptvModuleOn = isModuleEnabled("iptv");
+  const spotifyEnabled = spotifyModuleOn && (kioskEnabledFeatures ? isFeatureEnabled("spotify") : (!sidebarFeatures.spotify || sidebarFeatures.spotify.enabled));
+  const iptvEnabled = iptvModuleOn && (kioskEnabledFeatures ? isFeatureEnabled("iptv") : (!sidebarFeatures.iptv || sidebarFeatures.iptv.enabled));
   const spotifyPinned = kioskEnabledFeatures ? true : (!sidebarFeatures.spotify || sidebarFeatures.spotify.pinned);
   const iptvPinned = kioskEnabledFeatures ? true : (!sidebarFeatures.iptv || sidebarFeatures.iptv.pinned);
 
