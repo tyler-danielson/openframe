@@ -39,12 +39,14 @@ export function LoginPage() {
 
   const handleGoogleLogin = () => {
     const returnUrl = encodeURIComponent(appUrl(returnTo));
-    window.location.href = `/api/v1/auth/oauth/google?returnUrl=${returnUrl}`;
+    const callbackUrl = encodeURIComponent(appUrl("/auth/callback"));
+    window.location.href = `/api/v1/auth/oauth/google?returnUrl=${returnUrl}&callbackUrl=${callbackUrl}`;
   };
 
   const handleMicrosoftLogin = () => {
     const returnUrl = encodeURIComponent(appUrl(returnTo));
-    window.location.href = `/api/v1/auth/oauth/microsoft?returnUrl=${returnUrl}`;
+    const callbackUrl = encodeURIComponent(appUrl("/auth/callback"));
+    window.location.href = `/api/v1/auth/oauth/microsoft?returnUrl=${returnUrl}&callbackUrl=${callbackUrl}`;
   };
 
   const handlePasswordLogin = async (e: React.FormEvent) => {

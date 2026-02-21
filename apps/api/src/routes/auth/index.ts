@@ -23,7 +23,7 @@ import { getScopesForFeature, type OAuthFeature } from "../../utils/oauth-scopes
 
 // In-memory OAuth state store (for single-server deployments)
 // States expire after 10 minutes
-const oauthStateStore = new Map<string, { createdAt: number; returnUrl?: string; requestOrigin?: string; linkUserId?: string; feature?: OAuthFeature }>();
+const oauthStateStore = new Map<string, { createdAt: number; returnUrl?: string; callbackUrl?: string; requestOrigin?: string; linkUserId?: string; feature?: OAuthFeature }>();
 
 // In-memory kiosk command store
 // Commands expire after 60 seconds (kiosks should poll every 10-30 seconds)
@@ -544,6 +544,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Get the return URL from query param (most reliable) or construct from referer
       let returnUrl = query.returnUrl;
+      const callbackUrl = query.callbackUrl;
 
       if (!returnUrl) {
         const referer = request.headers.referer;
@@ -558,7 +559,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Store state in memory for verification (works across proxy boundaries)
-      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl, requestOrigin, linkUserId, feature });
+      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl, callbackUrl, requestOrigin, linkUserId, feature });
 
       return reply.redirect(url.toString());
     }
@@ -763,7 +764,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       // Redirect to frontend with tokens
-      // Use the stored return URL from when OAuth started, fall back to external URL from DB
+      // Use callbackUrl from SPA if provided (self-configuring), fall back to constructed URL
       const frontendUrl = await getFrontendUrl(fastify.db);
       let baseUrl = frontendUrl;
       let finalReturnPath = "/dashboard";
@@ -774,12 +775,20 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         finalReturnPath = returnUrlParsed.pathname + returnUrlParsed.search;
       }
 
+      // Derive effective base path: prefer callbackUrl (SPA knows its own prefix), fall back to env var
+      const effectiveBasePath = storedState.callbackUrl
+        ? new URL(storedState.callbackUrl).pathname.replace(/\/auth\/callback$/, "")
+        : spaBasePath;
+
       // Strip the SPA base path prefix from returnTo since React Router adds it back
-      const routerReturnPath = spaBasePath && finalReturnPath.startsWith(spaBasePath)
-        ? finalReturnPath.slice(spaBasePath.length) || "/"
+      const routerReturnPath = effectiveBasePath && finalReturnPath.startsWith(effectiveBasePath)
+        ? finalReturnPath.slice(effectiveBasePath.length) || "/"
         : finalReturnPath;
 
-      const redirectUrl = new URL(`${baseUrl}${spaBasePath}/auth/callback`);
+      // Use callbackUrl from SPA if provided, otherwise construct from spaBasePath
+      const redirectUrl = storedState.callbackUrl
+        ? new URL(storedState.callbackUrl)
+        : new URL(`${baseUrl}${spaBasePath}/auth/callback`);
       redirectUrl.searchParams.set("accessToken", accessToken);
       redirectUrl.searchParams.set("refreshToken", refreshToken);
       redirectUrl.searchParams.set("returnTo", routerReturnPath);
@@ -851,6 +860,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Get the return URL from query param (most reliable) or construct from referer
       let returnUrl = query.returnUrl;
+      const callbackUrl = query.callbackUrl;
 
       if (!returnUrl) {
         const referer = request.headers.referer;
@@ -865,7 +875,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Store state in memory for verification (works across proxy boundaries)
-      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl, requestOrigin, linkUserId, feature });
+      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl, callbackUrl, requestOrigin, linkUserId, feature });
 
       return reply.redirect(url.toString());
     }
@@ -1083,7 +1093,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       // Redirect to frontend with tokens
-      // Use the stored return URL from when OAuth started, fall back to FRONTEND_URL
+      // Use callbackUrl from SPA if provided (self-configuring), fall back to constructed URL
       const frontendUrl = await getFrontendUrl(fastify.db);
       let baseUrl = frontendUrl;
       let finalReturnPath = "/dashboard";
@@ -1094,12 +1104,20 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         finalReturnPath = returnUrlParsed.pathname + returnUrlParsed.search;
       }
 
+      // Derive effective base path: prefer callbackUrl (SPA knows its own prefix), fall back to env var
+      const effectiveBasePath = storedState.callbackUrl
+        ? new URL(storedState.callbackUrl).pathname.replace(/\/auth\/callback$/, "")
+        : spaBasePath;
+
       // Strip the SPA base path prefix from returnTo since React Router adds it back
-      const routerReturnPath = spaBasePath && finalReturnPath.startsWith(spaBasePath)
-        ? finalReturnPath.slice(spaBasePath.length) || "/"
+      const routerReturnPath = effectiveBasePath && finalReturnPath.startsWith(effectiveBasePath)
+        ? finalReturnPath.slice(effectiveBasePath.length) || "/"
         : finalReturnPath;
 
-      const redirectUrl = new URL(`${baseUrl}${spaBasePath}/auth/callback`);
+      // Use callbackUrl from SPA if provided, otherwise construct from spaBasePath
+      const redirectUrl = storedState.callbackUrl
+        ? new URL(storedState.callbackUrl)
+        : new URL(`${baseUrl}${spaBasePath}/auth/callback`);
       redirectUrl.searchParams.set("accessToken", accessToken);
       redirectUrl.searchParams.set("refreshToken", refreshToken);
       redirectUrl.searchParams.set("returnTo", routerReturnPath);
@@ -1308,6 +1326,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           email: user.email,
           name: user.name,
           avatarUrl: user.avatarUrl,
+          role: user.role,
           timezone: user.timezone,
           preferences: user.preferences,
           linkedProviders: linkedOAuth.map(o => o.provider),

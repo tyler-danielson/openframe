@@ -33,12 +33,14 @@ export function CompanionLoginPage() {
 
   const handleGoogleLogin = () => {
     const returnUrl = encodeURIComponent(window.location.origin + returnTo);
-    window.location.href = `${getApiServerUrl()}/api/v1/auth/oauth/google?returnUrl=${returnUrl}`;
+    const callbackUrl = encodeURIComponent(window.location.origin + "/auth/callback");
+    window.location.href = `${getApiServerUrl()}/api/v1/auth/oauth/google?returnUrl=${returnUrl}&callbackUrl=${callbackUrl}`;
   };
 
   const handleMicrosoftLogin = () => {
     const returnUrl = encodeURIComponent(window.location.origin + returnTo);
-    window.location.href = `${getApiServerUrl()}/api/v1/auth/oauth/microsoft?returnUrl=${returnUrl}`;
+    const callbackUrl = encodeURIComponent(window.location.origin + "/auth/callback");
+    window.location.href = `${getApiServerUrl()}/api/v1/auth/oauth/microsoft?returnUrl=${returnUrl}&callbackUrl=${callbackUrl}`;
   };
 
   const handlePasswordLogin = async (e: React.FormEvent) => {
