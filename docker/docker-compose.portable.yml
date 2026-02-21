@@ -63,6 +63,7 @@ services:
       MEDIAMTX_HOST: ${MEDIAMTX_HOST:-localhost}
       MEDIAMTX_WEBRTC_PORT: ${MEDIAMTX_WEBRTC_PORT:-8889}
       MEDIAMTX_HLS_PORT: ${MEDIAMTX_HLS_PORT:-8888}
+      SPA_BASE_PATH: ${SPA_BASE_PATH:-}
     volumes:
       - uploads_data:/app/uploads
       - secrets_data:/app/data
