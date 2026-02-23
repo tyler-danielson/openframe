@@ -30,6 +30,8 @@ import { SetupPage } from "./pages/SetupPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { PlannerBuilderPage } from "./pages/PlannerBuilderPage";
 import { ProfileSettingsPage } from "./pages/ProfileSettingsPage";
+import { DemoProvider } from "./contexts/DemoContext";
+import { DemoLayout } from "./components/ui/DemoLayout";
 import { CompanionLayout } from "./pages/companion/CompanionLayout";
 import { CompanionLoginPage } from "./pages/companion/CompanionLoginPage";
 import { CompanionDashboardPage } from "./pages/companion/CompanionDashboardPage";
@@ -134,7 +136,8 @@ export default function App() {
         path.startsWith("/upload") ||
         path.startsWith("/auth/callback") ||
         path.startsWith("/setup") ||
-        path.startsWith("/companion")
+        path.startsWith("/companion") ||
+        path.startsWith("/demo")
       ) {
         setNeedsSetup(false);
         return;
@@ -240,6 +243,15 @@ export default function App() {
         <Route path="/device-login" element={<DeviceLoginPage />} />
         {/* Public kiosk display page (accessed via unique token URL) */}
         <Route path="/kiosk/:token/*" element={<KioskDisplayPage />} />
+
+        {/* Public demo mode - explore with sample data */}
+        <Route path="/demo" element={<DemoProvider><DemoLayout /></DemoProvider>}>
+          <Route index element={<Navigate to="/demo/calendar" replace />} />
+          <Route path="calendar" element={<CalendarPage />} />
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="tasks" element={<TasksPage />} />
+          <Route path="*" element={<Navigate to="/demo/calendar" replace />} />
+        </Route>
 
         <Route
           path="/"

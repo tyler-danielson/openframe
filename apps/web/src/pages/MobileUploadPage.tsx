@@ -120,17 +120,24 @@ export function MobileUploadPage() {
     }
 
     setError(null);
+    setIsUploading(true);
 
-    // Create previews and add to pending queue
-    const newPendingFiles: PendingFile[] = validFiles.map((file) => ({
-      file,
-      preview: URL.createObjectURL(file),
-    }));
+    for (const file of validFiles) {
+      try {
+        const preview = URL.createObjectURL(file);
+        const result = await api.uploadWithToken(token, file);
+        setUploadedFiles((prev) => [
+          ...prev,
+          { id: result.id, filename: result.filename, preview },
+        ]);
+      } catch (err) {
+        console.error("Upload failed:", err);
+        setError("Failed to upload photo");
+        break;
+      }
+    }
 
-    setPendingFiles((prev) => [...prev, ...newPendingFiles]);
-    // Reset crop for new image
-    setCrop({ x: 0, y: 0 });
-    setZoom(1);
+    setIsUploading(false);
   };
 
   const handleCropConfirm = async () => {

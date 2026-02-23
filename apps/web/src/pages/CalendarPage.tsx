@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { offlineCache, CACHE_KEYS, CACHE_MAX_AGES } from "../lib/offlineCache";
 import { getFederalHolidaysInRange } from "../data/federalHolidays";
 import { useConnection } from "../contexts/ConnectionContext";
+import { useDemoGuard } from "../hooks/useDemoGuard";
 import type { CalendarEvent, SportsGame, FavoriteSportsTeam, CalendarVisibility } from "@openframe/shared";
 
 // Weather detail info for popup
@@ -349,6 +350,7 @@ function getWeatherIcon(iconCode: string): string {
 
 export function CalendarPage() {
   const queryClient = useQueryClient();
+  const { guard } = useDemoGuard();
   const {
     currentDate,
     view,
@@ -702,6 +704,7 @@ export function CalendarPage() {
   };
 
   const handleDeleteEvent = (id: string) => {
+    if (guard("Delete event")) return;
     deleteEvent.mutate(id);
   };
 
@@ -728,6 +731,7 @@ export function CalendarPage() {
 
   // Toggle drawing mode
   const toggleDrawingMode = () => {
+    if (guard("Create event by hand")) return;
     setIsDrawingMode((prev) => !prev);
   };
 
@@ -1013,7 +1017,7 @@ export function CalendarPage() {
 
             {/* Add event button */}
             <button
-              onClick={() => setIsCreateModalOpen(true)}
+              onClick={() => { if (!guard("Create event")) setIsCreateModalOpen(true); }}
               className="w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-md hover:shadow-lg hover:bg-primary/90 transition-all flex items-center justify-center"
               title="Add new event"
             >

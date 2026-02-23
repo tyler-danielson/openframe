@@ -2920,6 +2920,10 @@ function SystemSettings() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["system-settings"] });
+      // When server settings change (external_url), refresh server-config so kiosk URLs update
+      if (variables.category === "server") {
+        queryClient.invalidateQueries({ queryKey: ["server-config"] });
+      }
       setSaveStatus((prev) => ({ ...prev, [variables.category]: "saved" }));
       // Clear form values for this category since they're saved
       setFormValues((prev) => {

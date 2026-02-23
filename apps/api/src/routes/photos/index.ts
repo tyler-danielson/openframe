@@ -1574,11 +1574,11 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       await mkdir(userDir, { recursive: true });
       await mkdir(join(userDir, "thumbnails"), { recursive: true });
       await mkdir(join(userDir, "medium"), { recursive: true });
+      await mkdir(join(userDir, "original"), { recursive: true });
 
       // Generate unique filename
       const ext = path.extname(data.filename);
       const uniqueName = `${randomUUID()}${ext}`;
-      const originalPath = join(tokenData.userId, uniqueName);
 
       // Process image (saves original and creates thumbnails)
       const buffer = await data.toBuffer();
@@ -1599,7 +1599,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
           albumId: tokenData.albumId,
           filename: uniqueName,
           originalFilename: data.filename,
-          originalPath: join(tokenData.userId, uniqueName),
+          originalPath: join(tokenData.userId, "original", uniqueName),
           thumbnailPath: thumbnailPath ? join(tokenData.userId, thumbnailPath) : null,
           mediumPath: mediumPath ? join(tokenData.userId, mediumPath) : null,
           width,

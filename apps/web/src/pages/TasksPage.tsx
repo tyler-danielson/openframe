@@ -25,10 +25,12 @@ import { cn } from "../lib/utils";
 import { useTasksStore, type TasksLayout } from "../stores/tasks";
 import { useAuthStore } from "../stores/auth";
 import { buildOAuthUrl } from "../utils/oauth-scopes";
+import { useDemoGuard } from "../hooks/useDemoGuard";
 import type { Task, TaskList } from "@openframe/shared";
 
 export function TasksPage() {
   const queryClient = useQueryClient();
+  const { guard } = useDemoGuard();
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [expandedLists, setExpandedLists] = useState<Set<string>>(new Set());
@@ -179,12 +181,14 @@ export function TasksPage() {
   };
 
   const handleToggleTask = (task: Task) => {
+    if (guard("Toggle task")) return;
     const newStatus = task.status === "completed" ? "needsAction" : "completed";
     updateMutation.mutate({ id: task.id, data: { status: newStatus } });
   };
 
   const handleAddTask = (listId: string) => {
     if (!newTaskTitle.trim()) return;
+    if (guard("Create task")) return;
     createMutation.mutate({ taskListId: listId, title: newTaskTitle.trim() });
   };
 
@@ -301,7 +305,7 @@ export function TasksPage() {
           </div>
         </div>
         <button
-          onClick={() => deleteMutation.mutate(task.id)}
+          onClick={() => { if (!guard("Delete task")) deleteMutation.mutate(task.id); }}
           className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
         >
           <Trash2 className="h-4 w-4" />
@@ -590,7 +594,7 @@ export function TasksPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => syncMutation.mutate()}
+            onClick={() => { if (!guard("Sync tasks")) syncMutation.mutate(); }}
             disabled={syncMutation.isPending}
           >
             <RefreshCw
@@ -635,7 +639,7 @@ export function TasksPage() {
 
       {/* Pen FAB button */}
       <button
-        onClick={() => setShowHandwriting(true)}
+        onClick={() => { if (!guard("Create task by hand")) setShowHandwriting(true); }}
         className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-md hover:shadow-lg hover:bg-primary/90 transition-all flex items-center justify-center"
         title="Write task by hand"
       >

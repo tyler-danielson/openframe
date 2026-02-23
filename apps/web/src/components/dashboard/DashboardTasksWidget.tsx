@@ -5,6 +5,7 @@ import { api } from "../../services/api";
 import type { Task } from "@openframe/shared";
 import { useDataFreshness } from "../../hooks/useDataFreshness";
 import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
+import { useDemoGuard } from "../../hooks/useDemoGuard";
 
 interface DashboardTasksWidgetProps {
   className?: string;
@@ -13,6 +14,7 @@ interface DashboardTasksWidgetProps {
 
 export function DashboardTasksWidget({ className, filter = "today" }: DashboardTasksWidgetProps) {
   const queryClient = useQueryClient();
+  const { guard } = useDemoGuard();
   const today = new Date();
 
   // Fetch all incomplete tasks
@@ -105,7 +107,7 @@ export function DashboardTasksWidget({ className, filter = "today" }: DashboardT
         >
           <button
             type="button"
-            onClick={() => completeTask.mutate(task.id)}
+            onClick={() => { if (!guard("Complete task")) completeTask.mutate(task.id); }}
             disabled={completeTask.isPending}
             className="mt-0.5 text-muted-foreground hover:text-primary transition-colors disabled:opacity-50"
             aria-label={`Mark "${task.title}" as complete`}

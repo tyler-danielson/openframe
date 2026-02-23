@@ -40,10 +40,13 @@ import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import { useScreensaverStore } from "../../stores/screensaver";
 import { useBlockNavStore, type NavigableBlock } from "../../stores/block-nav";
 import { cn } from "../../lib/utils";
+import { useDemoMode } from "../../contexts/DemoContext";
 
 interface LayoutProps {
   kioskEnabledFeatures?: KioskEnabledFeatures | null;
   kioskDisplayType?: KioskDisplayType | null;
+  className?: string;
+  basePath?: string;
 }
 
 // Media sub-items (base paths, will be prefixed in component)
@@ -52,7 +55,7 @@ const mediaItemsBase = [
   { path: "iptv", icon: Tv, label: "Live TV" },
 ];
 
-export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps = {}) {
+export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, basePath: baseProp }: LayoutProps = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -71,11 +74,12 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
   const sidebarFeatures = useSidebarStore((s) => s.features);
   const isModuleEnabled = useModuleStore((s) => s.isEnabled);
 
-  // Detect kiosk mode base path from URL (e.g., /kiosk/abc123)
+  // Detect kiosk mode base path from URL (e.g., /kiosk/abc123), or use explicit basePath prop (e.g., /demo)
   const basePath = useMemo(() => {
+    if (baseProp) return baseProp;
     const match = location.pathname.match(/^(\/kiosk\/[^/]+)/);
     return match ? match[1] : "";
-  }, [location.pathname]);
+  }, [baseProp, location.pathname]);
 
   // Helper to build full path with kiosk prefix if needed
   const buildPath = useCallback((path: string) => {
@@ -157,8 +161,10 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
     navigate("/login");
   };
 
+  const { isDemoMode } = useDemoMode();
+
   const handleReconnectAll = async () => {
-    if (isReconnecting) return;
+    if (isDemoMode || isReconnecting) return;
 
     setIsReconnecting(true);
     try {
@@ -383,7 +389,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType }: LayoutProps =
   }, []);
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className={cn("flex h-screen bg-background", className)}>
       {/* Mobile Menu Button */}
       {!hideNav && !hideToolbarForBurnIn && (
       <button

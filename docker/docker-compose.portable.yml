@@ -43,7 +43,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-openframe}:${POSTGRES_PASSWORD:-openframe}@postgres:5432/${POSTGRES_DB:-openframe}
       REDIS_URL: redis://redis:6379
       CORS_ORIGINS: ${FRONTEND_URL:-http://localhost:8080}
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5176}
       DATA_DIR: /app/data
       # Infrastructure secrets (auto-generated and persisted if not provided)
       JWT_SECRET: ${JWT_SECRET:-}
@@ -77,7 +77,7 @@ services:
     depends_on:
       - api
     ports:
-      - "8080:80"
+      - "5176:80"
 
   bot:
     image: ghcr.io/tyler-danielson/openframe-bot:latest

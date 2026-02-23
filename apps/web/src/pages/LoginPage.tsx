@@ -180,6 +180,25 @@ export function LoginPage() {
             By signing in, you agree to sync your calendar data with OpenFrame.
             Your data is stored locally and never shared.
           </p>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">or</span>
+            </div>
+          </div>
+
+          <a
+            href="/demo"
+            className="flex items-center justify-center gap-2 w-full rounded-md border border-primary/40 bg-primary/5 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
+          >
+            Try Demo Mode
+          </a>
+          <p className="text-center text-xs text-muted-foreground">
+            Explore with sample data — no account needed
+          </p>
         </CardContent>
       </Card>
     </div>

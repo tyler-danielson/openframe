@@ -63,7 +63,7 @@ services:
       - uploads_data:/app/uploads
       - secrets_data:/app/data
     ports:
-      - "3001:3001"
+      - "6001:3001"
 
   web:
     build:

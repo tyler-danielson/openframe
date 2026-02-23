@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import { writeFile } from "fs/promises";
+import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 
 interface ProcessOptions {
@@ -42,7 +42,8 @@ export async function processImage(
   // Extract EXIF data
   const exif = metadata.exif ? parseExif(metadata) : {};
 
-  // Save original
+  // Save original (ensure directory exists)
+  await mkdir(join(options.userDir, "original"), { recursive: true });
   const originalPath = join(options.userDir, "original", options.filename);
   await writeFile(originalPath, buffer);
 
