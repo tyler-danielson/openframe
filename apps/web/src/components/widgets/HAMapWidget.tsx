@@ -261,36 +261,20 @@ function MapView({
       : [0, 0];
 
   // Map styles
-  const LIGHT_STYLE = {
+  const OSM_STYLE = {
     version: 8 as const,
     sources: {
-      carto: {
+      osm: {
         type: "raster" as const,
         tiles: [
-          "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-          "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-          "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+          "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
         ],
         tileSize: 256,
       },
     },
-    layers: [{ id: "carto", type: "raster" as const, source: "carto", minzoom: 0, maxzoom: 19 }],
-  };
-
-  const DARK_STYLE = {
-    version: 8 as const,
-    sources: {
-      "carto-dark": {
-        type: "raster" as const,
-        tiles: [
-          "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-          "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-          "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-        ],
-        tileSize: 256,
-      },
-    },
-    layers: [{ id: "carto-dark", type: "raster" as const, source: "carto-dark", minzoom: 0, maxzoom: 19 }],
+    layers: [{ id: "osm", type: "raster" as const, source: "osm", minzoom: 0, maxzoom: 19 }],
   };
 
   return (
@@ -311,7 +295,7 @@ function MapView({
           zoom: 13,
         }}
         style={{ width: "100%", height: "100%" }}
-        mapStyle={darkMode ? DARK_STYLE : LIGHT_STYLE}
+        mapStyle={OSM_STYLE}
         onLoad={() => setMapLoaded(true)}
         onError={() => onError()}
         attributionControl={false}

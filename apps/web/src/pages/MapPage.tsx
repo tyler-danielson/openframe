@@ -25,52 +25,26 @@ function getWeatherIcon(iconCode: string): string {
   return iconMap[iconCode] || "\u2600\uFE0F";
 }
 
-// Light mode style (Carto Voyager)
-const LIGHT_STYLE = {
+// OpenStreetMap tile style
+const OSM_STYLE = {
   version: 8 as const,
   sources: {
-    carto: {
+    osm: {
       type: "raster" as const,
       tiles: [
-        "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-        "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-        "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
       ],
       tileSize: 256,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     },
   },
   layers: [
     {
-      id: "carto",
+      id: "osm",
       type: "raster" as const,
-      source: "carto",
-      minzoom: 0,
-      maxzoom: 19,
-    },
-  ],
-};
-
-// Dark mode style (CARTO Dark Matter - no API key required)
-const DARK_STYLE = {
-  version: 8 as const,
-  sources: {
-    "carto-dark": {
-      type: "raster" as const,
-      tiles: [
-        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-      ],
-      tileSize: 256,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
-    },
-  },
-  layers: [
-    {
-      id: "carto-dark",
-      type: "raster" as const,
-      source: "carto-dark",
+      source: "osm",
       minzoom: 0,
       maxzoom: 19,
     },
@@ -355,7 +329,7 @@ export function MapPage() {
           zoom: 13,
         }}
         style={{ width: "100%", height: "100%" }}
-        mapStyle={isDarkMode ? DARK_STYLE : LIGHT_STYLE}
+        mapStyle={OSM_STYLE}
         onError={(e) => {
           console.error("Map error:", e);
           setMapError("Failed to load map tiles");
