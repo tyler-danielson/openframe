@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { SetupScreen } from "@/components/SetupScreen";
 import { QRLoginScreen } from "@/components/QRLoginScreen";
 import { RemotePushScreen } from "@/components/RemotePushScreen";
-import { KioskFrame } from "@/components/KioskFrame";
+import { KioskFrame, refreshKiosk } from "@/components/KioskFrame";
 import { RemoteHandler } from "@/components/RemoteHandler";
 import { storage, type KioskConfig } from "@/services/storage";
 import { disableScreenSaver, isTizenTV } from "@/hooks/useTizenKeys";
@@ -36,6 +36,7 @@ export function App() {
   const handleConnect = useCallback((newConfig: KioskConfig) => {
     setConfig(newConfig);
     setAppState("kiosk");
+    setShowSettings(false);
   }, []);
 
   const handleQRLogin = useCallback((serverUrl: string) => {
@@ -55,6 +56,12 @@ export function App() {
 
   const handleToggleSettings = useCallback(() => {
     setShowSettings((prev) => !prev);
+  }, []);
+
+  // Called by KioskFrame after all auto-retries fail — open settings so the
+  // user can immediately update the server URL without having to find the Menu button.
+  const handleConnectionError = useCallback(() => {
+    setShowSettings(true);
   }, []);
 
   // Loading state
@@ -99,13 +106,25 @@ export function App() {
     <div className="app-kiosk">
       {config && (
         <>
-          <KioskFrame config={config} onBack={handleBack} />
+          <KioskFrame
+            config={config}
+            onBack={handleBack}
+            onConnectionError={handleConnectionError}
+          />
           <RemoteHandler
             onBack={handleBack}
             showSettings={showSettings}
             onToggleSettings={handleToggleSettings}
           />
         </>
+      )}
+
+      {/* Persistent hint — visible when kiosk is running normally so the user
+          always knows how to reach settings even if the server goes down. */}
+      {!showSettings && (
+        <div className="menu-hint-badge">
+          MENU → Settings
+        </div>
       )}
 
       {/* Settings overlay */}
@@ -126,10 +145,19 @@ export function App() {
             </div>
 
             <div className="settings-actions">
-              <button className="btn btn-secondary" onClick={handleBack}>
-                Change Configuration
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setShowSettings(false);
+                  refreshKiosk();
+                }}
+              >
+                Retry Connection
               </button>
-              <button className="btn btn-primary" onClick={() => setShowSettings(false)}>
+              <button className="btn btn-secondary" onClick={handleBack}>
+                Change Server URL
+              </button>
+              <button className="btn btn-ghost" onClick={() => setShowSettings(false)}>
                 Close
               </button>
             </div>

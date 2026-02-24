@@ -48,7 +48,15 @@ export function RemoteHandler({
 }: RemoteHandlerProps) {
   const [showHints, setShowHints] = useState(false);
   const [lastAction, setLastAction] = useState<string | null>(null);
+  const [showBackEscapeHint, setShowBackEscapeHint] = useState(false);
   const currentPageIndex = useRef(0);
+
+  // Double-back escape: pressing Back twice within 2s goes to setup regardless
+  // of iframe state. This is the only reliable escape when the iframe is showing
+  // Samsung's own "Unable to Load page" error (which can't send back-unhandled).
+  const backPressCountRef = useRef(0);
+  const backEscapeTimerRef = useRef<number | null>(null);
+  const backHintTimerRef = useRef<number | null>(null);
 
   const handleKeyAction = useCallback(
     (action: KeyAction) => {
@@ -57,10 +65,47 @@ export function RemoteHandler({
       setTimeout(() => setLastAction(null), 500);
 
       switch (action) {
-        // Navigation — send to iframe first; block nav handles back internally
-        case "back":
-          navigateKiosk("action:back");
+        // Navigation — send to iframe first; block nav handles back internally.
+        // Double-back (Back × 2 within 2 seconds) always escapes to setup,
+        // even when the iframe shows Samsung's own "Unable to Load page" error
+        // and can never respond with "back-unhandled".
+        case "back": {
+          backPressCountRef.current += 1;
+
+          if (backPressCountRef.current >= 2) {
+            // Second press — escape to setup immediately
+            backPressCountRef.current = 0;
+            if (backEscapeTimerRef.current !== null) {
+              window.clearTimeout(backEscapeTimerRef.current);
+              backEscapeTimerRef.current = null;
+            }
+            if (backHintTimerRef.current !== null) {
+              window.clearTimeout(backHintTimerRef.current);
+              backHintTimerRef.current = null;
+            }
+            setShowBackEscapeHint(false);
+            onBack();
+          } else {
+            // First press — send to iframe and show hint for double-press
+            navigateKiosk("action:back");
+            setShowBackEscapeHint(true);
+
+            // Hide the hint after 2s (matches the escape window)
+            if (backHintTimerRef.current !== null) window.clearTimeout(backHintTimerRef.current);
+            backHintTimerRef.current = window.setTimeout(() => {
+              setShowBackEscapeHint(false);
+              backHintTimerRef.current = null;
+            }, 2000);
+
+            // Reset counter after 2s so rapid presses are required
+            if (backEscapeTimerRef.current !== null) window.clearTimeout(backEscapeTimerRef.current);
+            backEscapeTimerRef.current = window.setTimeout(() => {
+              backPressCountRef.current = 0;
+              backEscapeTimerRef.current = null;
+            }, 2000);
+          }
           break;
+        }
 
         case "exit":
           exitApp();
@@ -156,6 +201,13 @@ export function RemoteHandler({
         </div>
       )}
 
+      {/* Double-back escape hint — appears after first Back press, disappears after 2s */}
+      {showBackEscapeHint && (
+        <div className="back-escape-hint">
+          Press Back again to go to Settings
+        </div>
+      )}
+
       {/* Key hints overlay */}
       {showHints && (
         <div className="hints-overlay" onClick={() => setShowHints(false)}>
@@ -174,8 +226,8 @@ export function RemoteHandler({
                   <span>Select</span>
                 </div>
                 <div className="hint-item">
-                  <span className="key">Back</span>
-                  <span>Return to Setup</span>
+                  <span className="key">Back × 2</span>
+                  <span>Open Settings</span>
                 </div>
               </div>
             </div>

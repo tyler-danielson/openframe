@@ -333,6 +333,12 @@ body {
   color: var(--color-text-muted);
 }
 
+.retry-info {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  margin-bottom: var(--spacing-xl) !important;
+}
+
 .kiosk-error {
   text-align: center;
   max-width: 600px;
@@ -562,7 +568,9 @@ body {
 
 .settings-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--spacing-md);
+  justify-content: center;
 }
 
 .settings-hint {
@@ -570,6 +578,63 @@ body {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   margin-top: var(--spacing-lg);
+}
+
+.btn-ghost {
+  padding: var(--spacing-md) var(--spacing-xl);
+  border-radius: var(--border-radius);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.btn-ghost:hover,
+.btn-ghost.focused {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text);
+}
+
+/* Persistent hint badge so users know Menu opens settings even when kiosk is running */
+.menu-hint-badge {
+  position: fixed;
+  bottom: var(--spacing-md);
+  right: var(--spacing-md);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  color: rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  z-index: 60;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Appears after the first Back press — tells the user to press again to escape */
+.back-escape-hint {
+  position: fixed;
+  bottom: var(--spacing-xl);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: var(--spacing-md) var(--spacing-2xl);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: white;
+  background: rgba(0, 0, 0, 0.85);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--border-radius);
+  z-index: 1100;
+  pointer-events: none;
+  animation: slideUp 0.2s ease;
+}
+
+@keyframes slideUp {
+  from { transform: translateX(-50%) translateY(20px); opacity: 0; }
+  to   { transform: translateX(-50%) translateY(0);   opacity: 1; }
 }
 
 /* App Kiosk */
