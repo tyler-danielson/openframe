@@ -280,13 +280,17 @@ function MapView({
   const DARK_STYLE = {
     version: 8 as const,
     sources: {
-      stadia: {
+      "carto-dark": {
         type: "raster" as const,
-        tiles: ["https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}.png"],
+        tiles: [
+          "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+          "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+          "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+        ],
         tileSize: 256,
       },
     },
-    layers: [{ id: "stadia", type: "raster" as const, source: "stadia", minzoom: 0, maxzoom: 19 }],
+    layers: [{ id: "carto-dark", type: "raster" as const, source: "carto-dark", minzoom: 0, maxzoom: 19 }],
   };
 
   return (

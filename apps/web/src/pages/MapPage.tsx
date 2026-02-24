@@ -51,24 +51,26 @@ const LIGHT_STYLE = {
   ],
 };
 
-// Dark mode style (Stadia Alidade Smooth Dark - better road contrast)
+// Dark mode style (CARTO Dark Matter - no API key required)
 const DARK_STYLE = {
   version: 8 as const,
   sources: {
-    stadia: {
+    "carto-dark": {
       type: "raster" as const,
       tiles: [
-        "https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}.png",
+        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
       ],
       tileSize: 256,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://stadiamaps.com/">Stadia Maps</a>',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
     },
   },
   layers: [
     {
-      id: "stadia",
+      id: "carto-dark",
       type: "raster" as const,
-      source: "stadia",
+      source: "carto-dark",
       minzoom: 0,
       maxzoom: 19,
     },
