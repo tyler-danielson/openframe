@@ -27,6 +27,7 @@ import { DeviceLoginPage } from "./pages/DeviceLoginPage";
 import { ChatPage } from "./pages/ChatPage";
 import { RoutinesPage } from "./pages/RoutinesPage";
 import { SetupPage } from "./pages/SetupPage";
+import { TvSetupPage } from "./pages/TvSetupPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { PlannerBuilderPage } from "./pages/PlannerBuilderPage";
 import { ProfileSettingsPage } from "./pages/ProfileSettingsPage";
@@ -136,6 +137,7 @@ export default function App() {
         path.startsWith("/upload") ||
         path.startsWith("/auth/callback") ||
         path.startsWith("/setup") ||
+        path.startsWith("/tv-setup") ||
         path.startsWith("/companion") ||
         path.startsWith("/demo")
       ) {
@@ -241,6 +243,8 @@ export default function App() {
         <Route path="/upload-recipe/:token" element={<MobileRecipeUploadPage />} />
         {/* Public device login page (QR code flow) */}
         <Route path="/device-login" element={<DeviceLoginPage />} />
+        {/* TV setup page — phone visits this after scanning QR from TV */}
+        <Route path="/tv-setup" element={<TvSetupPage />} />
         {/* Public kiosk display page (accessed via unique token URL) */}
         <Route path="/kiosk/:token/*" element={<KioskDisplayPage />} />
 

@@ -7,13 +7,14 @@ interface SetupScreenProps {
   onConnect: (config: KioskConfig) => void;
   onQRLogin: (serverUrl: string) => void;
   onRemotePush: (serverUrl: string) => void;
+  onBack?: () => void;
   initialConfig?: KioskConfig | null;
 }
 
 type FocusableElement = "serverUrl" | "qrLogin" | "remotePush" | "token" | "connect" | "clear";
 const FOCUSABLE_ELEMENTS: FocusableElement[] = ["serverUrl", "qrLogin", "remotePush", "token", "connect", "clear"];
 
-export function SetupScreen({ onConnect, onQRLogin, onRemotePush, initialConfig }: SetupScreenProps) {
+export function SetupScreen({ onConnect, onQRLogin, onRemotePush, onBack, initialConfig }: SetupScreenProps) {
   // Check URL params for pre-filled values (useful for TV where typing is hard)
   const urlParams = new URLSearchParams(window.location.search);
   const paramServer = urlParams.get("server") || urlParams.get("url") || "";
@@ -160,7 +161,11 @@ export function SetupScreen({ onConnect, onQRLogin, onRemotePush, initialConfig 
           break;
 
         case "back":
-          setError(null);
+          if (onBack) {
+            onBack();
+          } else {
+            setError(null);
+          }
           break;
 
         case "red":
@@ -188,7 +193,7 @@ export function SetupScreen({ onConnect, onQRLogin, onRemotePush, initialConfig 
   return (
     <div className="setup-screen">
       <div className="setup-container">
-        <h1 className="setup-title">OpenFrame Kiosk</h1>
+        <h1 className="setup-title">Manual Setup</h1>
         <p className="setup-subtitle">Configure your kiosk connection</p>
 
         {error && <div className="setup-error">{error}</div>}
@@ -253,6 +258,12 @@ export function SetupScreen({ onConnect, onQRLogin, onRemotePush, initialConfig 
         </div>
 
         <div className="setup-hints">
+          {onBack && (
+            <div className="hint">
+              <span className="hint-key">Back</span>
+              <span className="hint-action">QR Setup</span>
+            </div>
+          )}
           <div className="hint">
             <span className="hint-key">D-pad</span>
             <span className="hint-action">Navigate</span>

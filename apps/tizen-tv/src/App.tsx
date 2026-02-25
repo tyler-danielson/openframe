@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback } from "react";
 import { SetupScreen } from "@/components/SetupScreen";
 import { QRLoginScreen } from "@/components/QRLoginScreen";
 import { RemotePushScreen } from "@/components/RemotePushScreen";
+import { CloudSetupScreen } from "@/components/CloudSetupScreen";
 import { KioskFrame, refreshKiosk } from "@/components/KioskFrame";
 import { RemoteHandler } from "@/components/RemoteHandler";
 import { storage, type KioskConfig } from "@/services/storage";
 import { disableScreenSaver, isTizenTV } from "@/hooks/useTizenKeys";
 import "@/styles/tv.css";
 
-type AppState = "loading" | "setup" | "qr-login" | "remote-push" | "kiosk";
+type AppState = "loading" | "cloud-setup" | "setup" | "qr-login" | "remote-push" | "kiosk";
 
 export function App() {
   const [appState, setAppState] = useState<AppState>("loading");
@@ -30,7 +31,7 @@ export function App() {
       setConfig(savedConfig);
       setAppState("kiosk");
     } else {
-      setAppState("setup");
+      setAppState("cloud-setup");
     }
   }, []);
 
@@ -51,8 +52,16 @@ export function App() {
   }, []);
 
   const handleBack = useCallback(() => {
-    setAppState("setup");
+    setAppState("cloud-setup");
     setShowSettings(false);
+  }, []);
+
+  const handleManualSetup = useCallback(() => {
+    setAppState("setup");
+  }, []);
+
+  const handleBackToSetup = useCallback(() => {
+    setAppState("setup");
   }, []);
 
   const handleToggleSettings = useCallback(() => {
@@ -105,9 +114,14 @@ export function App() {
     );
   }
 
-  // Setup state
+  // Cloud setup state (default for new TVs — QR code + phone pairing)
+  if (appState === "cloud-setup") {
+    return <CloudSetupScreen onConnect={handleConnect} onManualSetup={handleManualSetup} />;
+  }
+
+  // Manual setup state
   if (appState === "setup") {
-    return <SetupScreen onConnect={handleConnect} onQRLogin={handleQRLogin} onRemotePush={handleRemotePush} initialConfig={config} />;
+    return <SetupScreen onConnect={handleConnect} onQRLogin={handleQRLogin} onRemotePush={handleRemotePush} onBack={handleBack} initialConfig={config} />;
   }
 
   // QR Login state
@@ -116,7 +130,7 @@ export function App() {
       <QRLoginScreen
         serverUrl={qrServerUrl}
         onConnect={handleConnect}
-        onBack={handleBack}
+        onBack={handleBackToSetup}
       />
     );
   }
@@ -127,7 +141,7 @@ export function App() {
       <RemotePushScreen
         serverUrl={qrServerUrl}
         onConnect={handleConnect}
-        onBack={handleBack}
+        onBack={handleBackToSetup}
       />
     );
   }
