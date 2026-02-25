@@ -1716,6 +1716,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/device-code",
     {
+      config: { cors: { origin: "*", credentials: false } },
       schema: {
         description: "Generate a device code for QR login flow",
         tags: ["Auth", "Device Code"],
@@ -1782,7 +1783,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/device-code/poll",
     {
-      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" }, cors: { origin: "*", credentials: false } },
       schema: {
         description: "Poll for device code approval status",
         tags: ["Auth", "Device Code"],
@@ -2003,6 +2004,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/tv-connect/register",
     {
+      config: { cors: { origin: "*", credentials: false } },
       schema: {
         description: "Register a TV for remote push setup",
         tags: ["Auth", "TV Connect"],
@@ -2054,6 +2056,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/tv-connect/poll",
     {
+      config: { cors: { origin: "*", credentials: false } },
       schema: {
         description: "Poll for TV connect assignment status",
         tags: ["Auth", "TV Connect"],
