@@ -211,7 +211,7 @@ export function RemoteHandler({
           break;
       }
     },
-    [onBack, onToggleSettings]
+    [onBack, onToggleSettings, showSettings, onSettingsNavigate]
   );
 
   useTizenKeys(handleKeyAction);
