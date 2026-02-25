@@ -7,6 +7,7 @@ interface RemoteHandlerProps {
   onBack: () => void;
   showSettings?: boolean;
   onToggleSettings?: () => void;
+  onSettingsNavigate?: (action: "left" | "right" | "enter" | "back") => void;
 }
 
 // Ordered page list for channel up/down cycling
@@ -43,8 +44,9 @@ const COLOR_ACTIONS: Record<string, () => void> = {
 
 export function RemoteHandler({
   onBack,
-  showSettings: _showSettings,
+  showSettings,
   onToggleSettings,
+  onSettingsNavigate,
 }: RemoteHandlerProps) {
   const [showHints, setShowHints] = useState(false);
   const [lastAction, setLastAction] = useState<string | null>(null);
@@ -70,6 +72,12 @@ export function RemoteHandler({
         // even when the iframe shows Samsung's own "Unable to Load page" error
         // and can never respond with "back-unhandled".
         case "back": {
+          // When settings overlay is open, Back just closes it
+          if (showSettings) {
+            onSettingsNavigate?.("back");
+            break;
+          }
+
           backPressCountRef.current += 1;
 
           if (backPressCountRef.current >= 2) {
@@ -174,16 +182,32 @@ export function RemoteHandler({
           break;
         }
 
-        // D-pad for iframe scrolling
+        // D-pad — when settings overlay is open, drive its button focus
+        // instead of scrolling the iframe behind it
         case "up":
         case "down":
+          if (showSettings) {
+            onSettingsNavigate?.(action === "up" ? "left" : "right");
+          } else {
+            navigateKiosk(`scroll:${action}`);
+          }
+          break;
+
         case "left":
         case "right":
-          navigateKiosk(`scroll:${action}`);
+          if (showSettings) {
+            onSettingsNavigate?.(action);
+          } else {
+            navigateKiosk(`scroll:${action}`);
+          }
           break;
 
         case "enter":
-          navigateKiosk("action:select");
+          if (showSettings) {
+            onSettingsNavigate?.("enter");
+          } else {
+            navigateKiosk("action:select");
+          }
           break;
       }
     },

@@ -14,6 +14,7 @@ export function App() {
   const [appState, setAppState] = useState<AppState>("loading");
   const [config, setConfig] = useState<KioskConfig | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsFocusIdx, setSettingsFocusIdx] = useState(0);
   const [qrServerUrl, setQrServerUrl] = useState("");
 
   // Initialize app
@@ -55,8 +56,38 @@ export function App() {
   }, []);
 
   const handleToggleSettings = useCallback(() => {
-    setShowSettings((prev) => !prev);
+    setShowSettings((prev) => {
+      if (!prev) setSettingsFocusIdx(0); // reset focus to first button when opening
+      return !prev;
+    });
   }, []);
+
+  // 0 = Retry Connection, 1 = Change Server URL, 2 = Close
+  const SETTINGS_BUTTON_COUNT = 3;
+  const handleSettingsNavigate = useCallback(
+    (action: "left" | "right" | "enter" | "back") => {
+      switch (action) {
+        case "left":
+          setSettingsFocusIdx((i) => (i - 1 + SETTINGS_BUTTON_COUNT) % SETTINGS_BUTTON_COUNT);
+          break;
+        case "right":
+          setSettingsFocusIdx((i) => (i + 1) % SETTINGS_BUTTON_COUNT);
+          break;
+        case "enter":
+          setSettingsFocusIdx((i) => {
+            if (i === 0) { setShowSettings(false); refreshKiosk(); }
+            else if (i === 1) { handleBack(); }
+            else { setShowSettings(false); }
+            return i;
+          });
+          break;
+        case "back":
+          setShowSettings(false);
+          break;
+      }
+    },
+    [handleBack]
+  );
 
   // Called by KioskFrame after all auto-retries fail — open settings so the
   // user can immediately update the server URL without having to find the Menu button.
@@ -115,6 +146,7 @@ export function App() {
             onBack={handleBack}
             showSettings={showSettings}
             onToggleSettings={handleToggleSettings}
+            onSettingsNavigate={handleSettingsNavigate}
           />
         </>
       )}
@@ -146,18 +178,21 @@ export function App() {
 
             <div className="settings-actions">
               <button
-                className="btn btn-primary"
-                onClick={() => {
-                  setShowSettings(false);
-                  refreshKiosk();
-                }}
+                className={`btn btn-primary${settingsFocusIdx === 0 ? " focused" : ""}`}
+                onClick={() => { setShowSettings(false); refreshKiosk(); }}
               >
                 Retry Connection
               </button>
-              <button className="btn btn-secondary" onClick={handleBack}>
+              <button
+                className={`btn btn-secondary${settingsFocusIdx === 1 ? " focused" : ""}`}
+                onClick={handleBack}
+              >
                 Change Server URL
               </button>
-              <button className="btn btn-ghost" onClick={() => setShowSettings(false)}>
+              <button
+                className={`btn btn-ghost${settingsFocusIdx === 2 ? " focused" : ""}`}
+                onClick={() => setShowSettings(false)}
+              >
                 Close
               </button>
             </div>
