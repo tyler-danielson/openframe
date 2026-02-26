@@ -44,7 +44,7 @@ export function TvSetupPage() {
       try {
         const list = await api.getKiosks();
         setKiosks(list);
-        if (list.length > 0) setSelectedKioskId(list[0].id);
+        if (list.length > 0) setSelectedKioskId(list[0]!.id);
         setPageState("picking");
       } catch {
         setPageState("error");
