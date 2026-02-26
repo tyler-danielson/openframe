@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Trash2, RefreshCw, Image, Check, Folder } from "lucide-react";
-import { api } from "../../services/api";
+import { api, getPhotoUrl } from "../../services/api";
 import { Button } from "../ui/Button";
 import { cn } from "../../lib/utils";
 import type { Photo, PhotoAlbum } from "@openframe/shared";
@@ -182,7 +182,7 @@ export function ManageAllPhotos() {
                   )}
                 >
                   <img
-                    src={photo.thumbnailUrl ?? photo.originalUrl}
+                    src={getPhotoUrl(photo.thumbnailUrl ?? photo.originalUrl)}
                     alt={photo.originalFilename}
                     className="h-full w-full object-cover"
                     loading="lazy"

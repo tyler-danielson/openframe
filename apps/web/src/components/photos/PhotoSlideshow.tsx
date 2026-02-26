@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../../services/api";
+import { api, getPhotoUrl } from "../../services/api";
 import { cn } from "../../lib/utils";
 
 interface PhotoSlideshowProps {
@@ -59,7 +59,7 @@ export function PhotoSlideshow({ className }: PhotoSlideshowProps) {
   return (
     <div className={cn("relative overflow-hidden bg-black", className)}>
       <img
-        src={currentPhoto?.url}
+        src={getPhotoUrl(currentPhoto?.url)}
         alt=""
         className={cn(
           "h-full w-full object-cover transition-opacity duration-500",

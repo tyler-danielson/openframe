@@ -4201,3 +4201,18 @@ export interface MatterDeviceWithState extends MatterDevice {
 }
 
 export const api = new ApiClient();
+
+/**
+ * Append auth token as a query param to local photo file URLs so <img> tags
+ * can load them. Browsers can't set Authorization headers on image requests.
+ * External URLs (Reddit, Google, etc.) are returned unchanged.
+ */
+export function getPhotoUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (!url.startsWith("/api/v1/photos/files/")) return url;
+  const { accessToken, apiKey } = useAuthStore.getState();
+  const sep = url.includes("?") ? "&" : "?";
+  if (apiKey) return `${url}${sep}apiKey=${encodeURIComponent(apiKey)}`;
+  if (accessToken) return `${url}${sep}token=${encodeURIComponent(accessToken)}`;
+  return url;
+}

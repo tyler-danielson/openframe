@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Image, ArrowLeft, FolderOpen } from "lucide-react";
-import { api } from "../../../services/api";
+import { api, getPhotoUrl } from "../../../services/api";
 import { Card } from "../../../components/ui/Card";
 import { CompanionPageHeader } from "../components/CompanionPageHeader";
 
@@ -46,7 +46,7 @@ export function CompanionPhotosPage() {
               {(photos as any[]).map((photo: any) => (
                 <div key={photo.id} className="aspect-square relative overflow-hidden rounded">
                   <img
-                    src={photo.url || photo.thumbnailUrl}
+                    src={getPhotoUrl(photo.url || photo.thumbnailUrl)}
                     alt=""
                     className="w-full h-full object-cover"
                     loading="lazy"

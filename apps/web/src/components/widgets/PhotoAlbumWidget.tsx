@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Images } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../../services/api";
+import { api, getPhotoUrl } from "../../services/api";
 import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import type { WidgetStyle } from "../../stores/screensaver";
 import { cn } from "../../lib/utils";
@@ -94,7 +94,7 @@ export function PhotoAlbumWidget({ config, style, isBuilder, widgetId }: PhotoAl
       const photos = await api.getAlbumPhotos(albumId);
       return photos.map((p): Photo => ({
         id: p.id,
-        url: p.mediumUrl || p.originalUrl,
+        url: getPhotoUrl(p.mediumUrl || p.originalUrl) ?? (p.mediumUrl || p.originalUrl),
         width: p.width ?? undefined,
         height: p.height ?? undefined,
       }));

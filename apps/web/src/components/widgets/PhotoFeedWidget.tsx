@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { LayoutGrid } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../../services/api";
+import { api, getPhotoUrl } from "../../services/api";
 import type { WidgetStyle } from "../../stores/screensaver";
 import { cn } from "../../lib/utils";
 import {
@@ -50,7 +50,7 @@ export function PhotoFeedWidget({ config, style, isBuilder, widgetId }: PhotoFee
       const photos = await api.getAlbumPhotos(albumId);
       return photos.map((p): Photo => ({
         id: p.id,
-        url: p.mediumUrl || p.originalUrl,
+        url: getPhotoUrl(p.mediumUrl || p.originalUrl) ?? (p.mediumUrl || p.originalUrl),
         width: p.width ?? undefined,
         height: p.height ?? undefined,
       }));

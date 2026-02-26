@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { cn } from "../../lib/utils";
+import { getPhotoUrl } from "../../services/api";
 import type { Photo } from "@openframe/shared";
 
 export type LayoutType = "grid" | "artboard" | "masonry" | "collage";
@@ -27,7 +28,7 @@ function PhotoItem({ photo, onClick, className, objectFit = "cover" }: PhotoItem
       )}
     >
       <img
-        src={photo.originalUrl}
+        src={getPhotoUrl(photo.originalUrl)}
         alt={photo.originalFilename}
         className={cn(
           "h-full w-full transition-transform group-hover:scale-105",
@@ -76,7 +77,7 @@ function ArtboardLayout({ photos, onPhotoClick }: Omit<PhotoLayoutsProps, "layou
                 style={{ paddingBottom: `${(1 / aspectRatio) * 100}%` }}
               >
                 <img
-                  src={photo.originalUrl}
+                  src={getPhotoUrl(photo.originalUrl)}
                   alt={photo.originalFilename}
                   className="absolute inset-0 h-full w-full object-contain bg-black/5 dark:bg-white/5"
                 />
@@ -133,7 +134,7 @@ function MasonryLayout({ photos, onPhotoClick }: Omit<PhotoLayoutsProps, "layout
                 style={{ aspectRatio: aspectRatio.toString() }}
               >
                 <img
-                  src={photo.originalUrl}
+                  src={getPhotoUrl(photo.originalUrl)}
                   alt={photo.originalFilename}
                   className="h-full w-full object-cover transition-transform group-hover:scale-105"
                 />

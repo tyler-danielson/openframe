@@ -3,7 +3,7 @@ import { X, Trash2, RotateCw, Crop, Check, Loader2, AlertTriangle } from "lucide
 import Cropper from "react-easy-crop";
 import type { Area } from "react-easy-crop";
 import { Button } from "../ui/Button";
-import { api } from "../../services/api";
+import { api, getPhotoUrl } from "../../services/api";
 import { cn } from "../../lib/utils";
 import type { Photo } from "@openframe/shared";
 
@@ -123,8 +123,8 @@ export function PhotoViewerModal({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Always use original resolution for full quality
-  const imageUrl = photo.originalUrl;
+  // Always use original resolution for full quality (with auth for img loading)
+  const imageUrl = getPhotoUrl(photo.originalUrl) ?? photo.originalUrl;
   const currentAspectRatio = aspectRatios.find((ar) => ar.key === aspectRatio);
 
   const onCropComplete = useCallback((_croppedArea: Area, croppedAreaPixels: Area) => {

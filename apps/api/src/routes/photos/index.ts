@@ -1100,7 +1100,19 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/files/*",
     {
-      onRequest: [fastify.authenticateKioskOrAny],
+      onRequest: [
+        // Support token/apiKey as query params so <img> tags can load photos
+        // (browsers can't set Authorization headers on <img src="..."> requests)
+        async (request) => {
+          const query = request.query as Record<string, string>;
+          if (query.token) {
+            request.headers.authorization = `Bearer ${query.token}`;
+          } else if (query.apiKey) {
+            request.headers["x-api-key"] = query.apiKey;
+          }
+        },
+        fastify.authenticateKioskOrAny,
+      ],
       schema: {
         description: "Serve uploaded photo files",
         tags: ["Photos"],

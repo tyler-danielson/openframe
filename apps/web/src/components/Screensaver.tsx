@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { api, type WeatherData } from "../services/api";
+import { api, getPhotoUrl, type WeatherData } from "../services/api";
 import { useScreensaverStore, type ScreensaverTransition, type ClockPosition, type ClockSize, type WidgetSize, type CompositeWidgetConfig } from "../stores/screensaver";
 import { SportsTicker } from "./SportsTicker";
 import { WidgetRenderer } from "./widgets/WidgetRenderer";
@@ -379,7 +379,10 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
     refetchOnMount: "always", // Always refetch when screensaver activates
   });
 
-  const photos = slideshowData?.photos ?? [];
+  const photos = useMemo(() =>
+    (slideshowData?.photos ?? []).map(p => ({ ...p, url: getPhotoUrl(p.url) ?? p.url })),
+    [slideshowData]
+  );
 
   // Fetch weather data
   const { data: weather } = useQuery({

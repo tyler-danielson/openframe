@@ -970,7 +970,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
 
           allPhotos.push({
             id: photo.id,
-            url: `/api/v1/photos/${photo.id}/file`,
+            url: `/api/v1/photos/files/${(photo.mediumPath ?? photo.originalPath).replace(/\\/g, "/")}`,
             width: photo.width,
             height: photo.height,
           });
