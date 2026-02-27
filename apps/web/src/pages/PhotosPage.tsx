@@ -6,15 +6,11 @@ import { Button } from "../components/ui/Button";
 import { QRUploadModal } from "../components/photos/QRUploadModal";
 import { PhotoViewerModal } from "../components/photos/PhotoViewerModal";
 import { PhotoLayouts, LayoutSelector, type LayoutType } from "../components/photos/PhotoLayouts";
-import { KioskQRUpload } from "../components/photos/KioskQRUpload";
-import { useKiosk } from "../contexts/KioskContext";
 import { cn } from "../lib/utils";
 import type { PhotoAlbum, Photo } from "@openframe/shared";
 
 export function PhotosPage() {
   const queryClient = useQueryClient();
-  const { token: kioskToken } = useKiosk();
-  const isKioskMode = !!kioskToken;
   const [selectedAlbum, setSelectedAlbum] = useState<PhotoAlbum | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
@@ -209,8 +205,6 @@ export function PhotosPage() {
         />
       )}
 
-      {/* Kiosk mode: persistent QR code in corner */}
-      {isKioskMode && <KioskQRUpload />}
 
       {/* Photo Viewer Modal */}
       {selectedPhoto && (

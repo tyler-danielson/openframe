@@ -31,6 +31,7 @@ export function PlacesAutocomplete({
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const blurTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Sync external value changes
   useEffect(() => {
@@ -81,6 +82,10 @@ export function PlacesAutocomplete({
 
   // Handle selection
   const handleSelect = (prediction: Prediction) => {
+    // Cancel any pending blur handler that would overwrite the selection
+    if (blurTimeoutRef.current) {
+      clearTimeout(blurTimeoutRef.current);
+    }
     setInputValue(prediction.description);
     onChange(prediction.description);
     setPredictions([]);
@@ -136,7 +141,7 @@ export function PlacesAutocomplete({
   // Handle blur - update parent value
   const handleBlur = () => {
     // Delay to allow click on dropdown items
-    setTimeout(() => {
+    blurTimeoutRef.current = setTimeout(() => {
       if (inputValue !== value) {
         onChange(inputValue);
       }

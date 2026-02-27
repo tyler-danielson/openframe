@@ -23,6 +23,7 @@ export function SetupScreen({ onConnect, onQRLogin, onRemotePush, onBack, initia
   const [serverUrl, setServerUrl] = useState(initialConfig?.serverUrl ?? paramServer ?? "");
   const [kioskToken, setKioskToken] = useState(initialConfig?.kioskToken ?? paramToken ?? "");
   const [focusedElement, setFocusedElement] = useState<FocusableElement>("serverUrl");
+  const [editingField, setEditingField] = useState<"serverUrl" | "token" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Auto-connect if both params provided
@@ -31,18 +32,17 @@ export function SetupScreen({ onConnect, onQRLogin, onRemotePush, onBack, initia
   const serverUrlRef = useRef<HTMLInputElement>(null);
   const tokenRef = useRef<HTMLInputElement>(null);
 
-  // Focus the appropriate input when focus changes
+  // Only focus (and trigger keyboard) when actively editing
   useEffect(() => {
-    if (focusedElement === "serverUrl") {
+    if (editingField === "serverUrl") {
       serverUrlRef.current?.focus();
-    } else if (focusedElement === "token") {
+    } else if (editingField === "token") {
       tokenRef.current?.focus();
     } else {
-      // Blur inputs when not focused
       serverUrlRef.current?.blur();
       tokenRef.current?.blur();
     }
-  }, [focusedElement]);
+  }, [editingField]);
 
   const getNormalizedServerUrl = useCallback(() => {
     let normalizedUrl = serverUrl.trim();
@@ -122,6 +122,7 @@ export function SetupScreen({ onConnect, onQRLogin, onRemotePush, onBack, initia
 
       switch (action) {
         case "up":
+          if (editingField) break; // Don't navigate while keyboard is open
           if (currentIndex > 0) {
             const prev = FOCUSABLE_ELEMENTS[currentIndex - 1];
             if (prev) setFocusedElement(prev);
@@ -129,6 +130,7 @@ export function SetupScreen({ onConnect, onQRLogin, onRemotePush, onBack, initia
           break;
 
         case "down":
+          if (editingField) break; // Don't navigate while keyboard is open
           if (currentIndex < FOCUSABLE_ELEMENTS.length - 1) {
             const next = FOCUSABLE_ELEMENTS[currentIndex + 1];
             if (next) setFocusedElement(next);
@@ -148,7 +150,15 @@ export function SetupScreen({ onConnect, onQRLogin, onRemotePush, onBack, initia
           break;
 
         case "enter":
-          if (focusedElement === "connect") {
+          if (focusedElement === "serverUrl" || focusedElement === "token") {
+            if (editingField === focusedElement) {
+              // Already editing — confirm and exit editing mode
+              setEditingField(null);
+            } else {
+              // Start editing — this will focus the input and trigger the keyboard
+              setEditingField(focusedElement);
+            }
+          } else if (focusedElement === "connect") {
             handleConnect();
           } else if (focusedElement === "clear") {
             handleClear();
@@ -157,11 +167,13 @@ export function SetupScreen({ onConnect, onQRLogin, onRemotePush, onBack, initia
           } else if (focusedElement === "remotePush") {
             handleRemotePushClick();
           }
-          // For input fields, Enter is handled natively
           break;
 
         case "back":
-          if (onBack) {
+          if (editingField) {
+            // Exit editing mode first, don't navigate away
+            setEditingField(null);
+          } else if (onBack) {
             onBack();
           } else {
             setError(null);
@@ -185,7 +197,7 @@ export function SetupScreen({ onConnect, onQRLogin, onRemotePush, onBack, initia
           break;
       }
     },
-    [focusedElement, handleConnect, handleClear, handleQRLoginClick, handleRemotePushClick]
+    [focusedElement, editingField, handleConnect, handleClear, handleQRLoginClick, handleRemotePushClick]
   );
 
   useTizenKeys(handleKeyAction);
@@ -199,7 +211,7 @@ export function SetupScreen({ onConnect, onQRLogin, onRemotePush, onBack, initia
         {error && <div className="setup-error">{error}</div>}
 
         <div className="setup-form">
-          <div className={`input-group ${focusedElement === "serverUrl" ? "focused" : ""}`}>
+          <div className={`input-group ${focusedElement === "serverUrl" ? "focused" : ""} ${editingField === "serverUrl" ? "editing" : ""}`}>
             <label htmlFor="serverUrl">Server URL</label>
             <input
               ref={serverUrlRef}
@@ -208,7 +220,11 @@ export function SetupScreen({ onConnect, onQRLogin, onRemotePush, onBack, initia
               value={serverUrl}
               onChange={(e) => setServerUrl(e.target.value)}
               placeholder="https://openframe.example.com"
+              readOnly={editingField !== "serverUrl"}
             />
+            {focusedElement === "serverUrl" && !editingField && (
+              <span className="input-hint">Press OK to edit</span>
+            )}
           </div>
 
           <button
@@ -229,7 +245,7 @@ export function SetupScreen({ onConnect, onQRLogin, onRemotePush, onBack, initia
             <span>or enter token manually</span>
           </div>
 
-          <div className={`input-group ${focusedElement === "token" ? "focused" : ""}`}>
+          <div className={`input-group ${focusedElement === "token" ? "focused" : ""} ${editingField === "token" ? "editing" : ""}`}>
             <label htmlFor="token">Kiosk Token</label>
             <input
               ref={tokenRef}
@@ -238,7 +254,11 @@ export function SetupScreen({ onConnect, onQRLogin, onRemotePush, onBack, initia
               value={kioskToken}
               onChange={(e) => setKioskToken(e.target.value)}
               placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              readOnly={editingField !== "token"}
             />
+            {focusedElement === "token" && !editingField && (
+              <span className="input-hint">Press OK to edit</span>
+            )}
           </div>
 
           <div className="button-group">

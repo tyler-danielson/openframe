@@ -192,8 +192,19 @@ body {
 }
 
 .input-group input:focus,
-.input-group input.editing {
+.input-group.editing input {
   border-color: var(--color-primary);
+}
+
+.input-group.editing {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.input-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-align: right;
 }
 
 /* Buttons */
