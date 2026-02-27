@@ -131,16 +131,14 @@ export function PhotosPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  {!isKioskMode && (
-                    <Button
-                      variant="outline"
-                      onClick={() => setShowQRModal(true)}
-                      title="Upload from mobile device"
-                    >
-                      <QrCode className="mr-2 h-4 w-4" />
-                      Mobile Upload
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowQRModal(true)}
+                    title="Upload from mobile device"
+                  >
+                    <QrCode className="mr-2 h-4 w-4" />
+                    Mobile Upload
+                  </Button>
                   <input
                     type="file"
                     id="photo-upload"
