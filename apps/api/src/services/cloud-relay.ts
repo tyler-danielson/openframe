@@ -32,6 +32,7 @@ interface CloudRelayConfig {
   relaySecret: string;
   wsEndpoint: string;
   version?: string;
+  externalUrl?: string;
 }
 
 type ConnectionState = "disconnected" | "connecting" | "connected" | "authenticated";
@@ -105,6 +106,7 @@ export class CloudRelay {
           instanceId: this.config!.instanceId,
           relaySecret: this.config!.relaySecret,
           version: this.config!.version,
+          externalUrl: this.config!.externalUrl,
         },
       });
     });

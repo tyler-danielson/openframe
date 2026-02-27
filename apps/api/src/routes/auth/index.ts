@@ -1932,6 +1932,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
               data: {
                 type: "object",
                 properties: {
+                  kioskId: { type: "string" },
                   kioskToken: { type: "string" },
                   kioskName: { type: "string" },
                 },
@@ -1989,6 +1990,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         success: true,
         data: {
+          kioskId: newKiosk!.id,
           kioskToken: newKiosk!.token,
           kioskName: name,
         },

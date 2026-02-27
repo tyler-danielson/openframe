@@ -4,15 +4,29 @@ import { useAuthStore } from "../stores/auth";
 import { api, type Kiosk } from "../services/api";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
+import { appUrl } from "../lib/cloud";
 
 const CLOUD_URL = "https://openframe.us";
 
-type PageState = "loading" | "login" | "picking" | "submitting" | "done" | "error";
+// Check if the current page is being served from a local/LAN server
+// (as opposed to a cloud relay like openframe.us)
+function isLocalOrigin(): boolean {
+  const hostname = window.location.hostname;
+  return hostname === "localhost"
+    || hostname === "127.0.0.1"
+    || hostname.startsWith("192.168.")
+    || hostname.startsWith("10.")
+    || /^172\.(1[6-9]|2\d|3[01])\./.test(hostname);
+}
+
+type PageState = "server-entry" | "loading" | "login" | "picking" | "submitting" | "done" | "error";
 
 export function TvSetupPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const code = searchParams.get("code") || "";
+  // If redirected from cloud, this tells us where to POST the completion
+  const cloudParam = searchParams.get("cloud") || "";
 
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const setTokens = useAuthStore((state) => state.setTokens);
@@ -22,11 +36,20 @@ export function TvSetupPage() {
   const [selectedKioskId, setSelectedKioskId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Server URL entry state
+  const [serverUrl, setServerUrl] = useState("");
+
   // Login form state
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
+
+  // OAuth providers
+  const [providers, setProviders] = useState<{ google: boolean; microsoft: boolean } | null>(null);
+
+  // Determine the cloud relay URL to POST completion to
+  const cloudRelayUrl = cloudParam || CLOUD_URL;
 
   // If no code, show error immediately
   useEffect(() => {
@@ -35,6 +58,60 @@ export function TvSetupPage() {
       setError("Invalid setup link — missing code parameter.");
     }
   }, [code]);
+
+  // Determine initial state — probe the API to detect if we're on the server
+  useEffect(() => {
+    if (!code) return;
+
+    if (isAuthenticated) {
+      // Already logged in on this server — go straight to kiosk picking
+      return;
+    }
+
+    // If we have a `cloud` param, we were redirected from the cloud page
+    // to the local server — show login form
+    if (cloudParam) {
+      setPageState("login");
+      return;
+    }
+
+    // If we're on a local/LAN server, we know we're on the right server
+    if (isLocalOrigin()) {
+      setPageState("login");
+      return;
+    }
+
+    // For public domains, probe the API to check if we're on an OpenFrame server.
+    // If the API responds, we're on the server — show login.
+    // If it fails, we're on a different domain (e.g. the cloud) — show server-entry.
+    api.getAvailableProviders()
+      .then(() => setPageState("login"))
+      .catch(() => setPageState("server-entry"));
+  }, [code, isAuthenticated, cloudParam]);
+
+  // Fetch available auth providers
+  useEffect(() => {
+    api.getAvailableProviders().then(setProviders).catch(() => setProviders({ google: false, microsoft: false }));
+  }, []);
+
+  // Build the return URL that preserves tv-setup params through OAuth
+  const tvSetupReturnPath = `/tv-setup?code=${encodeURIComponent(code)}${cloudParam ? `&cloud=${encodeURIComponent(cloudParam)}` : ""}`;
+
+  const handleGoogleLogin = () => {
+    localStorage.setItem("oauth_return_url", tvSetupReturnPath);
+    const returnUrl = encodeURIComponent(appUrl(tvSetupReturnPath));
+    const callbackUrl = encodeURIComponent(appUrl("/auth/callback"));
+    window.location.href = `/api/v1/auth/oauth/google?returnUrl=${returnUrl}&callbackUrl=${callbackUrl}`;
+  };
+
+  const handleMicrosoftLogin = () => {
+    localStorage.setItem("oauth_return_url", tvSetupReturnPath);
+    const returnUrl = encodeURIComponent(appUrl(tvSetupReturnPath));
+    const callbackUrl = encodeURIComponent(appUrl("/auth/callback"));
+    window.location.href = `/api/v1/auth/oauth/microsoft?returnUrl=${returnUrl}&callbackUrl=${callbackUrl}`;
+  };
+
+  const hasOAuthProviders = providers && (providers.google || providers.microsoft);
 
   // Once authenticated, load kiosks
   useEffect(() => {
@@ -56,12 +133,38 @@ export function TvSetupPage() {
     loadKiosks();
   }, [isAuthenticated, code]);
 
-  // If not authenticated, show login
-  useEffect(() => {
-    if (code && !isAuthenticated && pageState === "loading") {
-      setPageState("login");
+  const handleServerSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    let url = serverUrl.trim();
+    if (!url) return;
+
+    // Normalize: add http:// if no protocol specified
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      url = `http://${url}`;
     }
-  }, [code, isAuthenticated, pageState]);
+    // Remove trailing slashes
+    url = url.replace(/\/+$/, "");
+
+    // Auto-append dev port for private/LAN IPs that have no port specified
+    try {
+      const parsed = new URL(url);
+      if (!parsed.port) {
+        const h = parsed.hostname;
+        const isPrivateIP = h === "localhost" || h === "127.0.0.1"
+          || h.startsWith("192.168.") || h.startsWith("10.")
+          || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+        if (isPrivateIP) {
+          parsed.port = "5176";
+          url = parsed.toString().replace(/\/+$/, "");
+        }
+      }
+    } catch { /* invalid URL, let it fail naturally */ }
+
+    // Redirect to the local server's tv-setup page, passing the cloud origin
+    // so the local page knows where to POST the completion
+    const cloudOrigin = window.location.origin;
+    window.location.href = `${url}/tv-setup?code=${encodeURIComponent(code)}&cloud=${encodeURIComponent(cloudOrigin)}`;
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,7 +191,12 @@ export function TvSetupPage() {
 
     setPageState("submitting");
     try {
-      const res = await fetch(`${CLOUD_URL}/api/tv-setup/${encodeURIComponent(code)}/complete`, {
+      // Ensure the code is registered on the cloud relay.
+      // The TV may not have internet access to poll the cloud itself,
+      // so the phone registers the code on its behalf.
+      await fetch(`${cloudRelayUrl}/api/tv-setup?code=${encodeURIComponent(code)}`).catch(() => {});
+
+      const res = await fetch(`${cloudRelayUrl}/api/tv-setup/${encodeURIComponent(code)}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -130,6 +238,35 @@ export function TvSetupPage() {
         </CardHeader>
 
         <CardContent className="space-y-4">
+          {/* Server URL entry — shown on cloud page before redirect */}
+          {pageState === "server-entry" && (
+            <form onSubmit={handleServerSubmit} className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Enter the URL of your OpenFrame server to connect your TV.
+              </p>
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-primary" htmlFor="serverUrl">
+                  Server URL
+                </label>
+                <input
+                  id="serverUrl"
+                  type="url"
+                  value={serverUrl}
+                  onChange={(e) => setServerUrl(e.target.value)}
+                  placeholder="http://192.168.1.100:5176"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  autoFocus
+                />
+                <p className="text-xs text-muted-foreground">
+                  Your phone must be on the same network as your server.
+                </p>
+              </div>
+              <Button type="submit" className="w-full" disabled={!serverUrl.trim()}>
+                Continue
+              </Button>
+            </form>
+          )}
+
           {/* Loading */}
           {pageState === "loading" && (
             <div className="flex items-center justify-center py-8">
@@ -139,45 +276,109 @@ export function TvSetupPage() {
 
           {/* Login form */}
           {pageState === "login" && (
-            <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Log in to your OpenFrame account to pick a kiosk for your TV.
               </p>
-              {loginError && (
-                <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-                  {loginError}
+
+              {/* OAuth buttons */}
+              {hasOAuthProviders && (
+                <div className="space-y-2">
+                  {providers?.google && (
+                    <Button
+                      className="w-full gap-2"
+                      variant="outline"
+                      onClick={handleGoogleLogin}
+                    >
+                      <svg className="h-5 w-5" viewBox="0 0 24 24">
+                        <path
+                          fill="currentColor"
+                          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                        />
+                        <path
+                          fill="currentColor"
+                          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                        />
+                        <path
+                          fill="currentColor"
+                          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                        />
+                        <path
+                          fill="currentColor"
+                          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                        />
+                      </svg>
+                      Continue with Google
+                    </Button>
+                  )}
+                  {providers?.microsoft && (
+                    <Button
+                      className="w-full gap-2"
+                      variant="outline"
+                      onClick={handleMicrosoftLogin}
+                    >
+                      <svg className="h-5 w-5" viewBox="0 0 24 24">
+                        <path fill="#f25022" d="M1 1h10v10H1z" />
+                        <path fill="#00a4ef" d="M1 13h10v10H1z" />
+                        <path fill="#7fba00" d="M13 1h10v10H13z" />
+                        <path fill="#ffb900" d="M13 13h10v10H13z" />
+                      </svg>
+                      Continue with Microsoft
+                    </Button>
+                  )}
                 </div>
               )}
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-primary" htmlFor="email">
-                  Email
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                  autoComplete="email"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-primary" htmlFor="password">
-                  Password
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                  autoComplete="current-password"
-                />
-              </div>
-              <Button type="submit" className="w-full" disabled={loggingIn}>
-                {loggingIn ? "Signing in..." : "Sign In"}
-              </Button>
-            </form>
+
+              {/* Divider between OAuth and password */}
+              {hasOAuthProviders && (
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-border" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">or sign in with email</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Password form */}
+              <form onSubmit={handleLogin} className="space-y-4">
+                {loginError && (
+                  <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
+                    {loginError}
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-primary" htmlFor="email">
+                    Email
+                  </label>
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    autoComplete="email"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-primary" htmlFor="password">
+                    Password
+                  </label>
+                  <input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    autoComplete="current-password"
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={loggingIn}>
+                  {loggingIn ? "Signing in..." : "Sign In"}
+                </Button>
+              </form>
+            </div>
           )}
 
           {/* Kiosk picker */}

@@ -38,12 +38,20 @@ export function LoginPage() {
   }, []);
 
   const handleGoogleLogin = () => {
+    // Persist returnTo so AuthCallbackPage can recover it if the query param chain breaks
+    if (returnTo !== "/dashboard") {
+      localStorage.setItem("oauth_return_url", returnTo);
+    }
     const returnUrl = encodeURIComponent(appUrl(returnTo));
     const callbackUrl = encodeURIComponent(appUrl("/auth/callback"));
     window.location.href = `/api/v1/auth/oauth/google?returnUrl=${returnUrl}&callbackUrl=${callbackUrl}`;
   };
 
   const handleMicrosoftLogin = () => {
+    // Persist returnTo so AuthCallbackPage can recover it if the query param chain breaks
+    if (returnTo !== "/dashboard") {
+      localStorage.setItem("oauth_return_url", returnTo);
+    }
     const returnUrl = encodeURIComponent(appUrl(returnTo));
     const callbackUrl = encodeURIComponent(appUrl("/auth/callback"));
     window.location.href = `/api/v1/auth/oauth/microsoft?returnUrl=${returnUrl}&callbackUrl=${callbackUrl}`;

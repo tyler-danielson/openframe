@@ -133,7 +133,8 @@ export function SetupPage() {
     setError(null);
     try {
       await api.completeSetup();
-      navigate("/dashboard", { replace: true });
+      // Full page reload so App.tsx re-checks setup status
+      window.location.href = "/dashboard";
     } catch (err: any) {
       setError(err.message || "Failed to complete setup");
     } finally {

@@ -17,6 +17,7 @@ export function DeviceLoginPage() {
   const [userCode, setUserCode] = useState("");
   const [expiresIn, setExpiresIn] = useState(0);
   const [kioskName, setKioskName] = useState("TV Kiosk");
+  const [approvedKioskId, setApprovedKioskId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Redirect to login if not authenticated
@@ -54,7 +55,8 @@ export function DeviceLoginPage() {
   const handleApprove = async () => {
     setPageState("approving");
     try {
-      await api.approveDeviceCode(userCode, kioskName.trim() || undefined);
+      const result = await api.approveDeviceCode(userCode, kioskName.trim() || undefined);
+      setApprovedKioskId(result.kioskId);
       setPageState("approved");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to approve device");
@@ -165,15 +167,22 @@ export function DeviceLoginPage() {
               <p className="text-lg font-semibold text-primary">Device Approved!</p>
               <p className="text-sm text-muted-foreground">
                 The TV should connect automatically within a few seconds.
-                You can close this page.
               </p>
-              <Button
-                variant="outline"
-                className="mt-2"
-                onClick={() => navigate("/dashboard")}
-              >
-                Go to Dashboard
-              </Button>
+              <div className="flex flex-col gap-2 mt-2 w-full">
+                {approvedKioskId && (
+                  <Button
+                    onClick={() => navigate(`/companion/kiosks/${approvedKioskId}`)}
+                  >
+                    Manage Kiosk
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => navigate("/settings?tab=kiosks")}
+                >
+                  Kiosk Settings
+                </Button>
+              </div>
             </div>
           )}
 

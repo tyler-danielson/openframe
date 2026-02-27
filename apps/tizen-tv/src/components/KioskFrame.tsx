@@ -50,7 +50,7 @@ export function KioskFrame({ config, onBack, onConnectionError, onNavigate }: Ki
     try {
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
-      await fetch(healthUrl, {
+      const response = await fetch(healthUrl, {
         method: "HEAD",
         signal: controller.signal,
         cache: "no-store",

@@ -261,8 +261,8 @@ class ApiClient {
     );
   }
 
-  async approveDeviceCode(userCode: string, kioskName?: string): Promise<{ kioskToken: string; kioskName: string }> {
-    return this.fetch<{ kioskToken: string; kioskName: string }>("/auth/device-code/approve", {
+  async approveDeviceCode(userCode: string, kioskName?: string): Promise<{ kioskId: string; kioskToken: string; kioskName: string }> {
+    return this.fetch<{ kioskId: string; kioskToken: string; kioskName: string }>("/auth/device-code/approve", {
       method: "POST",
       body: JSON.stringify({ userCode, kioskName }),
     });

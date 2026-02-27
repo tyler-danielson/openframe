@@ -83,7 +83,7 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
         const res = await fetch(`${cloudUrl}/api/relay/claim`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ callbackUrl }),
+          body: JSON.stringify({ callbackUrl, externalUrl }),
         });
 
         if (!res.ok) {
@@ -128,7 +128,7 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
                 }
               }
               // Configure and connect the relay
-              fastify.cloudRelay.configure({ instanceId: pollData.instanceId, relaySecret: pollData.relaySecret, wsEndpoint: pollData.wsEndpoint });
+              fastify.cloudRelay.configure({ instanceId: pollData.instanceId, relaySecret: pollData.relaySecret, wsEndpoint: pollData.wsEndpoint, externalUrl });
               fastify.cloudRelay.connect();
               fastify.cloudRelay.onCommand((kioskId, commandType, cmdData) => {
                 const commands = kioskCommands.get(kioskId) || [];
@@ -224,11 +224,25 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      // Read external URL for relay auth
+      const [externalUrlSetting] = await fastify.db
+        .select()
+        .from(systemSettings)
+        .where(
+          and(
+            eq(systemSettings.category, "server"),
+            eq(systemSettings.key, "external_url")
+          )
+        )
+        .limit(1);
+      const cbExternalUrl = externalUrlSetting?.value || undefined;
+
       // Configure and connect the relay
       fastify.cloudRelay.configure({
         instanceId,
         relaySecret,
         wsEndpoint,
+        externalUrl: cbExternalUrl,
       });
       fastify.cloudRelay.connect();
 

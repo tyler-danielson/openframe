@@ -1,5 +1,7 @@
 import fp from "fastify-plugin";
 import type { FastifyPluginAsync } from "fastify";
+import { eq, and } from "drizzle-orm";
+import { systemSettings } from "@openframe/database/schema";
 import { CloudRelay } from "../services/cloud-relay.js";
 import { getCategorySettings } from "../routes/settings/index.js";
 
@@ -30,10 +32,25 @@ export const cloudPlugin: FastifyPluginAsync = fp(
 
       if (enabled === "true" && instanceId && relaySecret && wsEndpoint) {
         fastify.relaySecret = relaySecret;
+
+        // Read external URL for relay auth
+        const [externalUrlSetting] = await fastify.db
+          .select()
+          .from(systemSettings)
+          .where(
+            and(
+              eq(systemSettings.category, "server"),
+              eq(systemSettings.key, "external_url")
+            )
+          )
+          .limit(1);
+        const externalUrl = externalUrlSetting?.value || undefined;
+
         relay.configure({
           instanceId,
           relaySecret,
           wsEndpoint,
+          externalUrl,
         });
         relay.connect();
         fastify.log.info("[cloud] Cloud relay initialized and connecting");
