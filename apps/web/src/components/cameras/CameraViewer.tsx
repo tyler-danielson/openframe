@@ -26,7 +26,8 @@ export function CameraViewer({
   const imgRef = useRef<HTMLImageElement>(null);
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval>>();
   const forceReconnectRef = useRef<ReturnType<typeof setInterval>>();
-  const { accessToken } = useAuthStore();
+  const { accessToken, apiKey } = useAuthStore();
+  const authToken = accessToken || apiKey;
 
   const FORCE_RECONNECT_MS = 15 * 60 * 1000;
 
@@ -43,23 +44,23 @@ export function CameraViewer({
     if (type === "standalone") {
       const cam = camera as Camera;
       if (useMjpeg && cam.mjpegUrl) {
-        return `${api.getCameraStreamUrl(cam.id)}?token=${accessToken}`;
+        return `${api.getCameraStreamUrl(cam.id)}?token=${authToken}`;
       }
       if (cam.snapshotUrl || cam.rtspUrl) {
         // Backend handles derivation of snapshot URL from RTSP URL
-        return `${api.getCameraSnapshotUrl(cam.id)}?token=${accessToken}&t=${Date.now()}`;
+        return `${api.getCameraSnapshotUrl(cam.id)}?token=${authToken}&t=${Date.now()}`;
       }
       // Fallback to stream if no snapshot
       if (cam.mjpegUrl) {
-        return `${api.getCameraStreamUrl(cam.id)}?token=${accessToken}`;
+        return `${api.getCameraStreamUrl(cam.id)}?token=${authToken}`;
       }
       return null;
     } else {
       // HA camera
       if (useMjpeg) {
-        return `${api.getHACameraStreamUrl(cameraId)}?token=${accessToken}`;
+        return `${api.getHACameraStreamUrl(cameraId)}?token=${authToken}`;
       }
-      return `${api.getHACameraSnapshotUrl(cameraId)}?token=${accessToken}&t=${Date.now()}`;
+      return `${api.getHACameraSnapshotUrl(cameraId)}?token=${authToken}&t=${Date.now()}`;
     }
   };
 
@@ -102,7 +103,7 @@ export function CameraViewer({
         clearInterval(refreshIntervalRef.current);
       }
     };
-  }, [cameraId, type, useMjpeg, accessToken, hasError]);
+  }, [cameraId, type, useMjpeg, authToken, hasError]);
 
   // 15-minute force reconnect for img-based streams
   useEffect(() => {

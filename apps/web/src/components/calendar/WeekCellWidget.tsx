@@ -108,7 +108,8 @@ function NextWeekWidget({
 
 // Camera Widget - shows first available camera feed
 function CameraWidget() {
-  const { accessToken } = useAuthStore();
+  const { accessToken, apiKey } = useAuthStore();
+  const authToken = accessToken || apiKey;
   const [imageLoaded, setImageLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -142,9 +143,9 @@ function CameraWidget() {
   const getSnapshotUrl = () => {
     if (!camera) return null;
     if (camera.type === "standalone") {
-      return `${api.getCameraSnapshotUrl(camera.camera.id)}?token=${accessToken}&t=${Date.now()}`;
+      return `${api.getCameraSnapshotUrl(camera.camera.id)}?token=${authToken}&t=${Date.now()}`;
     }
-    return `${api.getHACameraSnapshotUrl(camera.camera.entityId)}?token=${accessToken}&t=${Date.now()}`;
+    return `${api.getHACameraSnapshotUrl(camera.camera.entityId)}?token=${authToken}&t=${Date.now()}`;
   };
 
   // Refresh snapshot periodically

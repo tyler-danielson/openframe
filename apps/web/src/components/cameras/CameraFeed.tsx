@@ -53,7 +53,8 @@ export function CameraFeed({
   const imgRef = useRef<HTMLImageElement>(null);
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval>>();
   const forceReconnectRef = useRef<ReturnType<typeof setInterval>>();
-  const { accessToken } = useAuthStore();
+  const { accessToken, apiKey } = useAuthStore();
+  const authToken = accessToken || apiKey;
 
   const FORCE_RECONNECT_MS = 15 * 60 * 1000;
 
@@ -111,14 +112,14 @@ export function CameraFeed({
   // Get the appropriate URL for MJPEG/snapshot modes
   const getImageUrl = useCallback(() => {
     if (streamMode === "mjpeg" && camera.mjpegUrl) {
-      return `${api.getCameraStreamUrl(camera.id)}?token=${accessToken}`;
+      return `${api.getCameraStreamUrl(camera.id)}?token=${authToken}`;
     }
     if (camera.snapshotUrl || camera.rtspUrl) {
       // Backend handles derivation of snapshot URL from RTSP URL
-      return `${api.getCameraSnapshotUrl(camera.id)}?token=${accessToken}&t=${Date.now()}`;
+      return `${api.getCameraSnapshotUrl(camera.id)}?token=${authToken}&t=${Date.now()}`;
     }
     return null;
-  }, [camera.id, camera.mjpegUrl, camera.snapshotUrl, camera.rtspUrl, streamMode, accessToken]);
+  }, [camera.id, camera.mjpegUrl, camera.snapshotUrl, camera.rtspUrl, streamMode, authToken]);
 
   // Refresh snapshot periodically
   useEffect(() => {
@@ -126,7 +127,7 @@ export function CameraFeed({
 
     const refresh = () => {
       if (imgRef.current) {
-        const newUrl = `${api.getCameraSnapshotUrl(camera.id)}?token=${accessToken}&t=${Date.now()}`;
+        const newUrl = `${api.getCameraSnapshotUrl(camera.id)}?token=${authToken}&t=${Date.now()}`;
         imgRef.current.src = newUrl;
       }
     };
@@ -138,7 +139,7 @@ export function CameraFeed({
         clearInterval(refreshIntervalRef.current);
       }
     };
-  }, [camera.id, camera.snapshotUrl, camera.rtspUrl, refreshInterval, streamMode, accessToken]);
+  }, [camera.id, camera.snapshotUrl, camera.rtspUrl, refreshInterval, streamMode, authToken]);
 
   // 15-minute force reconnect for img-based streams
   useEffect(() => {

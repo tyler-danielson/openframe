@@ -34,16 +34,17 @@ export function HACameraFeed({
   const imgRef = useRef<HTMLImageElement>(null);
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval>>();
   const forceReconnectRef = useRef<ReturnType<typeof setInterval>>();
-  const { accessToken } = useAuthStore();
+  const { accessToken, apiKey } = useAuthStore();
+  const authToken = accessToken || apiKey;
 
   const FORCE_RECONNECT_MS = 15 * 60 * 1000;
 
   // Get the appropriate URL based on mode
   const getImageUrl = () => {
     if (useStream) {
-      return `${api.getHACameraStreamUrl(camera.entityId)}?token=${accessToken}`;
+      return `${api.getHACameraStreamUrl(camera.entityId)}?token=${authToken}`;
     }
-    return `${api.getHACameraSnapshotUrl(camera.entityId)}?token=${accessToken}&t=${Date.now()}`;
+    return `${api.getHACameraSnapshotUrl(camera.entityId)}?token=${authToken}&t=${Date.now()}`;
   };
 
   // Refresh snapshot periodically when not streaming
@@ -52,7 +53,7 @@ export function HACameraFeed({
 
     const refresh = () => {
       if (imgRef.current) {
-        const newUrl = `${api.getHACameraSnapshotUrl(camera.entityId)}?token=${accessToken}&t=${Date.now()}`;
+        const newUrl = `${api.getHACameraSnapshotUrl(camera.entityId)}?token=${authToken}&t=${Date.now()}`;
         imgRef.current.src = newUrl;
       }
     };
@@ -64,7 +65,7 @@ export function HACameraFeed({
         clearInterval(refreshIntervalRef.current);
       }
     };
-  }, [camera.entityId, useStream, accessToken, refreshInterval]);
+  }, [camera.entityId, useStream, authToken, refreshInterval]);
 
   // 15-minute force reconnect
   useEffect(() => {
@@ -75,7 +76,7 @@ export function HACameraFeed({
     return () => {
       if (forceReconnectRef.current) clearInterval(forceReconnectRef.current);
     };
-  }, [camera.entityId, useStream, accessToken]);
+  }, [camera.entityId, useStream, authToken]);
 
   const handleLoad = () => {
     setIsLoading(false);

@@ -23,7 +23,8 @@ export function CameraThumbnail({
   const [imageLoaded, setImageLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
-  const { accessToken } = useAuthStore();
+  const { accessToken, apiKey } = useAuthStore();
+  const authToken = accessToken || apiKey;
 
   const name = type === "standalone"
     ? (camera as CameraType).name
@@ -39,11 +40,11 @@ export function CameraThumbnail({
       const cam = camera as CameraType;
       if (cam.snapshotUrl || cam.rtspUrl) {
         // Backend handles derivation of snapshot URL from RTSP URL
-        return `${api.getCameraSnapshotUrl(cam.id)}?token=${accessToken}&t=${Date.now()}`;
+        return `${api.getCameraSnapshotUrl(cam.id)}?token=${authToken}&t=${Date.now()}`;
       }
       return null;
     } else {
-      return `${api.getHACameraSnapshotUrl(cameraId)}?token=${accessToken}&t=${Date.now()}`;
+      return `${api.getHACameraSnapshotUrl(cameraId)}?token=${authToken}&t=${Date.now()}`;
     }
   };
 
@@ -55,7 +56,7 @@ export function CameraThumbnail({
         imgRef.current.src = url;
       }
     }
-  }, [showPreview, cameraId, type, accessToken]);
+  }, [showPreview, cameraId, type, authToken]);
 
   const handleLoad = () => {
     setImageLoaded(true);
