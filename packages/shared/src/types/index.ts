@@ -459,6 +459,17 @@ export interface AutomationNotification {
   dismissed: boolean;
 }
 
+// Assumptions - AI behavior rules
+export interface Assumption {
+  id: string;
+  userId: string;
+  text: string;
+  enabled: boolean;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // News types
 export interface NewsFeed {
   id: string;

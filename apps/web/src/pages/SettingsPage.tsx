@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
-import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Tablet, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat, CreditCard, Server, Puzzle, LifeBuoy, Send } from "lucide-react";
+import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Tablet, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat, CreditCard, Server, Puzzle, LifeBuoy, Send, Lightbulb } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { Camera } from "@openframe/shared";
 import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type CompanionUser, type CompanionPermissions, type CloudInstance, type CloudBillingInfo, type PlanLimits, type SupportTicketSummary, type MyTicketDetail } from "../services/api";
@@ -40,7 +40,7 @@ import { buildOAuthUrl } from "../utils/oauth-scopes";
 import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings } from "@openframe/shared";
 
 // Parent tabs for URL routing
-type SettingsTab = "account" | "calendars" | "tasks" | "modules" | "entertainment" | "appearance" | "ai" | "automations" | "cameras" | "homeassistant" | "kiosks" | "companion" | "cloud" | "system" | "billing" | "instances" | "support";
+type SettingsTab = "account" | "calendars" | "tasks" | "modules" | "entertainment" | "appearance" | "ai" | "assumptions" | "automations" | "cameras" | "homeassistant" | "kiosks" | "companion" | "cloud" | "system" | "billing" | "instances" | "support";
 
 // Entertainment sub-tabs
 type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobookshelf" | "news";
@@ -48,7 +48,7 @@ type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobooksh
 // Appearance sub-tabs
 type AppearanceSubTab = "display" | "photos" | "screensaver" | "sidebar";
 
-const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "modules", "entertainment", "appearance", "ai", "automations", "cameras", "homeassistant", "kiosks", "companion", "cloud", "system", "billing", "instances", "support"];
+const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "modules", "entertainment", "appearance", "ai", "assumptions", "automations", "cameras", "homeassistant", "kiosks", "companion", "cloud", "system", "billing", "instances", "support"];
 const validEntertainmentSubTabs: EntertainmentSubTab[] = ["sports", "spotify", "iptv", "plex", "audiobookshelf", "news"];
 const validAppearanceSubTabs: AppearanceSubTab[] = ["display", "photos", "screensaver", "sidebar"];
 
@@ -60,6 +60,7 @@ const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; descript
   { id: "entertainment", label: "Entertainment", icon: <Play className="h-4 w-4" />, description: "Sports, music & media", moduleId: "__entertainment__" },
   { id: "appearance", label: "Appearance", icon: <Monitor className="h-4 w-4" />, description: "Theme, photos & screensaver" },
   { id: "ai", label: "AI", icon: <Sparkles className="h-4 w-4" />, description: "Assistant & models", moduleId: "__ai__" },
+  { id: "assumptions", label: "Assumptions", icon: <Lightbulb className="h-4 w-4" />, description: "AI behavior rules" },
   { id: "automations", label: "Automations", icon: <Zap className="h-4 w-4" />, description: "Triggers & actions", moduleId: "automations" },
   { id: "cameras", label: "Cameras", icon: <Video className="h-4 w-4" />, description: "Feeds & streams", moduleId: "cameras" },
   { id: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" />, description: "Devices & entities", moduleId: "homeassistant" },
@@ -5685,6 +5686,159 @@ function getActionIcon(actionType: AutomationActionType) {
   }
 }
 
+function AssumptionsSettings() {
+  const queryClient = useQueryClient();
+  const [newText, setNewText] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+
+  const { data: assumptions = [], isLoading } = useQuery({
+    queryKey: ["assumptions"],
+    queryFn: () => api.getAssumptions(),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (text: string) => api.createAssumption(text),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["assumptions"] });
+      setNewText("");
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<{ text: string; enabled: boolean }> }) =>
+      api.updateAssumption(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["assumptions"] });
+      setEditingId(null);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.deleteAssumption(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assumptions"] }),
+  });
+
+  const handleAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newText.trim()) createMutation.mutate(newText.trim());
+  };
+
+  const handleSaveEdit = (id: string) => {
+    if (editText.trim()) {
+      updateMutation.mutate({ id, data: { text: editText.trim() } });
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Lightbulb className="h-5 w-5 text-primary" />
+          AI Assumptions
+        </CardTitle>
+        <CardDescription>
+          Rules and instructions that all AI features will follow. Enable or disable individual assumptions as needed.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : assumptions.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <Lightbulb className="mx-auto h-8 w-8 mb-2 opacity-50" />
+            <p>No assumptions yet</p>
+            <p className="text-sm">Add rules to guide AI behavior across chat, automations, and more.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {assumptions.map((a) => (
+              <div
+                key={a.id}
+                className={cn(
+                  "flex items-start gap-3 rounded-lg border border-border p-3 transition-colors",
+                  !a.enabled && "opacity-50"
+                )}
+              >
+                <button
+                  onClick={() => updateMutation.mutate({ id: a.id, data: { enabled: !a.enabled } })}
+                  className="mt-0.5 shrink-0"
+                  title={a.enabled ? "Disable" : "Enable"}
+                >
+                  {a.enabled ? (
+                    <ToggleRight className="h-5 w-5 text-primary" />
+                  ) : (
+                    <ToggleLeft className="h-5 w-5 text-muted-foreground" />
+                  )}
+                </button>
+
+                <div className="flex-1 min-w-0">
+                  {editingId === a.id ? (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleSaveEdit(a.id);
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                        className="flex-1 rounded border border-border bg-background px-2 py-1 text-sm focus:border-primary focus:outline-none"
+                        autoFocus
+                      />
+                      <Button size="sm" onClick={() => handleSaveEdit(a.id)}>
+                        <Check className="h-3 w-3" />
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <p
+                      className="text-sm cursor-pointer hover:text-primary transition-colors"
+                      onClick={() => { setEditingId(a.id); setEditText(a.text); }}
+                      title="Click to edit"
+                    >
+                      {a.text}
+                    </p>
+                  )}
+                </div>
+
+                {editingId !== a.id && (
+                  <button
+                    onClick={() => deleteMutation.mutate(a.id)}
+                    className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"
+                    title="Delete"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Add new assumption */}
+        <form onSubmit={handleAdd} className="flex gap-2 pt-2">
+          <input
+            type="text"
+            value={newText}
+            onChange={(e) => setNewText(e.target.value)}
+            placeholder="Add a new assumption..."
+            className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+          <Button type="submit" disabled={!newText.trim() || createMutation.isPending}>
+            <Plus className="h-4 w-4 mr-1" />
+            Add
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
 function AutomationsSettings() {
   const queryClient = useQueryClient();
   const [prompt, setPrompt] = useState("");
@@ -11032,6 +11186,11 @@ export function SettingsPage() {
           {/* AI Tab */}
           {activeTab === "ai" && (
             <AISettings />
+          )}
+
+          {/* Assumptions Tab */}
+          {activeTab === "assumptions" && (
+            <AssumptionsSettings />
           )}
 
           {/* Automations Tab */}

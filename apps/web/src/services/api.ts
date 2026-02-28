@@ -31,6 +31,7 @@ import type {
   AutomationActionType,
   AutomationActionConfig,
   AutomationNotification,
+  Assumption,
   NewsFeed,
   NewsArticle,
   NewsHeadline,
@@ -1993,6 +1994,30 @@ class ApiClient {
 
   async clearAutomationNotifications(): Promise<void> {
     await this.fetch("/automations/notifications", { method: "DELETE" });
+  }
+
+  // Assumptions
+
+  async getAssumptions(): Promise<Assumption[]> {
+    return this.fetch<Assumption[]>("/assumptions");
+  }
+
+  async createAssumption(text: string): Promise<Assumption> {
+    return this.fetch<Assumption>("/assumptions", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+  }
+
+  async updateAssumption(id: string, data: Partial<{ text: string; enabled: boolean; sortOrder: number }>): Promise<Assumption> {
+    return this.fetch<Assumption>(`/assumptions/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteAssumption(id: string): Promise<void> {
+    await this.fetch(`/assumptions/${id}`, { method: "DELETE" });
   }
 
   // News

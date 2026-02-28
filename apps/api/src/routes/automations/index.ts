@@ -5,6 +5,7 @@ import {
   homeAssistantConfig,
   homeAssistantEntities,
   systemSettings,
+  assumptions,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { getAutomationEngine } from "../../services/automation-engine.js";
@@ -261,8 +262,22 @@ export const automationRoutes: FastifyPluginAsync = async (fastify) => {
         domain: s.entity_id.split(".")[0] || "",
       }));
 
+      // Fetch user assumptions to include in AI context
+      const userAssumptions = await fastify.db
+        .select({ text: assumptions.text })
+        .from(assumptions)
+        .where(
+          and(
+            eq(assumptions.userId, user.id),
+            eq(assumptions.enabled, true)
+          )
+        );
+
       // Build prompt and call AI
-      const systemPrompt = buildParsePrompt(entities);
+      let systemPrompt = buildParsePrompt(entities);
+      if (userAssumptions.length > 0) {
+        systemPrompt += `\n\nUser assumptions (always follow these rules):\n${userAssumptions.map((a) => `- ${a.text}`).join("\n")}`;
+      }
 
       try {
         const aiResponse = await callAI(provider, apiKeySetting.value, systemPrompt, prompt);

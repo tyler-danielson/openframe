@@ -49,6 +49,7 @@ import { moduleRoutes } from "./routes/modules/index.js";
 import { moduleGateHook } from "./plugins/module-gate.js";
 import { companionAccessRoutes } from "./routes/companion/access.js";
 import { companionDataRoutes } from "./routes/companion/data.js";
+import { assumptionRoutes } from "./routes/assumptions/index.js";
 import { cloudRoutes } from "./routes/cloud/index.js";
 import { adminRoutes } from "./routes/admin/index.js";
 import { supportRoutes } from "./routes/support/index.js";
@@ -207,6 +208,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(moduleRoutes, { prefix: "/api/v1/modules" });
   await app.register(companionAccessRoutes, { prefix: "/api/v1/companion/access" });
   await app.register(companionDataRoutes, { prefix: "/api/v1/companion/data" });
+  await app.register(assumptionRoutes, { prefix: "/api/v1/assumptions" });
   await app.register(cloudRoutes, { prefix: "/api/v1/cloud" });
   await app.register(adminRoutes, { prefix: "/api/v1/admin" });
   await app.register(supportRoutes, { prefix: "/api/v1/support" });

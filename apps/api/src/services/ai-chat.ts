@@ -11,6 +11,7 @@ import {
   sportsGames,
   homeAssistantRooms,
   homeAssistantEntities,
+  assumptions,
 } from "@openframe/database/schema";
 import { getSystemSetting, getCategorySettings } from "../routes/settings/index.js";
 
@@ -39,6 +40,7 @@ export async function buildChatContext(
     headlines,
     haData,
     customInstructions,
+    userAssumptions,
   ] = await Promise.all([
     fetchUpcomingEvents(db, userId, todayStart, threeDaysOut),
     fetchIncompleteTasks(db, userId),
@@ -47,6 +49,7 @@ export async function buildChatContext(
     fetchHeadlines(db, userId),
     fetchHAEntities(db, userId),
     getSystemSetting(db, "chat", "system_prompt_extra"),
+    fetchAssumptions(db, userId),
   ]);
 
   // Build system prompt sections
@@ -130,6 +133,15 @@ export async function buildChatContext(
       for (const entity of room.entities) {
         sections.push(`- ${entity.displayName || entity.entityId}: ${entity.state || "unknown"}`);
       }
+    }
+  }
+
+  // User assumptions (AI behavior rules)
+  if (userAssumptions.length > 0) {
+    sections.push("");
+    sections.push("## USER ASSUMPTIONS (always follow these rules)");
+    for (const a of userAssumptions) {
+      sections.push(`- ${a.text}`);
     }
   }
 
@@ -335,6 +347,14 @@ async function fetchHAEntities(db: any, userId: string) {
   }));
 
   return { rooms: roomData };
+}
+
+async function fetchAssumptions(db: any, userId: string) {
+  return db
+    .select({ text: assumptions.text })
+    .from(assumptions)
+    .where(and(eq(assumptions.userId, userId), eq(assumptions.enabled, true)))
+    .orderBy(assumptions.sortOrder);
 }
 
 // ---- Multi-provider streaming ----

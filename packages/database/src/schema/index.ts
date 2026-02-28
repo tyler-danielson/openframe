@@ -1348,6 +1348,36 @@ export const haAutomationsRelations = relations(haAutomations, ({ one }) => ({
   }),
 }));
 
+// Assumptions - AI behavior rules
+export const assumptions = pgTable(
+  "assumptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    enabled: boolean("enabled").default(true).notNull(),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("assumptions_user_idx").on(table.userId),
+  ]
+);
+
+export const assumptionsRelations = relations(assumptions, ({ one }) => ({
+  user: one(users, {
+    fields: [assumptions.userId],
+    references: [users.id],
+  }),
+}));
+
 // News Feeds - RSS feed subscriptions
 export const newsFeeds = pgTable(
   "news_feeds",
@@ -1698,6 +1728,7 @@ export type FavoriteSportsTeam = typeof favoriteSportsTeams.$inferSelect;
 export type SportsGame = typeof sportsGames.$inferSelect;
 export type HAEntityTimer = typeof haEntityTimers.$inferSelect;
 export type HAAutomation = typeof haAutomations.$inferSelect;
+export type Assumption = typeof assumptions.$inferSelect;
 export type NewsFeed = typeof newsFeeds.$inferSelect;
 export type NewsArticle = typeof newsArticles.$inferSelect;
 export type RemarkableConfig = typeof remarkableConfig.$inferSelect;
