@@ -28,11 +28,15 @@ export function HACameraFeed({
   const refreshInterval = (camera.refreshInterval || 5) * 1000; // Convert to ms
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [isStalled, setIsStalled] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const [useStream, setUseStream] = useState(true);
   const imgRef = useRef<HTMLImageElement>(null);
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval>>();
+  const forceReconnectRef = useRef<ReturnType<typeof setInterval>>();
   const { accessToken } = useAuthStore();
+
+  const FORCE_RECONNECT_MS = 15 * 60 * 1000;
 
   // Get the appropriate URL based on mode
   const getImageUrl = () => {
@@ -62,9 +66,21 @@ export function HACameraFeed({
     };
   }, [camera.entityId, useStream, accessToken, refreshInterval]);
 
+  // 15-minute force reconnect
+  useEffect(() => {
+    forceReconnectRef.current = setInterval(() => {
+      handleRefresh();
+    }, FORCE_RECONNECT_MS);
+
+    return () => {
+      if (forceReconnectRef.current) clearInterval(forceReconnectRef.current);
+    };
+  }, [camera.entityId, useStream, accessToken]);
+
   const handleLoad = () => {
     setIsLoading(false);
     setHasError(false);
+    setIsStalled(false);
   };
 
   const handleError = () => {
@@ -75,6 +91,7 @@ export function HACameraFeed({
   const handleRefresh = () => {
     setIsLoading(true);
     setHasError(false);
+    setIsStalled(false);
     if (imgRef.current) {
       imgRef.current.src = getImageUrl();
     }
@@ -153,7 +170,11 @@ export function HACameraFeed({
             <div
               className={cn(
                 "h-2 w-2 rounded-full",
-                hasError ? "bg-red-500" : "bg-green-500 animate-pulse"
+                hasError
+                  ? "bg-red-500"
+                  : isStalled
+                  ? "bg-amber-500 animate-pulse"
+                  : "bg-green-500 animate-pulse"
               )}
             />
             <span className="text-sm font-medium text-white drop-shadow">
@@ -178,16 +199,14 @@ export function HACameraFeed({
               {useStream ? "LIVE" : "SNAP"}
             </button>
 
-            {/* Refresh button (snapshot mode only) */}
-            {!useStream && (
-              <button
-                onClick={handleRefresh}
-                className="rounded p-1.5 text-white/80 hover:bg-white/20 hover:text-white"
-                title="Refresh"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </button>
-            )}
+            {/* Refresh button (all modes) */}
+            <button
+              onClick={handleRefresh}
+              className="rounded p-1.5 text-white/80 hover:bg-white/20 hover:text-white"
+              title="Refresh"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
           </div>
 
           {/* Fullscreen toggle */}

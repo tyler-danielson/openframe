@@ -47,9 +47,15 @@ export function CameraFeed({
   const [mediamtxAvailable, setMediamtxAvailable] = useState<boolean | null>(null);
   const [streamUrls, setStreamUrls] = useState<{ webrtcUrl?: string; hlsUrl?: string } | null>(null);
 
+  const [isStalled, setIsStalled] = useState(false);
+  const [webrtcKey, setWebrtcKey] = useState(0);
+
   const imgRef = useRef<HTMLImageElement>(null);
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval>>();
+  const forceReconnectRef = useRef<ReturnType<typeof setInterval>>();
   const { accessToken } = useAuthStore();
+
+  const FORCE_RECONNECT_MS = 15 * 60 * 1000;
 
   const refreshInterval = camera.settings?.refreshInterval || 5;
   const aspectRatio = camera.settings?.aspectRatio || "16:9";
@@ -134,6 +140,19 @@ export function CameraFeed({
     };
   }, [camera.id, camera.snapshotUrl, camera.rtspUrl, refreshInterval, streamMode, accessToken]);
 
+  // 15-minute force reconnect for img-based streams
+  useEffect(() => {
+    if (streamMode === "webrtc" || streamMode === "hls") return;
+
+    forceReconnectRef.current = setInterval(() => {
+      handleRefresh();
+    }, FORCE_RECONNECT_MS);
+
+    return () => {
+      if (forceReconnectRef.current) clearInterval(forceReconnectRef.current);
+    };
+  }, [streamMode]);
+
   // Safety net: clear loading state when there's no image URL and we're not in WebRTC mode
   useEffect(() => {
     const webrtcMode = streamMode === "webrtc" || streamMode === "hls";
@@ -155,7 +174,11 @@ export function CameraFeed({
   const handleRefresh = () => {
     setIsLoading(true);
     setHasError(false);
-    if (imgRef.current) {
+    setIsStalled(false);
+    if (streamMode === "webrtc" || streamMode === "hls") {
+      // Force remount of WebRTCPlayer
+      setWebrtcKey((k) => k + 1);
+    } else if (imgRef.current) {
       imgRef.current.src = getImageUrl() || "";
     }
   };
@@ -235,14 +258,17 @@ export function CameraFeed({
         {/* WebRTC/HLS mode */}
         {isWebRTCMode && streamUrls && (
           <WebRTCPlayer
+            key={webrtcKey}
             webrtcUrl={streamUrls.webrtcUrl!}
             hlsUrl={streamUrls.hlsUrl}
             className="h-full w-full"
+            forceReconnectInterval={FORCE_RECONNECT_MS}
             onLoad={handleLoad}
             onError={() => {
               setHasError(true);
               setIsLoading(false);
             }}
+            onStalled={() => setIsStalled(true)}
           />
         )}
 
@@ -303,7 +329,11 @@ export function CameraFeed({
             <div
               className={cn(
                 "h-2 w-2 rounded-full",
-                hasError ? "bg-red-500" : "bg-green-500 animate-pulse"
+                hasError
+                  ? "bg-red-500"
+                  : isStalled
+                  ? "bg-amber-500 animate-pulse"
+                  : "bg-green-500 animate-pulse"
               )}
             />
             <span className="text-sm font-medium text-white drop-shadow">
@@ -357,16 +387,14 @@ export function CameraFeed({
               </button>
             )}
 
-            {/* Refresh button (snapshot mode only) */}
-            {streamMode === "snapshot" && (camera.snapshotUrl || camera.rtspUrl) && (
-              <button
-                onClick={handleRefresh}
-                className="rounded p-1.5 text-white/80 hover:bg-white/20 hover:text-white"
-                title="Refresh"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </button>
-            )}
+            {/* Refresh button (all modes) */}
+            <button
+              onClick={handleRefresh}
+              className="rounded p-1.5 text-white/80 hover:bg-white/20 hover:text-white"
+              title="Refresh"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
           </div>
 
           {/* Fullscreen toggle */}

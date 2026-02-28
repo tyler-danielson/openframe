@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Camera } from "lucide-react";
 import { api } from "../../services/api";
 import { useHAWebSocket } from "../../stores/homeassistant-ws";
@@ -23,6 +23,7 @@ export function HACameraWidget({ config, style, isBuilder }: HACameraWidgetProps
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastFetchedAt, setLastFetchedAt] = useState(0);
+  const consecutiveFailuresRef = useRef(0);
   const { isStale, ageLabel } = useDataFreshness(lastFetchedAt, STALE_THRESHOLDS.haCamera);
 
   // Camera snapshots use REST API directly — no WebSocket dependency needed
@@ -39,9 +40,13 @@ export function HACameraWidget({ config, style, isBuilder }: HACameraWidgetProps
         });
         setError(null);
         setLastFetchedAt(Date.now());
+        consecutiveFailuresRef.current = 0;
       } catch (err) {
         console.error("Failed to fetch camera snapshot:", err);
-        setError("Failed to load camera");
+        consecutiveFailuresRef.current++;
+        if (consecutiveFailuresRef.current >= 3) {
+          setError("Failed to load camera");
+        }
       }
     };
 

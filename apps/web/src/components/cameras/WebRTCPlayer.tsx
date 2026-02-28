@@ -13,8 +13,10 @@ interface WebRTCPlayerProps {
   className?: string;
   onLoad?: () => void;
   onError?: (error: Error) => void;
+  onStalled?: () => void;
   autoReconnect?: boolean;
   reconnectInterval?: number;
+  forceReconnectInterval?: number;
 }
 
 type ConnectionState = "connecting" | "connected" | "disconnected" | "failed";
@@ -25,16 +27,22 @@ export function WebRTCPlayer({
   className,
   onLoad,
   onError,
+  onStalled,
   autoReconnect = true,
   reconnectInterval = 5000,
+  forceReconnectInterval = 15 * 60 * 1000,
 }: WebRTCPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const stallCheckRef = useRef<ReturnType<typeof setInterval>>();
+  const forceReconnectRef = useRef<ReturnType<typeof setInterval>>();
+  const lastTimeRef = useRef(0);
 
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [useHlsFallback, setUseHlsFallback] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const [isStalled, setIsStalled] = useState(false);
 
   const cleanup = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -233,9 +241,58 @@ export function WebRTCPlayer({
     }
   }, [useHlsFallback, hlsUrl, onLoad, onError]);
 
+  // Stall detection: check video.currentTime every 10s
+  useEffect(() => {
+    if (connectionState !== "connected" || useHlsFallback) {
+      setIsStalled(false);
+      return;
+    }
+
+    let unchangedCount = 0;
+
+    stallCheckRef.current = setInterval(() => {
+      if (videoRef.current) {
+        const ct = videoRef.current.currentTime;
+        if (ct > 0 && ct === lastTimeRef.current) {
+          unchangedCount++;
+          if (unchangedCount >= 3) { // 30s with no change
+            setIsStalled(true);
+            onStalled?.();
+            // Auto-reconnect
+            connectWebRTC();
+            unchangedCount = 0;
+          }
+        } else {
+          unchangedCount = 0;
+          setIsStalled(false);
+          lastTimeRef.current = ct;
+        }
+      }
+    }, 10000);
+
+    return () => {
+      if (stallCheckRef.current) clearInterval(stallCheckRef.current);
+    };
+  }, [connectionState, useHlsFallback, onStalled, connectWebRTC]);
+
+  // Periodic force reconnect
+  useEffect(() => {
+    if (!forceReconnectInterval || useHlsFallback) return;
+
+    forceReconnectRef.current = setInterval(() => {
+      lastTimeRef.current = 0;
+      connectWebRTC();
+    }, forceReconnectInterval);
+
+    return () => {
+      if (forceReconnectRef.current) clearInterval(forceReconnectRef.current);
+    };
+  }, [forceReconnectInterval, useHlsFallback, connectWebRTC]);
+
   const handleRetry = () => {
     setRetryCount(0);
     setUseHlsFallback(false);
+    setIsStalled(false);
     connectWebRTC();
   };
 
@@ -264,10 +321,16 @@ export function WebRTCPlayer({
 
       {/* Connection state indicator */}
       <div className="absolute top-2 right-2 flex items-center gap-1">
-        {connectionState === "connected" && (
+        {connectionState === "connected" && !isStalled && (
           <div className="flex items-center gap-1 rounded bg-green-500/80 px-2 py-0.5 text-xs text-white">
             <Wifi className="h-3 w-3" />
             {useHlsFallback ? "HLS" : "WebRTC"}
+          </div>
+        )}
+        {connectionState === "connected" && isStalled && (
+          <div className="flex items-center gap-1 rounded bg-amber-500/80 px-2 py-0.5 text-xs text-white">
+            <AlertCircle className="h-3 w-3" />
+            Stalled
           </div>
         )}
         {connectionState === "connecting" && (

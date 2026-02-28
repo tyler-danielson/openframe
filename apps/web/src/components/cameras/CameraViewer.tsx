@@ -21,10 +21,14 @@ export function CameraViewer({
 }: CameraViewerProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [isStalled, setIsStalled] = useState(false);
   const [useMjpeg, setUseMjpeg] = useState(true);
   const imgRef = useRef<HTMLImageElement>(null);
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval>>();
+  const forceReconnectRef = useRef<ReturnType<typeof setInterval>>();
   const { accessToken } = useAuthStore();
+
+  const FORCE_RECONNECT_MS = 15 * 60 * 1000;
 
   const name = type === "standalone"
     ? (camera as Camera).name
@@ -100,9 +104,21 @@ export function CameraViewer({
     };
   }, [cameraId, type, useMjpeg, accessToken, hasError]);
 
+  // 15-minute force reconnect for img-based streams
+  useEffect(() => {
+    forceReconnectRef.current = setInterval(() => {
+      handleRefresh();
+    }, FORCE_RECONNECT_MS);
+
+    return () => {
+      if (forceReconnectRef.current) clearInterval(forceReconnectRef.current);
+    };
+  }, [cameraId, useMjpeg, accessToken]);
+
   const handleLoad = () => {
     setIsLoading(false);
     setHasError(false);
+    setIsStalled(false);
   };
 
   const handleError = () => {
@@ -113,6 +129,7 @@ export function CameraViewer({
   const handleRefresh = () => {
     setIsLoading(true);
     setHasError(false);
+    setIsStalled(false);
     if (imgRef.current) {
       const url = getImageUrl();
       if (url) {
@@ -183,10 +200,14 @@ export function CameraViewer({
       <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5 px-2 py-1 rounded bg-black/60">
         <div className={cn(
           "h-2 w-2 rounded-full",
-          hasError ? "bg-red-500" : "bg-green-500 animate-pulse"
+          hasError
+            ? "bg-red-500"
+            : isStalled
+            ? "bg-amber-500 animate-pulse"
+            : "bg-green-500 animate-pulse"
         )} />
         <span className="text-[10px] font-semibold text-white uppercase tracking-wide">
-          {hasError ? "Error" : useMjpeg ? "Live" : "Snap"}
+          {hasError ? "Error" : isStalled ? "Stalled" : useMjpeg ? "Live" : "Snap"}
         </span>
       </div>
 
@@ -256,16 +277,14 @@ export function CameraViewer({
               </button>
             )}
 
-            {/* Refresh button (snapshot mode only) */}
-            {!useMjpeg && (
-              <button
-                onClick={handleRefresh}
-                className="rounded p-1.5 text-white/80 hover:bg-white/20 hover:text-white"
-                title="Refresh"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </button>
-            )}
+            {/* Refresh button (all modes) */}
+            <button
+              onClick={handleRefresh}
+              className="rounded p-1.5 text-white/80 hover:bg-white/20 hover:text-white"
+              title="Refresh"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
           </div>
         </div>
       </div>
