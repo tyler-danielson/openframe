@@ -25,12 +25,7 @@ export const requireAdminPlugin = fp(
           });
         }
 
-        // In self-hosted mode, the single owner is always admin
-        if (!fastify.hostedMode) {
-          return;
-        }
-
-        // In hosted mode, check user role in database
+        // Check user role in database
         const [user] = await fastify.db
           .select({ role: users.role })
           .from(users)

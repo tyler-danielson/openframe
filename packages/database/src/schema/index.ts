@@ -2735,3 +2735,33 @@ export const matterDevicesRelations = relations(
     }),
   })
 );
+
+// Invitations - user invite links
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    name: text("name"),
+    role: userRoleEnum("role").notNull().default("member"),
+    token: uuid("token").notNull().unique().defaultRandom(),
+    invitedBy: uuid("invited_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("invitations_token_idx").on(table.token)]
+);
+
+export const invitationsRelations = relations(invitations, ({ one }) => ({
+  inviter: one(users, {
+    fields: [invitations.invitedBy],
+    references: [users.id],
+  }),
+}));
+
+export type Invitation = typeof invitations.$inferSelect;

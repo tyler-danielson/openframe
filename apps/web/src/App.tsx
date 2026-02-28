@@ -28,6 +28,7 @@ import { ChatPage } from "./pages/ChatPage";
 import { RoutinesPage } from "./pages/RoutinesPage";
 import { SetupPage } from "./pages/SetupPage";
 import { TvSetupPage } from "./pages/TvSetupPage";
+import { InviteAcceptPage } from "./pages/InviteAcceptPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { PlannerBuilderPage } from "./pages/PlannerBuilderPage";
 import { ProfileSettingsPage } from "./pages/ProfileSettingsPage";
@@ -237,6 +238,8 @@ export default function App() {
         <Route path="/setup" element={<SetupPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        {/* Public invite acceptance page */}
+        <Route path="/invite/:token" element={<InviteAcceptPage />} />
         {/* Public mobile upload page (accessed via QR code) */}
         <Route path="/upload/:token" element={<MobileUploadPage />} />
         {/* Public mobile recipe upload page (accessed via QR code) */}

@@ -460,6 +460,18 @@ export interface AutomationNotification {
 }
 
 // Assumptions - AI behavior rules
+export interface Invitation {
+  id: string;
+  email: string;
+  name: string | null;
+  role: "admin" | "member" | "viewer";
+  token: string;
+  invitedBy: string;
+  expiresAt: Date;
+  acceptedAt: Date | null;
+  createdAt: Date;
+}
+
 export interface Assumption {
   id: string;
   userId: string;

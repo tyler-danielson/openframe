@@ -32,6 +32,7 @@ import type {
   AutomationActionConfig,
   AutomationNotification,
   Assumption,
+  Invitation,
   NewsFeed,
   NewsArticle,
   NewsHeadline,
@@ -2018,6 +2019,85 @@ class ApiClient {
 
   async deleteAssumption(id: string): Promise<void> {
     await this.fetch(`/assumptions/${id}`, { method: "DELETE" });
+  }
+
+  // User Management
+
+  async getUsers(): Promise<
+    {
+      id: string;
+      email: string;
+      name: string | null;
+      avatarUrl: string | null;
+      role: string;
+      createdAt: string;
+    }[]
+  > {
+    return this.fetch("/users");
+  }
+
+  async inviteUser(data: {
+    email: string;
+    name?: string;
+    role: string;
+  }): Promise<{ invitation: Invitation; inviteUrl: string }> {
+    return this.fetch("/users/invite", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getPendingInvitations(): Promise<Invitation[]> {
+    return this.fetch("/users/invitations");
+  }
+
+  async revokeInvitation(id: string): Promise<void> {
+    await this.fetch(`/users/invitations/${id}`, { method: "DELETE" });
+  }
+
+  async getInvitation(
+    token: string
+  ): Promise<{
+    email: string;
+    name: string | null;
+    role: string;
+    invitedByName: string;
+  }> {
+    return this.fetch(`/users/invite/${token}`);
+  }
+
+  async acceptInvitation(
+    token: string,
+    data: { password: string; name?: string }
+  ): Promise<{
+    user: { id: string; email: string; name: string | null; role: string };
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+  }> {
+    return this.fetch(`/users/invite/${token}/accept`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateUserRole(
+    id: string,
+    role: string
+  ): Promise<{
+    id: string;
+    email: string;
+    name: string | null;
+    role: string;
+  }> {
+    return this.fetch(`/users/${id}/role`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    });
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await this.fetch(`/users/${id}`, { method: "DELETE" });
   }
 
   // News

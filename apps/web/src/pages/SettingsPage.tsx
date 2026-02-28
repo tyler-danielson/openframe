@@ -3,8 +3,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
 import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Tablet, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat, CreditCard, Server, Puzzle, LifeBuoy, Send, Lightbulb } from "lucide-react";
+import { Users, UserPlus } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import type { Camera } from "@openframe/shared";
+import type { Camera, Invitation } from "@openframe/shared";
 import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type CompanionUser, type CompanionPermissions, type CloudInstance, type CloudBillingInfo, type PlanLimits, type SupportTicketSummary, type MyTicketDetail } from "../services/api";
 import { useAuthStore } from "../stores/auth";
 import { isCloudMode, appPath, appUrl } from "../lib/cloud";
@@ -40,7 +41,7 @@ import { buildOAuthUrl } from "../utils/oauth-scopes";
 import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings } from "@openframe/shared";
 
 // Parent tabs for URL routing
-type SettingsTab = "account" | "calendars" | "tasks" | "modules" | "entertainment" | "appearance" | "ai" | "assumptions" | "automations" | "cameras" | "homeassistant" | "kiosks" | "companion" | "cloud" | "system" | "billing" | "instances" | "support";
+type SettingsTab = "account" | "calendars" | "tasks" | "modules" | "entertainment" | "appearance" | "ai" | "assumptions" | "automations" | "cameras" | "homeassistant" | "kiosks" | "companion" | "users" | "cloud" | "system" | "billing" | "instances" | "support";
 
 // Entertainment sub-tabs
 type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobookshelf" | "news";
@@ -48,7 +49,7 @@ type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobooksh
 // Appearance sub-tabs
 type AppearanceSubTab = "display" | "photos" | "screensaver" | "sidebar";
 
-const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "modules", "entertainment", "appearance", "ai", "assumptions", "automations", "cameras", "homeassistant", "kiosks", "companion", "cloud", "system", "billing", "instances", "support"];
+const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "modules", "entertainment", "appearance", "ai", "assumptions", "automations", "cameras", "homeassistant", "kiosks", "companion", "users", "cloud", "system", "billing", "instances", "support"];
 const validEntertainmentSubTabs: EntertainmentSubTab[] = ["sports", "spotify", "iptv", "plex", "audiobookshelf", "news"];
 const validAppearanceSubTabs: AppearanceSubTab[] = ["display", "photos", "screensaver", "sidebar"];
 
@@ -66,6 +67,7 @@ const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; descript
   { id: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" />, description: "Devices & entities", moduleId: "homeassistant" },
   { id: "kiosks", label: "Kiosks", icon: <Monitor className="h-4 w-4" />, description: "Displays & remote" },
   { id: "companion", label: "Companion", icon: <Smartphone className="h-4 w-4" />, description: "Mobile app access", moduleId: "companion" },
+  { id: "users", label: "Users", icon: <Users className="h-4 w-4" />, description: "Members & invites", selfHostedOnly: true },
   { id: "billing", label: "Billing", icon: <CreditCard className="h-4 w-4" />, description: "Plan & subscription", cloudOnly: true },
   { id: "instances", label: "Instances", icon: <Server className="h-4 w-4" />, description: "Linked instances", cloudOnly: true },
   { id: "cloud", label: "Cloud", icon: <Cloud className="h-4 w-4" />, description: "Remote management", selfHostedOnly: true },
@@ -5839,6 +5841,300 @@ function AssumptionsSettings() {
   );
 }
 
+function UsersSettings() {
+  const queryClient = useQueryClient();
+  const currentUser = useAuthStore((s) => s.user);
+
+  // Form state
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviteRole, setInviteRole] = useState<"admin" | "member">("member");
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const { data: usersList, isLoading: loadingUsers } = useQuery({
+    queryKey: ["users"],
+    queryFn: () => api.getUsers(),
+  });
+
+  const { data: pendingInvites } = useQuery({
+    queryKey: ["invitations"],
+    queryFn: () => api.getPendingInvitations(),
+  });
+
+  const inviteMut = useMutation({
+    mutationFn: () =>
+      api.inviteUser({ email: inviteEmail, name: inviteName || undefined, role: inviteRole }),
+    onSuccess: (data) => {
+      const base = window.location.origin;
+      setInviteLink(`${base}${data.inviteUrl}`);
+      setInviteEmail("");
+      setInviteName("");
+      setInviteRole("member");
+      queryClient.invalidateQueries({ queryKey: ["invitations"] });
+    },
+  });
+
+  const revokeMut = useMutation({
+    mutationFn: (id: string) => api.revokeInvitation(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invitations"] }),
+  });
+
+  const updateRoleMut = useMutation({
+    mutationFn: ({ id, role }: { id: string; role: string }) =>
+      api.updateUserRole(id, role),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => api.deleteUser(id),
+    onSuccess: () => {
+      setConfirmDelete(null);
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+
+  const copyLink = () => {
+    if (!inviteLink) return;
+    navigator.clipboard.writeText(inviteLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (loadingUsers) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      {/* Current Users */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Current Users</CardTitle>
+          <CardDescription>People with access to this instance</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {usersList?.map((u) => (
+            <div
+              key={u.id}
+              className="flex items-center justify-between rounded-lg border border-border p-3"
+            >
+              <div className="flex items-center gap-3">
+                {u.avatarUrl ? (
+                  <img
+                    src={u.avatarUrl}
+                    alt=""
+                    className="h-8 w-8 rounded-full"
+                  />
+                ) : (
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary">
+                    {(u.name || u.email)[0]?.toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <p className="text-sm font-medium">
+                    {u.name || u.email}
+                    {u.id === currentUser?.id && (
+                      <span className="ml-2 text-xs text-muted-foreground">(you)</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{u.email}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {u.id === currentUser?.id ? (
+                  <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+                    {u.role}
+                  </span>
+                ) : (
+                  <>
+                    <select
+                      value={u.role}
+                      onChange={(e) =>
+                        updateRoleMut.mutate({ id: u.id, role: e.target.value })
+                      }
+                      className="rounded-md border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none"
+                    >
+                      <option value="admin">admin</option>
+                      <option value="member">member</option>
+                    </select>
+                    {confirmDelete === u.id ? (
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => deleteMut.mutate(u.id)}
+                          disabled={deleteMut.isPending}
+                        >
+                          {deleteMut.isPending ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            "Confirm"
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setConfirmDelete(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDelete(u.id)}
+                        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        title="Remove user"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* Pending Invitations */}
+      {pendingInvites && pendingInvites.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Pending Invitations</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {pendingInvites.map((inv) => (
+              <div
+                key={inv.id}
+                className="flex items-center justify-between rounded-lg border border-border p-3"
+              >
+                <div>
+                  <p className="text-sm font-medium">{inv.email}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Role: {inv.role} &middot; Expires{" "}
+                    {new Date(inv.expiresAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const link = `${window.location.origin}/invite/${inv.token}`;
+                      navigator.clipboard.writeText(link);
+                    }}
+                    className="rounded p-1 text-muted-foreground hover:text-primary"
+                    title="Copy invite link"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => revokeMut.mutate(inv.id)}
+                    className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    title="Revoke invitation"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Invite User */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Invite User</CardTitle>
+          <CardDescription>
+            Generate an invite link to share with someone
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex gap-2">
+            <input
+              type="email"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+              placeholder="Email address"
+            />
+            <input
+              type="text"
+              value={inviteName}
+              onChange={(e) => setInviteName(e.target.value)}
+              className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+              placeholder="Name (opt)"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <select
+              value={inviteRole}
+              onChange={(e) => setInviteRole(e.target.value as "admin" | "member")}
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
+            >
+              <option value="admin">Admin (full access)</option>
+              <option value="member">Member (limited)</option>
+            </select>
+            <Button
+              onClick={() => inviteMut.mutate()}
+              disabled={!inviteEmail || inviteMut.isPending}
+              className="gap-2"
+            >
+              {inviteMut.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <UserPlus className="h-4 w-4" />
+              )}
+              Invite
+            </Button>
+          </div>
+
+          {inviteMut.isError && (
+            <p className="text-sm text-destructive">
+              {(inviteMut.error as any)?.message || "Failed to create invitation"}
+            </p>
+          )}
+
+          {inviteLink && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+              <p className="mb-2 text-sm font-medium text-primary">
+                Invite link created!
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={inviteLink}
+                  className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-mono"
+                />
+                <Button size="sm" variant="outline" onClick={copyLink} className="gap-1">
+                  {copied ? (
+                    <>
+                      <Check className="h-3 w-3" /> Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3 w-3" /> Copy
+                    </>
+                  )}
+                </Button>
+              </div>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                This link expires in 7 days.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function AutomationsSettings() {
   const queryClient = useQueryClient();
   const [prompt, setPrompt] = useState("");
@@ -11191,6 +11487,11 @@ export function SettingsPage() {
           {/* Assumptions Tab */}
           {activeTab === "assumptions" && (
             <AssumptionsSettings />
+          )}
+
+          {/* Users Tab */}
+          {activeTab === "users" && (
+            <UsersSettings />
           )}
 
           {/* Automations Tab */}
