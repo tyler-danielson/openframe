@@ -1398,7 +1398,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/albums/:id/upload-token",
     {
-      onRequest: [fastify.authenticate],
+      onRequest: [fastify.authenticateAny],
       schema: {
         description: "Generate a temporary upload token for mobile uploads",
         tags: ["Photos"],
@@ -1462,7 +1462,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete(
     "/upload-token/:token",
     {
-      onRequest: [fastify.authenticate],
+      onRequest: [fastify.authenticateAny],
       schema: {
         description: "Revoke a temporary upload token",
         tags: ["Photos"],
