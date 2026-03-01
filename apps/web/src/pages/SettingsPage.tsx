@@ -1126,6 +1126,7 @@ const DISPLAY_MODE_OPTIONS: { value: KioskDisplayMode; label: string; descriptio
 
 // Home page options
 const HOME_PAGE_OPTIONS = [
+  { value: "cardview", label: "Card View" },
   { value: "calendar", label: "Calendar" },
   { value: "dashboard", label: "Dashboard" },
   { value: "tasks", label: "Tasks" },
@@ -1152,6 +1153,7 @@ const FEATURE_OPTIONS: { key: keyof KioskEnabledFeatures; label: string; icon: R
   { key: "map", label: "Map", icon: <MapPin className="h-4 w-4" /> },
   { key: "kitchen", label: "Kitchen", icon: <Settings className="h-4 w-4" /> },
   { key: "screensaver", label: "Screensaver", icon: <Monitor className="h-4 w-4" /> },
+  { key: "cardview", label: "Card View", icon: <Kanban className="h-4 w-4" /> },
 ];
 
 function KiosksSettings() {
@@ -1698,6 +1700,27 @@ function KiosksSettings() {
                                 <p className="text-xs text-muted-foreground mt-0.5">Automatically enter fullscreen mode when kiosk loads</p>
                               </div>
                             </label>
+                          </div>
+
+                          {/* Auto-Fullscreen After Delay */}
+                          <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
+                            <label className="text-xs font-semibold text-primary uppercase tracking-wide">Auto-Fullscreen Delay</label>
+                            <p className="text-xs text-muted-foreground mt-0.5 mb-2">Automatically enter fullscreen after this many minutes (0 = disabled)</p>
+                            <input
+                              type="number"
+                              min={0}
+                              max={120}
+                              value={kiosk.fullscreenDelayMinutes ?? 0}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value, 10);
+                                updateKiosk.mutate({
+                                  id: kiosk.id,
+                                  data: { fullscreenDelayMinutes: isNaN(val) || val <= 0 ? null : val }
+                                });
+                              }}
+                              className="w-20 px-2 py-1 text-sm rounded border border-primary/30 bg-background text-foreground"
+                            />
+                            <span className="text-xs text-muted-foreground ml-2">minutes</span>
                           </div>
 
                           {/* Screensaver & Idle */}

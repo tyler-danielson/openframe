@@ -764,6 +764,7 @@ class ApiClient {
       screensaverLayoutConfig?: Record<string, unknown>;
       screensaverBehavior?: "screensaver" | "hide-toolbar";
       startFullscreen?: boolean;
+      fullscreenDelayMinutes?: number | null;
     }
   ): Promise<Kiosk> {
     return this.fetch<Kiosk>(`/kiosks/${id}`, {
@@ -3617,6 +3618,7 @@ export interface KioskEnabledFeatures {
   kitchen?: boolean;
   chat?: boolean;
   screensaver?: boolean;
+  cardview?: boolean;
 }
 
 export interface Kiosk {
@@ -3639,6 +3641,7 @@ export interface Kiosk {
   screensaverLayoutConfig: Record<string, unknown> | null;
   screensaverBehavior: "screensaver" | "hide-toolbar";
   startFullscreen: boolean;
+  fullscreenDelayMinutes: number | null;
   lastAccessedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -3660,6 +3663,7 @@ export interface KioskConfig {
   screensaverLayoutConfig: Record<string, unknown> | null;
   screensaverBehavior: "screensaver" | "hide-toolbar";
   startFullscreen: boolean;
+  fullscreenDelayMinutes: number | null;
 }
 
 // Spotify account type

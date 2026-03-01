@@ -30,6 +30,7 @@ import {
   MoreHorizontal,
   Shield,
   Cpu,
+  Kanban,
 } from "lucide-react";
 import { api, type KioskEnabledFeatures, type KioskDisplayType } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
@@ -204,6 +205,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
       { to: buildPath("tasks"), icon: ListTodo, label: "Tasks", feature: "tasks", moduleId: null },
       { to: buildPath("routines"), icon: ListChecks, label: "Routines", feature: "routines", moduleId: "routines" },
       { to: buildPath("dashboard"), icon: LayoutDashboard, label: "Dashboard", feature: "dashboard", moduleId: null },
+      { to: buildPath("cardview"), icon: Kanban, label: "Card View", feature: "cardview", moduleId: null },
       { to: buildPath("photos"), icon: Image, label: "Photos", feature: "photos", moduleId: "photos" },
       // Media is handled separately with submenu
       { to: buildPath("cameras"), icon: Camera, label: "Cameras", feature: "cameras", moduleId: "cameras" },

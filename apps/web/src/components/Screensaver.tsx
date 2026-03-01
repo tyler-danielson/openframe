@@ -11,6 +11,7 @@ import { useHAWebSocket } from "../stores/homeassistant-ws";
 import { useBlockNavStore, type NavigableBlock } from "../stores/block-nav";
 import { useSwipe } from "../hooks/useSwipe";
 import type { SportsGame, CalendarEvent, Calendar, Task } from "@openframe/shared";
+import { formatShortDate } from "./sports/SportsScoreBadge";
 
 // Orientation detection helpers
 const isLandscape = (photo: Photo) => (photo.width ?? 0) > (photo.height ?? 0);
@@ -1124,7 +1125,7 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
                   <span className="font-medium">{showFullName ? game.awayTeam.name : game.awayTeam.abbreviation}</span>
                   <span className="text-white/60">@</span>
                   <span className="font-medium">{showFullName ? game.homeTeam.name : game.homeTeam.abbreviation}</span>
-                  {showGameTime && <span className="text-white/60 ml-1">{gameTime}</span>}
+                  {showGameTime && <span className="text-white/60 ml-1">{formatShortDate(game.startTime)} {gameTime}</span>}
                 </div>
               );
             }
@@ -1314,7 +1315,7 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
                     <span className="font-medium">{game.awayTeam.abbreviation}</span>
                     <span className="text-white/60">@</span>
                     <span className="font-medium">{game.homeTeam.abbreviation}</span>
-                    <span className="text-xs text-white/60 ml-1">{gameTime}</span>
+                    <span className="text-xs text-white/60 ml-1">{formatShortDate(game.startTime)} {gameTime}</span>
                   </div>
                 );
               }
@@ -1591,7 +1592,7 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
                         <span className="font-medium">{game.awayTeam.abbreviation}</span>
                         <span className="text-white/60">@</span>
                         <span className="font-medium">{game.homeTeam.abbreviation}</span>
-                        <span className="text-xs text-white/60 ml-1">{gameTime}</span>
+                        <span className="text-xs text-white/60 ml-1">{formatShortDate(game.startTime)} {gameTime}</span>
                       </div>
                     );
                   }

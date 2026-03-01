@@ -337,6 +337,62 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
         return { success: true, data: hourlyCache.data };
       }
 
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+
+      // Try OneCall API 3.0 first (provides true hourly data, free for 1000 calls/day)
+      try {
+        const oneCallResponse = await fetch(
+          `https://api.openweathermap.org/data/3.0/onecall?lat=${lat}&lon=${lon}&appid=${apiKey}&units=${units}&exclude=minutely,daily,alerts`
+        );
+
+        if (oneCallResponse.ok) {
+          const oneCallData = (await oneCallResponse.json()) as {
+            hourly: Array<{
+              dt: number;
+              temp: number;
+              humidity: number;
+              wind_speed: number;
+              weather: Array<{ description: string; icon: string }>;
+              pop: number;
+              rain?: { "1h": number };
+              snow?: { "1h": number };
+            }>;
+          };
+
+          const hourlyData: HourlyForecast[] = oneCallData.hourly
+            .filter((item) => {
+              const itemDate = new Date(item.dt * 1000);
+              return itemDate >= now && itemDate < tomorrow;
+            })
+            .slice(0, 12)
+            .map((item) => ({
+              time: new Date(item.dt * 1000).toLocaleTimeString("en-US", {
+                hour: "numeric",
+                hour12: true,
+              }),
+              temp: Math.round(item.temp),
+              description: item.weather[0]?.description || "Unknown",
+              icon: item.weather[0]?.icon || "01d",
+              humidity: item.humidity,
+              wind_speed: Math.round(item.wind_speed),
+              pop: Math.round(item.pop * 100),
+              rain: item.rain?.["1h"],
+              snow: item.snow?.["1h"],
+              units,
+            }));
+
+          hourlyCache = { data: hourlyData, timestamp: Date.now() };
+          return { success: true, data: hourlyData };
+        }
+        // OneCall not available (401/403), fall through to 3-hour forecast
+      } catch {
+        // OneCall failed, fall through to 3-hour forecast
+      }
+
+      // Fallback: 3-hour forecast API
       try {
         const response = await fetch(
           `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=${units}`
@@ -348,17 +404,11 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
 
         const data = (await response.json()) as OpenWeatherForecastResponse;
 
-        // Get today's date at midnight for comparison
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-
-        // Filter to only today's forecast entries
+        // Filter to only future entries for the rest of today
         const hourlyData: HourlyForecast[] = data.list
           .filter((item) => {
             const itemDate = new Date(item.dt * 1000);
-            return itemDate >= today && itemDate < tomorrow;
+            return itemDate >= now && itemDate < tomorrow;
           })
           .map((item) => ({
             time: new Date(item.dt * 1000).toLocaleTimeString("en-US", {
@@ -370,7 +420,7 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
             icon: item.weather[0]?.icon || "01d",
             humidity: item.main.humidity,
             wind_speed: Math.round(item.wind.speed),
-            pop: Math.round(item.pop * 100), // Convert 0-1 to percentage
+            pop: Math.round(item.pop * 100),
             rain: item.rain?.["3h"],
             snow: item.snow?.["3h"],
             units,

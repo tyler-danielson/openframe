@@ -12,6 +12,12 @@ function formatGameTime(startTime: string | Date): string {
   return format(date, "h:mm a");
 }
 
+// Format a short date like "2/28" for scheduled games
+export function formatShortDate(startTime: string | Date): string {
+  const d = new Date(startTime);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
 export function SportsScoreBadge({ game, compact = false }: SportsScoreBadgeProps) {
   const isLive = game.status === "in_progress" || game.status === "halftime";
   const isFinal = game.status === "final";
@@ -47,7 +53,7 @@ export function SportsScoreBadge({ game, compact = false }: SportsScoreBadgeProp
               />
             ) : null}
             <span className="ml-1 text-xs text-muted-foreground">
-              {formatGameTime(game.startTime)}
+              {formatShortDate(game.startTime)} {formatGameTime(game.startTime)}
             </span>
           </>
         ) : (
@@ -107,7 +113,7 @@ export function SportsScoreBadge({ game, compact = false }: SportsScoreBadgeProp
       <div className="text-center">
         {isScheduled ? (
           <div className="text-sm font-medium text-white/70">
-            {formatGameTime(game.startTime)}
+            {formatShortDate(game.startTime)} {formatGameTime(game.startTime)}
           </div>
         ) : (
           <div
@@ -161,7 +167,7 @@ export function ScreensaverScore({ game }: ScreensaverScoreProps) {
         <span className="text-white/60">@</span>
         <span className="font-semibold">{game.homeTeam.abbreviation}</span>
         <span className="text-xs text-white/60 ml-1">
-          {formatGameTime(game.startTime)}
+          {formatShortDate(game.startTime)} {formatGameTime(game.startTime)}
         </span>
       </div>
     );

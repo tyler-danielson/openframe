@@ -25,6 +25,7 @@ import { MapPage } from "./MapPage";
 import { KitchenPage } from "./KitchenPage";
 import { ScreensaverDisplayPage } from "./ScreensaverDisplayPage";
 import { MultiViewPage } from "./MultiViewPage";
+import { CardViewPage } from "./CardViewPage";
 
 // Feature to route mapping
 const FEATURE_ROUTES: Record<string, { path: string; element: JSX.Element }> = {
@@ -40,6 +41,7 @@ const FEATURE_ROUTES: Record<string, { path: string; element: JSX.Element }> = {
   kitchen: { path: "kitchen/*", element: <KitchenPage /> },
   screensaver: { path: "screensaver", element: <ScreensaverDisplayPage /> },
   multiview: { path: "multiview", element: <MultiViewPage /> },
+  cardview: { path: "cardview", element: <CardViewPage /> },
 };
 
 // Silk browser keep-alive: plays silent audio to prevent Echo Show from closing the tab
@@ -78,7 +80,7 @@ function useSilkKeepAlive() {
 
 // Kiosk app content - uses the same Layout and pages as the main app
 function KioskApp() {
-  const { isAuthReady, displayMode, displayType, homePage, enabledFeatures, connectionStatus, lastOnlineAt, startFullscreen } = useKiosk();
+  const { isAuthReady, displayMode, displayType, homePage, enabledFeatures, connectionStatus, lastOnlineAt, startFullscreen, fullscreenDelayMinutes } = useKiosk();
   const location = useLocation();
   const navigate = useNavigate();
   const hasAttemptedFullscreen = useRef(false);
@@ -313,6 +315,22 @@ function KioskApp() {
       return () => clearTimeout(timer);
     }
   }, [isAuthReady, startFullscreen]);
+
+  // Auto-fullscreen after delay (separate from startFullscreen which fires on load)
+  useEffect(() => {
+    if (!isAuthReady || !fullscreenDelayMinutes || fullscreenDelayMinutes <= 0) return;
+    if (document.fullscreenElement) return;
+
+    const timer = setTimeout(() => {
+      if (document.fullscreenElement) return;
+      document.documentElement.requestFullscreen().catch((err) => {
+        console.warn("[Kiosk] Delayed fullscreen blocked:", err.message);
+        setShowFullscreenPrompt(true);
+      });
+    }, fullscreenDelayMinutes * 60 * 1000);
+
+    return () => clearTimeout(timer);
+  }, [isAuthReady, fullscreenDelayMinutes]);
 
   // Set display type data attribute on document root for CSS-level adaptations
   useEffect(() => {

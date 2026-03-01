@@ -16,6 +16,7 @@ interface KioskContextValue {
   selectedCalendarIds: string[] | null;
   enabledFeatures: KioskEnabledFeatures;
   startFullscreen: boolean;
+  fullscreenDelayMinutes: number | null;
   isLoading: boolean;
   isAuthReady: boolean;
   error: string | null;
@@ -38,6 +39,7 @@ const DEFAULT_ENABLED_FEATURES: KioskEnabledFeatures = {
   map: true,
   kitchen: true,
   screensaver: true,
+  cardview: true,
 };
 
 const KioskContext = createContext<KioskContextValue>({
@@ -49,6 +51,7 @@ const KioskContext = createContext<KioskContextValue>({
   selectedCalendarIds: null,
   enabledFeatures: DEFAULT_ENABLED_FEATURES,
   startFullscreen: false,
+  fullscreenDelayMinutes: null,
   isLoading: false,
   isAuthReady: false,
   error: null,
@@ -147,6 +150,7 @@ export function KioskProvider({ token, children }: KioskProviderProps) {
   const selectedCalendarIds = config?.selectedCalendarIds ?? null;
   const enabledFeatures = config?.enabledFeatures ?? DEFAULT_ENABLED_FEATURES;
   const startFullscreen = config?.startFullscreen ?? false;
+  const fullscreenDelayMinutes = config?.fullscreenDelayMinutes ?? null;
 
   return (
     <KioskContext.Provider
@@ -159,6 +163,7 @@ export function KioskProvider({ token, children }: KioskProviderProps) {
         selectedCalendarIds,
         enabledFeatures,
         startFullscreen,
+        fullscreenDelayMinutes,
         isLoading: isLoading || !isAuthReady,
         isAuthReady,
         error,

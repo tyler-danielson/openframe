@@ -7,6 +7,7 @@ import { cn } from "../../lib/utils";
 import { useDataFreshness } from "../../hooks/useDataFreshness";
 import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
 import { StaleDataOverlay } from "./StaleDataOverlay";
+import { formatShortDate } from "../sports/SportsScoreBadge";
 
 interface SportsWidgetProps {
   config: Record<string, unknown>;
@@ -269,10 +270,10 @@ export function SportsWidget({ config, style, isBuilder }: SportsWidgetProps) {
                 style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.status) } : undefined}
               >
                 {isScheduled
-                  ? new Date(game.startTime).toLocaleTimeString([], {
+                  ? `${formatShortDate(game.startTime)} ${new Date(game.startTime).toLocaleTimeString([], {
                       hour: "numeric",
                       minute: "2-digit",
-                    })
+                    })}`
                   : game.statusDetail || (game.status === "final" ? "Final" : "")}
               </span>
             </div>

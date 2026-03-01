@@ -4,6 +4,7 @@ import { api } from "../services/api";
 import type { SportsGame } from "@openframe/shared";
 import { useDataFreshness } from "../hooks/useDataFreshness";
 import { STALE_THRESHOLDS } from "../lib/stale-thresholds";
+import { formatShortDate } from "./sports/SportsScoreBadge";
 
 interface SportsTickerProps {
   className?: string;
@@ -20,7 +21,7 @@ function formatGame(game: SportsGame): string {
       hour: "numeric",
       minute: "2-digit",
     });
-    return `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation} ${gameTime}`;
+    return `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation} ${formatShortDate(game.startTime)} ${gameTime}`;
   }
 
   if (isLive) {

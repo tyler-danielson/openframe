@@ -580,6 +580,7 @@ export const kiosks = pgTable(
     screensaverLayoutConfig: jsonb("screensaver_layout_config"), // Custom builder layout config
     screensaverBehavior: text("screensaver_behavior").default("screensaver").notNull(), // "screensaver" | "hide-toolbar"
     startFullscreen: boolean("start_fullscreen").default(false).notNull(), // Auto-enter fullscreen on load
+    fullscreenDelayMinutes: integer("fullscreen_delay_minutes"), // Auto-fullscreen after N minutes (null/0 = disabled)
     lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
