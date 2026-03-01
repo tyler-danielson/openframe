@@ -46,7 +46,7 @@ export function CompanionPhotosPage() {
               {(photos as any[]).map((photo: any) => (
                 <div key={photo.id} className="aspect-square relative overflow-hidden rounded">
                   <img
-                    src={getPhotoUrl(photo.url || photo.thumbnailUrl)}
+                    src={getPhotoUrl(photo.thumbnailUrl || photo.url || photo.originalUrl)}
                     alt=""
                     className="w-full h-full object-cover"
                     loading="lazy"

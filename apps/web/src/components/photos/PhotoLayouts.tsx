@@ -28,8 +28,9 @@ function PhotoItem({ photo, onClick, className, objectFit = "cover" }: PhotoItem
       )}
     >
       <img
-        src={getPhotoUrl(photo.originalUrl)}
+        src={getPhotoUrl(photo.thumbnailUrl ?? photo.originalUrl)}
         alt={photo.originalFilename}
+        loading="lazy"
         className={cn(
           "h-full w-full transition-transform group-hover:scale-105",
           objectFit === "cover" ? "object-cover" : "object-contain"
@@ -77,8 +78,9 @@ function ArtboardLayout({ photos, onPhotoClick }: Omit<PhotoLayoutsProps, "layou
                 style={{ paddingBottom: `${(1 / aspectRatio) * 100}%` }}
               >
                 <img
-                  src={getPhotoUrl(photo.originalUrl)}
+                  src={getPhotoUrl(photo.thumbnailUrl ?? photo.originalUrl)}
                   alt={photo.originalFilename}
+                  loading="lazy"
                   className="absolute inset-0 h-full w-full object-contain bg-black/5 dark:bg-white/5"
                 />
               </div>
@@ -134,8 +136,9 @@ function MasonryLayout({ photos, onPhotoClick }: Omit<PhotoLayoutsProps, "layout
                 style={{ aspectRatio: aspectRatio.toString() }}
               >
                 <img
-                  src={getPhotoUrl(photo.originalUrl)}
+                  src={getPhotoUrl(photo.thumbnailUrl ?? photo.originalUrl)}
                   alt={photo.originalFilename}
+                  loading="lazy"
                   className="h-full w-full object-cover transition-transform group-hover:scale-105"
                 />
               </button>
