@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyError } from "fastify";
+import pino from "pino";
 import cors from "@fastify/cors";
 import sensible from "@fastify/sensible";
 import jwt from "@fastify/jwt";
@@ -59,21 +60,32 @@ import { cloudPlugin } from "./plugins/cloud.js";
 import { matterPlugin } from "./plugins/matter.js";
 import { planLimitsPlugin } from "./plugins/plan-limits.js";
 import { requireAdminPlugin } from "./plugins/require-admin.js";
+import { logBuffer, createLogBufferStream } from "./lib/logBuffer.js";
 import type { Config } from "./config.js";
 
+declare module "fastify" {
+  interface FastifyInstance {
+    logBuffer: typeof logBuffer;
+  }
+}
+
 export async function buildApp(config: Config): Promise<FastifyInstance> {
-  const app = Fastify({
-    logger: {
-      level: config.logLevel,
-      transport:
-        config.nodeEnv === "development"
-          ? {
-              target: "pino-pretty",
-              options: { colorize: true },
-            }
-          : undefined,
-    },
-  });
+  // Build multistream: stdout (or pino-pretty in dev) + in-memory log buffer
+  const bufferStream = createLogBufferStream(logBuffer);
+  const streams: pino.StreamEntry[] = [{ stream: bufferStream }];
+
+  if (config.nodeEnv === "development") {
+    const pinoPretty = await import("pino-pretty");
+    streams.unshift({
+      stream: pinoPretty.default({ colorize: true }),
+    });
+  } else {
+    streams.unshift({ stream: process.stdout });
+  }
+
+  const logger = pino({ level: config.logLevel }, pino.multistream(streams));
+
+  const app = Fastify({ logger });
 
   // Register core plugins
   await app.register(sensible);
@@ -164,6 +176,9 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
 
   // Admin access guard
   await app.register(requireAdminPlugin);
+
+  // Log buffer for admin debug page
+  app.decorate("logBuffer", logBuffer);
 
   // Shared upload tokens Map (must be decorated at app level so all routes share it)
   app.decorate("uploadTokens", new Map());

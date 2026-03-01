@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
-import { Shield, LayoutDashboard, Users, LifeBuoy, Network, ArrowLeft, Loader2 } from "lucide-react";
+import { Shield, LayoutDashboard, Users, LifeBuoy, Network, Bug, ArrowLeft, Loader2 } from "lucide-react";
 import { useAuthStore } from "../../stores/auth";
 import { isCloudMode } from "../../lib/cloud";
 import { useEffect } from "react";
@@ -11,6 +11,7 @@ const navItems = [
   { path: "/admin/users", label: "Users", icon: Users },
   { path: "/admin/support", label: "Support", icon: LifeBuoy },
   { path: "/admin/topology", label: "Topology", icon: Network },
+  { path: "/admin/debug", label: "Debug", icon: Bug },
 ];
 
 export function AdminLayout() {

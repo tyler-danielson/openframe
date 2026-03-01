@@ -642,4 +642,71 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
 
     return { success: true, data: message };
   });
+
+  // ============ GET /admin/logs ============
+  fastify.get("/logs", async (request) => {
+    const { level, since, limit, search } = request.query as Record<
+      string,
+      string | undefined
+    >;
+
+    const entries = fastify.logBuffer.getEntries({
+      level: level ? parseInt(level) : undefined,
+      since,
+      search,
+      limit: limit ? parseInt(limit) : 200,
+    });
+
+    return {
+      success: true,
+      data: {
+        entries,
+        bufferSize: fastify.logBuffer.size,
+        currentLogLevel: fastify.log.level,
+      },
+    };
+  });
+
+  // ============ GET /admin/system-status ============
+  fastify.get("/system-status", async () => {
+    const mem = process.memoryUsage();
+
+    // Quick DB health check
+    let dbStatus = "ok";
+    try {
+      await fastify.db.execute(sql`SELECT 1`);
+    } catch {
+      dbStatus = "error";
+    }
+
+    return {
+      success: true,
+      data: {
+        uptime: process.uptime(),
+        memoryUsage: {
+          heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
+          heapTotal: Math.round(mem.heapTotal / 1024 / 1024),
+          rss: Math.round(mem.rss / 1024 / 1024),
+        },
+        dbStatus,
+        nodeVersion: process.version,
+        env: process.env.NODE_ENV || "development",
+        pid: process.pid,
+        logLevel: fastify.log.level,
+      },
+    };
+  });
+
+  // ============ POST /admin/logs/clear ============
+  fastify.post("/logs/clear", async () => {
+    fastify.logBuffer.clear();
+    return { success: true };
+  });
+
+  // ============ POST /admin/system/restart ============
+  fastify.post("/system/restart", async (_request, reply) => {
+    fastify.log.warn("Admin-triggered restart requested");
+    reply.send({ success: true, message: "Restarting..." });
+    setTimeout(() => process.exit(0), 500);
+  });
 };

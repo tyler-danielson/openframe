@@ -3463,6 +3463,33 @@ class ApiClient {
     });
   }
 
+  async getAdminLogs(params?: {
+    level?: number;
+    since?: string;
+    limit?: number;
+    search?: string;
+  }): Promise<AdminLogsResponse> {
+    const query = new URLSearchParams();
+    if (params?.level) query.set("level", String(params.level));
+    if (params?.since) query.set("since", params.since);
+    if (params?.limit) query.set("limit", String(params.limit));
+    if (params?.search) query.set("search", params.search);
+    const qs = query.toString();
+    return this.fetch<AdminLogsResponse>(`/admin/logs${qs ? `?${qs}` : ""}`);
+  }
+
+  async getAdminSystemStatus(): Promise<AdminSystemStatus> {
+    return this.fetch<AdminSystemStatus>("/admin/system-status");
+  }
+
+  async postAdminRestart(): Promise<{ success: boolean; message: string }> {
+    return this.fetch("/admin/system/restart", { method: "POST" });
+  }
+
+  async postAdminClearLogs(): Promise<{ success: boolean }> {
+    return this.fetch("/admin/logs/clear", { method: "POST" });
+  }
+
   // ============ User Support ============
 
   async createSupportTicket(data: {
@@ -4272,6 +4299,37 @@ export interface AdminTicketDetail {
     createdAt: string;
     sender: { id: string; name: string | null; email: string; avatarUrl: string | null };
   }[];
+}
+
+export interface AdminLogEntry {
+  timestamp: string;
+  level: number;
+  levelLabel: string;
+  msg: string;
+  module?: string;
+  err?: string;
+  reqMethod?: string;
+  reqUrl?: string;
+}
+
+export interface AdminLogsResponse {
+  entries: AdminLogEntry[];
+  bufferSize: number;
+  currentLogLevel: string;
+}
+
+export interface AdminSystemStatus {
+  uptime: number;
+  memoryUsage: {
+    heapUsed: number;
+    heapTotal: number;
+    rss: number;
+  };
+  dbStatus: string;
+  nodeVersion: string;
+  env: string;
+  pid: number;
+  logLevel: string;
 }
 
 export interface SupportTicketSummary {

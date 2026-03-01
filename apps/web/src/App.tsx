@@ -58,6 +58,7 @@ import { AdminUserDetailPage } from "./pages/admin/AdminUserDetailPage";
 import { AdminSupportPage } from "./pages/admin/AdminSupportPage";
 import { AdminTicketDetailPage } from "./pages/admin/AdminTicketDetailPage";
 import { AdminTopologyPage } from "./pages/admin/AdminTopologyPage";
+import { AdminDebugPage } from "./pages/admin/AdminDebugPage";
 import { Toaster } from "./components/ui/Toaster";
 import { Screensaver } from "./components/Screensaver";
 import { NowPlaying } from "./components/spotify/NowPlaying";
@@ -377,6 +378,7 @@ export default function App() {
           <Route path="support" element={<AdminSupportPage />} />
           <Route path="support/:ticketId" element={<AdminTicketDetailPage />} />
           <Route path="topology" element={<AdminTopologyPage />} />
+          <Route path="debug" element={<AdminDebugPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
