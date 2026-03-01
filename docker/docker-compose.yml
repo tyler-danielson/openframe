@@ -73,6 +73,9 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    environment:
+      # Override if API container has a different hostname (e.g. on Cosmos Server)
+      API_URL: ${API_URL:-http://api:3001}
     ports:
       - "8080:80"
 

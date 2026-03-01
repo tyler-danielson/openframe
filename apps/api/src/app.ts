@@ -83,9 +83,14 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
     streams.unshift({ stream: process.stdout });
   }
 
-  const logger = pino({ level: config.logLevel }, pino.multistream(streams));
+  const logStream = pino.multistream(streams);
 
-  const app = Fastify({ logger });
+  const app = Fastify({
+    logger: {
+      level: config.logLevel,
+      stream: logStream,
+    },
+  });
 
   // Register core plugins
   await app.register(sensible);
