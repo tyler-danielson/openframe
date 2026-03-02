@@ -1,0 +1,23 @@
+# Lock files (huge, not useful for context)
+pnpm-lock.yaml
+package-lock.json
+
+# Drizzle migration snapshots (auto-generated JSON, very large)
+packages/database/src/migrations/meta/
+
+# Drizzle migration SQL files (auto-generated, rarely needed)
+packages/database/src/migrations/*.sql
+
+# Build/config noise
+turbo.json
+docker/
+pi/
+.github/
+
+# Tizen TV app (niche, not usually relevant)
+apps/tizen-tv/
+apps/echo-show/
+
+# TypeScript config packages (boilerplate)
+packages/eslint-config/
+packages/typescript-config/
