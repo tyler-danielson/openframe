@@ -34,6 +34,7 @@ export function CloudSetupScreen({ onConnect, onManualSetup }: CloudSetupScreenP
   const [state, setState] = useState<SetupState>("waiting");
   const [secondsLeft, setSecondsLeft] = useState(Math.floor(SETUP_TTL_MS / 1000));
   const [dots, setDots] = useState("");
+  const [pollStatus, setPollStatus] = useState("");
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -70,11 +71,15 @@ export function CloudSetupScreen({ onConnect, onManualSetup }: CloudSetupScreenP
     // Poll cloud for completion
     pollRef.current = setInterval(async () => {
       try {
-        const res = await fetch(
-          `${CLOUD_URL}/api/tv-setup?code=${encodeURIComponent(currentCode)}`
-        );
-        if (!res.ok) return;
+        const url = `${CLOUD_URL}/api/tv-setup?code=${encodeURIComponent(currentCode)}`;
+        setPollStatus(`Polling...`);
+        const res = await fetch(url);
+        if (!res.ok) {
+          setPollStatus(`HTTP ${res.status}`);
+          return;
+        }
         const data = await res.json();
+        setPollStatus(`Status: ${data.status}`);
         if (data.status === "completed" && data.serverUrl && data.kioskToken) {
           cleanup();
           setState("completed");
@@ -85,8 +90,8 @@ export function CloudSetupScreen({ onConnect, onManualSetup }: CloudSetupScreenP
           storage.saveKioskConfig(config);
           setTimeout(() => onConnect(config), 1500);
         }
-      } catch {
-        // Network errors are silent — will retry
+      } catch (err) {
+        setPollStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
       }
     }, POLL_INTERVAL_MS);
   }, [cleanup, onConnect]);
@@ -172,6 +177,11 @@ export function CloudSetupScreen({ onConnect, onManualSetup }: CloudSetupScreenP
                   Waiting for phone{dots} &nbsp; Expires in{" "}
                   <strong>{formatTime(secondsLeft)}</strong>
                 </div>
+                {pollStatus && (
+                  <div className="qr-timer" style={{ fontSize: "0.75em", opacity: 0.6, marginTop: 4 }}>
+                    [{pollStatus}]
+                  </div>
+                )}
               </div>
             </div>
           </>

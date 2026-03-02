@@ -298,9 +298,10 @@ function KioskApp() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Request fullscreen on load if enabled
+  // Request fullscreen on load if enabled (skip when embedded in an iframe, e.g. Tizen TV)
+  const isEmbedded = window.self !== window.top;
   useEffect(() => {
-    if (!isAuthReady || hasAttemptedFullscreen.current) return;
+    if (!isAuthReady || hasAttemptedFullscreen.current || isEmbedded) return;
 
     if (startFullscreen && document.documentElement.requestFullscreen) {
       hasAttemptedFullscreen.current = true;
@@ -314,11 +315,11 @@ function KioskApp() {
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [isAuthReady, startFullscreen]);
+  }, [isAuthReady, startFullscreen, isEmbedded]);
 
   // Auto-fullscreen after delay (separate from startFullscreen which fires on load)
   useEffect(() => {
-    if (!isAuthReady || !fullscreenDelayMinutes || fullscreenDelayMinutes <= 0) return;
+    if (!isAuthReady || !fullscreenDelayMinutes || fullscreenDelayMinutes <= 0 || isEmbedded) return;
     if (document.fullscreenElement) return;
 
     const timer = setTimeout(() => {

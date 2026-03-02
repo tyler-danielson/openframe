@@ -16,6 +16,9 @@
     <!-- Allow network access to any server (needed for QR login fetch calls) -->
     <access origin="*" subdomains="true"/>
 
+    <!-- Explicit CSP: allow fetch/XHR to any origin (Tizen default may block connect-src) -->
+    <tizen:content-security-policy>default-src * 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src * 'self' ws: wss: http: https:; img-src * 'self' data: blob:; media-src * 'self' blob:;</tizen:content-security-policy>
+
     <!-- Entry point -->
     <content src="index.html"/>
 

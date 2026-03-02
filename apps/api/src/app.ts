@@ -130,6 +130,9 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(helmet, {
     contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
+    frameguard: false, // Kiosk routes are embedded in iframes (Tizen TV)
+    crossOriginResourcePolicy: false, // Kiosk iframe loads from different origin
+    crossOriginOpenerPolicy: false, // Allow cross-origin window interactions
   });
 
   // Swagger documentation (development only)
