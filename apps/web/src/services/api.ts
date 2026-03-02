@@ -2922,6 +2922,16 @@ class ApiClient {
     }, true);
   }
 
+  async demoLogin(): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+  }> {
+    return this.fetch("/auth/demo-login", {
+      method: "POST",
+    }, true);
+  }
+
   // Cast
   async getCastTargets(): Promise<CastTarget[]> {
     return this.fetch<CastTarget[]>("/cast/cast-targets");

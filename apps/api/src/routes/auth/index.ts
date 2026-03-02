@@ -20,6 +20,7 @@ import { getCurrentUser } from "../../plugins/auth.js";
 import { getCategorySettings } from "../settings/index.js";
 import { isPrivateIp, getRequestOrigin } from "../../utils/oauth-helpers.js";
 import { getScopesForFeature, type OAuthFeature } from "../../utils/oauth-scopes.js";
+import { resetDemoData } from "./demo-seed.js";
 
 // In-memory OAuth state store (for single-server deployments)
 // States expire after 10 minutes
@@ -349,6 +350,87 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       };
     }
   );
+
+  // Demo login — wipes + re-seeds demo user data, issues short-lived tokens
+  const DEMO_EMAIL = "demo@openframe.us";
+  let demoResetInProgress = false;
+
+  fastify.post(
+    "/demo-login",
+    {
+      config: { rateLimit: { max: 5, timeWindow: "1 minute" } },
+      schema: {
+        description: "Login as demo user with fresh sample data",
+        tags: ["Auth"],
+      },
+    },
+    async (request, reply) => {
+      // Find the demo user
+      const [demoUser] = await fastify.db
+        .select()
+        .from(users)
+        .where(eq(users.email, DEMO_EMAIL))
+        .limit(1);
+
+      if (!demoUser) {
+        return reply.code(404).send({ success: false, error: "Demo not available" });
+      }
+
+      // Reset demo data (serialize concurrent resets)
+      if (!demoResetInProgress) {
+        demoResetInProgress = true;
+        try {
+          await resetDemoData(fastify.db as any);
+        } finally {
+          demoResetInProgress = false;
+        }
+      }
+
+      // Issue tokens with isDemo claim
+      const accessToken = fastify.jwt.sign(
+        { userId: demoUser.id, isDemo: true },
+        { expiresIn: "2h" }
+      );
+      const refreshToken = randomBytes(32).toString("base64url");
+      const tokenHash = createHash("sha256").update(refreshToken).digest("hex");
+      const familyId = randomUUID();
+
+      await fastify.db.insert(refreshTokens).values({
+        userId: demoUser.id,
+        tokenHash,
+        familyId,
+        deviceInfo: request.headers["user-agent"],
+        ipAddress: request.ip,
+        expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000), // 2 hours
+      });
+
+      return {
+        success: true,
+        data: {
+          accessToken,
+          refreshToken,
+          expiresIn: 7200, // 2 hours
+        },
+      };
+    }
+  );
+
+  // Safety net: reset demo data every hour
+  const demoResetInterval = setInterval(async () => {
+    try {
+      const [demoUser] = await fastify.db
+        .select()
+        .from(users)
+        .where(eq(users.email, DEMO_EMAIL))
+        .limit(1);
+      if (demoUser) {
+        await resetDemoData(fastify.db as any);
+      }
+    } catch (err) {
+      fastify.log.error(err, "Failed to reset demo data on schedule");
+    }
+  }, 60 * 60 * 1000);
+  fastify.addHook("onClose", () => clearInterval(demoResetInterval));
 
   // Refresh tokens
   fastify.post(

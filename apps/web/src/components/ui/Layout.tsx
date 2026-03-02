@@ -60,7 +60,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const { logout, setUser, isAuthenticated, user: authUser } = useAuthStore();
+  const { logout, setUser, isAuthenticated, isDemo, user: authUser } = useAuthStore();
 
   const isKioskPath = window.location.pathname.startsWith("/kiosk/");
   const setScreensaverActive = useScreensaverStore((state) => state.setActive);
@@ -391,7 +391,19 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
   }, []);
 
   return (
-    <div className={cn("flex h-screen bg-background", className)}>
+    <div className={cn("flex h-screen bg-background", isDemo ? "pt-10" : "", className)}>
+      {/* Demo Banner */}
+      {isDemo && (
+        <div className="fixed top-0 inset-x-0 z-[60] flex items-center justify-center gap-4 bg-primary px-4 py-2 text-primary-foreground text-sm">
+          <span>You're exploring the live demo. Changes reset between sessions.</span>
+          <a
+            href={isCloudMode ? "https://openframe.us/login" : "/login"}
+            className="rounded-md bg-primary-foreground/20 px-3 py-0.5 font-medium hover:bg-primary-foreground/30 transition-colors"
+          >
+            Sign Up Free
+          </a>
+        </div>
+      )}
       {/* Mobile Menu Button */}
       {!hideNav && !hideToolbarForBurnIn && (
       <button
