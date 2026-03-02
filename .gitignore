@@ -34,3 +34,8 @@ coverage/
 # Database
 *.db
 *.sqlite
+
+# Uploads (user photos, runtime data)
+uploads/
+apps/api/uploads/
+apps/api/data/
