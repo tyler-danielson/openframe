@@ -32,11 +32,12 @@ services:
       timeout: 5s
       retries: 5
 
-  api:
+  app:
+    image: ghcr.io/tyler-danielson/openframe-app:latest
     build:
       context: ..
-      dockerfile: docker/Dockerfile.api
-    container_name: openframe-api
+      dockerfile: docker/Dockerfile.combined
+    container_name: openframe-app
     restart: unless-stopped
     depends_on:
       postgres:
@@ -63,33 +64,20 @@ services:
       - uploads_data:/app/uploads
       - secrets_data:/app/data
     ports:
-      - "6001:3001"
-
-  web:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.web
-    container_name: openframe-web
-    restart: unless-stopped
-    depends_on:
-      - api
-    environment:
-      # Override if API container has a different hostname (e.g. on Cosmos Server)
-      API_URL: ${API_URL:-http://api:3001}
-    ports:
-      - "8080:80"
+      - "8080:3001"
 
   bot:
+    image: ghcr.io/tyler-danielson/openframe-bot:latest
     build:
       context: ..
       dockerfile: docker/Dockerfile.bot
     container_name: openframe-bot
     restart: unless-stopped
     depends_on:
-      - api
+      - app
     environment:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      API_URL: http://api:3001
+      API_URL: http://app:3001
       API_KEY: ${BOT_API_KEY:-}
     profiles:
       - bot

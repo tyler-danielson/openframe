@@ -1,0 +1,99 @@
+# Stage 1: Build React web app
+FROM node:20-alpine AS web-builder
+
+ARG VITE_BASE_PATH=/
+ARG VITE_CLOUD_MODE=false
+
+RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
+
+WORKDIR /app
+
+# Copy package files for dependency installation
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/typescript-config/ ./packages/typescript-config/
+COPY packages/eslint-config/ ./packages/eslint-config/
+COPY apps/web/package.json ./apps/web/
+
+RUN pnpm install --frozen-lockfile
+
+# Copy source code
+COPY packages/shared/ ./packages/shared/
+COPY apps/web/ ./apps/web/
+
+# Pass build args as env vars for Vite
+ENV VITE_BASE_PATH=$VITE_BASE_PATH
+ENV VITE_CLOUD_MODE=$VITE_CLOUD_MODE
+
+# Build the web app (and its dependencies)
+RUN pnpm turbo build --filter=@openframe/web...
+
+
+# Stage 2: Build API
+FROM node:20-alpine AS api-builder
+
+RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
+
+WORKDIR /app
+
+# Copy package files for dependency installation
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY packages/database/package.json ./packages/database/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/typescript-config/ ./packages/typescript-config/
+COPY packages/eslint-config/ ./packages/eslint-config/
+COPY apps/api/package.json ./apps/api/
+
+RUN pnpm install --frozen-lockfile
+
+# Copy source code
+COPY packages/database/ ./packages/database/
+COPY packages/shared/ ./packages/shared/
+COPY apps/api/ ./apps/api/
+
+# Build all packages and the API
+RUN pnpm turbo build --filter=@openframe/api...
+
+
+# Stage 3: Production runner
+FROM node:20-alpine AS runner
+
+RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/database/package.json ./packages/database/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/typescript-config/ ./packages/typescript-config/
+COPY apps/api/package.json ./apps/api/
+
+# Copy built dist folders from api-builder
+COPY --from=api-builder /app/packages/database/dist ./packages/database/dist
+COPY --from=api-builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=api-builder /app/apps/api/dist ./apps/api/dist
+
+# Copy database migration SQL files for runtime migration
+COPY --from=api-builder /app/packages/database/src/migrations ./packages/database/src/migrations
+
+# Copy React dist into /app/public (Fastify serves from process.cwd()/public)
+COPY --from=web-builder /app/apps/web/dist ./public
+
+# Install production dependencies only
+RUN pnpm install --frozen-lockfile --prod
+
+# Create directories
+RUN mkdir -p /app/uploads /app/data
+
+# Copy entrypoint script and fix Windows line endings
+COPY docker/docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN sed -i 's/\r$//' /app/docker-entrypoint.sh && chmod +x /app/docker-entrypoint.sh
+
+ENV NODE_ENV=production
+ENV PORT=3001
+
+EXPOSE 3001
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["node", "apps/api/dist/server.js"]

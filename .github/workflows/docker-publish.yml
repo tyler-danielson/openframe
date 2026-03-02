@@ -21,27 +21,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Docker meta for API
-        id: meta-api
+      - name: Docker meta for App (self-hosted)
+        id: meta-app
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}-api
+          images: ${{ env.IMAGE_PREFIX }}-app
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Docker meta for Web
-        id: meta-web
+      - name: Docker meta for App (cloud)
+        id: meta-cloud
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}-web
+          images: ${{ env.IMAGE_PREFIX }}-app
           tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=cloud,enable={{is_default_branch}}
+            type=raw,value=cloud-{{sha}}
 
       - name: Docker meta for Bot
         id: meta-bot
@@ -67,27 +65,30 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push API image
+      - name: Build and push App image (self-hosted)
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.api
+          file: docker/Dockerfile.combined
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta-api.outputs.tags }}
-          labels: ${{ steps.meta-api.outputs.labels }}
+          tags: ${{ steps.meta-app.outputs.tags }}
+          labels: ${{ steps.meta-app.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build and push Web image
+      - name: Build and push App image (cloud)
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.web
+          file: docker/Dockerfile.combined
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta-web.outputs.tags }}
-          labels: ${{ steps.meta-web.outputs.labels }}
+          build-args: |
+            VITE_BASE_PATH=/app/
+            VITE_CLOUD_MODE=true
+          tags: ${{ steps.meta-cloud.outputs.tags }}
+          labels: ${{ steps.meta-cloud.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

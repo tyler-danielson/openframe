@@ -1,10 +1,10 @@
-CREATE TYPE "public"."matter_device_type" AS ENUM('onOffLight', 'dimmableLight', 'colorTemperatureLight', 'thermostat', 'doorLock', 'contactSensor', 'occupancySensor', 'temperatureSensor', 'humiditySensor', 'onOffSwitch', 'windowCovering', 'fan', 'unknown');--> statement-breakpoint
-CREATE TYPE "public"."routine_frequency" AS ENUM('daily', 'weekly', 'custom');--> statement-breakpoint
-CREATE TYPE "public"."ticket_category" AS ENUM('billing', 'bug', 'feature_request', 'account', 'general');--> statement-breakpoint
-CREATE TYPE "public"."ticket_priority" AS ENUM('low', 'normal', 'high', 'urgent');--> statement-breakpoint
-CREATE TYPE "public"."ticket_status" AS ENUM('open', 'in_progress', 'waiting_on_user', 'resolved', 'closed');--> statement-breakpoint
-CREATE TYPE "public"."youtube_bookmark_type" AS ENUM('video', 'live', 'playlist', 'channel');--> statement-breakpoint
-ALTER TYPE "public"."screensaver_layout" ADD VALUE 'skylight';--> statement-breakpoint
+DO $$ BEGIN CREATE TYPE "public"."matter_device_type" AS ENUM('onOffLight', 'dimmableLight', 'colorTemperatureLight', 'thermostat', 'doorLock', 'contactSensor', 'occupancySensor', 'temperatureSensor', 'humiditySensor', 'onOffSwitch', 'windowCovering', 'fan', 'unknown'); EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+DO $$ BEGIN CREATE TYPE "public"."routine_frequency" AS ENUM('daily', 'weekly', 'custom'); EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+DO $$ BEGIN CREATE TYPE "public"."ticket_category" AS ENUM('billing', 'bug', 'feature_request', 'account', 'general'); EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+DO $$ BEGIN CREATE TYPE "public"."ticket_priority" AS ENUM('low', 'normal', 'high', 'urgent'); EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+DO $$ BEGIN CREATE TYPE "public"."ticket_status" AS ENUM('open', 'in_progress', 'waiting_on_user', 'resolved', 'closed'); EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+DO $$ BEGIN CREATE TYPE "public"."youtube_bookmark_type" AS ENUM('video', 'live', 'playlist', 'channel'); EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+ALTER TYPE "public"."screensaver_layout" ADD VALUE IF NOT EXISTS 'skylight';--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "audiobookshelf_servers" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,
@@ -169,8 +169,8 @@ CREATE TABLE IF NOT EXISTS "youtube_watch_history" (
 );
 --> statement-breakpoint
 DROP INDEX IF EXISTS "calendars_external_idx";--> statement-breakpoint
-ALTER TABLE "calendars" ADD COLUMN "oauth_token_id" uuid;--> statement-breakpoint
-ALTER TABLE "system_settings" ADD COLUMN "user_id" uuid;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "calendars" ADD COLUMN "oauth_token_id" uuid; EXCEPTION WHEN duplicate_column THEN null; END $$;--> statement-breakpoint
+DO $$ BEGIN ALTER TABLE "system_settings" ADD COLUMN "user_id" uuid; EXCEPTION WHEN duplicate_column THEN null; END $$;--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "audiobookshelf_servers" ADD CONSTRAINT "audiobookshelf_servers_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION

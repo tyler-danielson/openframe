@@ -1,5 +1,8 @@
+import path from "path";
+import fs from "fs";
 import Fastify, { type FastifyInstance, type FastifyError } from "fastify";
 import pino from "pino";
+import compress from "@fastify/compress";
 import cors from "@fastify/cors";
 import sensible from "@fastify/sensible";
 import jwt from "@fastify/jwt";
@@ -7,6 +10,7 @@ import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import multipart from "@fastify/multipart";
 import helmet from "@fastify/helmet";
+import fastifyStatic from "@fastify/static";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { databasePlugin } from "./plugins/database.js";
@@ -94,6 +98,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
 
   // Register core plugins
   await app.register(sensible);
+  await app.register(compress, { global: true });
 
   await app.register(cors, {
     origin: config.corsOrigins,
@@ -235,6 +240,51 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(adminRoutes, { prefix: "/api/v1/admin" });
   await app.register(supportRoutes, { prefix: "/api/v1/support" });
   await app.register(matterRoutes, { prefix: "/api/v1/matter" });
+
+  // --- Static file serving (combined container mode) ---
+  const publicDir = path.join(process.cwd(), "public");
+  if (fs.existsSync(publicDir)) {
+    // Serve React dist as static files
+    await app.register(fastifyStatic, {
+      root: publicDir,
+      prefix: "/",
+      wildcard: false,
+    });
+
+    // Custom cache headers via onSend hook
+    app.addHook("onSend", async (request, reply, payload) => {
+      const url = request.url;
+      // Service workers: never cache
+      if (/(?:sw|registerSW|workbox-.*)\.js$/.test(url)) {
+        reply.header("Cache-Control", "no-cache, no-store, must-revalidate");
+      }
+      // index.html: no-cache so updates are picked up immediately
+      else if (url === "/" || url === "/index.html") {
+        reply.header("Cache-Control", "no-cache");
+      }
+      // Hashed assets (Vite puts them in /assets/): immutable long-cache
+      else if (url.startsWith("/assets/")) {
+        reply.header("Cache-Control", "public, max-age=31536000, immutable");
+      }
+      // Kiosk paths: remove X-Frame-Options so they can be embedded in iframes
+      if (url.startsWith("/kiosk")) {
+        reply.removeHeader("X-Frame-Options");
+      }
+      return payload;
+    });
+
+    // SPA fallback: non-API routes serve index.html for client-side routing
+    app.setNotFoundHandler(async (request, reply) => {
+      if (request.url.startsWith("/api/")) {
+        return reply.status(404).send({ error: "Not found" });
+      }
+      // Remove X-Frame-Options for kiosk routes
+      if (request.url.startsWith("/kiosk")) {
+        reply.removeHeader("X-Frame-Options");
+      }
+      return reply.sendFile("index.html");
+    });
+  }
 
   // Error handler
   app.setErrorHandler((error: FastifyError, _request, reply) => {
