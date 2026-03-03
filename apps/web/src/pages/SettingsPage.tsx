@@ -3318,10 +3318,29 @@ function IptvSettings() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+  const [expandedServer, setExpandedServer] = useState<string | null>(null);
+  const [previewCategory, setPreviewCategory] = useState<string | null>(null);
+  const [previewSearch, setPreviewSearch] = useState("");
 
   const { data: servers = [], isLoading } = useQuery({
     queryKey: ["iptv-servers"],
     queryFn: () => api.getIptvServers(),
+  });
+
+  const { data: previewCategories = [] } = useQuery({
+    queryKey: ["iptv-categories", expandedServer],
+    queryFn: () => api.getIptvCategories(expandedServer!),
+    enabled: !!expandedServer,
+  });
+
+  const { data: previewChannels = [], isLoading: channelsLoading } = useQuery({
+    queryKey: ["iptv-channels", expandedServer, previewCategory, previewSearch],
+    queryFn: () => api.getIptvChannels({
+      serverId: expandedServer!,
+      categoryId: previewCategory || undefined,
+      search: previewSearch || undefined,
+    }),
+    enabled: !!expandedServer,
   });
 
   const addServer = useMutation({
@@ -3486,38 +3505,132 @@ function IptvSettings() {
           </div>
         ) : servers.length > 0 ? (
           <div className="space-y-3">
-            {servers.map((server) => (
-              <div
-                key={server.id}
-                className="flex items-center justify-between rounded-lg border border-border p-4"
-              >
-                <div>
-                  <p className="font-medium">{server.name}</p>
-                  <p className="text-sm text-muted-foreground">{server.serverUrl}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Username: {server.username}
-                  </p>
+            {servers.map((server) => {
+              const isExpanded = expandedServer === server.id;
+              return (
+                <div
+                  key={server.id}
+                  className="rounded-lg border border-border overflow-hidden"
+                >
+                  <div className="flex items-center justify-between p-4">
+                    <div>
+                      <p className="font-medium">{server.name}</p>
+                      <p className="text-sm text-muted-foreground">{server.serverUrl}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Username: {server.username}
+                        {(server.channelCount != null || server.categoryCount != null) && (
+                          <span className="ml-2">
+                            &middot; {server.channelCount ?? 0} channels, {server.categoryCount ?? 0} categories
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          if (isExpanded) {
+                            setExpandedServer(null);
+                          } else {
+                            setExpandedServer(server.id);
+                            setPreviewCategory(null);
+                            setPreviewSearch("");
+                          }
+                        }}
+                        title="Browse channels"
+                      >
+                        {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => syncServer.mutate(server.id)}
+                        disabled={syncServer.isPending}
+                      >
+                        <RefreshCw className={`h-4 w-4 ${syncServer.isPending ? "animate-spin" : ""}`} />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDeleteServer(server)}
+                        disabled={deleteServer.isPending}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Expandable channel browser */}
+                  {isExpanded && (
+                    <div className="border-t border-border bg-muted/20">
+                      {/* Filter bar */}
+                      <div className="flex items-center gap-2 p-3 border-b border-border">
+                        <select
+                          value={previewCategory || ""}
+                          onChange={(e) => setPreviewCategory(e.target.value || null)}
+                          className="rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+                        >
+                          <option value="">All Categories</option>
+                          {previewCategories.map((cat) => (
+                            <option key={cat.id} value={cat.id}>
+                              {cat.name} ({cat.channelCount ?? 0})
+                            </option>
+                          ))}
+                        </select>
+                        <div className="relative flex-1">
+                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                          <input
+                            type="text"
+                            value={previewSearch}
+                            onChange={(e) => setPreviewSearch(e.target.value)}
+                            placeholder="Search channels..."
+                            className="w-full rounded-md border border-border bg-background pl-8 pr-3 py-1.5 text-sm"
+                          />
+                        </div>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          {channelsLoading ? "Loading..." : `${previewChannels.length} channels`}
+                        </span>
+                      </div>
+
+                      {/* Channel grid */}
+                      {channelsLoading ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : previewChannels.length === 0 ? (
+                        <div className="py-8 text-center text-sm text-muted-foreground">
+                          No channels found
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 p-3 max-h-80 overflow-y-auto">
+                          {previewChannels.map((ch) => (
+                            <div
+                              key={ch.id}
+                              className="flex items-center gap-2 p-2 rounded-md border border-border hover:border-primary/40 hover:bg-primary/5 transition-colors"
+                            >
+                              {(ch.logoUrl || ch.streamIcon) ? (
+                                <img
+                                  src={ch.logoUrl || ch.streamIcon || ""}
+                                  alt=""
+                                  className="h-8 w-8 rounded object-contain bg-muted shrink-0"
+                                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                                />
+                              ) : (
+                                <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0">
+                                  <Tv className="h-4 w-4 text-muted-foreground" />
+                                </div>
+                              )}
+                              <span className="text-sm truncate">{ch.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => syncServer.mutate(server.id)}
-                    disabled={syncServer.isPending}
-                  >
-                    <RefreshCw className={`h-4 w-4 ${syncServer.isPending ? "animate-spin" : ""}`} />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDeleteServer(server)}
-                    disabled={deleteServer.isPending}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : null}
       </CardContent>
