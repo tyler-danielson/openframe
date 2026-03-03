@@ -337,10 +337,27 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
         return { success: true, data: hourlyCache.data };
       }
 
-      const now = new Date();
-      const tomorrow = new Date(now);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      tomorrow.setHours(0, 0, 0, 0);
+      // Use the user's configured timezone (from home settings) for hour filtering/formatting
+      const tz = (homeSettings.timezone as string) || "UTC";
+      const nowMs = Date.now();
+
+      // Get today's date string in the user's timezone (e.g. "2026-03-02")
+      const todayParts = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+      }).formatToParts(new Date(nowMs));
+      const todayStr = `${todayParts.find((p) => p.type === "year")!.value}-${todayParts.find((p) => p.type === "month")!.value}-${todayParts.find((p) => p.type === "day")!.value}`;
+
+      // Helper: get date string in user's TZ for a unix timestamp
+      const dateInTz = (dtSec: number) => {
+        const parts = new Intl.DateTimeFormat("en-US", {
+          timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+        }).formatToParts(new Date(dtSec * 1000));
+        return `${parts.find((p) => p.type === "year")!.value}-${parts.find((p) => p.type === "month")!.value}-${parts.find((p) => p.type === "day")!.value}`;
+      };
+
+      // Helper: format hour label in user's TZ (e.g. "6 PM")
+      const hourLabel = (dtSec: number) =>
+        new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hour12: true }).format(new Date(dtSec * 1000));
 
       // Try OneCall API 3.0 first (provides true hourly data, free for 1000 calls/day)
       try {
@@ -364,15 +381,12 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
 
           const hourlyData: HourlyForecast[] = oneCallData.hourly
             .filter((item) => {
-              const itemDate = new Date(item.dt * 1000);
-              return itemDate >= now && itemDate < tomorrow;
+              // Only include future hours that are still "today" in the user's timezone
+              return item.dt * 1000 >= nowMs && dateInTz(item.dt) === todayStr;
             })
             .slice(0, 12)
             .map((item) => ({
-              time: new Date(item.dt * 1000).toLocaleTimeString("en-US", {
-                hour: "numeric",
-                hour12: true,
-              }),
+              time: hourLabel(item.dt),
               temp: Math.round(item.temp),
               description: item.weather[0]?.description || "Unknown",
               icon: item.weather[0]?.icon || "01d",
@@ -404,17 +418,13 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
 
         const data = (await response.json()) as OpenWeatherForecastResponse;
 
-        // Filter to only future entries for the rest of today
+        // Filter to only future entries for the rest of today in user's timezone
         const hourlyData: HourlyForecast[] = data.list
           .filter((item) => {
-            const itemDate = new Date(item.dt * 1000);
-            return itemDate >= now && itemDate < tomorrow;
+            return item.dt * 1000 >= nowMs && dateInTz(item.dt) === todayStr;
           })
           .map((item) => ({
-            time: new Date(item.dt * 1000).toLocaleTimeString("en-US", {
-              hour: "numeric",
-              hour12: true,
-            }),
+            time: hourLabel(item.dt),
             temp: Math.round(item.main.temp),
             description: item.weather[0]?.description || "Unknown",
             icon: item.weather[0]?.icon || "01d",
