@@ -243,8 +243,7 @@ export function KioskFrame({ config, onBack, onConnectionError, onNavigate }: Ki
         title="OpenFrame Kiosk"
         onLoad={handleIframeLoad}
         onError={handleIframeError}
-        allow="fullscreen; autoplay"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+        allow="fullscreen; autoplay; webgl"
       />
 
       {/* Connection status indicator */}
