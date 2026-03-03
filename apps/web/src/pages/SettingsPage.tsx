@@ -32,6 +32,7 @@ import { CalendarListForAccount } from "../components/settings/CalendarListForAc
 import { AddAccountModal } from "../components/settings/AddAccountModal";
 import { HACalendarModal } from "../components/settings/HACalendarModal";
 import { SupportButton } from "../components/settings/SupportButton";
+import { ConnectionsTab } from "../components/settings/ConnectionsTab";
 import { HandwritingCanvas } from "../components/ui/HandwritingCanvas";
 import { useHAWebSocket } from "../stores/homeassistant-ws";
 import { useModuleStore } from "../stores/modules";
@@ -41,7 +42,7 @@ import { buildOAuthUrl } from "../utils/oauth-scopes";
 import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings } from "@openframe/shared";
 
 // Parent tabs for URL routing
-type SettingsTab = "account" | "calendars" | "tasks" | "modules" | "entertainment" | "appearance" | "ai" | "assumptions" | "automations" | "cameras" | "homeassistant" | "kiosks" | "companion" | "users" | "cloud" | "system" | "billing" | "instances" | "support";
+type SettingsTab = "account" | "connections" | "calendars" | "tasks" | "modules" | "entertainment" | "appearance" | "ai" | "assumptions" | "automations" | "cameras" | "homeassistant" | "kiosks" | "companion" | "users" | "cloud" | "system" | "billing" | "instances" | "support";
 
 // Entertainment sub-tabs
 type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobookshelf" | "news";
@@ -49,12 +50,13 @@ type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobooksh
 // Appearance sub-tabs
 type AppearanceSubTab = "display" | "photos" | "screensaver" | "sidebar";
 
-const validTabs: SettingsTab[] = ["account", "calendars", "tasks", "modules", "entertainment", "appearance", "ai", "assumptions", "automations", "cameras", "homeassistant", "kiosks", "companion", "users", "cloud", "system", "billing", "instances", "support"];
+const validTabs: SettingsTab[] = ["account", "connections", "calendars", "tasks", "modules", "entertainment", "appearance", "ai", "assumptions", "automations", "cameras", "homeassistant", "kiosks", "companion", "users", "cloud", "system", "billing", "instances", "support"];
 const validEntertainmentSubTabs: EntertainmentSubTab[] = ["sports", "spotify", "iptv", "plex", "audiobookshelf", "news"];
 const validAppearanceSubTabs: AppearanceSubTab[] = ["display", "photos", "screensaver", "sidebar"];
 
 const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; description: string; cloudOnly?: boolean; selfHostedOnly?: boolean; moduleId?: string | null }[] = [
   { id: "account", label: "Account", icon: <User className="h-4 w-4" />, description: "Profile & login" },
+  { id: "connections", label: "Connections", icon: <Link2 className="h-4 w-4" />, description: "Linked services & accounts" },
   { id: "calendars", label: "Calendars", icon: <Calendar className="h-4 w-4" />, description: "Sources & sync" },
   { id: "tasks", label: "Tasks", icon: <ListTodo className="h-4 w-4" />, description: "Lists & layout" },
   { id: "modules", label: "Modules", icon: <Puzzle className="h-4 w-4" />, description: "Add & manage features" },
@@ -4432,6 +4434,9 @@ function CameraTroubleshooting({ cameras }: { cameras: Camera[] }) {
 
 function CamerasSettings() {
   const queryClient = useQueryClient();
+  const { accessToken, apiKey } = useAuthStore();
+  const authToken = accessToken || apiKey;
+
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingCamera, setEditingCamera] = useState<string | null>(null);
 
@@ -4442,6 +4447,16 @@ function CamerasSettings() {
   const [formRtspUrl, setFormRtspUrl] = useState("");
   const [formUsername, setFormUsername] = useState("");
   const [formPassword, setFormPassword] = useState("");
+
+  // Preview debug state
+  const [previewStatus, setPreviewStatus] = useState<'loading' | 'connected' | 'error'>('loading');
+  const [previewLoadTime, setPreviewLoadTime] = useState<number | null>(null);
+  const [previewDimensions, setPreviewDimensions] = useState<{ w: number; h: number } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewLastSuccess, setPreviewLastSuccess] = useState<Date | null>(null);
+  const previewImgRef = useRef<HTMLImageElement>(null);
+  const previewLoadStartRef = useRef<number>(0);
+  const previewRefreshTimerRef = useRef<ReturnType<typeof setInterval>>();
 
   // MediaMTX config state
   const [mediamtxApiUrl, setMediamtxApiUrl] = useState("");
@@ -4468,6 +4483,14 @@ function CamerasSettings() {
     refetchInterval: 10000, // Check every 10 seconds
   });
 
+  // Stream status for camera being edited (RTSP debug info)
+  const { data: editStreamStatus } = useQuery({
+    queryKey: ["camera", "stream-status", editingCamera],
+    queryFn: () => api.getCameraStreamStatus(editingCamera!),
+    enabled: !!editingCamera,
+    refetchInterval: 10000,
+  });
+
   // Initialize MediaMTX form when config loads
   useEffect(() => {
     if (mediamtxConfig) {
@@ -4477,6 +4500,40 @@ function CamerasSettings() {
       setMediamtxHlsPort(mediamtxConfig.hlsPort);
     }
   }, [mediamtxConfig]);
+
+  // Auto-refresh preview snapshot when editing a camera
+  useEffect(() => {
+    if (previewRefreshTimerRef.current) {
+      clearInterval(previewRefreshTimerRef.current);
+    }
+
+    if (!editingCamera) {
+      setPreviewStatus('loading');
+      setPreviewLoadTime(null);
+      setPreviewDimensions(null);
+      setPreviewError(null);
+      setPreviewLastSuccess(null);
+      return;
+    }
+
+    const refreshPreview = () => {
+      if (previewImgRef.current) {
+        previewLoadStartRef.current = performance.now();
+        setPreviewStatus('loading');
+        previewImgRef.current.src = `${api.getCameraSnapshotUrl(editingCamera)}?token=${authToken}&t=${Date.now()}`;
+      }
+    };
+
+    previewLoadStartRef.current = performance.now();
+
+    previewRefreshTimerRef.current = setInterval(refreshPreview, 5000);
+
+    return () => {
+      if (previewRefreshTimerRef.current) {
+        clearInterval(previewRefreshTimerRef.current);
+      }
+    };
+  }, [editingCamera, authToken]);
 
   const saveMediamtxConfig = useMutation({
     mutationFn: (data: { apiUrl: string; host: string; webrtcPort: string; hlsPort: string }) =>
@@ -4631,93 +4688,345 @@ function CamerasSettings() {
     setEditingCamera(null);
   };
 
-  const renderForm = (isEdit: boolean) => (
-    <form onSubmit={isEdit ? handleSubmitEdit : handleSubmitAdd} className="space-y-4 rounded-lg border border-border p-4 bg-muted/30">
-      <h4 className="font-medium">{isEdit ? "Edit Camera" : "Add New Camera"}</h4>
+  const handlePreviewLoad = () => {
+    const loadTime = performance.now() - previewLoadStartRef.current;
+    setPreviewStatus('connected');
+    setPreviewLoadTime(Math.round(loadTime));
+    setPreviewError(null);
+    setPreviewLastSuccess(new Date());
+    if (previewImgRef.current) {
+      setPreviewDimensions({
+        w: previewImgRef.current.naturalWidth,
+        h: previewImgRef.current.naturalHeight,
+      });
+    }
+  };
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="sm:col-span-2">
-          <label className="text-sm font-medium">Camera Name *</label>
-          <input
-            type="text"
-            value={formName}
-            onChange={(e) => setFormName(e.target.value)}
-            placeholder="e.g., Front Door, Backyard"
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-            required
-          />
+  const handlePreviewError = () => {
+    setPreviewStatus('error');
+    setPreviewError('Failed to load snapshot from camera');
+    setPreviewLoadTime(null);
+  };
+
+  // Inline thumbnail for camera list rows
+  const CameraListThumbnail = ({ camera: cam }: { camera: Camera }) => {
+    const [failed, setFailed] = useState(false);
+    const hasUrl = cam.mjpegUrl || cam.snapshotUrl || cam.rtspUrl;
+
+    if (!hasUrl || failed) {
+      return (
+        <div className="h-12 w-16 flex-shrink-0 rounded overflow-hidden bg-muted/50 flex items-center justify-center">
+          <CameraIcon className="h-5 w-5 text-muted-foreground" />
+        </div>
+      );
+    }
+
+    return (
+      <div className="h-12 w-16 flex-shrink-0 rounded overflow-hidden bg-muted/50 flex items-center justify-center">
+        <img
+          src={`${api.getCameraSnapshotUrl(cam.id)}?token=${authToken}&t=${Math.floor(Date.now() / 30000)}`}
+          alt={cam.name}
+          className="h-full w-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      </div>
+    );
+  };
+
+  const renderForm = (isEdit: boolean) => {
+    const editedCamera = isEdit ? cameras.find(c => c.id === editingCamera) : null;
+
+    const formContent = (
+      <form onSubmit={isEdit ? handleSubmitEdit : handleSubmitAdd} className="space-y-4 rounded-lg border border-border p-4 bg-muted/30">
+        <h4 className="font-medium">{isEdit ? "Edit Camera" : "Add New Camera"}</h4>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className="text-sm font-medium">Camera Name *</label>
+            <input
+              type="text"
+              value={formName}
+              onChange={(e) => setFormName(e.target.value)}
+              placeholder="e.g., Front Door, Backyard"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              required
+            />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="text-sm font-medium">MJPEG Stream URL</label>
+            <input
+              type="url"
+              value={formMjpegUrl}
+              onChange={(e) => setFormMjpegUrl(e.target.value)}
+              placeholder="http://camera-ip/mjpeg/stream"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">Live video stream (recommended for browser viewing)</p>
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="text-sm font-medium">Snapshot URL</label>
+            <input
+              type="url"
+              value={formSnapshotUrl}
+              onChange={(e) => setFormSnapshotUrl(e.target.value)}
+              placeholder="http://camera-ip/snapshot.jpg"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">Static image URL (refreshed periodically)</p>
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="text-sm font-medium">RTSP URL</label>
+            <input
+              type="text"
+              value={formRtspUrl}
+              onChange={(e) => setFormRtspUrl(e.target.value)}
+              placeholder="rtsp://camera-ip:554/stream"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">For use with MediaMTX RTSP proxy</p>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Username</label>
+            <input
+              type="text"
+              value={formUsername}
+              onChange={(e) => setFormUsername(e.target.value)}
+              placeholder="Camera username"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Password</label>
+            <input
+              type="password"
+              value={formPassword}
+              onChange={(e) => setFormPassword(e.target.value)}
+              placeholder={isEdit ? "Leave blank to keep current" : "Camera password"}
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
+          </div>
         </div>
 
-        <div className="sm:col-span-2">
-          <label className="text-sm font-medium">MJPEG Stream URL</label>
-          <input
-            type="url"
-            value={formMjpegUrl}
-            onChange={(e) => setFormMjpegUrl(e.target.value)}
-            placeholder="http://camera-ip/mjpeg/stream"
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-          />
-          <p className="mt-1 text-xs text-muted-foreground">Live video stream (recommended for browser viewing)</p>
+        <div className="flex gap-2">
+          <Button type="submit" disabled={createCamera.isPending || updateCamera.isPending}>
+            {(createCamera.isPending || updateCamera.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isEdit ? "Save Changes" : "Add Camera"}
+          </Button>
+          <Button type="button" variant="outline" onClick={handleCancelForm}>
+            Cancel
+          </Button>
         </div>
+      </form>
+    );
 
-        <div className="sm:col-span-2">
-          <label className="text-sm font-medium">Snapshot URL</label>
-          <input
-            type="url"
-            value={formSnapshotUrl}
-            onChange={(e) => setFormSnapshotUrl(e.target.value)}
-            placeholder="http://camera-ip/snapshot.jpg"
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-          />
-          <p className="mt-1 text-xs text-muted-foreground">Static image URL (refreshed periodically)</p>
-        </div>
-
-        <div className="sm:col-span-2">
-          <label className="text-sm font-medium">RTSP URL</label>
-          <input
-            type="text"
-            value={formRtspUrl}
-            onChange={(e) => setFormRtspUrl(e.target.value)}
-            placeholder="rtsp://camera-ip:554/stream"
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-          />
-          <p className="mt-1 text-xs text-muted-foreground">For future use with RTSP proxy</p>
-        </div>
-
+    // Add mode: form only, with save-first note
+    if (!isEdit) {
+      return (
         <div>
-          <label className="text-sm font-medium">Username</label>
-          <input
-            type="text"
-            value={formUsername}
-            onChange={(e) => setFormUsername(e.target.value)}
-            placeholder="Camera username"
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-          />
+          {formContent}
+          <p className="mt-2 text-xs text-muted-foreground">Save the camera first to see a live preview.</p>
         </div>
+      );
+    }
 
-        <div>
-          <label className="text-sm font-medium">Password</label>
-          <input
-            type="password"
-            value={formPassword}
-            onChange={(e) => setFormPassword(e.target.value)}
-            placeholder={isEdit ? "Leave blank to keep current" : "Camera password"}
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-          />
+    // Edit mode: form + preview/debug side by side
+    const hasPreviewUrl = editedCamera?.mjpegUrl || editedCamera?.snapshotUrl || editedCamera?.rtspUrl;
+
+    return (
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div>{formContent}</div>
+
+        <div className="space-y-4">
+          {/* Preview Image */}
+          <div className="rounded-lg border border-border overflow-hidden bg-black">
+            <div className="relative aspect-video flex items-center justify-center">
+              {editingCamera && hasPreviewUrl ? (
+                <>
+                  <img
+                    ref={previewImgRef}
+                    src={`${api.getCameraSnapshotUrl(editingCamera)}?token=${authToken}&t=${Date.now()}`}
+                    alt={`Preview: ${formName}`}
+                    className={cn(
+                      "max-h-full max-w-full object-contain",
+                      previewStatus === 'loading' && "opacity-50"
+                    )}
+                    onLoad={handlePreviewLoad}
+                    onError={handlePreviewError}
+                  />
+                  {previewStatus === 'loading' && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    </div>
+                  )}
+                  {previewStatus === 'error' && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80">
+                      <XCircle className="h-8 w-8 text-destructive mb-2" />
+                      <p className="text-sm text-muted-foreground">Preview unavailable</p>
+                    </div>
+                  )}
+                  {/* Status indicator */}
+                  <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded bg-black/60">
+                    <div className={cn(
+                      "h-2 w-2 rounded-full",
+                      previewStatus === 'connected' ? "bg-green-500 animate-pulse" :
+                      previewStatus === 'error' ? "bg-red-500" :
+                      "bg-amber-500 animate-pulse"
+                    )} />
+                    <span className="text-[10px] font-semibold text-white uppercase tracking-wide">
+                      {previewStatus === 'connected' ? 'Live' : previewStatus === 'error' ? 'Error' : 'Loading'}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center text-muted-foreground py-8">
+                  <CameraIcon className="h-8 w-8 mb-2" />
+                  <span className="text-sm">No stream URL configured</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Debug Info Panel */}
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
+            <h4 className="text-sm font-medium text-primary flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              Debug Info
+            </h4>
+
+            {/* URL Configuration Status */}
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-primary/80">Configured URLs</p>
+              <div className="grid gap-1 text-xs">
+                <div className="flex items-center gap-2">
+                  {editedCamera?.mjpegUrl ? (
+                    <CheckCircle className="h-3.5 w-3.5 text-primary" />
+                  ) : (
+                    <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
+                  <span className={editedCamera?.mjpegUrl ? "text-foreground" : "text-muted-foreground"}>
+                    MJPEG Stream
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {editedCamera?.snapshotUrl ? (
+                    <CheckCircle className="h-3.5 w-3.5 text-primary" />
+                  ) : (
+                    <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
+                  <span className={editedCamera?.snapshotUrl ? "text-foreground" : "text-muted-foreground"}>
+                    Snapshot URL
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {editedCamera?.rtspUrl ? (
+                    <CheckCircle className="h-3.5 w-3.5 text-primary" />
+                  ) : (
+                    <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
+                  <span className={editedCamera?.rtspUrl ? "text-foreground" : "text-muted-foreground"}>
+                    RTSP URL
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Connection Status */}
+            {hasPreviewUrl && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-primary/80">Connection</p>
+                <div className="grid gap-1 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Status</span>
+                    <span className={cn(
+                      "font-medium",
+                      previewStatus === 'connected' && "text-primary",
+                      previewStatus === 'error' && "text-destructive",
+                      previewStatus === 'loading' && "text-muted-foreground",
+                    )}>
+                      {previewStatus === 'connected' ? 'Connected' : previewStatus === 'error' ? 'Error' : 'Loading...'}
+                    </span>
+                  </div>
+                  {previewLoadTime !== null && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Load time</span>
+                      <span className="font-mono text-foreground">{previewLoadTime}ms</span>
+                    </div>
+                  )}
+                  {previewDimensions && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Resolution</span>
+                      <span className="font-mono text-foreground">{previewDimensions.w} x {previewDimensions.h}</span>
+                    </div>
+                  )}
+                  {previewLastSuccess && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Last refresh</span>
+                      <span className="font-mono text-foreground">
+                        {previewLastSuccess.toLocaleTimeString()}
+                      </span>
+                    </div>
+                  )}
+                  {previewError && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Error</span>
+                      <span className="text-destructive">{previewError}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* RTSP Stream Status */}
+            {editedCamera?.rtspUrl && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-primary/80">RTSP Stream</p>
+                <div className="grid gap-1 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">MediaMTX</span>
+                    {editStreamStatus ? (
+                      <span className={editStreamStatus.mediamtxAvailable ? "text-primary font-medium" : "text-destructive font-medium"}>
+                        {editStreamStatus.mediamtxAvailable ? 'Available' : 'Not available'}
+                      </span>
+                    ) : (
+                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+                  {editStreamStatus && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Stream ready</span>
+                      <span className={cn(
+                        "font-medium",
+                        editStreamStatus.streamReady ? "text-primary" : "text-muted-foreground"
+                      )}>
+                        {editStreamStatus.streamReady ? 'Yes' : 'No'}
+                      </span>
+                    </div>
+                  )}
+                  {editStreamStatus?.webrtcUrl && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">WebRTC</span>
+                      <span className="text-primary font-medium">Available</span>
+                    </div>
+                  )}
+                  {editStreamStatus?.hlsUrl && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">HLS</span>
+                      <span className="text-primary font-medium">Available</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-
-      <div className="flex gap-2">
-        <Button type="submit" disabled={createCamera.isPending || updateCamera.isPending}>
-          {(createCamera.isPending || updateCamera.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {isEdit ? "Save Changes" : "Add Camera"}
-        </Button>
-        <Button type="button" variant="outline" onClick={handleCancelForm}>
-          Cancel
-        </Button>
-      </div>
-    </form>
-  );
+    );
+  };
 
   return (
     <>
@@ -4904,14 +5213,15 @@ function CamerasSettings() {
                 ) : (
                   <div className="flex items-center justify-between rounded-lg border border-border p-4">
                     <div className="flex items-center gap-3">
+                      <CameraListThumbnail camera={camera} />
                       <div
-                        className={`h-3 w-3 rounded-full ${
+                        className={`h-3 w-3 flex-shrink-0 rounded-full ${
                           camera.isEnabled ? "bg-green-500" : "bg-muted"
                         }`}
                       />
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-medium">{camera.name}</p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-muted-foreground truncate max-w-[300px]">
                           {camera.mjpegUrl || camera.snapshotUrl || camera.rtspUrl || "No URL configured"}
                         </p>
                       </div>
@@ -9336,6 +9646,7 @@ function ModulesTab({
   onUninstall: (id: string) => Promise<void>;
 }) {
   const [toggling, setToggling] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<string>("all");
 
   const handleToggle = async (moduleId: string, currentlyEnabled: boolean) => {
     setToggling(moduleId);
@@ -9362,100 +9673,170 @@ function ModulesTab({
     return map;
   }, [moduleList]);
 
+  // Count enabled modules per category
+  const enabledByCategory = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const cat of MODULE_CATEGORIES) {
+      const mods = modulesByCategory.get(cat.id);
+      if (mods) {
+        counts.set(cat.id, mods.filter((m) => isModuleEnabled(m.id)).length);
+      }
+    }
+    return counts;
+  }, [modulesByCategory, isModuleEnabled]);
+
   const enabledCount = moduleList.filter((m) => isModuleEnabled(m.id)).length;
 
+  // Filter categories to display based on active selection
+  const visibleCategories = activeCategory === "all"
+    ? MODULE_CATEGORIES.filter((cat) => modulesByCategory.has(cat.id))
+    : MODULE_CATEGORIES.filter((cat) => cat.id === activeCategory && modulesByCategory.has(cat.id));
+
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">Modules</h2>
-          <p className="text-sm text-muted-foreground">
-            {enabledCount} of {moduleList.length} modules enabled
-          </p>
+    <div className="flex gap-6">
+      {/* Left: Category sidebar */}
+      <nav className="w-48 shrink-0 sticky top-0 self-start space-y-0.5">
+        <button
+          type="button"
+          onClick={() => setActiveCategory("all")}
+          className={`w-full px-4 py-2 text-left text-sm font-medium rounded-md transition-colors ${
+            activeCategory === "all"
+              ? "bg-primary text-primary-foreground"
+              : "text-foreground hover:bg-primary/10"
+          }`}
+        >
+          <span className="flex items-center justify-between">
+            All
+            <span className={`text-xs tabular-nums ${
+              activeCategory === "all" ? "text-primary-foreground/70" : "text-muted-foreground"
+            }`}>
+              {enabledCount}/{moduleList.length}
+            </span>
+          </span>
+        </button>
+        {MODULE_CATEGORIES.map((cat) => {
+          const mods = modulesByCategory.get(cat.id);
+          if (!mods) return null;
+          const catEnabled = enabledByCategory.get(cat.id) ?? 0;
+          return (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => setActiveCategory(cat.id)}
+              className={`w-full px-4 py-2 text-left text-sm font-medium rounded-md transition-colors ${
+                activeCategory === cat.id
+                  ? "bg-primary text-primary-foreground"
+                  : "text-foreground hover:bg-primary/10"
+              }`}
+            >
+              <span className="flex items-center justify-between">
+                {cat.label}
+                <span className={`text-xs tabular-nums ${
+                  activeCategory === cat.id ? "text-primary-foreground/70" : "text-muted-foreground"
+                }`}>
+                  {catEnabled}/{mods.length}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Right: Module cards */}
+      <div className="flex-1 min-w-0 space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Modules</h2>
+            <p className="text-sm text-muted-foreground">
+              {enabledCount} of {moduleList.length} modules enabled
+            </p>
+          </div>
+          {modulesLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
         </div>
-        {modulesLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-      </div>
 
-      {MODULE_CATEGORIES.map((category) => {
-        const mods = modulesByCategory.get(category.id);
-        if (!mods) return null;
-        return (
-          <section key={category.id}>
-            <h3 className="text-sm font-medium text-primary mb-3">{category.label}</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {mods.map((mod) => {
-                const enabled = isModuleEnabled(mod.id);
-                const isToggling = toggling === mod.id;
-                const IconComponent = MODULE_ICON_MAP[mod.icon] || Puzzle;
-                const depsNotMet = mod.dependsOn.length > 0 && mod.dependsOn.some((dep) => !isModuleEnabled(dep));
-                const depNames = mod.dependsOn
-                  .filter((dep) => !isModuleEnabled(dep))
-                  .map((dep) => MODULE_REGISTRY[dep as ModuleId]?.name ?? dep);
+        {visibleCategories.map((category) => {
+          const mods = modulesByCategory.get(category.id);
+          if (!mods) return null;
+          return (
+            <section key={category.id}>
+              {activeCategory === "all" && (
+                <h3 className="text-sm font-medium text-primary mb-3">{category.label}</h3>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {mods.map((mod) => {
+                  const enabled = isModuleEnabled(mod.id);
+                  const isToggling = toggling === mod.id;
+                  const IconComponent = MODULE_ICON_MAP[mod.icon] || Puzzle;
+                  const depsNotMet = mod.dependsOn.length > 0 && mod.dependsOn.some((dep) => !isModuleEnabled(dep));
+                  const depNames = mod.dependsOn
+                    .filter((dep) => !isModuleEnabled(dep))
+                    .map((dep) => MODULE_REGISTRY[dep as ModuleId]?.name ?? dep);
 
-                return (
-                  <div
-                    key={mod.id}
-                    className={cn(
-                      "flex items-start gap-3 p-3 rounded-lg border-2 transition-colors",
-                      enabled
-                        ? "border-primary/40 bg-primary/5"
-                        : "border-border bg-card"
-                    )}
-                  >
+                  return (
                     <div
+                      key={mod.id}
                       className={cn(
-                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
-                        enabled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                        "flex items-start gap-3 p-3 rounded-lg border-2 transition-colors",
+                        enabled
+                          ? "border-primary/40 bg-primary/5"
+                          : "border-border bg-card"
                       )}
                     >
-                      <IconComponent className="h-5 w-5" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className={cn("text-sm font-medium truncate", enabled ? "text-primary" : "text-foreground")}>
-                          {mod.name}
-                        </span>
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={enabled}
-                          disabled={isToggling || (!enabled && depsNotMet) || !mod.available}
-                          onClick={() => handleToggle(mod.id, enabled)}
-                          className={cn(
-                            "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
-                            enabled ? "bg-primary" : "bg-muted",
-                            (isToggling || (!enabled && depsNotMet) || !mod.available) && "opacity-50 cursor-not-allowed"
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "inline-block h-3.5 w-3.5 transform rounded-full bg-background transition-transform",
-                              enabled ? "translate-x-[18px]" : "translate-x-[3px]"
-                            )}
-                          />
-                        </button>
+                      <div
+                        className={cn(
+                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                          enabled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        <IconComponent className="h-5 w-5" />
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{mod.description}</p>
-                      {!enabled && depsNotMet && (
-                        <p className="text-xs text-destructive mt-1">
-                          Requires: {depNames.join(", ")}
-                        </p>
-                      )}
-                      {!mod.available && (
-                        <p className="text-xs text-destructive mt-1">
-                          <a href="https://openframe.us/billing" target="_blank" rel="noopener noreferrer" className="underline">
-                            Upgrade plan
-                          </a>{" "}to enable
-                        </p>
-                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={cn("text-sm font-medium truncate", enabled ? "text-primary" : "text-foreground")}>
+                            {mod.name}
+                          </span>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={enabled}
+                            disabled={isToggling || (!enabled && depsNotMet) || !mod.available}
+                            onClick={() => handleToggle(mod.id, enabled)}
+                            className={cn(
+                              "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
+                              enabled ? "bg-primary" : "bg-muted",
+                              (isToggling || (!enabled && depsNotMet) || !mod.available) && "opacity-50 cursor-not-allowed"
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "inline-block h-3.5 w-3.5 transform rounded-full bg-background transition-transform",
+                                enabled ? "translate-x-[18px]" : "translate-x-[3px]"
+                              )}
+                            />
+                          </button>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{mod.description}</p>
+                        {!enabled && depsNotMet && (
+                          <p className="text-xs text-destructive mt-1">
+                            Requires: {depNames.join(", ")}
+                          </p>
+                        )}
+                        {!mod.available && (
+                          <p className="text-xs text-destructive mt-1">
+                            <a href="https://openframe.us/billing" target="_blank" rel="noopener noreferrer" className="underline">
+                              Upgrade plan
+                            </a>{" "}to enable
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        );
-      })}
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -9793,6 +10174,7 @@ export function SettingsPage() {
     updateCompositeWidgetConfig,
     updateSubItemConfig,
     reorderCompositeWidgets,
+    updateActivity,
   } = useScreensaverStore();
   const {
     layout: tasksLayout,
@@ -9827,6 +10209,15 @@ export function SettingsPage() {
   // Local photos album selection state
   const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
   const [selectedAlbumName, setSelectedAlbumName] = useState<string>("");
+
+  // Suppress screensaver while on the settings page
+  useEffect(() => {
+    updateActivity();
+    const interval = setInterval(() => {
+      updateActivity();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [updateActivity]);
 
   // Fetch albums for album name lookup
   const { data: albums = [] } = useQuery({
@@ -10182,6 +10573,10 @@ export function SettingsPage() {
                 refetchModules();
               }}
             />
+          )}
+          {/* Connections Tab */}
+          {activeTab === "connections" && (
+            <ConnectionsTab onNavigateToTab={handleTabChange} />
           )}
           {/* Account Tab */}
           {activeTab === "account" && (
