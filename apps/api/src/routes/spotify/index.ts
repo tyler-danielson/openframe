@@ -616,6 +616,7 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
             contextUri: { type: "string" },
             uris: { type: "array", items: { type: "string" } },
             positionMs: { type: "number" },
+            offsetUri: { type: "string" },
           },
         },
       },
@@ -632,6 +633,7 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         contextUri?: string;
         uris?: string[];
         positionMs?: number;
+        offsetUri?: string;
       };
 
       await spotify.play(body);
@@ -968,6 +970,54 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         success: true,
         data: playlists,
+      };
+    }
+  );
+
+  // Get playlist tracks
+  fastify.get(
+    "/playlists/:id/tracks",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Get tracks for a specific playlist",
+        tags: ["Spotify"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+          },
+          required: ["id"],
+        },
+        querystring: {
+          type: "object",
+          properties: {
+            accountId: { type: "string", description: "Specific Spotify account to use" },
+            limit: { type: "number", default: 50 },
+            offset: { type: "number", default: 0 },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+      const { id } = request.params as { id: string };
+      const { accountId, limit, offset } = request.query as {
+        accountId?: string;
+        limit?: number;
+        offset?: number;
+      };
+      const spotify = new SpotifyService(fastify.db, user.id, accountId);
+
+      const tracks = await spotify.getPlaylistTracks(id, limit, offset);
+
+      return {
+        success: true,
+        data: tracks,
       };
     }
   );

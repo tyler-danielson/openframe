@@ -270,7 +270,7 @@ export function ScreensaverBuilderPage() {
       <header className="flex items-center justify-between border-b border-border px-3 py-1.5">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => { window.location.href = appPath(isKioskMode ? "/settings?tab=kiosks" : "/settings"); }}
+            onClick={() => { window.location.href = appPath(isKioskMode ? "/settings/kiosks" : "/settings"); }}
             className="text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" />

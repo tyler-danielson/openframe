@@ -294,7 +294,7 @@ export default function App() {
             }
           />
           <Route
-            path="settings"
+            path="settings/*"
             element={
               <SettingsProtectedRoute>
                 <SettingsPage />
@@ -389,6 +389,7 @@ export default function App() {
           hideNowPlaying={hideNowPlaying}
           isKioskPage={isKioskPage}
           isCompanionPage={isCompanionPage}
+          isSettingsPage={isSettingsPage}
         />
       )}
     </Toaster>
@@ -401,16 +402,18 @@ function ModuleAwareOverlays({
   hideNowPlaying,
   isKioskPage,
   isCompanionPage,
+  isSettingsPage,
 }: {
   hideNowPlaying: boolean;
   isKioskPage: boolean;
   isCompanionPage: boolean;
+  isSettingsPage: boolean;
 }) {
   const isModuleEnabled = useModuleStore((s) => s.isEnabled);
   return (
     <>
       <DurationAlertBanner />
-      <Screensaver />
+      {!isSettingsPage && <Screensaver />}
       {!hideNowPlaying && isModuleEnabled("spotify") && <NowPlaying />}
       {!isKioskPage && !isCompanionPage && isModuleEnabled("ai-chat") && <ChatDrawer />}
       {!isKioskPage && <AppConnectionStatus />}

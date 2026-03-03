@@ -482,6 +482,17 @@ export interface Assumption {
   updatedAt: Date;
 }
 
+export interface ShoppingItem {
+  id: string;
+  userId: string;
+  name: string;
+  amazonUrl: string | null;
+  checked: boolean;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // News types
 export interface NewsFeed {
   id: string;

@@ -12,36 +12,17 @@ import {
   Unlink,
   X,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
 import { appUrl } from "../../lib/cloud";
 import { buildOAuthUrl } from "../../utils/oauth-scopes";
 import { Button } from "../ui/Button";
-
-type SettingsTab =
-  | "account"
-  | "connections"
-  | "calendars"
-  | "tasks"
-  | "modules"
-  | "entertainment"
-  | "appearance"
-  | "ai"
-  | "assumptions"
-  | "automations"
-  | "cameras"
-  | "homeassistant"
-  | "kiosks"
-  | "companion"
-  | "users"
-  | "cloud"
-  | "system"
-  | "billing"
-  | "instances"
-  | "support";
+import type { SettingsTab } from "./SettingsSidebar";
 
 interface ConnectionsTabProps {
-  onNavigateToTab: (tab: SettingsTab | null) => void;
+  onNavigateToTab: (tab: SettingsTab) => void;
+  onNavigateToService: (serviceId: string) => void;
 }
 
 // --- Service definitions ---
@@ -62,7 +43,8 @@ interface ServiceDef {
   bgColor: string;
   category: ServiceCategory;
   configTab?: SettingsTab;
-  configSubtab?: string;
+  configService?: string;
+  configRoute?: string;
 }
 
 const CATEGORY_LABELS: Record<ServiceCategory, string> = {
@@ -112,7 +94,7 @@ const SERVICES: ServiceDef[] = [
     icon: GoogleIcon,
     bgColor: "bg-primary/10",
     category: "calendar",
-    configTab: "calendars",
+    configService: "calendars",
   },
   {
     id: "microsoft",
@@ -121,7 +103,7 @@ const SERVICES: ServiceDef[] = [
     icon: MicrosoftIcon,
     bgColor: "bg-primary/10",
     category: "calendar",
-    configTab: "calendars",
+    configService: "calendars",
   },
   {
     id: "caldav",
@@ -130,7 +112,7 @@ const SERVICES: ServiceDef[] = [
     icon: <span className="text-lg">📅</span>,
     bgColor: "bg-primary/10",
     category: "calendar",
-    configTab: "calendars",
+    configService: "calendars",
   },
   {
     id: "ics",
@@ -139,7 +121,7 @@ const SERVICES: ServiceDef[] = [
     icon: <span className="text-lg">🔗</span>,
     bgColor: "bg-primary/10",
     category: "calendar",
-    configTab: "calendars",
+    configService: "calendars",
   },
   // Music & Media
   {
@@ -149,8 +131,7 @@ const SERVICES: ServiceDef[] = [
     icon: <span className="text-lg">🎵</span>,
     bgColor: "bg-primary/10",
     category: "media",
-    configTab: "entertainment",
-    configSubtab: "spotify",
+    configService: "spotify",
   },
   {
     id: "plex",
@@ -159,8 +140,7 @@ const SERVICES: ServiceDef[] = [
     icon: <span className="text-lg">🎬</span>,
     bgColor: "bg-primary/10",
     category: "media",
-    configTab: "entertainment",
-    configSubtab: "plex",
+    configService: "plex",
   },
   {
     id: "audiobookshelf",
@@ -169,8 +149,7 @@ const SERVICES: ServiceDef[] = [
     icon: <span className="text-lg">📚</span>,
     bgColor: "bg-primary/10",
     category: "media",
-    configTab: "entertainment",
-    configSubtab: "audiobookshelf",
+    configService: "audiobookshelf",
   },
   {
     id: "iptv",
@@ -179,8 +158,7 @@ const SERVICES: ServiceDef[] = [
     icon: <span className="text-lg">📺</span>,
     bgColor: "bg-primary/10",
     category: "media",
-    configTab: "entertainment",
-    configSubtab: "iptv",
+    configService: "iptv",
   },
   {
     id: "youtube",
@@ -198,7 +176,7 @@ const SERVICES: ServiceDef[] = [
     icon: <span className="text-lg">🏠</span>,
     bgColor: "bg-primary/10",
     category: "smarthome",
-    configTab: "homeassistant",
+    configService: "homeassistant",
   },
   // Productivity
   {
@@ -208,7 +186,7 @@ const SERVICES: ServiceDef[] = [
     icon: <span className="text-lg">📝</span>,
     bgColor: "bg-primary/10",
     category: "productivity",
-    configTab: "ai",
+    configRoute: "/remarkable",
   },
   {
     id: "capacities",
@@ -237,7 +215,7 @@ const SERVICES: ServiceDef[] = [
     icon: <span className="text-lg">🌤️</span>,
     bgColor: "bg-primary/10",
     category: "information",
-    configTab: "appearance",
+    configService: "weather",
   },
   {
     id: "news",
@@ -246,8 +224,7 @@ const SERVICES: ServiceDef[] = [
     icon: <span className="text-lg">📰</span>,
     bgColor: "bg-primary/10",
     category: "information",
-    configTab: "entertainment",
-    configSubtab: "news",
+    configService: "news",
   },
   {
     id: "sports",
@@ -256,12 +233,12 @@ const SERVICES: ServiceDef[] = [
     icon: <span className="text-lg">🏈</span>,
     bgColor: "bg-primary/10",
     category: "information",
-    configTab: "entertainment",
-    configSubtab: "sports",
+    configService: "sports",
   },
 ];
 
-export function ConnectionsTab({ onNavigateToTab }: ConnectionsTabProps) {
+export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: ConnectionsTabProps) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState<string | null>(null);
@@ -499,17 +476,21 @@ export function ConnectionsTab({ onNavigateToTab }: ConnectionsTabProps) {
     const token = useAuthStore.getState().accessToken;
     switch (service.id) {
       case "google":
-        window.location.href = buildOAuthUrl("google", "base", token, appUrl("/settings?tab=connections"));
+        window.location.href = buildOAuthUrl("google", "base", token, appUrl("/settings/connections"));
         return;
       case "microsoft":
-        window.location.href = buildOAuthUrl("microsoft", "base", token, appUrl("/settings?tab=connections"));
+        window.location.href = buildOAuthUrl("microsoft", "base", token, appUrl("/settings/connections"));
         return;
       case "spotify":
         window.location.href = api.getSpotifyAuthUrl();
         return;
       default:
-        // For all other services, navigate to their config tab
-        if (service.configTab) {
+        // For services with a connection detail view, navigate within connections
+        if (service.configRoute) {
+          navigate(service.configRoute);
+        } else if (service.configService) {
+          onNavigateToService(service.configService);
+        } else if (service.configTab) {
           onNavigateToTab(service.configTab);
         }
     }
@@ -531,9 +512,11 @@ export function ConnectionsTab({ onNavigateToTab }: ConnectionsTabProps) {
         deleteHAConfig.mutate();
         break;
       default: {
-        // For OAuth and multi-resource services, navigate to config tab
+        // For OAuth and multi-resource services, navigate to config
         const service = SERVICES.find((s) => s.id === serviceId);
-        if (service?.configTab) {
+        if (service?.configService) {
+          onNavigateToService(service.configService);
+        } else if (service?.configTab) {
           onNavigateToTab(service.configTab);
         }
         setDisconnecting(null);
@@ -677,11 +660,19 @@ export function ConnectionsTab({ onNavigateToTab }: ConnectionsTabProps) {
                         </div>
                       ) : (
                         <>
-                          {service.configTab && (
+                          {(service.configRoute || service.configService || service.configTab) && (
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => onNavigateToTab(service.configTab!)}
+                              onClick={() => {
+                                if (service.configRoute) {
+                                  navigate(service.configRoute);
+                                } else if (service.configService) {
+                                  onNavigateToService(service.configService);
+                                } else if (service.configTab) {
+                                  onNavigateToTab(service.configTab);
+                                }
+                              }}
                             >
                               <Settings className="mr-1 h-3 w-3" />
                               Configure

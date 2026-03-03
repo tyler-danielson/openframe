@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Calendar, ArrowRight, ArrowLeft, Check, SkipForward, Loader2, Eye, EyeOff, Copy, Globe } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/Card";
+import { SetupGuide } from "../components/ui/SetupGuide";
+import { SETUP_GUIDES } from "../data/setup-guides";
 import { useAuthStore } from "../stores/auth";
 import { api } from "../services/api";
 
@@ -144,7 +146,7 @@ export function SetupPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <div className="w-full max-w-lg">
+      <div className="w-full max-w-2xl">
         {/* Progress indicator */}
         <div className="mb-6 flex items-center justify-center gap-1.5">
           {STEPS.map((step, i) => (
@@ -411,6 +413,11 @@ export function SetupPage() {
                     placeholder="GOCSPX-xxxxxx"
                   />
                 </div>
+                <SetupGuide
+                  guide={SETUP_GUIDES.google!}
+                  externalUrl={externalUrl}
+                  defaultExpanded={!googleClientId && !googleClientSecret}
+                />
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={goBack} className="gap-1">
@@ -488,6 +495,11 @@ export function SetupPage() {
                     Use "common" for multi-tenant, or your specific tenant ID.
                   </p>
                 </div>
+                <SetupGuide
+                  guide={SETUP_GUIDES.microsoft!}
+                  externalUrl={externalUrl}
+                  defaultExpanded={!msClientId && !msClientSecret}
+                />
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={goBack} className="gap-1">
@@ -543,6 +555,11 @@ export function SetupPage() {
                     placeholder="Your OpenWeatherMap API key"
                   />
                 </div>
+                <SetupGuide
+                  guide={SETUP_GUIDES.weather!}
+                  externalUrl={externalUrl}
+                  defaultExpanded={!weatherApiKey}
+                />
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={goBack} className="gap-1">
@@ -606,6 +623,11 @@ export function SetupPage() {
                     placeholder="AIzaSy... (optional, for commute times)"
                   />
                 </div>
+                <SetupGuide
+                  guide={SETUP_GUIDES.google_maps!}
+                  externalUrl={externalUrl}
+                  defaultExpanded={!mapsApiKey}
+                />
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={goBack} className="gap-1">

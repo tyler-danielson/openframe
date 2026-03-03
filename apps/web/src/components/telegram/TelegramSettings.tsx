@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { api } from "../../services/api";
 import { Button } from "../ui/Button";
+import { SetupGuide } from "../ui/SetupGuide";
+import { SETUP_GUIDES } from "../../data/setup-guides";
 
 interface TelegramSettingsProps {
   onClose: () => void;
@@ -215,6 +217,11 @@ export function TelegramSettings({ onClose }: TelegramSettingsProps) {
                     and paste the bot token here.
                   </p>
                 </div>
+
+                <SetupGuide
+                  guide={SETUP_GUIDES.telegram!}
+                  defaultExpanded={true}
+                />
 
                 <form onSubmit={handleConnect} className="space-y-3">
                   <div>

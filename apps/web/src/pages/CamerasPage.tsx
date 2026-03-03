@@ -279,7 +279,7 @@ export function CamerasPage() {
             Add Camera
           </Button>
           {!haConfigured && (
-            <Button variant="outline" onClick={() => window.location.href = appPath("/settings?tab=homeassistant")}>
+            <Button variant="outline" onClick={() => window.location.href = appPath("/settings/connections?service=homeassistant")}>
               <Home className="mr-2 h-4 w-4" />
               Connect Home Assistant
             </Button>

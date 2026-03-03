@@ -56,6 +56,7 @@ import type {
   MatterDeviceAttributes,
   MatterCommissionRequest,
   MatterCommandRequest,
+  ShoppingItem,
 } from "@openframe/shared";
 
 // API Key types
@@ -738,6 +739,7 @@ class ApiClient {
     screensaverLayout?: "fullscreen" | "informational" | "quad" | "scatter" | "builder" | "skylight";
     screensaverTransition?: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
     screensaverLayoutConfig?: Record<string, unknown>;
+    settings?: KioskSettings;
   }): Promise<Kiosk> {
     return this.fetch<Kiosk>("/kiosks", {
       method: "POST",
@@ -756,6 +758,7 @@ class ApiClient {
       homePage?: string;
       selectedCalendarIds?: string[] | null;
       enabledFeatures?: KioskEnabledFeatures | null;
+      settings?: KioskSettings;
       screensaverEnabled?: boolean;
       screensaverTimeout?: number;
       screensaverInterval?: number;
@@ -1522,6 +1525,7 @@ class ApiClient {
     deviceId?: string;
     contextUri?: string;
     uris?: string[];
+    offsetUri?: string;
     accountId?: string;
   }): Promise<void> {
     const params = options?.accountId ? `?accountId=${options.accountId}` : '';
@@ -1601,6 +1605,25 @@ class ApiClient {
     const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (accountId) params.set('accountId', accountId);
     return this.fetch(`/spotify/playlists?${params}`);
+  }
+
+  async getSpotifyPlaylistTracks(playlistId: string, limit = 50, offset = 0, accountId?: string): Promise<{
+    items: {
+      track: {
+        id: string;
+        name: string;
+        uri: string;
+        duration_ms: number;
+        artists: { name: string }[];
+        album: { name: string; images: { url: string }[] };
+      };
+      added_at: string;
+    }[];
+    total: number;
+  }> {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (accountId) params.set('accountId', accountId);
+    return this.fetch(`/spotify/playlists/${playlistId}/tracks?${params}`);
   }
 
   async getSpotifyRecentlyPlayed(limit = 20, accountId?: string): Promise<{
@@ -2020,6 +2043,34 @@ class ApiClient {
 
   async deleteAssumption(id: string): Promise<void> {
     await this.fetch(`/assumptions/${id}`, { method: "DELETE" });
+  }
+
+  // Shopping Items
+
+  async getShoppingItems(): Promise<ShoppingItem[]> {
+    return this.fetch<ShoppingItem[]>("/shopping");
+  }
+
+  async createShoppingItem(data: { name: string; amazonUrl?: string }): Promise<ShoppingItem> {
+    return this.fetch<ShoppingItem>("/shopping", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateShoppingItem(id: string, data: Partial<{ name: string; amazonUrl: string | null; checked: boolean; sortOrder: number }>): Promise<ShoppingItem> {
+    return this.fetch<ShoppingItem>(`/shopping/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteShoppingItem(id: string): Promise<void> {
+    await this.fetch(`/shopping/${id}`, { method: "DELETE" });
+  }
+
+  async clearCheckedShoppingItems(): Promise<void> {
+    await this.fetch("/shopping/checked", { method: "DELETE" });
   }
 
   // User Management
@@ -3639,6 +3690,35 @@ export interface KioskCommand {
   timestamp: number;
 }
 
+export interface KioskSettings {
+  calendar?: {
+    weekStartsOn?: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+    dayStartHour?: number;
+    dayEndHour?: number;
+    timeFormat?: "12h" | "12h-seconds" | "24h" | "24h-seconds";
+    tickerSpeed?: "slow" | "normal" | "fast";
+    weekMode?: "current" | "rolling";
+    monthMode?: "current" | "rolling";
+    weekCellWidget?: "next-week" | "camera" | "map" | "spotify" | "home-control";
+    showDriveTimeOnNext?: boolean;
+    showWeekNumbers?: boolean;
+    defaultEventDuration?: number;
+    autoRefreshInterval?: number;
+    view?: "month" | "week" | "day" | "agenda" | "schedule";
+    familyName?: string;
+    homeAddress?: string;
+  };
+  tasks?: {
+    layout?: "lists" | "grid" | "columns" | "kanban";
+    showCompleted?: boolean;
+    expandAllLists?: boolean;
+  };
+  sidebar?: Record<string, { enabled?: boolean; pinned?: boolean }>;
+  spotify?: {
+    oauthTokenId?: string;
+  };
+}
+
 export interface KioskEnabledFeatures {
   calendar?: boolean;
   dashboard?: boolean;
@@ -3670,6 +3750,7 @@ export interface Kiosk {
   homePage: string | null;
   selectedCalendarIds: string[] | null;
   enabledFeatures: KioskEnabledFeatures | null;
+  settings: KioskSettings | null;
   screensaverEnabled: boolean;
   screensaverTimeout: number;
   screensaverInterval: number;
@@ -3692,6 +3773,7 @@ export interface KioskConfig {
   homePage: string | null;
   selectedCalendarIds: string[] | null;
   enabledFeatures: KioskEnabledFeatures | null;
+  settings: KioskSettings | null;
   screensaverEnabled: boolean;
   screensaverTimeout: number;
   screensaverInterval: number;

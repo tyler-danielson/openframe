@@ -523,6 +523,36 @@ export interface KioskEnabledFeatures {
   screensaver?: boolean;
 }
 
+// Per-kiosk settings (stored as JSONB)
+export interface KioskSettings {
+  calendar?: {
+    weekStartsOn?: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+    dayStartHour?: number;
+    dayEndHour?: number;
+    timeFormat?: "12h" | "12h-seconds" | "24h" | "24h-seconds";
+    tickerSpeed?: "slow" | "normal" | "fast";
+    weekMode?: "current" | "rolling";
+    monthMode?: "current" | "rolling";
+    weekCellWidget?: "next-week" | "camera" | "map" | "spotify" | "home-control";
+    showDriveTimeOnNext?: boolean;
+    showWeekNumbers?: boolean;
+    defaultEventDuration?: number;
+    autoRefreshInterval?: number;
+    view?: "month" | "week" | "day" | "agenda" | "schedule";
+    familyName?: string;
+    homeAddress?: string;
+  };
+  tasks?: {
+    layout?: "lists" | "grid" | "columns" | "kanban";
+    showCompleted?: boolean;
+    expandAllLists?: boolean;
+  };
+  sidebar?: Record<string, { enabled?: boolean; pinned?: boolean }>;
+  spotify?: {
+    oauthTokenId?: string;
+  };
+}
+
 // Kiosk configuration
 export const kioskConfig = pgTable("kiosk_config", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -567,6 +597,7 @@ export const kiosks = pgTable(
     homePage: text("home_page").default("calendar"),
     selectedCalendarIds: text("selected_calendar_ids").array(),
     enabledFeatures: jsonb("enabled_features").$type<KioskEnabledFeatures>(),
+    settings: jsonb("settings").$type<KioskSettings>().default({}),
     // Screensaver settings
     screensaverEnabled: boolean("screensaver_enabled").default(true).notNull(),
     screensaverTimeout: integer("screensaver_timeout").default(300).notNull(), // seconds
@@ -2766,3 +2797,34 @@ export const invitationsRelations = relations(invitations, ({ one }) => ({
 }));
 
 export type Invitation = typeof invitations.$inferSelect;
+
+// Shopping Items - Amazon shopping list
+export const shoppingItems = pgTable(
+  "shopping_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    amazonUrl: text("amazon_url"),
+    checked: boolean("checked").default(false).notNull(),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("shopping_items_user_idx").on(table.userId)]
+);
+
+export const shoppingItemsRelations = relations(shoppingItems, ({ one }) => ({
+  user: one(users, {
+    fields: [shoppingItems.userId],
+    references: [users.id],
+  }),
+}));
+
+export type ShoppingItem = typeof shoppingItems.$inferSelect;

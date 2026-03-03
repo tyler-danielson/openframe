@@ -327,7 +327,7 @@ export function IptvPage() {
         <p className="mt-2 text-center text-muted-foreground">
           Add your first IPTV server to start watching live TV.
         </p>
-        <Link to="/settings?tab=iptv">
+        <Link to="/settings/connections?service=iptv">
           <Button className="mt-6">
             <Settings className="mr-2 h-4 w-4" />
             Add Server in Settings
@@ -404,7 +404,7 @@ export function IptvPage() {
               </Button>
 
               {/* Settings link */}
-              <Link to="/settings?tab=iptv">
+              <Link to="/settings/connections?service=iptv">
                 <Button variant="outline" size="sm">
                   <Settings className="h-4 w-4" />
                 </Button>

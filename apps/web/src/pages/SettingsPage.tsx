@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams, Link } from "react-router-dom";
-import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Tablet, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat, CreditCard, Server, Puzzle, LifeBuoy, Send, Lightbulb } from "lucide-react";
+import { useSearchParams, useNavigate, useLocation, Link } from "react-router-dom";
+import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat, CreditCard, Server, Puzzle, LifeBuoy, Send, Lightbulb, Menu } from "lucide-react";
 import { Users, UserPlus } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { Camera, Invitation } from "@openframe/shared";
@@ -33,6 +33,10 @@ import { AddAccountModal } from "../components/settings/AddAccountModal";
 import { HACalendarModal } from "../components/settings/HACalendarModal";
 import { SupportButton } from "../components/settings/SupportButton";
 import { ConnectionsTab } from "../components/settings/ConnectionsTab";
+import { SettingsSidebar, type SidebarGroup, type SettingsTab } from "../components/settings/SettingsSidebar";
+import { KioskConfigPage } from "../components/settings/KioskConfigPage";
+import { SetupGuide } from "../components/ui/SetupGuide";
+import { SETUP_GUIDES } from "../data/setup-guides";
 import { HandwritingCanvas } from "../components/ui/HandwritingCanvas";
 import { useHAWebSocket } from "../stores/homeassistant-ws";
 import { useModuleStore } from "../stores/modules";
@@ -41,44 +45,37 @@ import type { CalendarProvider } from "@openframe/shared";
 import { buildOAuthUrl } from "../utils/oauth-scopes";
 import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings } from "@openframe/shared";
 
-// Parent tabs for URL routing
-type SettingsTab = "account" | "connections" | "calendars" | "tasks" | "modules" | "entertainment" | "appearance" | "ai" | "assumptions" | "automations" | "cameras" | "homeassistant" | "kiosks" | "companion" | "users" | "cloud" | "system" | "billing" | "instances" | "support";
+// SettingsTab type re-exported from SettingsSidebar
+const STATIC_TAB_IDS: SettingsTab[] = ["account", "connections", "modules", "kiosks", "ai", "assumptions", "automations", "companion", "users", "cloud", "system", "billing", "instances", "support"];
 
-// Entertainment sub-tabs
-type EntertainmentSubTab = "sports" | "spotify" | "iptv" | "plex" | "audiobookshelf" | "news";
-
-// Appearance sub-tabs
-type AppearanceSubTab = "display" | "photos" | "screensaver" | "sidebar";
-
-const validTabs: SettingsTab[] = ["account", "connections", "calendars", "tasks", "modules", "entertainment", "appearance", "ai", "assumptions", "automations", "cameras", "homeassistant", "kiosks", "companion", "users", "cloud", "system", "billing", "instances", "support"];
-const validEntertainmentSubTabs: EntertainmentSubTab[] = ["sports", "spotify", "iptv", "plex", "audiobookshelf", "news"];
-const validAppearanceSubTabs: AppearanceSubTab[] = ["display", "photos", "screensaver", "sidebar"];
+function isValidTab(tab: string): tab is SettingsTab {
+  return STATIC_TAB_IDS.includes(tab as SettingsTab);
+}
 
 const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; description: string; cloudOnly?: boolean; selfHostedOnly?: boolean; moduleId?: string | null }[] = [
   { id: "account", label: "Account", icon: <User className="h-4 w-4" />, description: "Profile & login" },
   { id: "connections", label: "Connections", icon: <Link2 className="h-4 w-4" />, description: "Linked services & accounts" },
-  { id: "calendars", label: "Calendars", icon: <Calendar className="h-4 w-4" />, description: "Sources & sync" },
-  { id: "tasks", label: "Tasks", icon: <ListTodo className="h-4 w-4" />, description: "Lists & layout" },
   { id: "modules", label: "Modules", icon: <Puzzle className="h-4 w-4" />, description: "Add & manage features" },
-  { id: "entertainment", label: "Entertainment", icon: <Play className="h-4 w-4" />, description: "Sports, music & media", moduleId: "__entertainment__" },
-  { id: "appearance", label: "Appearance", icon: <Monitor className="h-4 w-4" />, description: "Theme, photos & screensaver" },
+  { id: "kiosks", label: "Kiosks", icon: <Monitor className="h-4 w-4" />, description: "Display devices" },
   { id: "ai", label: "AI", icon: <Sparkles className="h-4 w-4" />, description: "Assistant & models", moduleId: "__ai__" },
   { id: "assumptions", label: "Assumptions", icon: <Lightbulb className="h-4 w-4" />, description: "AI behavior rules" },
   { id: "automations", label: "Automations", icon: <Zap className="h-4 w-4" />, description: "Triggers & actions", moduleId: "automations" },
-  { id: "cameras", label: "Cameras", icon: <Video className="h-4 w-4" />, description: "Feeds & streams", moduleId: "cameras" },
-  { id: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" />, description: "Devices & entities", moduleId: "homeassistant" },
-  { id: "kiosks", label: "Kiosks", icon: <Monitor className="h-4 w-4" />, description: "Displays & remote" },
   { id: "companion", label: "Companion", icon: <Smartphone className="h-4 w-4" />, description: "Mobile app access", moduleId: "companion" },
   { id: "users", label: "Users", icon: <Users className="h-4 w-4" />, description: "Members & invites", selfHostedOnly: true },
-  { id: "billing", label: "Billing", icon: <CreditCard className="h-4 w-4" />, description: "Plan & subscription", cloudOnly: true },
-  { id: "instances", label: "Instances", icon: <Server className="h-4 w-4" />, description: "Linked instances", cloudOnly: true },
   { id: "cloud", label: "Cloud", icon: <Cloud className="h-4 w-4" />, description: "Remote management", selfHostedOnly: true },
   { id: "system", label: "System", icon: <Settings className="h-4 w-4" />, description: "Backup & advanced", selfHostedOnly: true },
+  { id: "billing", label: "Billing", icon: <CreditCard className="h-4 w-4" />, description: "Plan & subscription", cloudOnly: true },
+  { id: "instances", label: "Instances", icon: <Server className="h-4 w-4" />, description: "Linked instances", cloudOnly: true },
   { id: "support", label: "Support", icon: <LifeBuoy className="h-4 w-4" />, description: "Help & tickets", cloudOnly: true, moduleId: null },
 ];
 
-// Entertainment module IDs — show tab if any are enabled
-const ENTERTAINMENT_MODULE_IDS = ["spotify", "iptv", "youtube", "plex", "audiobookshelf", "sports", "news"];
+const SIDEBAR_GROUPS: SidebarGroup[] = [
+  { label: "General", tabIds: ["account", "connections", "modules"] },
+  { label: "AI & More", tabIds: ["ai", "assumptions", "automations"] },
+  { label: "Devices", tabIds: ["kiosks", "companion"] },
+  { label: "Admin", tabIds: ["users", "cloud", "system", "billing", "instances", "support"] },
+];
+
 // AI module IDs — show tab if any are enabled
 const AI_MODULE_IDS = ["ai-chat", "ai-briefing", "gmail", "telegram", "capacities"];
 
@@ -89,9 +86,6 @@ function useFilteredTabs() {
       if (isCloudMode && tab.selfHostedOnly) return false;
       if (!isCloudMode && tab.cloudOnly) return false;
       // Module gating
-      if (tab.moduleId === "__entertainment__") {
-        return ENTERTAINMENT_MODULE_IDS.some((id) => isModuleEnabled(id));
-      }
       if (tab.moduleId === "__ai__") {
         return AI_MODULE_IDS.some((id) => isModuleEnabled(id));
       }
@@ -110,23 +104,6 @@ const tabs = allTabs.filter((tab) => {
   return true;
 });
 
-// Sub-tab config for entertainment
-const entertainmentSubTabs: { id: EntertainmentSubTab; label: string; icon: React.ReactNode }[] = [
-  { id: "sports", label: "Sports", icon: <Trophy className="h-4 w-4" /> },
-  { id: "spotify", label: "Spotify", icon: <Music className="h-4 w-4" /> },
-  { id: "iptv", label: "IPTV", icon: <Tv className="h-4 w-4" /> },
-  { id: "plex", label: "Plex", icon: <Play className="h-4 w-4" /> },
-  { id: "audiobookshelf", label: "Audiobookshelf", icon: <BookOpen className="h-4 w-4" /> },
-  { id: "news", label: "News", icon: <Newspaper className="h-4 w-4" /> },
-];
-
-// Sub-tab config for appearance
-const appearanceSubTabs: { id: AppearanceSubTab; label: string; icon: React.ReactNode }[] = [
-  { id: "display", label: "Display", icon: <Monitor className="h-4 w-4" /> },
-  { id: "photos", label: "Photos", icon: <ImageIcon className="h-4 w-4" /> },
-  { id: "screensaver", label: "Screensaver", icon: <Tv className="h-4 w-4" /> },
-  { id: "sidebar", label: "Sidebar", icon: <PanelLeft className="h-4 w-4" /> },
-];
 
 // Widget labels and icons for the builder (legacy)
 const WIDGET_INFO: Record<InfoPaneWidget, { label: string; icon: string }> = {
@@ -1111,943 +1088,15 @@ function VacuumMapCameraSelector({
   );
 }
 
-// Display type options (device interaction model)
-const DISPLAY_TYPE_OPTIONS: { value: KioskDisplayType; label: string; description: string }[] = [
-  { value: "touch", label: "Touch Screen", description: "Standard touch interaction" },
-  { value: "tv", label: "Samsung TV", description: "Remote/D-pad navigation with larger controls" },
-  { value: "display", label: "Display Only", description: "No interactive controls, view-only" },
-];
+// Kiosk option constants moved to data/kiosk-options.ts
+import { DISPLAY_TYPE_OPTIONS, DISPLAY_MODE_OPTIONS, HOME_PAGE_OPTIONS, FEATURE_OPTIONS } from "../data/kiosk-options";
 
-// Display mode options
-const DISPLAY_MODE_OPTIONS: { value: KioskDisplayMode; label: string; description: string }[] = [
-  { value: "full", label: "Full App", description: "Full navigation with all enabled features" },
-  { value: "screensaver-only", label: "Screensaver Only", description: "Only shows the screensaver, no app UI" },
-  { value: "calendar-only", label: "Calendar Only", description: "Only calendar page with screensaver overlay" },
-  { value: "dashboard-only", label: "Dashboard Only", description: "Only dashboard page with screensaver overlay" },
-];
-
-// Home page options
-const HOME_PAGE_OPTIONS = [
-  { value: "cardview", label: "Card View" },
-  { value: "calendar", label: "Calendar" },
-  { value: "dashboard", label: "Dashboard" },
-  { value: "tasks", label: "Tasks" },
-  { value: "photos", label: "Photos" },
-  { value: "spotify", label: "Spotify" },
-  { value: "iptv", label: "Live TV" },
-  { value: "cameras", label: "Cameras" },
-  { value: "homeassistant", label: "Home Assistant" },
-  { value: "map", label: "Map" },
-  { value: "kitchen", label: "Kitchen" },
-  { value: "screensaver", label: "Screensaver" },
-];
-
-// Feature options
-const FEATURE_OPTIONS: { key: keyof KioskEnabledFeatures; label: string; icon: React.ReactNode }[] = [
-  { key: "calendar", label: "Calendar", icon: <Calendar className="h-4 w-4" /> },
-  { key: "dashboard", label: "Dashboard", icon: <LayoutGrid className="h-4 w-4" /> },
-  { key: "tasks", label: "Tasks", icon: <ListTodo className="h-4 w-4" /> },
-  { key: "photos", label: "Photos", icon: <ImageIcon className="h-4 w-4" /> },
-  { key: "spotify", label: "Spotify", icon: <Music className="h-4 w-4" /> },
-  { key: "iptv", label: "Live TV", icon: <Tv className="h-4 w-4" /> },
-  { key: "cameras", label: "Cameras", icon: <Video className="h-4 w-4" /> },
-  { key: "homeassistant", label: "Home Assistant", icon: <Home className="h-4 w-4" /> },
-  { key: "map", label: "Map", icon: <MapPin className="h-4 w-4" /> },
-  { key: "kitchen", label: "Kitchen", icon: <Settings className="h-4 w-4" /> },
-  { key: "screensaver", label: "Screensaver", icon: <Monitor className="h-4 w-4" /> },
-  { key: "cardview", label: "Card View", icon: <Kanban className="h-4 w-4" /> },
-];
-
-function KiosksSettings() {
-  const queryClient = useQueryClient();
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [editingKiosk, setEditingKiosk] = useState<string | null>(null);
-  const [expandedKiosk, setExpandedKiosk] = useState<string | null>(null);
-  const [formName, setFormName] = useState("");
-  const [formColorScheme, setFormColorScheme] = useState<ColorScheme>("default");
-  const [copiedToken, setCopiedToken] = useState<string | null>(null);
-  const [showQrKiosk, setShowQrKiosk] = useState<{ token: string; name: string } | null>(null);
-  const [deviceKioskMap, setDeviceKioskMap] = useState<Record<string, string>>({});
-
-  const { data: kiosks = [], isLoading } = useQuery({
-    queryKey: ["kiosks"],
-    queryFn: () => api.getKiosks(),
-  });
-
-  // Fetch server config to get configured frontend URL for kiosk URLs
-  const { data: serverConfig } = useQuery({
-    queryKey: ["server-config"],
-    queryFn: () => api.getServerConfig(),
-    staleTime: Infinity,
-  });
-  const frontendUrl = serverConfig?.frontendUrl || window.location.origin;
-
-  // Pending TV devices (remote push setup)
-  const { data: pendingDevices = [] } = useQuery({
-    queryKey: ["pending-tv-devices"],
-    queryFn: () => api.getPendingTvDevices(),
-    refetchInterval: 5000,
-  });
-
-  const assignTvDevice = useMutation({
-    mutationFn: ({ registrationId, kioskId }: { registrationId: string; kioskId: string }) =>
-      api.assignTvDevice(registrationId, kioskId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pending-tv-devices"] });
-    },
-  });
-
-  // Fetch calendars for calendar selection
-  const { data: calendars = [] } = useQuery({
-    queryKey: ["calendars"],
-    queryFn: () => api.getCalendars(),
-  });
-
-  const createKiosk = useMutation({
-    mutationFn: (name: string) => api.createKiosk({ name }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["kiosks"] });
-      setShowCreateForm(false);
-      setFormName("");
-    },
-  });
-
-  const updateKiosk = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof api.updateKiosk>[1] }) =>
-      api.updateKiosk(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["kiosks"] });
-      setEditingKiosk(null);
-      setFormName("");
-      setFormColorScheme("default");
-    },
-  });
-
-  const deleteKiosk = useMutation({
-    mutationFn: (id: string) => api.deleteKiosk(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["kiosks"] });
-    },
-  });
-
-  const regenerateToken = useMutation({
-    mutationFn: (id: string) => api.regenerateKioskToken(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["kiosks"] });
-    },
-  });
-
-  const refreshKiosk = useMutation({
-    mutationFn: (id: string) => api.refreshKioskById(id),
-  });
-
-  const handleCopyUrl = async (token: string) => {
-    const url = `${frontendUrl}/kiosk/${token}`;
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      // Fallback for non-HTTPS contexts
-      const textArea = document.createElement("textarea");
-      textArea.value = url;
-      textArea.style.position = "fixed";
-      textArea.style.opacity = "0";
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textArea);
-    }
-    setCopiedToken(token);
-    setTimeout(() => setCopiedToken(null), 2000);
-  };
-
-  const handleCreateSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formName.trim()) return;
-    createKiosk.mutate(formName.trim());
-  };
-
-  const handleEditSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingKiosk || !formName.trim()) return;
-    updateKiosk.mutate({ id: editingKiosk, data: { name: formName.trim(), colorScheme: formColorScheme } });
-  };
-
-  const handleStartEdit = (kiosk: Kiosk) => {
-    setEditingKiosk(kiosk.id);
-    setFormName(kiosk.name);
-    setFormColorScheme(kiosk.colorScheme || "default");
-    setShowCreateForm(false);
-  };
-
-  const handleCancelEdit = () => {
-    setEditingKiosk(null);
-    setFormName("");
-    setFormColorScheme("default");
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Pending TV Devices (Remote Push Setup) */}
-      {pendingDevices.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Tv className="h-5 w-5 text-primary" />
-              <div>
-                <CardTitle>Pending Devices</CardTitle>
-                <CardDescription>
-                  TVs waiting for a kiosk assignment via remote setup
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {pendingDevices.map((device) => {
-              const timeLeft = Math.max(0, Math.floor((device.expiresAt - Date.now()) / 1000));
-              const minutes = Math.floor(timeLeft / 60);
-              const seconds = timeLeft % 60;
-              return (
-                <div
-                  key={device.registrationId}
-                  className="flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3"
-                >
-                  <Monitor className="h-5 w-5 text-primary flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium">{device.ipAddress}</div>
-                    <div className="text-xs text-muted-foreground truncate">{device.userAgent}</div>
-                  </div>
-                  <div className="text-xs text-muted-foreground whitespace-nowrap">
-                    {minutes}:{seconds.toString().padStart(2, "0")} left
-                  </div>
-                  <select
-                    className="rounded-md border border-border bg-background px-2 py-1 text-sm"
-                    value={deviceKioskMap[device.registrationId] || ""}
-                    onChange={(e) =>
-                      setDeviceKioskMap((prev) => ({
-                        ...prev,
-                        [device.registrationId]: e.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">Select kiosk...</option>
-                    {kiosks.map((k) => (
-                      <option key={k.id} value={k.id}>
-                        {k.name}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    size="sm"
-                    disabled={
-                      !deviceKioskMap[device.registrationId] ||
-                      assignTvDevice.isPending
-                    }
-                    onClick={() => {
-                      const kioskId = deviceKioskMap[device.registrationId];
-                      if (kioskId) {
-                        assignTvDevice.mutate({
-                          registrationId: device.registrationId,
-                          kioskId,
-                        });
-                      }
-                    }}
-                  >
-                    {assignTvDevice.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      "Assign"
-                    )}
-                  </Button>
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Kiosks</CardTitle>
-              <CardDescription>
-                Create multiple kiosks with unique URLs that can be loaded without authentication
-              </CardDescription>
-            </div>
-            <Button
-              onClick={() => {
-                setShowCreateForm(true);
-                setEditingKiosk(null);
-                setFormName("");
-              }}
-              disabled={showCreateForm}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              New Kiosk
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Create Form */}
-          {showCreateForm && (
-            <form onSubmit={handleCreateSubmit} className="rounded-lg border border-primary/50 bg-primary/5 p-4 space-y-4">
-              <h4 className="font-medium">Create New Kiosk</h4>
-              <div>
-                <label className="text-sm font-medium">Kiosk Name</label>
-                <input
-                  type="text"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  placeholder="Living Room Display"
-                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
-                  autoFocus
-                />
-              </div>
-              <div className="flex gap-2">
-                <Button type="submit" disabled={createKiosk.isPending || !formName.trim()}>
-                  {createKiosk.isPending ? "Creating..." : "Create Kiosk"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setShowCreateForm(false);
-                    setFormName("");
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          )}
-
-          {/* Kiosks List */}
-          {isLoading ? (
-            <div className="text-center py-8 text-muted-foreground">Loading kiosks...</div>
-          ) : kiosks.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Monitor className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No kiosks yet</p>
-              <p className="text-sm mt-1">Create your first kiosk to get a unique URL for your display</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {kiosks.map((kiosk) => (
-                <div
-                  key={kiosk.id}
-                  className={`rounded-lg border p-4 ${
-                    kiosk.isActive ? "border-border" : "border-border/50 opacity-60"
-                  }`}
-                >
-                  {editingKiosk === kiosk.id ? (
-                    <form onSubmit={handleEditSubmit} className="space-y-4">
-                      <div>
-                        <label className="text-sm font-medium">Kiosk Name</label>
-                        <input
-                          type="text"
-                          value={formName}
-                          onChange={(e) => setFormName(e.target.value)}
-                          className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
-                          autoFocus
-                        />
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium">Color Scheme</label>
-                        <div className="mt-2 grid grid-cols-4 sm:grid-cols-6 gap-2">
-                          {COLOR_SCHEMES.map((scheme) => (
-                            <button
-                              key={scheme.value}
-                              type="button"
-                              onClick={() => setFormColorScheme(scheme.value)}
-                              className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all ${
-                                formColorScheme === scheme.value
-                                  ? "border-primary bg-primary/10"
-                                  : "border-border hover:border-muted-foreground/50"
-                              }`}
-                              title={scheme.label}
-                            >
-                              <div
-                                className="w-6 h-6 rounded-full shadow-sm"
-                                style={{ backgroundColor: scheme.accent }}
-                              />
-                              <span className="text-xs truncate w-full text-center">{scheme.label}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button type="submit" size="sm" disabled={updateKiosk.isPending || !formName.trim()}>
-                          Save
-                        </Button>
-                        <Button type="button" variant="outline" size="sm" onClick={handleCancelEdit}>
-                          Cancel
-                        </Button>
-                      </div>
-                    </form>
-                  ) : (
-                    <>
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setExpandedKiosk(expandedKiosk === kiosk.id ? null : kiosk.id)}
-                              className="p-1 -ml-1 text-muted-foreground hover:text-foreground rounded"
-                            >
-                              {expandedKiosk === kiosk.id ? (
-                                <ChevronDown className="h-4 w-4" />
-                              ) : (
-                                <ChevronRight className="h-4 w-4" />
-                              )}
-                            </button>
-                            <h4 className="font-medium">{kiosk.name}</h4>
-                            {kiosk.colorScheme && kiosk.colorScheme !== "default" && (
-                              <span
-                                className="w-4 h-4 rounded-full border border-border shadow-sm"
-                                style={{ backgroundColor: COLOR_SCHEMES.find(s => s.value === kiosk.colorScheme)?.accent }}
-                                title={COLOR_SCHEMES.find(s => s.value === kiosk.colorScheme)?.label || kiosk.colorScheme}
-                              />
-                            )}
-                            {kiosk.displayMode && kiosk.displayMode !== "full" && (
-                              <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary">
-                                {DISPLAY_MODE_OPTIONS.find(o => o.value === kiosk.displayMode)?.label}
-                              </span>
-                            )}
-                            {!kiosk.isActive && (
-                              <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
-                                Disabled
-                              </span>
-                            )}
-                          </div>
-                          <div className="mt-2 flex items-center gap-2 ml-5">
-                            <code className="text-xs bg-muted px-2 py-1 rounded font-mono truncate max-w-md">
-                              {frontendUrl}/kiosk/{kiosk.token}
-                            </code>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyUrl(kiosk.token)}
-                              className="text-xs text-primary hover:text-primary/80 flex items-center gap-1"
-                            >
-                              {copiedToken === kiosk.token ? (
-                                <>
-                                  <CheckCircle className="h-3 w-3" />
-                                  Copied!
-                                </>
-                              ) : (
-                                "Copy URL"
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setShowQrKiosk({ token: kiosk.token, name: kiosk.name })}
-                              className="text-xs text-primary hover:text-primary/80 flex items-center gap-1"
-                            >
-                              <QrCode className="h-3 w-3" />
-                              QR Code
-                            </button>
-                          </div>
-                          {kiosk.lastAccessedAt && (
-                            <p className="text-xs text-muted-foreground mt-2 ml-5">
-                              Last accessed: {new Date(kiosk.lastAccessedAt).toLocaleString()}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Link
-                            to={`/settings/screensaver-builder?kioskId=${kiosk.id}`}
-                            className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md"
-                            title="Edit screensaver"
-                          >
-                            <Palette className="h-4 w-4" />
-                          </Link>
-                          <button
-                            type="button"
-                            onClick={() => refreshKiosk.mutate(kiosk.id)}
-                            disabled={refreshKiosk.isPending}
-                            className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md"
-                            title="Refresh kiosk"
-                          >
-                            <RefreshCw className={`h-4 w-4 ${refreshKiosk.isPending ? "animate-spin" : ""}`} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleStartEdit(kiosk)}
-                            className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md"
-                            title="Edit kiosk name"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (confirm(`Are you sure you want to regenerate the token for "${kiosk.name}"? The old URL will stop working.`)) {
-                                regenerateToken.mutate(kiosk.id);
-                              }
-                            }}
-                            className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md"
-                            title="Regenerate token (invalidates old URL)"
-                          >
-                            <Key className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={kiosk.isActive}
-                            onClick={() => updateKiosk.mutate({ id: kiosk.id, data: { isActive: !kiosk.isActive } })}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                              kiosk.isActive ? "bg-primary" : "bg-muted"
-                            }`}
-                            title={kiosk.isActive ? "Disable kiosk" : "Enable kiosk"}
-                          >
-                            <span
-                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                kiosk.isActive ? "translate-x-6" : "translate-x-1"
-                              }`}
-                            />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (confirm(`Delete kiosk "${kiosk.name}"? This cannot be undone.`)) {
-                                deleteKiosk.mutate(kiosk.id);
-                              }
-                            }}
-                            className="p-2 text-destructive/70 hover:text-destructive hover:bg-destructive/10 rounded-md"
-                            title="Delete kiosk"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Expanded Configuration Section */}
-                      {expandedKiosk === kiosk.id && (
-                        <div className="mt-3 pt-3 border-t-2 border-primary/30 space-y-3 ml-5">
-                          {/* Display Mode & Home Page Row */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {/* Display Mode */}
-                            <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
-                              <label className="text-xs font-semibold text-primary uppercase tracking-wide">Display Mode</label>
-                              <select
-                                value={kiosk.displayMode || "full"}
-                                onChange={(e) => updateKiosk.mutate({
-                                  id: kiosk.id,
-                                  data: { displayMode: e.target.value as KioskDisplayMode }
-                                })}
-                                className="mt-1 w-full rounded-md border border-primary/30 bg-background px-2 py-1.5 text-sm"
-                              >
-                                {DISPLAY_MODE_OPTIONS.map((option) => (
-                                  <option key={option.value} value={option.value}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            {/* Display Type */}
-                            <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
-                              <label className="text-xs font-semibold text-primary uppercase tracking-wide">Display Type</label>
-                              <select
-                                value={kiosk.displayType || "touch"}
-                                onChange={(e) => updateKiosk.mutate({
-                                  id: kiosk.id,
-                                  data: { displayType: e.target.value as KioskDisplayType }
-                                })}
-                                className="mt-1 w-full rounded-md border border-primary/30 bg-background px-2 py-1.5 text-sm"
-                              >
-                                {DISPLAY_TYPE_OPTIONS.map((option) => (
-                                  <option key={option.value} value={option.value}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            {/* Home Page (only for full mode) */}
-                            {(kiosk.displayMode === "full" || !kiosk.displayMode) && (
-                              <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
-                                <label className="text-xs font-semibold text-primary uppercase tracking-wide">Home Page</label>
-                                <select
-                                  value={kiosk.homePage || "calendar"}
-                                  onChange={(e) => updateKiosk.mutate({
-                                    id: kiosk.id,
-                                    data: { homePage: e.target.value }
-                                  })}
-                                  className="mt-1 w-full rounded-md border border-primary/30 bg-background px-2 py-1.5 text-sm"
-                                >
-                                  {HOME_PAGE_OPTIONS.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Start in Fullscreen */}
-                          <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
-                            <label className="flex items-center gap-3 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={kiosk.startFullscreen ?? false}
-                                onChange={(e) => updateKiosk.mutate({
-                                  id: kiosk.id,
-                                  data: { startFullscreen: e.target.checked }
-                                })}
-                                className="rounded border-primary/30 h-4 w-4"
-                              />
-                              <div>
-                                <span className="text-xs font-semibold text-primary uppercase tracking-wide">Start in Fullscreen</span>
-                                <p className="text-xs text-muted-foreground mt-0.5">Automatically enter fullscreen mode when kiosk loads</p>
-                              </div>
-                            </label>
-                          </div>
-
-                          {/* Auto-Fullscreen After Delay */}
-                          <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
-                            <label className="text-xs font-semibold text-primary uppercase tracking-wide">Auto-Fullscreen Delay</label>
-                            <p className="text-xs text-muted-foreground mt-0.5 mb-2">Automatically enter fullscreen after this many minutes (0 = disabled)</p>
-                            <input
-                              type="number"
-                              min={0}
-                              max={120}
-                              value={kiosk.fullscreenDelayMinutes ?? 0}
-                              onChange={(e) => {
-                                const val = parseInt(e.target.value, 10);
-                                updateKiosk.mutate({
-                                  id: kiosk.id,
-                                  data: { fullscreenDelayMinutes: isNaN(val) || val <= 0 ? null : val }
-                                });
-                              }}
-                              className="w-20 px-2 py-1 text-sm rounded border border-primary/30 bg-background text-foreground"
-                            />
-                            <span className="text-xs text-muted-foreground ml-2">minutes</span>
-                          </div>
-
-                          {/* Screensaver & Idle */}
-                          <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
-                            <label className="text-xs font-semibold text-primary uppercase tracking-wide">Screensaver & Idle</label>
-                            <div className="mt-2 space-y-3">
-                              {/* Screensaver Enabled */}
-                              <label className="flex items-center gap-3 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={kiosk.screensaverEnabled ?? true}
-                                  onChange={(e) => updateKiosk.mutate({
-                                    id: kiosk.id,
-                                    data: { screensaverEnabled: e.target.checked }
-                                  })}
-                                  className="rounded border-primary/30 h-4 w-4"
-                                />
-                                <div>
-                                  <span className="text-xs font-medium text-foreground">Screensaver Enabled</span>
-                                  <p className="text-xs text-muted-foreground mt-0.5">Activate idle behavior after timeout</p>
-                                </div>
-                              </label>
-
-                              {(kiosk.screensaverEnabled ?? true) && (
-                                <>
-                                  {/* Idle Behavior */}
-                                  <div>
-                                    <label className="text-xs font-medium text-foreground block mb-1">Idle Behavior</label>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                                      <button
-                                        type="button"
-                                        onClick={() => updateKiosk.mutate({
-                                          id: kiosk.id,
-                                          data: { screensaverBehavior: "screensaver" }
-                                        })}
-                                        className={`text-left px-3 py-2 rounded-lg border-2 transition-all text-xs ${
-                                          (kiosk.screensaverBehavior || "screensaver") === "screensaver"
-                                            ? "border-primary bg-primary/10"
-                                            : "border-border hover:border-primary/40"
-                                        }`}
-                                      >
-                                        <div className="font-medium text-foreground">Custom Screensaver</div>
-                                        <div className="text-muted-foreground mt-0.5">Show custom photo/widget screensaver overlay</div>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => updateKiosk.mutate({
-                                          id: kiosk.id,
-                                          data: { screensaverBehavior: "hide-toolbar" }
-                                        })}
-                                        className={`text-left px-3 py-2 rounded-lg border-2 transition-all text-xs ${
-                                          kiosk.screensaverBehavior === "hide-toolbar"
-                                            ? "border-primary bg-primary/10"
-                                            : "border-border hover:border-primary/40"
-                                        }`}
-                                      >
-                                        <div className="font-medium text-foreground">Hide Toolbar Only</div>
-                                        <div className="text-muted-foreground mt-0.5">Hide sidebar after idle to prevent burn-in; page stays visible</div>
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  {/* Idle Timeout */}
-                                  <div>
-                                    <label className="text-xs font-medium text-foreground block mb-1">
-                                      Idle Timeout: {Math.floor((kiosk.screensaverTimeout ?? 300) / 60)} min {(kiosk.screensaverTimeout ?? 300) % 60 > 0 ? `${(kiosk.screensaverTimeout ?? 300) % 60}s` : ""}
-                                    </label>
-                                    <input
-                                      type="range"
-                                      min={30}
-                                      max={3600}
-                                      step={30}
-                                      value={kiosk.screensaverTimeout ?? 300}
-                                      onChange={(e) => updateKiosk.mutate({
-                                        id: kiosk.id,
-                                        data: { screensaverTimeout: parseInt(e.target.value) }
-                                      })}
-                                      className="w-full accent-primary"
-                                    />
-                                    <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
-                                      <span>30s</span>
-                                      <span>60 min</span>
-                                    </div>
-                                  </div>
-
-                                  {/* Edit Screensaver Layout link (only for full screensaver behavior) */}
-                                  {(kiosk.screensaverBehavior || "screensaver") === "screensaver" && (
-                                    <Link
-                                      to={`/settings/screensaver-builder?kioskId=${kiosk.id}`}
-                                      className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors"
-                                    >
-                                      <Palette className="h-3.5 w-3.5" />
-                                      Edit Screensaver Layout
-                                      <ChevronRight className="h-3 w-3" />
-                                    </Link>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Calendar Selection */}
-                          <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
-                            <div className="flex items-center justify-between mb-1.5">
-                              <label className="text-xs font-semibold text-primary uppercase tracking-wide">Calendars</label>
-                              {kiosk.selectedCalendarIds && kiosk.selectedCalendarIds.length > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() => updateKiosk.mutate({
-                                    id: kiosk.id,
-                                    data: { selectedCalendarIds: null }
-                                  })}
-                                  className="text-[10px] text-muted-foreground hover:text-foreground"
-                                >
-                                  Clear
-                                </button>
-                              )}
-                            </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                              {calendars.map((cal) => {
-                                const isSelected = kiosk.selectedCalendarIds?.includes(cal.id) ?? false;
-                                return (
-                                  <label
-                                    key={cal.id}
-                                    className={`flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors text-xs ${
-                                      isSelected ? "border-primary bg-primary/10" : "border-border/60 hover:bg-muted/50"
-                                    }`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={isSelected}
-                                      onChange={(e) => {
-                                        const currentIds = kiosk.selectedCalendarIds || [];
-                                        const newIds = e.target.checked
-                                          ? [...currentIds, cal.id]
-                                          : currentIds.filter((id) => id !== cal.id);
-                                        updateKiosk.mutate({
-                                          id: kiosk.id,
-                                          data: { selectedCalendarIds: newIds.length > 0 ? newIds : null }
-                                        });
-                                      }}
-                                      className="rounded border-border h-3 w-3"
-                                    />
-                                    <span
-                                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                                      style={{ backgroundColor: cal.color || "#3B82F6" }}
-                                    />
-                                    <span className="truncate">{cal.name}</span>
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          {/* Feature Toggles (only for full mode) */}
-                          {(kiosk.displayMode === "full" || !kiosk.displayMode) && (
-                            <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
-                              <label className="text-xs font-semibold text-primary uppercase tracking-wide">Enabled Features</label>
-                              <div className="mt-1.5 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-1.5">
-                                {FEATURE_OPTIONS.map((feature) => {
-                                  const isEnabled = kiosk.enabledFeatures?.[feature.key] !== false;
-                                  return (
-                                    <label
-                                      key={feature.key}
-                                      className={`flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer transition-colors text-xs ${
-                                        isEnabled ? "border-primary bg-primary/10" : "border-border/60 hover:bg-muted/50 opacity-50"
-                                      }`}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={isEnabled}
-                                        onChange={(e) => {
-                                          const currentFeatures = kiosk.enabledFeatures || {};
-                                          const newFeatures = {
-                                            ...currentFeatures,
-                                            [feature.key]: e.target.checked
-                                          };
-                                          updateKiosk.mutate({
-                                            id: kiosk.id,
-                                            data: { enabledFeatures: newFeatures }
-                                          });
-                                        }}
-                                        className="rounded border-border h-3 w-3"
-                                      />
-                                      <span className="text-primary">{feature.icon}</span>
-                                      <span className="truncate">{feature.label}</span>
-                                    </label>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Color Scheme */}
-                          <div className="p-2.5 rounded-lg border-2 border-primary/20 bg-primary/5">
-                            <label className="text-xs font-semibold text-primary uppercase tracking-wide">Color Scheme</label>
-                            <div className="mt-1.5 flex flex-wrap gap-1.5">
-                              {COLOR_SCHEMES.map((scheme) => (
-                                <button
-                                  key={scheme.value}
-                                  type="button"
-                                  onClick={() => updateKiosk.mutate({
-                                    id: kiosk.id,
-                                    data: { colorScheme: scheme.value }
-                                  })}
-                                  className={`flex items-center gap-1.5 px-2 py-1 rounded-md border-2 transition-all text-xs ${
-                                    kiosk.colorScheme === scheme.value
-                                      ? "border-primary bg-primary/10"
-                                      : "border-border hover:border-primary/40"
-                                  }`}
-                                  title={scheme.label}
-                                >
-                                  <div
-                                    className="w-4 h-4 rounded-full shadow-sm"
-                                    style={{ backgroundColor: scheme.accent }}
-                                  />
-                                  <span>{scheme.label}</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>How Kiosks Work</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ul className="space-y-3 text-sm text-muted-foreground">
-            <li className="flex items-start gap-3">
-              <Monitor className="h-5 w-5 mt-0.5 text-primary" />
-              <div>
-                <p className="font-medium text-foreground">Unique URLs</p>
-                <p>Each kiosk gets a unique, unguessable URL that works without logging in</p>
-              </div>
-            </li>
-            <li className="flex items-start gap-3">
-              <Key className="h-5 w-5 mt-0.5 text-primary" />
-              <div>
-                <p className="font-medium text-foreground">Secure Tokens</p>
-                <p>URLs use UUID tokens - impossible to guess, easy to share with trusted displays</p>
-              </div>
-            </li>
-            <li className="flex items-start gap-3">
-              <RefreshCw className="h-5 w-5 mt-0.5 text-primary" />
-              <div>
-                <p className="font-medium text-foreground">Remote Control</p>
-                <p>Send refresh commands to update kiosk displays without physical access</p>
-              </div>
-            </li>
-            <li className="flex items-start gap-3">
-              <Settings className="h-5 w-5 mt-0.5 text-primary" />
-              <div>
-                <p className="font-medium text-foreground">Individual Settings</p>
-                <p>Each kiosk can have its own screensaver layout and color scheme</p>
-              </div>
-            </li>
-          </ul>
-        </CardContent>
-      </Card>
-
-      {/* QR Code Modal */}
-      <AnimatePresence>
-        {showQrKiosk && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-            onClick={() => setShowQrKiosk(null)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-card rounded-lg shadow-xl p-6 max-w-sm w-full mx-4"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-semibold text-lg">{showQrKiosk.name}</h3>
-                <button
-                  onClick={() => setShowQrKiosk(null)}
-                  className="p-1 hover:bg-muted rounded-md"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-              <div className="flex flex-col items-center gap-4">
-                <div className="bg-white p-4 rounded-lg">
-                  <QRCodeSVG
-                    value={`${frontendUrl}/kiosk/${showQrKiosk.token}`}
-                    size={200}
-                    level="M"
-                  />
-                </div>
-                <p className="text-sm text-muted-foreground text-center">
-                  Scan this QR code to open the kiosk on another device
-                </p>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
 
 // Icons for each settings category
 const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   home: <MapPin className="h-5 w-5" />,
-  weather: <Cloud className="h-5 w-5" />,
-  google: <Globe className="h-5 w-5" />,
-  spotify: <Music className="h-5 w-5" />,
-  telegram: <MessageCircle className="h-5 w-5" />,
-  homeassistant: <Home className="h-5 w-5" />,
   handwriting: <PenTool className="h-5 w-5" />,
+  server: <Server className="h-5 w-5" />,
 };
 
 // localStorage store keys for client settings
@@ -2555,105 +1604,11 @@ function CompanionSettings() {
   );
 }
 
-function RemarkableSettingsCard() {
-  const queryClient = useQueryClient();
-
-  // Fetch reMarkable status
-  const { data: status, isLoading } = useQuery({
-    queryKey: ["remarkable", "status"],
-    queryFn: () => api.getRemarkableStatus(),
-  });
-
-  // Disconnect mutation
-  const disconnect = useMutation({
-    mutationFn: () => api.disconnectRemarkable(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["remarkable"] });
-    },
-  });
-
-  const isConnected = status?.connected === true;
-
-  return (
-    <Card className="col-span-full mb-4 border-2 border-primary/40">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Tablet className="h-5 w-5" />
-          reMarkable
-        </CardTitle>
-        <CardDescription>
-          Connect your reMarkable tablet to sync calendars and planners
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          {/* Status */}
-          <div className="flex items-center gap-3 flex-1">
-            {isLoading ? (
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            ) : isConnected ? (
-              <>
-                <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                  <CheckCircle className="h-5 w-5" />
-                  <span className="font-medium">Connected</span>
-                </div>
-                {status?.lastSyncAt && (
-                  <span className="text-sm text-muted-foreground">
-                    Last sync: {new Date(status.lastSyncAt).toLocaleDateString()}
-                  </span>
-                )}
-              </>
-            ) : (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <XCircle className="h-5 w-5" />
-                <span>Not connected</span>
-              </div>
-            )}
-          </div>
-
-          {/* Actions */}
-          <div className="flex gap-2">
-            {isConnected && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => disconnect.mutate()}
-                disabled={disconnect.isPending}
-              >
-                {disconnect.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Unlink className="h-4 w-4 mr-2" />
-                )}
-                Disconnect
-              </Button>
-            )}
-            <Link to="/remarkable">
-              <Button variant={isConnected ? "outline" : "default"} size="sm">
-                {isConnected ? (
-                  <>
-                    <Settings className="h-4 w-4 mr-2" />
-                    Manage
-                  </>
-                ) : (
-                  <>
-                    <Link2 className="h-4 w-4 mr-2" />
-                    Connect Device
-                  </>
-                )}
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 function BackupRestoreCard() {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [importStatus, setImportStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -2753,99 +1708,109 @@ function BackupRestoreCard() {
   };
 
   return (
-    <Card className="col-span-full mb-6 border-2 border-primary/40">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <HardDrive className="h-5 w-5" />
-          Backup & Restore
-        </CardTitle>
-        <CardDescription>
-          Export settings to a file or restore from a backup. Passwords and API keys are never included in exports.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-col sm:flex-row gap-6">
-          {/* Export Section */}
-          <div className="flex-1">
-            <p className="text-sm text-muted-foreground mb-3">
-              Download all display settings, kiosk configs, camera settings, and other configurations.
-            </p>
-            <Button onClick={handleExport} disabled={isExporting}>
-              {isExporting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Exporting...
-                </>
-              ) : (
-                <>
-                  <Download className="h-4 w-4 mr-2" />
-                  Export Settings
-                </>
-              )}
-            </Button>
-          </div>
+    <div>
+      <button
+        type="button"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+        className="group flex w-full items-center justify-between py-3 text-left"
+      >
+        <div className="flex items-center gap-2.5">
+          <span className="text-muted-foreground group-hover:text-primary transition-colors">
+            <HardDrive className="h-5 w-5" />
+          </span>
+          <span className="font-medium">Backup & Restore</span>
+        </div>
+        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${!isCollapsed ? "rotate-180" : ""}`} />
+      </button>
 
-          {/* Divider */}
-          <div className="hidden sm:block w-px bg-border" />
-          <div className="sm:hidden h-px bg-border" />
-
-          {/* Import Section */}
-          <div className="flex-1">
-            <p className="text-sm text-muted-foreground mb-3">
-              Restore settings from a previously exported file. Existing settings with matching names will be updated.
-            </p>
-            <input
-              type="file"
-              accept=".json"
-              ref={fileInputRef}
-              onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-              className="hidden"
-            />
-            <div className="flex gap-2 flex-wrap">
-              <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-                <Upload className="h-4 w-4 mr-2" />
-                Select File
+      {!isCollapsed && (
+        <div className="pb-4">
+          <p className="text-xs text-muted-foreground mb-4">
+            Passwords and API keys are never included in exports.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-6">
+            {/* Export Section */}
+            <div className="flex-1">
+              <p className="text-sm text-muted-foreground mb-3">
+                Download all display settings, kiosk configs, camera settings, and other configurations.
+              </p>
+              <Button onClick={handleExport} disabled={isExporting}>
+                {isExporting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 mr-2" />
+                    Export Settings
+                  </>
+                )}
               </Button>
-              {selectedFile && (
-                <>
-                  <span className="text-sm text-muted-foreground self-center truncate max-w-[150px]">
-                    {selectedFile.name}
-                  </span>
-                  <Button onClick={handleImport} disabled={isImporting}>
-                    {isImporting ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Importing...
-                      </>
-                    ) : (
-                      "Import"
-                    )}
-                  </Button>
-                </>
-              )}
+            </div>
+
+            {/* Divider */}
+            <div className="hidden sm:block w-px bg-border" />
+            <div className="sm:hidden h-px bg-border" />
+
+            {/* Import Section */}
+            <div className="flex-1">
+              <p className="text-sm text-muted-foreground mb-3">
+                Restore settings from a previously exported file. Existing settings with matching names will be updated.
+              </p>
+              <input
+                type="file"
+                accept=".json"
+                ref={fileInputRef}
+                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                className="hidden"
+              />
+              <div className="flex gap-2 flex-wrap">
+                <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                  <Upload className="h-4 w-4 mr-2" />
+                  Select File
+                </Button>
+                {selectedFile && (
+                  <>
+                    <span className="text-sm text-muted-foreground self-center truncate max-w-[150px]">
+                      {selectedFile.name}
+                    </span>
+                    <Button onClick={handleImport} disabled={isImporting}>
+                      {isImporting ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Importing...
+                        </>
+                      ) : (
+                        "Import"
+                      )}
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Status Message */}
-        {importStatus && (
-          <div
-            className={`mt-4 p-3 rounded-md flex items-center gap-2 ${
-              importStatus.type === "success"
-                ? "bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300"
-                : "bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300"
-            }`}
-          >
-            {importStatus.type === "success" ? (
-              <CheckCircle className="h-4 w-4 flex-shrink-0" />
-            ) : (
-              <XCircle className="h-4 w-4 flex-shrink-0" />
-            )}
-            <span className="text-sm">{importStatus.message}</span>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          {/* Status Message */}
+          {importStatus && (
+            <div
+              className={`mt-4 p-3 rounded-md flex items-center gap-2 ${
+                importStatus.type === "success"
+                  ? "bg-primary/10 text-primary"
+                  : "bg-destructive/10 text-destructive"
+              }`}
+            >
+              {importStatus.type === "success" ? (
+                <CheckCircle className="h-4 w-4 flex-shrink-0" />
+              ) : (
+                <XCircle className="h-4 w-4 flex-shrink-0" />
+              )}
+              <span className="text-sm">{importStatus.message}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -2884,7 +1849,7 @@ function SystemSettings() {
   const queryClient = useQueryClient();
   // Start with all sections collapsed except "home" (Home Location)
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
-    new Set(["weather", "google", "microsoft", "spotify", "telegram", "homeassistant", "handwriting"])
+    new Set(["handwriting", "server"])
   );
   const [formValues, setFormValues] = useState<Record<string, Record<string, string>>>({});
   const [saveStatus, setSaveStatus] = useState<Record<string, "idle" | "saving" | "saved" | "error">>({});
@@ -3012,269 +1977,282 @@ function SystemSettings() {
     }
   };
 
-  // Split definitions into 3 columns
-  const column1: typeof definitions = [];
-  const column2: typeof definitions = [];
-  const column3: typeof definitions = [];
-  definitions.forEach((def, idx) => {
-    if (idx % 3 === 0) column1.push(def);
-    else if (idx % 3 === 1) column2.push(def);
-    else column3.push(def);
-  });
+  // Categories managed via the Connections tab — filter from System
+  const CONNECTION_CATEGORIES = new Set(["google", "microsoft", "spotify", "telegram", "homeassistant", "weather"]);
+  const systemDefinitions = definitions.filter((d) => !CONNECTION_CATEGORIES.has(d.category));
+
+  // Check if a category has any configured values
+  const isCategoryConfigured = (categoryDef: SettingCategoryDefinition) => {
+    return categoryDef.settings.some((s) => {
+      const val = settings.find((set) => set.category === categoryDef.category && set.key === s.key)?.value;
+      return val && val !== "" && val !== "••••••••";
+    });
+  };
+
+  const configuredCount = systemDefinitions.filter(isCategoryConfigured).length;
+
+  // All sections for the jump-to nav (setting categories + fixed sections)
+  const allSections = [
+    ...systemDefinitions.map((d) => ({
+      id: d.category,
+      label: d.label,
+      icon: CATEGORY_ICONS[d.category] || <Settings className="h-4 w-4" />,
+      configured: isCategoryConfigured(d),
+    })),
+    { id: "api-keys", label: "API Keys", icon: <Key className="h-4 w-4" />, configured: false },
+    { id: "backup", label: "Backup & Restore", icon: <HardDrive className="h-4 w-4" />, configured: false },
+  ];
+
+  const scrollToSection = (id: string) => {
+    document.getElementById(`system-section-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const renderSection = (categoryDef: typeof definitions[0]) => {
     const icon = CATEGORY_ICONS[categoryDef.category] || <Settings className="h-5 w-5" />;
     const isCollapsed = collapsedCategories.has(categoryDef.category);
 
     return (
-      <div
-        key={categoryDef.category}
-        className="rounded-lg border-2 border-primary bg-primary/5 dark:bg-primary/10"
-      >
-            <button
-              type="button"
-              onClick={() => toggleCategory(categoryDef.category)}
-              className="flex w-full items-center justify-between p-4 text-left hover:bg-primary/10 dark:hover:bg-primary/20 rounded-t-lg"
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-primary">
-                  {icon}
-                </span>
-                <div>
-                  <h4 className="font-medium text-lg text-primary dark:text-primary">{categoryDef.label}</h4>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">{categoryDef.description}</p>
-                </div>
-              </div>
-              {isCollapsed ? (
-                <ChevronDown className="h-5 w-5 text-gray-500" />
-              ) : (
-                <ChevronUp className="h-5 w-5 text-gray-500" />
-              )}
-            </button>
+      <div key={categoryDef.category} id={`system-section-${categoryDef.category}`} className="scroll-mt-4">
+        {/* Section header */}
+        <button
+          type="button"
+          onClick={() => toggleCategory(categoryDef.category)}
+          className="group flex w-full items-center justify-between py-3 text-left"
+        >
+          <div className="flex items-center gap-2.5">
+            <span className="text-muted-foreground group-hover:text-primary transition-colors">{icon}</span>
+            <span className="font-medium">{categoryDef.label}</span>
+            {isCategoryConfigured(categoryDef) && (
+              <span className="text-xs text-primary flex items-center gap-1">
+                <Check className="h-3 w-3" />
+              </span>
+            )}
+          </div>
+          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${!isCollapsed ? "rotate-180" : ""}`} />
+        </button>
 
-            {!isCollapsed && (
-              <div className="border-t border-gray-200 dark:border-gray-700 p-4 space-y-4">
-                {/* Location lookup for home category */}
-                {categoryDef.category === "home" && (
-                  <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 p-4 mb-4">
-                    <label className="block text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">
-                      Lookup Location
-                    </label>
-                    <p className="text-xs text-blue-700 dark:text-blue-300 mb-2">
-                      Enter a city name or address to auto-fill latitude and longitude (requires Google Maps API key)
-                    </p>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={locationSearch}
-                        onChange={(e) => {
-                          setLocationSearch(e.target.value);
-                          setLocationStatus("idle");
-                        }}
-                        placeholder="e.g., New York, NY or 123 Main St, Boston"
-                        className="flex-1 rounded-lg border border-blue-300 dark:border-blue-700 bg-white dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:border-primary focus:outline-none"
-                        onKeyDown={(e) => e.key === "Enter" && handleLocationLookup()}
-                      />
-                      <Button
-                        onClick={handleLocationLookup}
-                        disabled={locationStatus === "searching" || !locationSearch.trim()}
-                        className="whitespace-nowrap"
-                      >
-                        {locationStatus === "searching" ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Search className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                    {locationStatus === "success" && (
-                      <p className="text-xs text-green-600 dark:text-green-400 mt-2 flex items-center gap-1">
-                        <CheckCircle className="h-3 w-3" />
-                        Location found! Latitude and longitude have been updated below.
-                      </p>
-                    )}
-                    {locationStatus === "error" && locationError && (
-                      <p className="text-xs text-red-600 dark:text-red-400 mt-2 flex items-center gap-1">
-                        <XCircle className="h-3 w-3" />
-                        {locationError}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {categoryDef.settings.map((settingDef) => (
-                  <div key={settingDef.key}>
-                    <label className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-                      {settingDef.label}
-                      {settingDef.isSecret && (
-                        <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">(encrypted)</span>
-                      )}
-                    </label>
-                    {settingDef.description && (
-                      <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                        {settingDef.description}
-                      </p>
-                    )}
-                    <div className="flex gap-2">
-                      <input
-                        type={settingDef.isSecret ? "password" : "text"}
-                        value={getSettingValue(categoryDef.category, settingDef.key)}
-                        onChange={(e) =>
-                          handleInputChange(categoryDef.category, settingDef.key, e.target.value)
-                        }
-                        placeholder={settingDef.placeholder}
-                        className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:border-primary focus:outline-none"
-                      />
-                      {categoryDef.category === "server" && settingDef.key === "external_url" && (
-                        <button
-                          type="button"
-                          onClick={() => handleInputChange("server", "external_url", window.location.origin)}
-                          className="shrink-0 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-primary/10 hover:border-primary/40 transition-colors"
-                          title="Use current URL"
-                        >
-                          <Globe className="h-4 w-4 inline-block mr-1" />
-                          Use Current
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-
-                {/* Redirect URIs - show computed OAuth redirect URIs for each valid access method */}
-                {categoryDef.category === "server" && (() => {
-                  const externalUrl = getSettingValue("server", "external_url");
-                  if (!externalUrl) return null;
-                  const base = externalUrl.replace(/\/+$/, "");
-
-                  // Check if the configured URL is a private IP
-                  const isPrivateIp = /^https?:\/\/(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(base);
-
-                  // Build list of origins that need redirect URIs registered
-                  const origins: { label: string; base: string }[] = [];
-
-                  if (isPrivateIp) {
-                    // Private IP configured — show localhost URIs instead (with the same port)
-                    try {
-                      const parsed = new URL(base);
-                      const localhostBase = `${parsed.protocol}//localhost${parsed.port ? `:${parsed.port}` : ""}`;
-                      origins.push({ label: "Localhost", base: localhostBase });
-                    } catch {
-                      // Fall through
-                    }
-                  } else if (/^https?:\/\/localhost/.test(base)) {
-                    origins.push({ label: "Localhost", base });
-                  } else {
-                    // Public domain — show both public domain and localhost URIs
-                    origins.push({ label: base.replace(/^https?:\/\//, ""), base });
-                    origins.push({ label: "Localhost (dev)", base: "http://localhost:5176" });
-                  }
-
-                  const callbackPaths = [
-                    { label: "Google", path: "/api/v1/auth/oauth/google/callback" },
-                    { label: "Microsoft", path: "/api/v1/auth/oauth/microsoft/callback" },
-                    { label: "Spotify", path: "/api/v1/spotify/auth/callback" },
-                  ];
-
-                  return (
-                    <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 p-4 mt-2">
-                      <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">
-                        OAuth Redirect URIs
-                      </p>
-                      <p className="text-xs text-blue-700 dark:text-blue-300 mb-3">
-                        Register these URLs in Google Cloud Console, Microsoft Entra, and Spotify Developer Dashboard.
-                        {origins.length > 1 && " Add all URIs listed below for each access method."}
-                      </p>
-                      {isPrivateIp && (
-                        <div className="rounded-md bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 p-2.5 mb-3">
-                          <p className="text-xs text-yellow-800 dark:text-yellow-200">
-                            <AlertTriangle className="h-3.5 w-3.5 inline-block mr-1 -mt-0.5" />
-                            Private IP addresses (like {base}) don't work with Google OAuth.
-                            Access via <strong>localhost</strong> or a public domain instead. The URIs below use localhost with the same port.
-                          </p>
-                        </div>
-                      )}
-                      <div className="space-y-3">
-                        {origins.map((origin) => (
-                          <div key={origin.base}>
-                            {origins.length > 1 && (
-                              <p className="text-xs font-medium text-blue-800 dark:text-blue-200 mb-1.5">{origin.label}</p>
-                            )}
-                            <div className="space-y-1.5">
-                              {callbackPaths.map((cb) => {
-                                const uri = `${origin.base}${cb.path}`;
-                                return (
-                                  <div key={uri} className="flex items-center gap-1">
-                                    <code className="text-xs bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-700 rounded px-2 py-1 truncate block flex-1">{uri}</code>
-                                    <button
-                                      type="button"
-                                      onClick={() => navigator.clipboard.writeText(uri)}
-                                      className="shrink-0 rounded p-1 text-blue-600 hover:bg-blue-100 dark:text-blue-400 dark:hover:bg-blue-900"
-                                      title={`Copy ${cb.label} redirect URI`}
-                                    >
-                                      <Copy className="h-3.5 w-3.5" />
-                                    </button>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Handwriting recognition - link to AI tab */}
-                {categoryDef.category === "handwriting" && (
-                  <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 p-4 mt-4">
-                    <p className="text-sm text-blue-800 dark:text-blue-200">
-                      For advanced configuration, testing, and API key management, visit the{" "}
-                      <Link to="/settings?tab=ai" className="font-medium underline hover:text-blue-600 dark:hover:text-blue-400">
-                        AI Settings
-                      </Link>{" "}
-                      tab.
-                    </p>
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between pt-2">
-                  <div className="text-sm">
-                    {saveStatus[categoryDef.category] === "saved" && (
-                      <span className="text-green-600 dark:text-green-400 flex items-center gap-1">
-                        <CheckCircle className="h-4 w-4" />
-                        Saved
-                      </span>
-                    )}
-                    {saveStatus[categoryDef.category] === "error" && (
-                      <span className="text-red-600 dark:text-red-400 flex items-center gap-1">
-                        <XCircle className="h-4 w-4" />
-                        Error saving
-                      </span>
-                    )}
-                  </div>
+        {/* Expanded content */}
+        {!isCollapsed && (
+          <div className="pb-6 space-y-4">
+            {/* Location lookup for home category */}
+            {categoryDef.category === "home" && (
+              <div className="rounded-lg border border-border bg-muted/30 p-4">
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  Lookup Location
+                </label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Enter a city name or address to auto-fill coordinates (requires Google Maps API key)
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={locationSearch}
+                    onChange={(e) => {
+                      setLocationSearch(e.target.value);
+                      setLocationStatus("idle");
+                    }}
+                    placeholder="e.g., New York, NY"
+                    className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+                    onKeyDown={(e) => e.key === "Enter" && handleLocationLookup()}
+                  />
                   <Button
-                    onClick={() => handleSaveCategory(categoryDef.category, categoryDef)}
-                    disabled={saveStatus[categoryDef.category] === "saving"}
+                    size="sm"
+                    onClick={handleLocationLookup}
+                    disabled={locationStatus === "searching" || !locationSearch.trim()}
                   >
-                    {saveStatus[categoryDef.category] === "saving" ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        Saving...
-                      </>
+                    {locationStatus === "searching" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      "Save"
+                      <Search className="h-4 w-4" />
                     )}
                   </Button>
                 </div>
+                {locationStatus === "success" && (
+                  <p className="text-xs text-primary mt-2 flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3" />
+                    Location found — coordinates updated below.
+                  </p>
+                )}
+                {locationStatus === "error" && locationError && (
+                  <p className="text-xs text-destructive mt-2 flex items-center gap-1">
+                    <XCircle className="h-3 w-3" />
+                    {locationError}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Setup guide for this category */}
+            {SETUP_GUIDES[categoryDef.category] && (
+              <SetupGuide
+                guide={SETUP_GUIDES[categoryDef.category]!}
+                externalUrl={getSettingValue("server", "external_url")}
+                defaultExpanded={false}
+              />
+            )}
+
+            {/* Setting fields */}
+            {categoryDef.settings.map((settingDef) => (
+              <div key={settingDef.key}>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  {settingDef.label}
+                  {settingDef.isSecret && (
+                    <span className="ml-2 text-xs text-muted-foreground">(encrypted)</span>
+                  )}
+                </label>
+                {settingDef.description && (
+                  <p className="text-xs text-muted-foreground mb-1.5">
+                    {settingDef.description}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    type={settingDef.isSecret ? "password" : "text"}
+                    value={getSettingValue(categoryDef.category, settingDef.key)}
+                    onChange={(e) =>
+                      handleInputChange(categoryDef.category, settingDef.key, e.target.value)
+                    }
+                    placeholder={settingDef.placeholder}
+                    className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+                  />
+                  {categoryDef.category === "server" && settingDef.key === "external_url" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleInputChange("server", "external_url", window.location.origin)}
+                      title="Use current URL"
+                    >
+                      <Globe className="h-4 w-4 mr-1" />
+                      Use Current
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {/* Redirect URIs */}
+            {categoryDef.category === "server" && (() => {
+              const externalUrl = getSettingValue("server", "external_url");
+              if (!externalUrl) return null;
+              const base = externalUrl.replace(/\/+$/, "");
+              const isPrivateIp = /^https?:\/\/(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(base);
+              const origins: { label: string; base: string }[] = [];
+
+              if (isPrivateIp) {
+                try {
+                  const parsed = new URL(base);
+                  const localhostBase = `${parsed.protocol}//localhost${parsed.port ? `:${parsed.port}` : ""}`;
+                  origins.push({ label: "Localhost", base: localhostBase });
+                } catch { /* Fall through */ }
+              } else if (/^https?:\/\/localhost/.test(base)) {
+                origins.push({ label: "Localhost", base });
+              } else {
+                origins.push({ label: base.replace(/^https?:\/\//, ""), base });
+                origins.push({ label: "Localhost (dev)", base: "http://localhost:5176" });
+              }
+
+              const callbackPaths = [
+                { label: "Google", path: "/api/v1/auth/oauth/google/callback" },
+                { label: "Microsoft", path: "/api/v1/auth/oauth/microsoft/callback" },
+                { label: "Spotify", path: "/api/v1/spotify/auth/callback" },
+              ];
+
+              return (
+                <div className="rounded-lg border border-border bg-muted/30 p-4">
+                  <p className="text-sm font-medium text-foreground mb-1">OAuth Redirect URIs</p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Register these in Google Cloud Console, Microsoft Entra, and Spotify Developer Dashboard.
+                    {origins.length > 1 && " Add all URIs below for each access method."}
+                  </p>
+                  {isPrivateIp && (
+                    <div className="rounded-md bg-amber-600/10 border border-amber-600/20 p-2.5 mb-3">
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        <AlertTriangle className="h-3.5 w-3.5 inline-block mr-1 -mt-0.5" />
+                        Private IPs don't work with Google OAuth. Use <strong>localhost</strong> or a public domain.
+                      </p>
+                    </div>
+                  )}
+                  <div className="space-y-3">
+                    {origins.map((origin) => (
+                      <div key={origin.base}>
+                        {origins.length > 1 && (
+                          <p className="text-xs font-medium text-foreground mb-1.5">{origin.label}</p>
+                        )}
+                        <div className="space-y-1">
+                          {callbackPaths.map((cb) => {
+                            const uri = `${origin.base}${cb.path}`;
+                            return (
+                              <div key={uri} className="flex items-center gap-1">
+                                <code className="text-xs bg-background border border-border rounded px-2 py-1 truncate block flex-1">{uri}</code>
+                                <button
+                                  type="button"
+                                  onClick={() => navigator.clipboard.writeText(uri)}
+                                  className="shrink-0 rounded p-1 text-primary hover:bg-primary/10"
+                                  title={`Copy ${cb.label} redirect URI`}
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Handwriting recognition - link to AI tab */}
+            {categoryDef.category === "handwriting" && (
+              <p className="text-sm text-muted-foreground">
+                For advanced configuration and testing, visit{" "}
+                <Link to="/settings/ai" className="text-primary underline hover:text-primary/80">
+                  AI Settings
+                </Link>.
+              </p>
+            )}
+
+            {/* Save */}
+            <div className="flex items-center justify-between pt-1">
+              <div className="text-sm">
+                {saveStatus[categoryDef.category] === "saved" && (
+                  <span className="text-primary flex items-center gap-1">
+                    <CheckCircle className="h-4 w-4" />
+                    Saved
+                  </span>
+                )}
+                {saveStatus[categoryDef.category] === "error" && (
+                  <span className="text-destructive flex items-center gap-1">
+                    <XCircle className="h-4 w-4" />
+                    Error saving
+                  </span>
+                )}
+              </div>
+              <Button
+                size="sm"
+                onClick={() => handleSaveCategory(categoryDef.category, categoryDef)}
+                disabled={saveStatus[categoryDef.category] === "saving"}
+              >
+                {saveStatus[categoryDef.category] === "saving" ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save"
+                )}
+              </Button>
             </div>
-          )}
-        </div>
-      );
+          </div>
+        )}
+      </div>
+    );
   };
 
   if (isLoading) {
     return (
-      <div className="col-span-full text-center py-8 text-gray-600 dark:text-gray-400">
+      <div className="text-center py-8 text-muted-foreground">
         <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin opacity-50" />
         <p>Loading settings...</p>
       </div>
@@ -3283,7 +2261,7 @@ function SystemSettings() {
 
   if (error) {
     return (
-      <div className="col-span-full text-center py-8 text-red-600 dark:text-red-400">
+      <div className="text-center py-8 text-destructive">
         <XCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
         <p>Failed to load settings</p>
         <p className="text-sm mt-2">{error instanceof Error ? error.message : "Unknown error"}</p>
@@ -3292,21 +2270,38 @@ function SystemSettings() {
   }
 
   return (
-    <>
-      {/* Column 1 */}
-      <div className="flex flex-col gap-4">
-        {column1.map(renderSection)}
+    <div className="max-w-2xl">
+      {/* Jump-to nav */}
+      <div className="flex flex-wrap gap-1.5 mb-8">
+        {allSections.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => scrollToSection(s.id)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-primary/5 transition-colors"
+          >
+            {s.icon}
+            {s.label}
+            {s.configured && <Check className="h-3 w-3 text-primary" />}
+          </button>
+        ))}
       </div>
-      {/* Column 2 */}
-      <div className="flex flex-col gap-4">
-        {column2.map(renderSection)}
+
+      {/* Setting categories */}
+      <div className="divide-y divide-border">
+        {systemDefinitions.map(renderSection)}
       </div>
-      {/* Column 3 */}
-      <div className="flex flex-col gap-4">
-        {column3.map(renderSection)}
+
+      {/* API Keys */}
+      <div id="system-section-api-keys" className="scroll-mt-4 mt-6 pt-6 border-t border-border">
         <ApiKeysSettings />
       </div>
-    </>
+
+      {/* Backup & Restore */}
+      <div id="system-section-backup" className="scroll-mt-4 mt-6 pt-6 border-t border-border">
+        <BackupRestoreCard />
+      </div>
+    </div>
   );
 }
 
@@ -5398,7 +4393,7 @@ function CamerasSettings() {
                 <Button
                   variant="outline"
                   className="mt-4"
-                  onClick={() => window.location.href = appPath("/settings?tab=homeassistant")}
+                  onClick={() => window.location.href = appPath("/settings/connections?service=homeassistant")}
                 >
                   <Plus className="mr-2 h-4 w-4" />
                   Add Cameras in Home Assistant Settings
@@ -5429,7 +4424,7 @@ function CamerasSettings() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.location.href = appPath("/settings?tab=homeassistant")}
+                  onClick={() => window.location.href = appPath("/settings/connections?service=homeassistant")}
                 >
                   Manage in Home Assistant Settings
                 </Button>
@@ -6937,7 +5932,7 @@ function AutomationsSettings() {
   );
 }
 
-function HomeAssistantSettings() {
+function HomeAssistantSettings({ mode = "full" }: { mode?: "full" | "rooms-only" } = {}) {
   const queryClient = useQueryClient();
   const [showConfigForm, setShowConfigForm] = useState(false);
   const [showEntityPicker, setShowEntityPicker] = useState(false);
@@ -7227,6 +6222,8 @@ function HomeAssistantSettings() {
 
   return (
     <>
+      {mode === "full" && (
+      <>
       <Card className="border-2 border-primary/40">
         <CardHeader>
           <CardTitle>Home Assistant Connection</CardTitle>
@@ -7945,6 +6942,8 @@ function HomeAssistantSettings() {
           </div>
         </div>
       )}
+      </>
+      )}
 
       {/* Rooms Management Card */}
       {isConnected && (
@@ -8282,57 +7281,64 @@ function ApiKeysSettings() {
   };
 
   return (
-    <div className="rounded-lg border-2 border-primary bg-primary/5 dark:bg-primary/10">
+    <div>
       <button
         type="button"
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="flex w-full items-center justify-between p-4 text-left hover:bg-primary/10 dark:hover:bg-primary/20 rounded-t-lg"
+        className="group flex w-full items-center justify-between py-3 text-left"
       >
-        <div className="flex items-center gap-3">
-          <span className="text-primary">
+        <div className="flex items-center gap-2.5">
+          <span className="text-muted-foreground group-hover:text-primary transition-colors">
             <Key className="h-5 w-5" />
           </span>
-          <div>
-            <h4 className="font-medium text-lg text-primary dark:text-primary">API Keys</h4>
-            <p className="text-sm text-gray-600 dark:text-gray-400">Manage API keys for kiosk devices, automation tools</p>
-          </div>
+          <span className="font-medium">API Keys</span>
+          {apiKeys.length > 0 && (
+            <span className="text-xs text-primary flex items-center gap-1">
+              <Check className="h-3 w-3" />
+              {apiKeys.length} {apiKeys.length === 1 ? "key" : "keys"}
+            </span>
+          )}
         </div>
-        {isCollapsed ? (
-          <ChevronDown className="h-5 w-5 text-gray-500" />
-        ) : (
-          <ChevronUp className="h-5 w-5 text-gray-500" />
-        )}
+        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${!isCollapsed ? "rotate-180" : ""}`} />
       </button>
 
       {!isCollapsed && (
-        <div className="border-t border-gray-200 dark:border-gray-700 p-4 space-y-4">
+        <div className="pb-4 space-y-4">
+        {/* Create button */}
+        {!showCreateForm && !createdKey && (
+          <Button size="sm" variant="outline" onClick={() => setShowCreateForm(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            Create Key
+          </Button>
+        )}
+
         {/* Newly created key display */}
         {createdKey && (
-          <div className="rounded-lg border-2 border-green-600 bg-green-100 dark:bg-green-950 p-4 space-y-3">
-            <div className="flex items-center gap-2 text-green-800 dark:text-green-300">
+          <div className="rounded-lg border-2 border-primary bg-primary/10 p-4 space-y-3">
+            <div className="flex items-center gap-2 text-primary">
               <CheckCircle className="h-5 w-5" />
               <span className="font-medium">API Key Created Successfully</span>
             </div>
-            <p className="text-sm text-green-700 dark:text-green-400 font-medium">
+            <p className="text-sm text-primary font-medium">
               Copy this key now - it won't be shown again!
             </p>
             <div className="flex items-center gap-2">
-              <code className="flex-1 rounded bg-white dark:bg-gray-900 px-3 py-2 text-sm font-mono border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 overflow-x-auto">
+              <code className="flex-1 rounded bg-background px-3 py-2 text-sm font-mono border border-border text-foreground overflow-x-auto">
                 {createdKey}
               </code>
-              <Button size="sm" variant="outline" className="border-green-600 text-green-700 hover:bg-green-200 dark:text-green-300 dark:hover:bg-green-900" onClick={handleCopyKey}>
+              <Button size="sm" variant="outline" className="border-primary text-primary hover:bg-primary/10" onClick={handleCopyKey}>
                 {copied ? "Copied!" : "Copy"}
               </Button>
             </div>
-            <div className="pt-2 border-t border-green-400 dark:border-green-700">
-              <p className="text-sm text-green-700 dark:text-green-400 mb-2 font-medium">
+            <div className="pt-2 border-t border-primary/30">
+              <p className="text-sm text-primary mb-2 font-medium">
                 For kiosk devices, use this URL to auto-authenticate:
               </p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 rounded bg-white dark:bg-gray-900 px-3 py-2 text-xs font-mono border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 overflow-x-auto">
+                <code className="flex-1 rounded bg-background px-3 py-2 text-xs font-mono border border-border text-foreground overflow-x-auto">
                   {frontendUrl}?apiKey={createdKey}
                 </code>
-                <Button size="sm" variant="outline" className="border-green-600 text-green-700 hover:bg-green-200 dark:text-green-300 dark:hover:bg-green-900" onClick={handleCopyKioskUrl}>
+                <Button size="sm" variant="outline" className="border-primary text-primary hover:bg-primary/10" onClick={handleCopyKioskUrl}>
                   Copy URL
                 </Button>
               </div>
@@ -8340,7 +7346,7 @@ function ApiKeysSettings() {
             <Button
               variant="outline"
               size="sm"
-              className="w-full mt-2 border-green-600 text-green-700 hover:bg-green-200 dark:text-green-300 dark:hover:bg-green-900"
+              className="w-full mt-2 border-primary text-primary hover:bg-primary/10"
               onClick={() => setCreatedKey(null)}
             >
               Done
@@ -8388,15 +7394,15 @@ function ApiKeysSettings() {
         {/* Existing keys list */}
         {isLoading ? (
           <div className="flex items-center justify-center py-6">
-            <Loader2 className="h-6 w-6 animate-spin text-gray-500" />
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : apiKeys.length === 0 && !createdKey ? (
-          <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-6 text-center">
-            <Key className="mx-auto h-8 w-8 text-gray-400 dark:text-gray-500" />
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+          <div className="rounded-lg border border-dashed border-border p-6 text-center">
+            <Key className="mx-auto h-8 w-8 text-muted-foreground" />
+            <p className="mt-2 text-sm text-muted-foreground">
               No API keys created yet
             </p>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-500">
+            <p className="mt-1 text-xs text-muted-foreground">
               Create an API key to authenticate kiosk devices without OAuth login
             </p>
           </div>
@@ -8405,15 +7411,15 @@ function ApiKeysSettings() {
             {apiKeys.map((key) => (
               <div
                 key={key.id}
-                className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3"
+                className="flex items-center justify-between rounded-lg border border-border bg-background p-3"
               >
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <Key className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                    <span className="font-medium text-gray-900 dark:text-gray-100">{key.name}</span>
+                    <Key className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-medium text-foreground">{key.name}</span>
                   </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    <code className="text-gray-600 dark:text-gray-300">{key.keyPrefix}...</code>
+                  <div className="text-xs text-muted-foreground">
+                    <code className="text-foreground">{key.keyPrefix}...</code>
                     {key.lastUsedAt && (
                       <span className="ml-2">
                         Last used: {new Date(key.lastUsedAt).toLocaleDateString()}
@@ -8429,7 +7435,7 @@ function ApiKeysSettings() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="text-red-600 border-red-300 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-700 dark:hover:bg-red-900/30"
+                  className="text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
                   onClick={() => {
                     if (confirm("Delete this API key? Any devices using it will lose access.")) {
                       deleteKeyMutation.mutate(key.id);
@@ -8445,9 +7451,9 @@ function ApiKeysSettings() {
         )}
 
           {/* Help text */}
-          <div className="rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 p-4 text-sm space-y-2">
-            <p className="font-medium text-blue-800 dark:text-blue-300">How to use API keys:</p>
-            <ol className="list-decimal list-inside space-y-1 text-blue-700 dark:text-blue-400">
+          <div className="rounded-lg bg-muted/30 border border-border p-4 text-sm space-y-2">
+            <p className="font-medium text-foreground">How to use API keys:</p>
+            <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
               <li>Create an API key with a descriptive name (e.g., "Kitchen Kiosk")</li>
               <li>Copy the kiosk URL shown after creation</li>
               <li>Open that URL on your kiosk device - it will auto-authenticate</li>
@@ -9759,7 +8765,8 @@ function ModulesTab({
   onUninstall: (id: string) => Promise<void>;
 }) {
   const [toggling, setToggling] = useState<string | null>(null);
-  const [activeCategory, setActiveCategory] = useState<string>("all");
+  const [activeCategory, setActiveCategory] = useState<string>("popular");
+  const [moduleSearch, setModuleSearch] = useState("");
 
   const handleToggle = async (moduleId: string, currentlyEnabled: boolean) => {
     setToggling(moduleId);
@@ -9800,30 +8807,73 @@ function ModulesTab({
 
   const enabledCount = moduleList.filter((m) => isModuleEnabled(m.id)).length;
 
+  // Popular modules — hand-picked list of the most commonly used
+  const POPULAR_MODULE_IDS = new Set(["weather", "photos", "spotify", "homeassistant", "news", "sports", "planner", "cameras", "recipes", "gmail"]);
+  const popularModules = useMemo(
+    () => moduleList.filter((m) => POPULAR_MODULE_IDS.has(m.id)),
+    [moduleList]
+  );
+
+  // Search filtering
+  const searchLower = moduleSearch.toLowerCase().trim();
+  const searchFilteredModules = useMemo(() => {
+    if (!searchLower) return null;
+    return moduleList.filter(
+      (m) =>
+        m.name.toLowerCase().includes(searchLower) ||
+        m.description.toLowerCase().includes(searchLower) ||
+        m.category.toLowerCase().includes(searchLower)
+    );
+  }, [moduleList, searchLower]);
+
   // Filter categories to display based on active selection
-  const visibleCategories = activeCategory === "all"
-    ? MODULE_CATEGORIES.filter((cat) => modulesByCategory.has(cat.id))
-    : MODULE_CATEGORIES.filter((cat) => cat.id === activeCategory && modulesByCategory.has(cat.id));
+  const visibleCategories = searchFilteredModules
+    ? MODULE_CATEGORIES.filter((cat) => searchFilteredModules.some((m) => m.category === cat.id))
+    : activeCategory === "popular"
+      ? [] // Popular view uses its own flat list, not category sections
+      : MODULE_CATEGORIES.filter((cat) => cat.id === activeCategory && modulesByCategory.has(cat.id));
+
+  // Modules to render per category when searching
+  const getModsForCategory = (catId: string) => {
+    if (searchFilteredModules) return searchFilteredModules.filter((m) => m.category === catId);
+    return modulesByCategory.get(catId) ?? [];
+  };
 
   return (
+    <div className="flex flex-col gap-4">
+      {/* Search bar */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="text"
+          value={moduleSearch}
+          onChange={(e) => {
+            setModuleSearch(e.target.value);
+            if (e.target.value) setActiveCategory("popular"); // reset category during search
+          }}
+          placeholder="Search modules..."
+          className="w-full rounded-lg border border-border bg-card py-2 pl-9 pr-4 text-sm outline-none focus:border-primary text-foreground placeholder:text-muted-foreground"
+        />
+      </div>
+
     <div className="flex gap-6">
       {/* Left: Category sidebar */}
       <nav className="w-48 shrink-0 sticky top-0 self-start space-y-0.5">
         <button
           type="button"
-          onClick={() => setActiveCategory("all")}
+          onClick={() => { setActiveCategory("popular"); setModuleSearch(""); }}
           className={`w-full px-4 py-2 text-left text-sm font-medium rounded-md transition-colors ${
-            activeCategory === "all"
+            activeCategory === "popular" && !searchLower
               ? "bg-primary text-primary-foreground"
               : "text-foreground hover:bg-primary/10"
           }`}
         >
           <span className="flex items-center justify-between">
-            All
+            Popular
             <span className={`text-xs tabular-nums ${
-              activeCategory === "all" ? "text-primary-foreground/70" : "text-muted-foreground"
+              activeCategory === "popular" && !searchLower ? "text-primary-foreground/70" : "text-muted-foreground"
             }`}>
-              {enabledCount}/{moduleList.length}
+              {popularModules.filter((m) => isModuleEnabled(m.id)).length}/{popularModules.length}
             </span>
           </span>
         </button>
@@ -9835,7 +8885,7 @@ function ModulesTab({
             <button
               key={cat.id}
               type="button"
-              onClick={() => setActiveCategory(cat.id)}
+              onClick={() => { setActiveCategory(cat.id); setModuleSearch(""); }}
               className={`w-full px-4 py-2 text-left text-sm font-medium rounded-md transition-colors ${
                 activeCategory === cat.id
                   ? "bg-primary text-primary-foreground"
@@ -9859,20 +8909,64 @@ function ModulesTab({
       <div className="flex-1 min-w-0 space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-foreground">Modules</h2>
+            <h2 className="text-lg font-semibold text-foreground">
+              {searchLower ? "Search Results" : activeCategory === "popular" ? "Popular" : "Modules"}
+            </h2>
             <p className="text-sm text-muted-foreground">
-              {enabledCount} of {moduleList.length} modules enabled
+              {searchLower
+                ? `${searchFilteredModules?.length ?? 0} modules found`
+                : `${enabledCount} of ${moduleList.length} modules enabled`}
             </p>
           </div>
           {modulesLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
         </div>
 
+        {/* Popular view (flat grid, no category headers) */}
+        {!searchLower && activeCategory === "popular" && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {popularModules.map((mod) => {
+              const enabled = isModuleEnabled(mod.id);
+              const isToggling = toggling === mod.id;
+              const IconComponent = MODULE_ICON_MAP[mod.icon] || Puzzle;
+              const depsNotMet = mod.dependsOn.length > 0 && mod.dependsOn.some((dep) => !isModuleEnabled(dep));
+              const depNames = mod.dependsOn
+                .filter((dep) => !isModuleEnabled(dep))
+                .map((dep) => MODULE_REGISTRY[dep as ModuleId]?.name ?? dep);
+              return (
+                <div
+                  key={mod.id}
+                  className={cn(
+                    "flex items-start gap-3 p-3 rounded-lg border-2 transition-colors",
+                    enabled ? "border-primary/40 bg-primary/5" : "border-border bg-card"
+                  )}
+                >
+                  <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", enabled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
+                    <IconComponent className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={cn("text-sm font-medium truncate", enabled ? "text-primary" : "text-foreground")}>{mod.name}</span>
+                      <button type="button" role="switch" aria-checked={enabled} disabled={isToggling || (!enabled && depsNotMet) || !mod.available} onClick={() => handleToggle(mod.id, enabled)} className={cn("relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors", enabled ? "bg-primary" : "bg-muted", (isToggling || (!enabled && depsNotMet) || !mod.available) && "opacity-50 cursor-not-allowed")}>
+                        <span className={cn("inline-block h-3.5 w-3.5 transform rounded-full bg-background transition-transform", enabled ? "translate-x-[18px]" : "translate-x-[3px]")} />
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{mod.description}</p>
+                    {!enabled && depsNotMet && <p className="text-xs text-destructive mt-1">Requires: {depNames.join(", ")}</p>}
+                    {!mod.available && <p className="text-xs text-destructive mt-1"><a href="https://openframe.us/billing" target="_blank" rel="noopener noreferrer" className="underline">Upgrade plan</a>{" "}to enable</p>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Search results or category view (with category headers) */}
         {visibleCategories.map((category) => {
-          const mods = modulesByCategory.get(category.id);
-          if (!mods) return null;
+          const mods = getModsForCategory(category.id);
+          if (!mods || mods.length === 0) return null;
           return (
             <section key={category.id}>
-              {activeCategory === "all" && (
+              {(searchLower || visibleCategories.length > 1) && (
                 <h3 className="text-sm font-medium text-primary mb-3">{category.label}</h3>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -9949,7 +9043,15 @@ function ModulesTab({
             </section>
           );
         })}
+
+        {/* No search results */}
+        {searchLower && searchFilteredModules?.length === 0 && (
+          <div className="text-center text-muted-foreground py-8">
+            No modules match "{moduleSearch}"
+          </div>
+        )}
       </div>
+    </div>
     </div>
   );
 }
@@ -10241,9 +9343,159 @@ function SupportTab() {
   );
 }
 
+function KiosksSettings({ isModuleEnabled }: { isModuleEnabled: (id: string) => boolean }) {
+  const queryClient = useQueryClient();
+  const [selectedKioskId, setSelectedKioskId] = useState<string | null>(null);
+
+  const { data: kiosks = [], isLoading } = useQuery({
+    queryKey: ["kiosks"],
+    queryFn: () => api.getKiosks(),
+  });
+
+  const createKiosk = useMutation({
+    mutationFn: () => api.createKiosk({ name: "New Kiosk" }),
+    onSuccess: (newKiosk) => {
+      queryClient.invalidateQueries({ queryKey: ["kiosks"] });
+      setSelectedKioskId(newKiosk.id);
+    },
+  });
+
+  // If a kiosk is selected, show its config page
+  if (selectedKioskId) {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => setSelectedKioskId(null)}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to Kiosks
+        </button>
+        <KioskConfigPage
+          kioskId={selectedKioskId}
+          renderTableSections={() => (
+            <>
+              {isModuleEnabled("sports") && <SportsSettings />}
+              {isModuleEnabled("iptv") && <IptvChannelManager />}
+              {isModuleEnabled("news") && <NewsSettings />}
+              {isModuleEnabled("photos") && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                  <Card className="border-2 border-primary/40">
+                    <CardHeader>
+                      <CardTitle>
+                        <div className="flex items-center gap-2">
+                          <FolderOpen className="h-5 w-5" />
+                          Photo Albums
+                        </div>
+                      </CardTitle>
+                      <CardDescription>Upload and manage your photo albums</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <LocalPhotoAlbums onSelectAlbum={() => {}} />
+                    </CardContent>
+                  </Card>
+                  <Card className="border-2 border-primary/40">
+                    <CardHeader>
+                      <CardTitle>All Photos</CardTitle>
+                      <CardDescription>Browse and manage all uploaded photos</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ManageAllPhotos />
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+              {isModuleEnabled("homeassistant") && <HomeAssistantSettings mode="rooms-only" />}
+            </>
+          )}
+        />
+      </div>
+    );
+  }
+
+  // Kiosk list view
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-foreground">Kiosks</h2>
+          <p className="text-sm text-muted-foreground mt-1">Manage your display devices and their settings</p>
+        </div>
+        <Button
+          onClick={() => createKiosk.mutate()}
+          disabled={createKiosk.isPending}
+          className="gap-2"
+        >
+          {createKiosk.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          New Kiosk
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : kiosks.length === 0 ? (
+        <Card className="border-2 border-dashed border-border">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="rounded-full bg-primary/10 p-3 mb-4">
+              <Monitor className="h-8 w-8 text-primary" />
+            </div>
+            <h3 className="text-lg font-medium text-foreground mb-2">No kiosks yet</h3>
+            <p className="text-sm text-muted-foreground mb-4 max-w-md">
+              Create a kiosk to configure display settings for your screens, tablets, and other devices.
+            </p>
+            <Button onClick={() => createKiosk.mutate()} disabled={createKiosk.isPending} className="gap-2">
+              {createKiosk.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              Create Your First Kiosk
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {kiosks.map((kiosk) => (
+            <Card
+              key={kiosk.id}
+              className="border border-border hover:border-primary/40 transition-colors cursor-pointer group"
+              onClick={() => setSelectedKioskId(kiosk.id)}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="shrink-0 rounded-lg bg-primary/10 p-2">
+                      <Monitor className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-medium text-foreground truncate">{kiosk.name}</h3>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {kiosk.displayMode === "full" ? "Full" : kiosk.displayMode === "screensaver-only" ? "Screensaver" : kiosk.displayMode === "calendar-only" ? "Calendar" : "Dashboard"}
+                        {" · "}
+                        {kiosk.displayType === "touch" ? "Touch" : kiosk.displayType === "tv" ? "TV" : "Display"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={cn(
+                      "inline-flex h-2 w-2 rounded-full",
+                      kiosk.isActive ? "bg-emerald-500" : "bg-muted-foreground/40"
+                    )} />
+                    <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const location = useLocation();
   const user = useAuthStore((state) => state.user);
   const { weekStartsOn, setWeekStartsOn, familyName, setFamilyName, homeAddress, setHomeAddress, dayStartHour, setDayStartHour, dayEndHour, setDayEndHour, tickerSpeed, setTickerSpeed, weekCellWidget, setWeekCellWidget, showDriveTimeOnNext, setShowDriveTimeOnNext, showWeekNumbers, setShowWeekNumbers, defaultEventDuration, setDefaultEventDuration, autoRefreshInterval, setAutoRefreshInterval } = useCalendarStore();
   const {
@@ -10303,21 +9555,15 @@ export function SettingsPage() {
   const filteredTabs = useFilteredTabs();
   const { isEnabled: isModuleEnabled, installModule, uninstallModule, moduleList, fetchModules: refetchModules, loading: modulesLoading } = useModuleStore();
 
-  // Read initial tab from URL, default to null (menu view)
-  const tabFromUrl = searchParams.get("tab") as SettingsTab | null;
-  const initialTab = tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : null;
-  const [activeTab, setActiveTab] = useState<SettingsTab | null>(initialTab);
+  // Extract tab from path: /settings/kiosks -> "kiosks"
+  const pathSegments = location.pathname.split("/");
+  const settingsIndex = pathSegments.indexOf("settings");
+  const tabFromPath = settingsIndex >= 0 ? pathSegments[settingsIndex + 1] : undefined;
+  const activeTab: SettingsTab = (tabFromPath && isValidTab(tabFromPath) ? tabFromPath : filteredTabs[0]?.id) ?? "account";
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
-  // Entertainment sub-tab state
-  const subTabFromUrl = searchParams.get("subtab") as EntertainmentSubTab | null;
-  const initialSubTab = subTabFromUrl && validEntertainmentSubTabs.includes(subTabFromUrl) ? subTabFromUrl : "sports";
-  const [activeEntertainmentSubTab, setActiveEntertainmentSubTab] = useState<EntertainmentSubTab>(initialSubTab);
-
-  // Appearance sub-tab state
-  const appearanceSubTabFromUrl = searchParams.get("subtab") as AppearanceSubTab | null;
-  const initialAppearanceSubTab = appearanceSubTabFromUrl && validAppearanceSubTabs.includes(appearanceSubTabFromUrl)
-    ? appearanceSubTabFromUrl : "display";
-  const [activeAppearanceSubTab, setActiveAppearanceSubTab] = useState<AppearanceSubTab>(initialAppearanceSubTab);
+  // Connection service detail param (for drill-down within Connections tab)
+  const connectionService = searchParams.get("service");
 
   // Local photos album selection state
   const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
@@ -10339,38 +9585,25 @@ export function SettingsPage() {
     staleTime: 0, // Always refetch when query is accessed
   });
 
-  // Sync activeTab when URL search params change externally (e.g., clicking the Settings gear)
+  // Redirect /settings to /settings/{firstTab}
   useEffect(() => {
-    const urlTab = searchParams.get("tab") as SettingsTab | null;
-    const resolved = urlTab && validTabs.includes(urlTab) ? urlTab : null;
-    setActiveTab(resolved);
-  }, [searchParams]);
-
-  // Update URL when tab changes
-  const handleTabChange = (tab: SettingsTab | null) => {
-    setActiveTab(tab);
-    if (tab === null) {
-      const newParams = new URLSearchParams(searchParams);
-      newParams.delete("tab");
-      newParams.delete("subtab");
-      setSearchParams(newParams);
-    } else if (tab === "entertainment") {
-      setSearchParams({ tab, subtab: activeEntertainmentSubTab });
-    } else if (tab === "appearance") {
-      setSearchParams({ tab, subtab: activeAppearanceSubTab });
-    } else {
-      setSearchParams({ tab });
+    if (!tabFromPath || !isValidTab(tabFromPath)) {
+      const firstTab = filteredTabs[0];
+      if (firstTab) {
+        navigate(`/settings/${firstTab.id}`, { replace: true });
+      }
     }
+  }, [tabFromPath, filteredTabs, navigate]);
+
+  // Navigate to a settings tab
+  const handleTabChange = (tab: SettingsTab) => {
+    setIsMobileSidebarOpen(false);
+    navigate(`/settings/${tab}`);
   };
 
-  const handleEntertainmentSubTabChange = (subtab: EntertainmentSubTab) => {
-    setActiveEntertainmentSubTab(subtab);
-    setSearchParams({ tab: "entertainment", subtab });
-  };
-
-  const handleAppearanceSubTabChange = (subtab: AppearanceSubTab) => {
-    setActiveAppearanceSubTab(subtab);
-    setSearchParams({ tab: "appearance", subtab });
+  // Navigate to a connection service detail view
+  const handleNavigateToService = (serviceId: string) => {
+    navigate(`/settings/connections?service=${serviceId}`);
   };
 
   // Fetch calendars for settings
@@ -10481,6 +9714,13 @@ export function SettingsPage() {
   const calendarListRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const savedScrollRef = useRef<number>(0);
+
+  // Reset scroll when active tab changes
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+    }
+  }, [activeTab]);
 
   const updateCalendar = useMutation({
     mutationFn: ({
@@ -10628,49 +9868,66 @@ export function SettingsPage() {
         </div>
       )}
 
-      {/* Section Header (back button when inside a section) */}
-      {activeTab !== null && (
-        <div className="border-b border-border bg-card">
-          <div className="relative flex items-center justify-center px-4 sm:px-6 py-4">
-            <button
-              onClick={() => handleTabChange(null)}
-              className="absolute left-4 sm:left-6 flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors rounded-lg px-3 py-2 hover:bg-primary/10"
-            >
-              <ArrowLeft className="h-5 w-5" />
-              Back
-            </button>
-            <div className="flex items-center gap-2.5 text-base font-semibold text-primary">
-              {filteredTabs.find((t) => t.id === activeTab)?.icon}
-              {filteredTabs.find((t) => t.id === activeTab)?.label}
-            </div>
-          </div>
+      {/* Split-pane container */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Desktop sidebar */}
+        <div className="hidden lg:block">
+          <SettingsSidebar
+            groups={SIDEBAR_GROUPS}
+            filteredTabs={filteredTabs}
+            activeTab={activeTab}
+          />
         </div>
-      )}
 
-      {/* Tab Content */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-auto">
-        <div className="p-4 sm:p-6">
-          {/* Settings Menu Grid */}
-          {activeTab === null && (
-            <div className="mx-auto max-w-4xl">
-              <h2 className="text-lg font-semibold text-white mb-4">Settings</h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                {filteredTabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => handleTabChange(tab.id)}
-                    className="flex flex-col items-center gap-2 p-4 sm:p-6 bg-card border-2 border-primary/40 rounded-lg hover:border-primary hover:bg-primary/10 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  >
-                    <div className="flex items-center justify-center h-10 w-10 rounded-lg bg-primary/10 text-primary [&>svg]:h-6 [&>svg]:w-6">
-                      {tab.icon}
-                    </div>
-                    <span className="text-sm font-medium text-white">{tab.label}</span>
-                    <span className="text-xs text-muted-foreground">{tab.description}</span>
-                  </button>
-                ))}
+        {/* Mobile: hamburger header + slide-in drawer */}
+        {isMobileSidebarOpen && (
+          <div
+            className="lg:hidden fixed inset-0 z-40 bg-black/50"
+            onClick={() => setIsMobileSidebarOpen(false)}
+          />
+        )}
+        <div
+          className={cn(
+            "lg:hidden fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out bg-card shadow-xl",
+            isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
+          )}
+        >
+          <button
+            onClick={() => setIsMobileSidebarOpen(false)}
+            className="absolute top-4 right-[-44px] p-3 rounded-lg bg-card border border-border min-h-[44px] min-w-[44px] flex items-center justify-center"
+            aria-label="Close settings menu"
+          >
+            <X className="h-5 w-5 text-foreground" />
+          </button>
+          <SettingsSidebar
+            groups={SIDEBAR_GROUPS}
+            filteredTabs={filteredTabs}
+            activeTab={activeTab}
+            onNavigate={() => setIsMobileSidebarOpen(false)}
+          />
+        </div>
+
+        {/* Content panel */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {/* Mobile header with hamburger */}
+          <div className="lg:hidden border-b border-border bg-card">
+            <div className="flex items-center gap-3 px-4 py-3">
+              <button
+                onClick={() => setIsMobileSidebarOpen(true)}
+                className="flex items-center justify-center h-9 w-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                aria-label="Open settings menu"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+              <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                {filteredTabs.find((t) => t.id === activeTab)?.icon}
+                {filteredTabs.find((t) => t.id === activeTab)?.label}
               </div>
             </div>
-          )}
+          </div>
+
+          <div ref={scrollContainerRef} className="flex-1 overflow-auto">
+            <div className="p-4 sm:p-6">
           {/* Modules Tab */}
           {activeTab === "modules" && (
             <ModulesTab
@@ -10689,1326 +9946,275 @@ export function SettingsPage() {
           )}
           {/* Connections Tab */}
           {activeTab === "connections" && (
-            <ConnectionsTab onNavigateToTab={handleTabChange} />
+            connectionService ? (
+              <div className="space-y-6">
+                {/* Back to hub header */}
+                <button
+                  onClick={() => navigate("/settings/connections")}
+                  className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to Connections
+                </button>
+                {/* Service-specific connection settings */}
+                {connectionService === "calendars" && (
+                  <>
+                    <Card className="border-2 border-primary/40">
+                      <CardHeader>
+                        <CardTitle>Calendar Settings</CardTitle>
+                        <CardDescription>
+                          Manage your calendar accounts and configure visibility settings
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6 min-h-[500px]">
+                          <div className="lg:border-r lg:border-border lg:pr-6">
+                            <CalendarAccountsList
+                              calendars={calendars}
+                              favoriteTeams={calendarFavoriteTeams}
+                              selectedProvider={selectedCalendarProvider}
+                              onSelectProvider={setSelectedCalendarProvider}
+                              onAddAccount={() => setAddAccountModalView("select")}
+                              onSyncAll={() => syncAll.mutate()}
+                              isSyncing={syncAll.isPending}
+                            />
+                          </div>
+                          <div className="min-h-0">
+                            {selectedCalendarProvider ? (
+                              <CalendarListForAccount
+                                provider={selectedCalendarProvider}
+                                calendars={calendars}
+                                favoriteTeams={calendarFavoriteTeams}
+                                events={events}
+                                onUpdateCalendar={(id, updates) =>
+                                  updateCalendar.mutate({ id, data: updates })
+                                }
+                                onUpdateTeam={(id, updates) =>
+                                  updateFavoriteTeam.mutate({ id, data: updates })
+                                }
+                                onConnect={() => {
+                                  const authToken = useAuthStore.getState().accessToken;
+                                  if (selectedCalendarProvider === "google") {
+                                    window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings/connections?service=calendars&connected=true"));
+                                  } else if (selectedCalendarProvider === "microsoft") {
+                                    window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings/connections?service=calendars&connected=true"));
+                                  } else if (selectedCalendarProvider === "sports") {
+                                    // Sports settings now live in kiosk config; navigate to first kiosk if available
+                                    handleTabChange("kiosks");
+                                  } else if (selectedCalendarProvider === "ics") {
+                                    setAddAccountModalView("ics");
+                                  } else if (selectedCalendarProvider === "caldav") {
+                                    setAddAccountModalView("caldav");
+                                  } else if (selectedCalendarProvider === "homeassistant") {
+                                    setShowHACalendarModal(true);
+                                  } else {
+                                    setAddAccountModalView("select");
+                                  }
+                                }}
+                                onManageTeams={() => {
+                                  handleTabChange("kiosks");
+                                }}
+                              />
+                            ) : (
+                              <div className="flex items-center justify-center h-full text-muted-foreground">
+                                Select an account type to view calendars
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <AddAccountModal
+                      isOpen={addAccountModalView !== null}
+                      onClose={() => setAddAccountModalView(null)}
+                      initialView={addAccountModalView ?? "select"}
+                      onConnectGoogle={() => {
+                        const authToken = useAuthStore.getState().accessToken;
+                        window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings/connections?service=calendars&connected=true"));
+                      }}
+                      onConnectMicrosoft={() => {
+                        const authToken = useAuthStore.getState().accessToken;
+                        window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings/connections?service=calendars&connected=true"));
+                      }}
+                      onConnectCalDAV={async (url, username, password) => {
+                        console.log("CalDAV connection:", { url, username });
+                        throw new Error("CalDAV connection not yet implemented");
+                      }}
+                      onSubscribeICS={async (url, name) => {
+                        await api.subscribeICS(url, name);
+                        queryClient.invalidateQueries({ queryKey: ["calendars"] });
+                        setSelectedCalendarProvider("ics");
+                      }}
+                      onManageSports={() => {
+                        setAddAccountModalView(null);
+                        handleTabChange("kiosks");
+                      }}
+                    />
+                    <HACalendarModal
+                      isOpen={showHACalendarModal}
+                      onClose={() => setShowHACalendarModal(false)}
+                      onSubscribe={async (entityId, name) => {
+                        await api.subscribeHomeAssistantCalendar(entityId, name);
+                        queryClient.invalidateQueries({ queryKey: ["calendars"] });
+                        setShowHACalendarModal(false);
+                      }}
+                    />
+                  </>
+                )}
+                {connectionService === "spotify" && <SpotifySettings />}
+                {connectionService === "iptv" && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                    <IptvSettings />
+                  </div>
+                )}
+                {connectionService === "plex" && <PlexSettings />}
+                {connectionService === "audiobookshelf" && <AudiobookshelfSettings />}
+                {connectionService === "news" && <NewsSettings />}
+                {connectionService === "cameras" && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                    <CamerasSettings />
+                  </div>
+                )}
+                {connectionService === "homeassistant" && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                    <HomeAssistantSettings />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <ConnectionsTab onNavigateToTab={handleTabChange} onNavigateToService={handleNavigateToService} />
+            )
           )}
           {/* Account Tab */}
           {activeTab === "account" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-              <Card className="border-2 border-primary/40">
-                <CardHeader>
-                  <CardTitle>Account</CardTitle>
-                  <CardDescription>Your account information</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center gap-4">
-                    {user?.avatarUrl && (
-                      <img
-                        src={user.avatarUrl}
-                        alt={user.name ?? ""}
-                        className="h-16 w-16 rounded-full"
-                      />
-                    )}
-                    <div>
-                      <p className="font-medium">{user?.name}</p>
-                      <p className="text-sm text-muted-foreground">{user?.email}</p>
-                      <p className="text-sm text-muted-foreground">
-                        Timezone: {user?.timezone}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+            <div className="max-w-2xl space-y-6">
+              {/* Profile */}
+              <div className="flex items-center gap-4">
+                {user?.avatarUrl && (
+                  <img
+                    src={user.avatarUrl}
+                    alt={user.name ?? ""}
+                    className="h-14 w-14 rounded-full"
+                  />
+                )}
+                <div>
+                  <p className="font-medium text-lg">{user?.name}</p>
+                  <p className="text-sm text-muted-foreground">{user?.email}</p>
+                  <p className="text-xs text-muted-foreground">Timezone: {user?.timezone}</p>
+                </div>
+              </div>
 
-              <Card className="border-2 border-primary/40">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle>Connected Accounts</CardTitle>
-                      <CardDescription>
-                        Your linked calendar providers
-                      </CardDescription>
+              {/* Linked Accounts */}
+              <div className="pt-6 border-t border-border">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="font-medium">Linked Accounts</p>
+                    <p className="text-sm text-muted-foreground">Sign-in providers for your account</p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => syncAll.mutate()}
+                    disabled={syncAll.isPending}
+                  >
+                    <RefreshCw
+                      className={`mr-1.5 h-3.5 w-3.5 ${syncAll.isPending ? "animate-spin" : ""}`}
+                    />
+                    Sync All
+                  </Button>
+                </div>
+
+                <div className="divide-y divide-border">
+                  {/* Google */}
+                  <div className="flex items-center justify-between py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                        <svg className="h-4 w-4" viewBox="0 0 24 24">
+                          <path fill="#EA4335" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                          <path fill="#4285F4" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">Google</p>
+                        {user?.linkedProviders?.includes("google") && (
+                          <span className="text-xs text-primary flex items-center gap-1">
+                            <Check className="h-3 w-3" />
+                            Linked
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <Button
                       variant="outline"
-                      onClick={() => syncAll.mutate()}
-                      disabled={syncAll.isPending}
+                      size="sm"
+                      onClick={() => {
+                        const token = useAuthStore.getState().accessToken;
+                        window.location.href = buildOAuthUrl("google", "base", token, appUrl("/settings/account"));
+                      }}
                     >
-                      <RefreshCw
-                        className={`mr-2 h-4 w-4 ${syncAll.isPending ? "animate-spin" : ""}`}
-                      />
-                      Sync All
+                      {user?.linkedProviders?.includes("google") ? (
+                        <><RefreshCw className="mr-1 h-3 w-3" /> Reconnect</>
+                      ) : (
+                        <><Link2 className="mr-1 h-3 w-3" /> Link</>
+                      )}
                     </Button>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {/* Google Account */}
-                    <div className="flex items-center justify-between rounded-lg border border-border p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-500/10">
-                          <svg className="h-5 w-5" viewBox="0 0 24 24">
-                            <path
-                              fill="#EA4335"
-                              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                            />
-                            <path
-                              fill="#34A853"
-                              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                            />
-                            <path
-                              fill="#FBBC05"
-                              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                            />
-                            <path
-                              fill="#4285F4"
-                              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                            />
-                          </svg>
-                        </div>
-                        <div>
-                          <p className="font-medium">Google</p>
-                          <p className="text-sm text-muted-foreground">
-                            {user?.linkedProviders?.includes("google")
-                              ? "Profile linked"
-                              : "Not linked"}
-                          </p>
-                        </div>
+
+                  {/* Microsoft */}
+                  <div className="flex items-center justify-between py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                        <svg className="h-4 w-4" viewBox="0 0 24 24">
+                          <rect fill="#F25022" x="1" y="1" width="10" height="10" />
+                          <rect fill="#7FBA00" x="13" y="1" width="10" height="10" />
+                          <rect fill="#00A4EF" x="1" y="13" width="10" height="10" />
+                          <rect fill="#FFB900" x="13" y="13" width="10" height="10" />
+                        </svg>
                       </div>
-                      <div className="flex items-center gap-3">
-                        {user?.linkedProviders?.includes("google") ? (
-                          <>
-                            <span className="flex items-center gap-1 text-sm text-green-500">
-                              <Check className="h-3 w-3" />
-                              Linked
-                            </span>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                const token = useAuthStore.getState().accessToken;
-                                window.location.href = buildOAuthUrl("google", "base", token, appUrl("/settings?tab=account"));
-                              }}
-                            >
-                              <RefreshCw className="mr-1 h-3 w-3" />
-                              Reconnect
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              const token = useAuthStore.getState().accessToken;
-                              window.location.href = buildOAuthUrl("google", "base", token, appUrl("/settings?tab=account"));
-                            }}
-                          >
-                            <Link2 className="mr-1 h-3 w-3" />
-                            Link Google Account
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Microsoft Account */}
-                    <div className="flex items-center justify-between rounded-lg border border-border p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
-                          <svg className="h-5 w-5" viewBox="0 0 24 24">
-                            <rect fill="#F25022" x="1" y="1" width="10" height="10" />
-                            <rect fill="#7FBA00" x="13" y="1" width="10" height="10" />
-                            <rect fill="#00A4EF" x="1" y="13" width="10" height="10" />
-                            <rect fill="#FFB900" x="13" y="13" width="10" height="10" />
-                          </svg>
-                        </div>
-                        <div>
-                          <p className="font-medium">Microsoft</p>
-                          <p className="text-sm text-muted-foreground">
-                            {user?.linkedProviders?.includes("microsoft")
-                              ? "Profile linked"
-                              : "Not linked"}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        {user?.linkedProviders?.includes("microsoft") ? (
-                          <>
-                            <span className="flex items-center gap-1 text-sm text-green-500">
-                              <Check className="h-3 w-3" />
-                              Linked
-                            </span>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                const token = useAuthStore.getState().accessToken;
-                                window.location.href = buildOAuthUrl("microsoft", "base", token, appUrl("/settings?tab=account"));
-                              }}
-                            >
-                              <RefreshCw className="mr-1 h-3 w-3" />
-                              Reconnect
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              const token = useAuthStore.getState().accessToken;
-                              window.location.href = buildOAuthUrl("microsoft", "base", token, appUrl("/settings?tab=account"));
-                            }}
-                          >
-                            <Link2 className="mr-1 h-3 w-3" />
-                            Link Microsoft Account
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Linking an account enables "Sign in with Google/Microsoft" on the login page. Calendar and task permissions are requested separately when you enable those features.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-
-            </div>
-          )}
-
-          {/* Calendars Tab - Two Column Layout */}
-          {activeTab === "calendars" && (
-            <>
-              <Card className="border-2 border-primary/40">
-                <CardHeader>
-                  <CardTitle>Calendar Settings</CardTitle>
-                  <CardDescription>
-                    Manage your calendar accounts and configure visibility settings
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6 min-h-[500px]">
-                    {/* Left Column - Accounts List */}
-                    <div className="lg:border-r lg:border-border lg:pr-6">
-                      <CalendarAccountsList
-                        calendars={calendars}
-                        favoriteTeams={calendarFavoriteTeams}
-                        selectedProvider={selectedCalendarProvider}
-                        onSelectProvider={setSelectedCalendarProvider}
-                        onAddAccount={() => setAddAccountModalView("select")}
-                        onSyncAll={() => syncAll.mutate()}
-                        isSyncing={syncAll.isPending}
-                      />
-                    </div>
-
-                    {/* Right Column - Calendars for Selected Provider */}
-                    <div className="min-h-0">
-                      {selectedCalendarProvider ? (
-                        <CalendarListForAccount
-                          provider={selectedCalendarProvider}
-                          calendars={calendars}
-                          favoriteTeams={calendarFavoriteTeams}
-                          events={events}
-                          onUpdateCalendar={(id, updates) =>
-                            updateCalendar.mutate({ id, data: updates })
-                          }
-                          onUpdateTeam={(id, updates) =>
-                            updateFavoriteTeam.mutate({ id, data: updates })
-                          }
-                          onConnect={() => {
-                            const authToken = useAuthStore.getState().accessToken;
-                            if (selectedCalendarProvider === "google") {
-                              window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings?tab=calendars&connected=true"));
-                            } else if (selectedCalendarProvider === "microsoft") {
-                              window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings?tab=calendars&connected=true"));
-                            } else if (selectedCalendarProvider === "sports") {
-                              // Navigate to entertainment tab with sports sub-tab
-                              window.location.href = appPath("/settings?tab=entertainment&subtab=sports");
-                            } else if (selectedCalendarProvider === "ics") {
-                              setAddAccountModalView("ics");
-                            } else if (selectedCalendarProvider === "caldav") {
-                              setAddAccountModalView("caldav");
-                            } else if (selectedCalendarProvider === "homeassistant") {
-                              setShowHACalendarModal(true);
-                            } else {
-                              setAddAccountModalView("select");
-                            }
-                          }}
-                          onManageTeams={() => {
-                            window.location.href = appPath("/settings?tab=entertainment&subtab=sports");
-                          }}
-                        />
-                      ) : (
-                        <div className="flex items-center justify-center h-full text-muted-foreground">
-                          Select an account type to view calendars
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Add Account Modal */}
-              <AddAccountModal
-                isOpen={addAccountModalView !== null}
-                onClose={() => setAddAccountModalView(null)}
-                initialView={addAccountModalView ?? "select"}
-                onConnectGoogle={() => {
-                  const authToken = useAuthStore.getState().accessToken;
-                  window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings?tab=calendars&connected=true"));
-                }}
-                onConnectMicrosoft={() => {
-                  const authToken = useAuthStore.getState().accessToken;
-                  window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings?tab=calendars&connected=true"));
-                }}
-                onConnectCalDAV={async (url, username, password) => {
-                  // TODO: Implement CalDAV connection
-                  console.log("CalDAV connection:", { url, username });
-                  throw new Error("CalDAV connection not yet implemented");
-                }}
-                onSubscribeICS={async (url, name) => {
-                  await api.subscribeICS(url, name);
-                  queryClient.invalidateQueries({ queryKey: ["calendars"] });
-                  setSelectedCalendarProvider("ics");
-                }}
-                onManageSports={() => {
-                  setAddAccountModalView(null);
-                  window.location.href = appPath("/settings?tab=entertainment&subtab=sports");
-                }}
-              />
-
-              {/* Home Assistant Calendar Modal */}
-              <HACalendarModal
-                isOpen={showHACalendarModal}
-                onClose={() => setShowHACalendarModal(false)}
-                onSubscribe={async (entityId, name) => {
-                  await api.subscribeHomeAssistantCalendar(entityId, name);
-                  queryClient.invalidateQueries({ queryKey: ["calendars"] });
-                  setShowHACalendarModal(false);
-                }}
-              />
-            </>
-          )}
-
-          {/* Tasks Tab */}
-          {activeTab === "tasks" && (
-            <Card className="border-2 border-primary/40">
-              <CardHeader>
-                <CardTitle>Tasks Display</CardTitle>
-                <CardDescription>
-                  Configure how tasks are displayed
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <div>
-                    <p className="font-medium">Layout</p>
-                    <p className="text-sm text-muted-foreground">
-                      Choose how tasks are displayed
-                    </p>
-                  </div>
-                  <select
-                    className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                    value={tasksLayout}
-                    onChange={(e) => setTasksLayout(e.target.value as TasksLayout)}
-                  >
-                    <option value="lists">Collapsible Lists</option>
-                    <option value="grid">Grid</option>
-                    <option value="columns">Columns (Side-by-Side)</option>
-                    <option value="kanban">Kanban (By Status)</option>
-                  </select>
-                </div>
-
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="font-medium">Show completed tasks</p>
-                    <p className="text-sm text-muted-foreground">
-                      Display completed tasks by default
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={tasksShowCompleted}
-                    onChange={(e) => setTasksShowCompleted(e.target.checked)}
-                    className="rounded min-h-[44px] min-w-[44px]"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="font-medium">Expand all lists</p>
-                    <p className="text-sm text-muted-foreground">
-                      Automatically expand all task lists (Lists layout only)
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={expandAllLists}
-                    onChange={(e) => setExpandAllLists(e.target.checked)}
-                    className="rounded min-h-[44px] min-w-[44px]"
-                    disabled={tasksLayout !== "lists"}
-                  />
-                </div>
-
-                {/* Layout preview */}
-                <div className="rounded-lg border border-border p-4 bg-muted/30">
-                  <p className="text-sm font-medium mb-2">Layout preview</p>
-                  <div className="grid grid-cols-4 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setTasksLayout("lists")}
-                      className={`aspect-video rounded border-2 flex flex-col items-start justify-center p-1.5 gap-0.5 ${
-                        tasksLayout === "lists" ? "border-primary bg-primary/10" : "border-border"
-                      }`}
-                      title="Collapsible Lists"
-                    >
-                      <div className="w-full h-1 bg-muted-foreground/30 rounded" />
-                      <div className="w-3/4 h-0.5 bg-muted-foreground/20 rounded ml-1" />
-                      <div className="w-full h-1 bg-muted-foreground/30 rounded" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTasksLayout("grid")}
-                      className={`aspect-video rounded border-2 grid grid-cols-3 gap-0.5 p-1 ${
-                        tasksLayout === "grid" ? "border-primary bg-primary/10" : "border-border"
-                      }`}
-                      title="Grid"
-                    >
-                      <div className="bg-muted-foreground/30 rounded" />
-                      <div className="bg-muted-foreground/30 rounded" />
-                      <div className="bg-muted-foreground/30 rounded" />
-                      <div className="bg-muted-foreground/30 rounded" />
-                      <div className="bg-muted-foreground/30 rounded" />
-                      <div className="bg-muted-foreground/30 rounded" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTasksLayout("columns")}
-                      className={`aspect-video rounded border-2 flex items-stretch gap-0.5 p-1 ${
-                        tasksLayout === "columns" ? "border-primary bg-primary/10" : "border-border"
-                      }`}
-                      title="Columns"
-                    >
-                      <div className="flex-1 bg-muted-foreground/30 rounded" />
-                      <div className="flex-1 bg-muted-foreground/30 rounded" />
-                      <div className="flex-1 bg-muted-foreground/30 rounded" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTasksLayout("kanban")}
-                      className={`aspect-video rounded border-2 flex items-stretch gap-0.5 p-1 ${
-                        tasksLayout === "kanban" ? "border-primary bg-primary/10" : "border-border"
-                      }`}
-                      title="Kanban"
-                    >
-                      <div className="flex-1 bg-muted-foreground/30 rounded flex flex-col gap-0.5 p-0.5">
-                        <div className="flex-1 bg-muted-foreground/20 rounded" />
-                        <div className="flex-1 bg-muted-foreground/20 rounded" />
-                      </div>
-                      <div className="flex-1 bg-green-500/30 rounded flex flex-col gap-0.5 p-0.5">
-                        <div className="flex-1 bg-green-500/20 rounded" />
-                      </div>
-                    </button>
-                  </div>
-                  <div className="flex justify-between mt-2 text-xs text-muted-foreground">
-                    <span>Lists</span>
-                    <span>Grid</span>
-                    <span>Columns</span>
-                    <span>Kanban</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Entertainment Tab */}
-          {activeTab === "entertainment" && (
-            <div className="space-y-6">
-              {/* Sub-tab navigation - horizontally scrollable on mobile */}
-              <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 border-b border-border pb-4">
-                <div className="flex gap-2 whitespace-nowrap">
-                  {entertainmentSubTabs.map((subtab) => (
-                    <button
-                      key={subtab.id}
-                      onClick={() => handleEntertainmentSubTabChange(subtab.id)}
-                      className={`flex items-center gap-2 px-4 py-2 min-h-[44px] text-sm font-medium rounded-lg transition-colors ${
-                        activeEntertainmentSubTab === subtab.id
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                      }`}
-                    >
-                      {subtab.icon}
-                      {subtab.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Sub-tab content */}
-              {activeEntertainmentSubTab === "sports" && <SportsSettings />}
-              {activeEntertainmentSubTab === "spotify" && <SpotifySettings />}
-              {activeEntertainmentSubTab === "iptv" && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                  <IptvSettings />
-                  <IptvChannelManager />
-                </div>
-              )}
-              {activeEntertainmentSubTab === "plex" && <PlexSettings />}
-              {activeEntertainmentSubTab === "audiobookshelf" && <AudiobookshelfSettings />}
-              {activeEntertainmentSubTab === "news" && <NewsSettings />}
-            </div>
-          )}
-
-          {/* Appearance Tab */}
-          {activeTab === "appearance" && (
-            <div className="space-y-6">
-              {/* Sub-tab navigation */}
-              <div className="flex gap-2 whitespace-nowrap">
-                {appearanceSubTabs.map((subtab) => (
-                  <button
-                    key={subtab.id}
-                    onClick={() => handleAppearanceSubTabChange(subtab.id)}
-                    className={`flex items-center gap-2 px-4 py-2 min-h-[44px] text-sm font-medium rounded-lg transition-colors ${
-                      activeAppearanceSubTab === subtab.id
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                    }`}
-                  >
-                    {subtab.icon}
-                    {subtab.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Display sub-tab */}
-              {activeAppearanceSubTab === "display" && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                  {/* Display Card */}
-                  <Card className="border-2 border-primary/40">
-                    <CardHeader>
-                      <CardTitle>Display</CardTitle>
-                      <CardDescription>
-                        Configure the dashboard display for kiosk mode
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Calendar name</p>
-                          <p className="text-sm text-muted-foreground">
-                            Display name shown at the top of the calendar
-                          </p>
-                        </div>
-                        <input
-                          type="text"
-                          value={familyName}
-                          onChange={(e) => setFamilyName(e.target.value)}
-                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-48"
-                          placeholder="Family Calendar"
-                        />
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Home address</p>
-                          <p className="text-sm text-muted-foreground">
-                            Used to calculate travel times to event locations
-                          </p>
-                        </div>
-                        <input
-                          type="text"
-                          value={homeAddress}
-                          onChange={(e) => setHomeAddress(e.target.value)}
-                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-64"
-                          placeholder="123 Main St, City, State"
-                        />
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Default calendar</p>
-                          <p className="text-sm text-muted-foreground">
-                            Calendar used when creating new events
-                          </p>
-                        </div>
-                        <select
-                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                          value={currentDefaultCalendar?.id ?? ""}
-                          onChange={(e) => {
-                            const newDefaultId = e.target.value;
-                            if (newDefaultId) {
-                              updateCalendar.mutate({
-                                id: newDefaultId,
-                                data: { isPrimary: true },
-                              });
-                            }
-                          }}
-                        >
-                          <option value="" disabled>Select a calendar</option>
-                          {editableCalendars.map((calendar) => (
-                            <option key={calendar.id} value={calendar.id}>
-                              {calendar.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Show clock</p>
-                          <p className="text-sm text-muted-foreground">
-                            Display time on dashboard
-                          </p>
-                        </div>
-                        <input type="checkbox" defaultChecked className="rounded min-h-[44px] min-w-[44px]" />
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Week starts on</p>
-                          <p className="text-sm text-muted-foreground">
-                            First day of the week in calendar views
-                          </p>
-                        </div>
-                        <select
-                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                          value={weekStartsOn}
-                          onChange={(e) => setWeekStartsOn(Number(e.target.value) as 0 | 1 | 2 | 3 | 4 | 5 | 6)}
-                        >
-                          <option value={1}>Monday</option>
-                          <option value={0}>Sunday</option>
-                          <option value={6}>Saturday</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Day view hours</p>
-                          <p className="text-sm text-muted-foreground">
-                            Visible time range in day and week views
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <select
-                            className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px]"
-                            value={dayStartHour}
-                            onChange={(e) => setDayStartHour(Number(e.target.value))}
-                          >
-                            {Array.from({ length: 24 }, (_, i) => (
-                              <option key={i} value={i}>
-                                {i === 0 ? "12 AM" : i < 12 ? `${i} AM` : i === 12 ? "12 PM" : `${i - 12} PM`}
-                              </option>
-                            ))}
-                          </select>
-                          <span className="text-muted-foreground">to</span>
-                          <select
-                            className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px]"
-                            value={dayEndHour}
-                            onChange={(e) => setDayEndHour(Number(e.target.value))}
-                          >
-                            {Array.from({ length: 24 }, (_, i) => (
-                              <option key={i} value={i}>
-                                {i === 0 ? "12 AM" : i < 12 ? `${i} AM` : i === 12 ? "12 PM" : `${i - 12} PM`}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Ticker speed</p>
-                          <p className="text-sm text-muted-foreground">
-                            Speed of the scrolling news ticker in the header
-                          </p>
-                        </div>
-                        <select
-                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                          value={tickerSpeed}
-                          onChange={(e) => setTickerSpeed(e.target.value as "slow" | "normal" | "fast")}
-                        >
-                          <option value="slow">Slow (45s)</option>
-                          <option value="normal">Normal (30s)</option>
-                          <option value="fast">Fast (15s)</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Week view widget</p>
-                          <p className="text-sm text-muted-foreground">
-                            What to show in the 8th cell of the week view
-                          </p>
-                        </div>
-                        <select
-                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                          value={weekCellWidget}
-                          onChange={(e) => setWeekCellWidget(e.target.value as "next-week" | "camera" | "map" | "spotify" | "home-control")}
-                        >
-                          <option value="next-week">Next Week</option>
-                          <option value="camera">Camera</option>
-                          <option value="map">Map</option>
-                          <option value="spotify">Spotify</option>
-                          <option value="home-control">Home Control</option>
-                        </select>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Show drive time on next event</p>
-                          <p className="text-sm text-muted-foreground">
-                            Display driving time from home on the "up next" event
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={showDriveTimeOnNext}
-                          onClick={() => setShowDriveTimeOnNext(!showDriveTimeOnNext)}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors min-w-[44px] ${
-                            showDriveTimeOnNext ? "bg-primary" : "bg-muted"
-                          }`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              showDriveTimeOnNext ? "translate-x-6" : "translate-x-1"
-                            }`}
-                          />
-                        </button>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Show week numbers</p>
-                          <p className="text-sm text-muted-foreground">
-                            Display week numbers in calendar views
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={showWeekNumbers}
-                          onClick={() => setShowWeekNumbers(!showWeekNumbers)}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors min-w-[44px] ${
-                            showWeekNumbers ? "bg-primary" : "bg-muted"
-                          }`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              showWeekNumbers ? "translate-x-6" : "translate-x-1"
-                            }`}
-                          />
-                        </button>
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Default event duration</p>
-                          <p className="text-sm text-muted-foreground">
-                            Duration for new events
-                          </p>
-                        </div>
-                        <select
-                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                          value={defaultEventDuration}
-                          onChange={(e) => setDefaultEventDuration(Number(e.target.value))}
-                        >
-                          <option value={15}>15 minutes</option>
-                          <option value={30}>30 minutes</option>
-                          <option value={60}>1 hour</option>
-                          <option value={90}>1.5 hours</option>
-                          <option value={120}>2 hours</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Auto-refresh interval</p>
-                          <p className="text-sm text-muted-foreground">
-                            How often to refresh calendar data
-                          </p>
-                        </div>
-                        <select
-                          className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                          value={autoRefreshInterval}
-                          onChange={(e) => setAutoRefreshInterval(Number(e.target.value))}
-                        >
-                          <option value={0}>Disabled</option>
-                          <option value={1}>1 minute</option>
-                          <option value={5}>5 minutes</option>
-                          <option value={10}>10 minutes</option>
-                          <option value={15}>15 minutes</option>
-                          <option value={30}>30 minutes</option>
-                        </select>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Color Scheme Card */}
-                  <Card className="border-2 border-primary/40">
-                    <CardHeader>
-                      <CardTitle>Color Scheme</CardTitle>
-                      <CardDescription>
-                        Choose a color theme for the entire application
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                        {COLOR_SCHEMES.map((scheme) => (
-                          <button
-                            key={scheme.value}
-                            onClick={() => setColorScheme(scheme.value)}
-                            className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
-                              colorScheme === scheme.value
-                                ? "border-primary bg-primary/10"
-                                : "border-border hover:border-muted-foreground/50"
-                            }`}
-                          >
-                            <div
-                              className="w-12 h-12 rounded-full shadow-lg"
-                              style={{ backgroundColor: scheme.accent }}
-                            />
-                            <span className="text-sm font-medium">{scheme.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-
-              {/* Photos sub-tab */}
-              {activeAppearanceSubTab === "photos" && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                  {/* Photo Albums Card */}
-                  <Card className="border-2 border-primary/40">
-                    <CardHeader>
-                      <CardTitle>
-                        <div className="flex items-center gap-2">
-                          <FolderOpen className="h-5 w-5" />
-                          Photo Albums
-                        </div>
-                      </CardTitle>
-                      <CardDescription>
-                        Manage photos for the screensaver slideshow. Photos can be uploaded from your device or imported from Google Photos.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      {selectedAlbumId ? (
-                        <AlbumPhotoGrid
-                          albumId={selectedAlbumId}
-                          albumName={selectedAlbumName}
-                          onBack={() => setSelectedAlbumId(null)}
-                        />
-                      ) : (
-                        <LocalPhotoAlbums
-                          onSelectAlbum={(albumId) => {
-                            const album = albums.find((a) => a.id === albumId);
-                            setSelectedAlbumId(albumId);
-                            setSelectedAlbumName(album?.name ?? "Album");
-                          }}
-                        />
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Manage Photos Card */}
-                  <Card className="border-2 border-primary/40">
-                    <CardHeader>
-                      <CardTitle>Manage Photos</CardTitle>
-                      <CardDescription>
-                        View and delete uploaded photos across all albums
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <ManageAllPhotos />
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-
-              {/* Screensaver sub-tab */}
-              {activeAppearanceSubTab === "screensaver" && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-                  {/* Screensaver Settings Card */}
-                  <Card className="border-2 border-primary/40">
-                    <CardHeader>
-                      <CardTitle>Screensaver Settings</CardTitle>
-                      <CardDescription>
-                        Configure when and how the screensaver appears
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Enable screensaver</p>
-                          <p className="text-sm text-muted-foreground">
-                            Start photo slideshow after idle timeout
-                          </p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={screensaverEnabled}
-                          onChange={(e) => setScreensaverEnabled(e.target.checked)}
-                          className="rounded min-h-[44px] min-w-[44px]"
-                        />
-                      </div>
-                      {screensaverEnabled && (
-                        <>
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                            <div>
-                              <p className="font-medium">Idle timeout</p>
-                              <p className="text-sm text-muted-foreground">
-                                Time before screensaver starts
-                              </p>
-                            </div>
-                            <select
-                              className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                              value={idleTimeout}
-                              onChange={(e) => setIdleTimeout(Number(e.target.value))}
-                            >
-                              <option value={60}>1 minute</option>
-                              <option value={120}>2 minutes</option>
-                              <option value={300}>5 minutes</option>
-                              <option value={600}>10 minutes</option>
-                              <option value={900}>15 minutes</option>
-                              <option value={1800}>30 minutes</option>
-                            </select>
-                          </div>
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                            <div>
-                              <p className="font-medium">Slide interval</p>
-                              <p className="text-sm text-muted-foreground">
-                                Time between photo transitions
-                              </p>
-                            </div>
-                            <select
-                              className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                              value={slideInterval}
-                              onChange={(e) => setSlideInterval(Number(e.target.value))}
-                            >
-                              <option value={5}>5 seconds</option>
-                              <option value={10}>10 seconds</option>
-                              <option value={15}>15 seconds</option>
-                              <option value={30}>30 seconds</option>
-                              <option value={60}>1 minute</option>
-                              <option value={300}>5 minutes</option>
-                            </select>
-                          </div>
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                            <div>
-                              <p className="font-medium">Layout</p>
-                              <p className="text-sm text-muted-foreground">
-                                How photos are displayed
-                              </p>
-                            </div>
-                            <select
-                              className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                              value={screensaverLayout}
-                              onChange={(e) => setScreensaverLayout(e.target.value as ScreensaverLayout)}
-                            >
-                              <option value="fullscreen">Full screen</option>
-                              <option value="informational">Informational</option>
-                              <option value="quad">Quad (4)</option>
-                              <option value="scatter">Scatter collage</option>
-                              <option value="builder">Custom Builder</option>
-                            </select>
-                          </div>
-                          {screensaverLayout === "builder" && (
-                            <div className="rounded-lg border-2 border-primary/40 p-4 bg-primary/5">
-                              <p className="font-medium mb-2">Custom Layout Builder</p>
-                              <p className="text-sm text-muted-foreground mb-3">
-                                Create a custom screensaver layout with drag-and-drop widgets
-                              </p>
-                              <Link
-                                to="/settings/screensaver-builder"
-                                className="inline-flex items-center gap-2 rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors"
-                              >
-                                Open Builder
-                              </Link>
-                            </div>
-                          )}
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                            <div>
-                              <p className="font-medium">Transition</p>
-                              <p className="text-sm text-muted-foreground">
-                                Animation between slides
-                              </p>
-                            </div>
-                            <select
-                              className="rounded-md border border-border bg-background px-3 py-2 min-h-[44px] w-full sm:w-auto"
-                              value={transition}
-                              onChange={(e) => setTransition(e.target.value as ScreensaverTransition)}
-                              disabled={screensaverLayout === "scatter"}
-                            >
-                              <option value="fade">Fade</option>
-                              <option value="slide-left">Slide Left</option>
-                              <option value="slide-right">Slide Right</option>
-                              <option value="slide-up">Slide Up</option>
-                              <option value="slide-down">Slide Down</option>
-                              <option value="zoom">Zoom</option>
-                            </select>
-                          </div>
-                          <div className="rounded-lg border border-border p-4 bg-muted/30">
-                            <p className="text-sm font-medium mb-2">Layout preview</p>
-                            <div className="grid grid-cols-6 gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setScreensaverLayout("fullscreen")}
-                                className={`aspect-video rounded border-2 flex items-center justify-center ${
-                                  screensaverLayout === "fullscreen" ? "border-primary bg-primary/10" : "border-border"
-                                }`}
-                              >
-                                <div className="w-8 h-6 bg-muted-foreground/30 rounded" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setScreensaverLayout("informational")}
-                                className={`aspect-video rounded border-2 flex items-center justify-center gap-0.5 ${
-                                  screensaverLayout === "informational" ? "border-primary bg-primary/10" : "border-border"
-                                }`}
-                              >
-                                <div className="w-3 h-5 bg-muted-foreground/30 rounded" />
-                                <div className="w-3 h-5 bg-muted-foreground/30 rounded" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setScreensaverLayout("quad")}
-                                className={`aspect-video rounded border-2 grid grid-cols-2 grid-rows-2 gap-0.5 p-1 ${
-                                  screensaverLayout === "quad" ? "border-primary bg-primary/10" : "border-border"
-                                }`}
-                              >
-                                <div className="bg-muted-foreground/30 rounded" />
-                                <div className="bg-muted-foreground/30 rounded" />
-                                <div className="bg-muted-foreground/30 rounded" />
-                                <div className="bg-muted-foreground/30 rounded" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setScreensaverLayout("scatter")}
-                                className={`aspect-video rounded border-2 relative overflow-hidden ${
-                                  screensaverLayout === "scatter" ? "border-primary bg-primary/10" : "border-border"
-                                }`}
-                              >
-                                <div className="absolute w-3 h-2 bg-muted-foreground/30 rounded top-1 left-1 rotate-[-5deg]" />
-                                <div className="absolute w-4 h-3 bg-muted-foreground/30 rounded top-2 right-1 rotate-[8deg]" />
-                                <div className="absolute w-3 h-2 bg-muted-foreground/30 rounded bottom-1 left-2 rotate-[3deg]" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setScreensaverLayout("builder")}
-                                className={`aspect-video rounded border-2 grid grid-cols-3 grid-rows-2 gap-0.5 p-0.5 ${
-                                  screensaverLayout === "builder" ? "border-primary bg-primary/10" : "border-border"
-                                }`}
-                              >
-                                <div className="bg-primary/40 rounded col-span-2" />
-                                <div className="bg-muted-foreground/30 rounded" />
-                                <div className="bg-muted-foreground/30 rounded" />
-                                <div className="bg-primary/40 rounded col-span-2" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setScreensaverLayout("skylight")}
-                                className={`aspect-video rounded border-2 flex items-center justify-center gap-0.5 p-1 ${
-                                  screensaverLayout === "skylight" ? "border-primary bg-primary/10" : "border-border"
-                                }`}
-                              >
-                                <div className="w-4 h-5 bg-muted-foreground/30 rounded" />
-                                <div className="flex flex-col gap-0.5">
-                                  <div className="w-2 h-[9px] bg-muted-foreground/30 rounded" />
-                                  <div className="w-2 h-[9px] bg-muted-foreground/30 rounded" />
-                                </div>
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Clock Display */}
-                          <div className="border-t border-border pt-4 mt-4">
-                            <h4 className="font-medium mb-3">Clock Display</h4>
-                            <div className="grid gap-4 sm:grid-cols-2">
-                              <div>
-                                <label className="text-sm font-medium block mb-2">Position</label>
-                                <select
-                                  value={clockPosition}
-                                  onChange={(e) => setClockPosition(e.target.value as ClockPosition)}
-                                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                >
-                                  <option value="top-left">Top Left</option>
-                                  <option value="top-center">Top Center</option>
-                                  <option value="top-right">Top Right</option>
-                                  <option value="bottom-left">Bottom Left</option>
-                                  <option value="bottom-center">Bottom Center</option>
-                                  <option value="bottom-right">Bottom Right</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label className="text-sm font-medium block mb-2">Size</label>
-                                <select
-                                  value={clockSize}
-                                  onChange={(e) => setClockSize(e.target.value as ClockSize)}
-                                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                >
-                                  <option value="small">Small</option>
-                                  <option value="medium">Medium</option>
-                                  <option value="large">Large</option>
-                                  <option value="extra-large">Extra Large</option>
-                                </select>
-                              </div>
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Night Dim Settings Card */}
-                  <Card className="border-2 border-primary/40">
-                    <CardHeader>
-                      <CardTitle>Night Dim Settings</CardTitle>
-                      <CardDescription>
-                        Automatically dim the screen during nighttime hours
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="font-medium">Enable night dimming</p>
-                          <p className="text-sm text-muted-foreground">
-                            Dim the screen during nighttime hours
-                          </p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          className="min-h-[44px] min-w-[44px]"
-                          checked={nightDimEnabled}
-                          onChange={(e) => setNightDimEnabled(e.target.checked)}
-                        />
-                      </div>
-
-                      {nightDimEnabled && (
-                        <div className="space-y-4 pl-4 border-l-2 border-primary/20">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                              <label className="text-sm font-medium block mb-1">
-                                Start time
-                              </label>
-                              <select
-                                value={nightDimStartHour}
-                                onChange={(e) => setNightDimStartHour(Number(e.target.value))}
-                                className="w-full rounded-md border border-border bg-background px-3 py-2 min-h-[44px] text-sm"
-                              >
-                                {Array.from({ length: 24 }, (_, i) => (
-                                  <option key={i} value={i}>
-                                    {i === 0 ? "12:00 AM" : i < 12 ? `${i}:00 AM` : i === 12 ? "12:00 PM" : `${i - 12}:00 PM`}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="text-sm font-medium block mb-1">
-                                End time
-                              </label>
-                              <select
-                                value={nightDimEndHour}
-                                onChange={(e) => setNightDimEndHour(Number(e.target.value))}
-                                className="w-full rounded-md border border-border bg-background px-3 py-2 min-h-[44px] text-sm"
-                              >
-                                {Array.from({ length: 24 }, (_, i) => (
-                                  <option key={i} value={i}>
-                                    {i === 0 ? "12:00 AM" : i < 12 ? `${i}:00 AM` : i === 12 ? "12:00 PM" : `${i - 12}:00 PM`}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-
-                          <div>
-                            <label className="text-sm font-medium block mb-1">
-                              Fade duration: {nightDimFadeDuration} minutes
-                            </label>
-                            <input
-                              type="range"
-                              min="0"
-                              max="60"
-                              step="5"
-                              value={nightDimFadeDuration}
-                              onChange={(e) => setNightDimFadeDuration(Number(e.target.value))}
-                              className="w-full"
-                            />
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                              <span>Instant</span>
-                              <span>1 hour</span>
-                            </div>
-                          </div>
-
-                          <div>
-                            <label className="text-sm font-medium block mb-1">
-                              Dim level: {nightDimOpacity}%
-                            </label>
-                            <input
-                              type="range"
-                              min="10"
-                              max="90"
-                              step="5"
-                              value={nightDimOpacity}
-                              onChange={(e) => setNightDimOpacity(Number(e.target.value))}
-                              className="w-full"
-                            />
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                              <span>Slight</span>
-                              <span>Very dark</span>
-                            </div>
-                          </div>
-
-                          <p className="text-xs text-muted-foreground">
-                            {nightDimFadeDuration > 0 ? (
-                              <>Screen will gradually dim starting at {nightDimStartHour === 0 ? "12:00 AM" : nightDimStartHour < 12 ? `${nightDimStartHour}:00 AM` : nightDimStartHour === 12 ? "12:00 PM" : `${nightDimStartHour - 12}:00 PM`}, reaching full dim by {(() => {
-                                const fullDimHour = nightDimStartHour + Math.floor(nightDimFadeDuration / 60);
-                                const fullDimMinute = nightDimFadeDuration % 60;
-                                const adjustedHour = fullDimHour % 24;
-                                const hourStr = adjustedHour === 0 ? "12" : adjustedHour < 12 ? String(adjustedHour) : adjustedHour === 12 ? "12" : String(adjustedHour - 12);
-                                const ampm = adjustedHour < 12 ? "AM" : "PM";
-                                return `${hourStr}:${fullDimMinute.toString().padStart(2, '0')} ${ampm}`;
-                              })()}, until {nightDimEndHour === 0 ? "12:00 AM" : nightDimEndHour < 12 ? `${nightDimEndHour}:00 AM` : nightDimEndHour === 12 ? "12:00 PM" : `${nightDimEndHour - 12}:00 PM`}</>
-                            ) : (
-                              <>Screen will dim instantly at {nightDimStartHour === 0 ? "12:00 AM" : nightDimStartHour < 12 ? `${nightDimStartHour}:00 AM` : nightDimStartHour === 12 ? "12:00 PM" : `${nightDimStartHour - 12}:00 PM`} until {nightDimEndHour === 0 ? "12:00 AM" : nightDimEndHour < 12 ? `${nightDimEndHour}:00 AM` : nightDimEndHour === 12 ? "12:00 PM" : `${nightDimEndHour - 12}:00 PM`}</>
-                            )}
-                          </p>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Informational Layout Widgets Card */}
-                  <Card className={`border-2 ${screensaverLayout === "informational" ? "border-primary/40" : "border-border"}`}>
-                    <CardHeader>
-                      <CardTitle>Informational Layout Widgets</CardTitle>
-                      <CardDescription>
-                        Configure widgets shown in the informational screensaver layout
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <CompositeWidgetGridPreview
-                        configs={compositeWidgetConfigs}
-                        gridSize={widgetGridSize}
-                        onGridSizeChange={setWidgetGridSize}
-                        onUpdateConfig={updateCompositeWidgetConfig}
-                        onReorder={reorderCompositeWidgets}
-                      />
-
-                      {screensaverLayout === "informational" ? (
-                        <CompositeWidgetBuilder
-                          configs={compositeWidgetConfigs}
-                          onConfigsChange={setCompositeWidgetConfigs}
-                          onUpdateConfig={updateCompositeWidgetConfig}
-                          onUpdateSubItem={updateSubItemConfig}
-                          onReorder={reorderCompositeWidgets}
-                        />
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          Select the "Informational" layout to configure widgets.
-                        </p>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-
-              {/* Sidebar sub-tab */}
-              {activeAppearanceSubTab === "sidebar" && (
-                <Card className="border-2 border-primary/40">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
                       <div>
-                        <CardTitle>Sidebar Navigation</CardTitle>
-                        <CardDescription>
-                          Control which features appear as sidebar icons or in the overflow menu
-                        </CardDescription>
+                        <p className="font-medium text-sm">Microsoft</p>
+                        {user?.linkedProviders?.includes("microsoft") && (
+                          <span className="text-xs text-primary flex items-center gap-1">
+                            <Check className="h-3 w-3" />
+                            Linked
+                          </span>
+                        )}
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={resetSidebar}
-                      >
-                        Reset All
-                      </Button>
                     </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-1">
-                      {/* Header row */}
-                      <div className="flex items-center gap-3 px-2 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                        <div className="flex-1">Feature</div>
-                        <div className="w-20 text-center">Pinned</div>
-                        <div className="w-20 text-center">Enabled</div>
-                      </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const token = useAuthStore.getState().accessToken;
+                        window.location.href = buildOAuthUrl("microsoft", "base", token, appUrl("/settings/account"));
+                      }}
+                    >
+                      {user?.linkedProviders?.includes("microsoft") ? (
+                        <><RefreshCw className="mr-1 h-3 w-3" /> Reconnect</>
+                      ) : (
+                        <><Link2 className="mr-1 h-3 w-3" /> Link</>
+                      )}
+                    </Button>
+                  </div>
+                </div>
 
-                      {SIDEBAR_FEATURE_INFO.map(({ feature, label, icon }) => {
-                        const state = sidebarFeatures[feature];
-                        const isEnabled = state?.enabled !== false;
-                        const isPinned = state?.pinned !== false;
-                        const statusText = !isEnabled ? "Disabled" : isPinned ? "Sidebar" : "More menu";
-
-                        return (
-                          <div
-                            key={feature}
-                            className={cn(
-                              "flex items-center gap-3 px-2 py-2.5 rounded-lg transition-colors",
-                              !isEnabled && "opacity-50"
-                            )}
-                          >
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <div className={cn(
-                                "flex items-center justify-center h-8 w-8 rounded-md",
-                                isEnabled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
-                              )}>
-                                {icon}
-                              </div>
-                              <div className="min-w-0">
-                                <p className={cn(
-                                  "text-sm font-medium",
-                                  isEnabled ? "text-foreground" : "text-muted-foreground"
-                                )}>
-                                  {label}
-                                </p>
-                                <p className={cn(
-                                  "text-xs",
-                                  !isEnabled
-                                    ? "text-muted-foreground"
-                                    : isPinned
-                                      ? "text-primary"
-                                      : "text-muted-foreground"
-                                )}>
-                                  {statusText}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="w-20 flex justify-center">
-                              <Toggle
-                                checked={isPinned}
-                                onChange={() => toggleSidebarPinned(feature)}
-                                size="sm"
-                                disabled={!isEnabled}
-                              />
-                            </div>
-                            <div className="w-20 flex justify-center">
-                              <Toggle
-                                checked={isEnabled}
-                                onChange={() => toggleSidebarEnabled(feature)}
-                                size="sm"
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+                <p className="text-xs text-muted-foreground mt-3">
+                  Linking an account enables "Sign in with Google/Microsoft" on the login page. Calendar and task permissions are requested separately.
+                </p>
+              </div>
             </div>
           )}
 
-
-          {/* Cameras Tab */}
-          {activeTab === "cameras" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-              <CamerasSettings />
-            </div>
+          {/* Kiosks Tab */}
+          {activeTab === "kiosks" && (
+            <KiosksSettings isModuleEnabled={isModuleEnabled} />
           )}
 
-          {/* Home Assistant Tab */}
-          {activeTab === "homeassistant" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-              <HomeAssistantSettings />
-            </div>
-          )}
+
+
+
 
           {/* AI Tab */}
           {activeTab === "ai" && (
@@ -12032,13 +10238,6 @@ export function SettingsPage() {
             </div>
           )}
 
-          {/* Kiosks Tab */}
-          {activeTab === "kiosks" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-              <KiosksSettings />
-            </div>
-          )}
-
           {activeTab === "companion" && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
               <CompanionSettings />
@@ -12053,13 +10252,7 @@ export function SettingsPage() {
           )}
 
           {/* System Settings Tab */}
-          {activeTab === "system" && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
-              <RemarkableSettingsCard />
-              <BackupRestoreCard />
-              <SystemSettings />
-            </div>
-          )}
+          {activeTab === "system" && <SystemSettings />}
 
           {/* Billing Tab (cloud mode only) */}
           {activeTab === "billing" && (
@@ -12081,6 +10274,8 @@ export function SettingsPage() {
               <SupportTab />
             </div>
           )}
+            </div>
+          </div>
         </div>
       </div>
       <SupportButton />

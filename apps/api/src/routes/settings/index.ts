@@ -388,6 +388,20 @@ const SETTING_DEFINITIONS: CategoryDefinition[] = [
       },
     ],
   },
+  {
+    category: "amazon",
+    label: "Amazon",
+    description: "Configure Amazon affiliate settings for the shopping list",
+    settings: [
+      {
+        key: "affiliate_tag",
+        label: "Affiliate Tag",
+        description: "Your Amazon Associates tag (e.g., mystore-20)",
+        isSecret: false,
+        placeholder: "mystore-20",
+      },
+    ],
+  },
 ];
 
 // Categories fully hidden in hosted mode (platform-managed)

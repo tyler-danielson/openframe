@@ -237,7 +237,7 @@ export function HomeAssistantPage() {
           instance in Settings to get started.
         </p>
         <Button
-          onClick={() => window.location.href = appPath("/settings?tab=homeassistant")}
+          onClick={() => window.location.href = appPath("/settings/connections?service=homeassistant")}
           className="bg-[var(--homio-accent)] hover:bg-[var(--homio-accent-light)] text-black"
         >
           <Settings className="mr-2 h-4 w-4" />
@@ -360,7 +360,7 @@ export function HomeAssistantPage() {
                 : "Add entities in Settings to control them here."}
             </p>
             <Button
-              onClick={() => window.location.href = appPath("/settings?tab=homeassistant")}
+              onClick={() => window.location.href = appPath("/settings/connections?service=homeassistant")}
               className="bg-[var(--homio-accent)] hover:bg-[var(--homio-accent-light)] text-black"
             >
               <Settings className="mr-2 h-4 w-4" />

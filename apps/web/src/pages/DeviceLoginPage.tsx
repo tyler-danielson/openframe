@@ -178,7 +178,7 @@ export function DeviceLoginPage() {
                 )}
                 <Button
                   variant="outline"
-                  onClick={() => navigate("/settings?tab=kiosks")}
+                  onClick={() => navigate("/settings/kiosks")}
                 >
                   Kiosk Settings
                 </Button>

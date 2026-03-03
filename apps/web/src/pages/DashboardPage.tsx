@@ -16,6 +16,7 @@ import { api, type HourlyForecast } from "../services/api";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card";
 import { ClockWidget } from "../components/home-assistant/ClockWidget";
 import { DashboardTasksWidget } from "../components/dashboard/DashboardTasksWidget";
+import { ShoppingListWidget } from "../components/dashboard/ShoppingListWidget";
 import { LocationMap } from "../components/homeassistant/LocationMap";
 import { HeadlinesWidget } from "../components/news/HeadlinesWidget";
 import { useCalendarStore } from "../stores/calendar";
@@ -334,10 +335,10 @@ export function DashboardPage() {
           </Card>
           <Card className="flex flex-col flex-1 min-h-0">
             <CardHeader className="pb-0">
-              <CardTitle>Other Tasks</CardTitle>
+              <CardTitle>Shopping List</CardTitle>
             </CardHeader>
             <CardContent className="flex-1 overflow-auto">
-              <DashboardTasksWidget filter="other" />
+              <ShoppingListWidget />
             </CardContent>
           </Card>
         </div>

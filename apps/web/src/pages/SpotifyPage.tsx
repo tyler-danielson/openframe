@@ -24,6 +24,7 @@ import {
   Radio,
   Disc,
   Heart,
+  ArrowLeft,
 } from "lucide-react";
 import { api, type SpotifyAccount } from "../services/api";
 import { Button } from "../components/ui/Button";
@@ -61,6 +62,7 @@ export function SpotifyPage() {
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [libraryView, setLibraryView] = useState<"playlists" | "podcasts" | "episodes" | "albums" | "liked" | "recent">("playlists");
+  const [selectedPlaylist, setSelectedPlaylist] = useState<{ id: string; name: string; uri: string; images: { url: string }[]; tracks: { total: number } } | null>(null);
   const [timeFade, setTimeFade] = useState(true);
 
   const { familyName, timeFormat, cycleTimeFormat } = useCalendarStore();
@@ -166,6 +168,13 @@ export function SpotifyPage() {
     enabled: status?.connected === true && !searchQuery,
   });
 
+  // Get playlist tracks when a playlist is selected
+  const { data: playlistTracks, isLoading: playlistTracksLoading } = useQuery({
+    queryKey: ["spotify-playlist-tracks", selectedPlaylist?.id, accountIdForApi],
+    queryFn: () => api.getSpotifyPlaylistTracks(selectedPlaylist!.id, 50, 0, accountIdForApi),
+    enabled: status?.connected === true && !!selectedPlaylist,
+  });
+
   // Get podcasts (shows)
   const { data: shows } = useQuery({
     queryKey: ["spotify-shows", accountIdForApi],
@@ -237,7 +246,7 @@ export function SpotifyPage() {
 
   // Mutations
   const playMutation = useMutation({
-    mutationFn: (options?: { contextUri?: string; uris?: string[] }) =>
+    mutationFn: (options?: { contextUri?: string; uris?: string[]; offsetUri?: string }) =>
       api.spotifyPlay({ ...options, accountId: accountIdForApi }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["spotify-playback", accountIdForApi] }),
   });
@@ -758,7 +767,7 @@ export function SpotifyPage() {
                 ] as const).map((view) => (
                   <button
                     key={view.id}
-                    onClick={() => setLibraryView(view.id)}
+                    onClick={() => { setLibraryView(view.id); setSelectedPlaylist(null); }}
                     className={cn(
                       "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors shrink-0",
                       libraryView === view.id
@@ -870,43 +879,140 @@ export function SpotifyPage() {
                 <>
                   {/* Playlists View */}
                   {libraryView === "playlists" && (
-                    <div>
-                      <h3 className="mb-2 text-sm font-medium text-primary">Your Playlists</h3>
-                      <div className="grid gap-2 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                        {playlists?.items?.map((playlist) => (
+                    selectedPlaylist ? (
+                      <div>
+                        {/* Playlist Detail Header */}
+                        <div className="flex items-center gap-4 mb-4">
                           <button
-                            key={playlist.id}
-                            onClick={() => playMutation.mutate({ contextUri: playlist.uri })}
-                            className="flex flex-col items-center gap-2 rounded-lg border border-border bg-white dark:bg-gray-800 p-3 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-center"
+                            onClick={() => setSelectedPlaylist(null)}
+                            className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
                           >
-                            <div className="h-16 w-16 shrink-0 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
-                              {playlist.images?.[0]?.url ? (
-                                <img
-                                  src={playlist.images[0].url}
-                                  alt={playlist.name}
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center">
-                                  <ListMusic className="h-8 w-8 text-gray-500 dark:text-gray-400" />
-                                </div>
-                              )}
-                            </div>
-                            <div className="w-full min-w-0">
-                              <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{playlist.name}</p>
-                              <p className="text-xs text-gray-600 dark:text-gray-400">
-                                {playlist.tracks.total} tracks
-                              </p>
-                            </div>
+                            <ArrowLeft className="h-5 w-5" />
                           </button>
-                        ))}
-                      </div>
-                      {(!playlists?.items || playlists.items.length === 0) && (
-                        <div className="text-center text-muted-foreground py-8">
-                          No playlists found
+                          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg shadow-md bg-gray-200 dark:bg-gray-700">
+                            {selectedPlaylist.images?.[0]?.url ? (
+                              <img
+                                src={selectedPlaylist.images[0].url}
+                                alt={selectedPlaylist.name}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center">
+                                <ListMusic className="h-8 w-8 text-muted-foreground" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-lg font-bold text-foreground truncate">{selectedPlaylist.name}</h3>
+                            <p className="text-sm text-muted-foreground">{selectedPlaylist.tracks.total} tracks</p>
+                          </div>
+                          <button
+                            onClick={() => playMutation.mutate({ contextUri: selectedPlaylist.uri })}
+                            className="flex items-center gap-2 rounded-full bg-green-500 px-5 py-2 font-semibold text-white hover:bg-green-600 transition-colors shrink-0"
+                          >
+                            <Play className="h-4 w-4" />
+                            Play All
+                          </button>
                         </div>
-                      )}
-                    </div>
+
+                        {/* Track List */}
+                        {playlistTracksLoading ? (
+                          <div className="text-center text-muted-foreground py-8">Loading tracks...</div>
+                        ) : (
+                          <div className="space-y-1">
+                            {playlistTracks?.items?.filter(item => item.track).map((item, idx) => (
+                              <button
+                                key={`${item.track.id}-${idx}`}
+                                onClick={() => playMutation.mutate({ contextUri: selectedPlaylist.uri, offsetUri: item.track.uri })}
+                                className={cn(
+                                  "flex w-full items-center gap-3 rounded-lg border border-border bg-white dark:bg-gray-800 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left",
+                                  currentTrack?.id === item.track.id && "border-green-500 bg-green-50 dark:bg-green-900/20"
+                                )}
+                              >
+                                <span className="w-6 text-center text-xs text-muted-foreground shrink-0">{idx + 1}</span>
+                                <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
+                                  {item.track.album?.images?.[0]?.url ? (
+                                    <img
+                                      src={item.track.album.images[0].url}
+                                      alt={item.track.album.name}
+                                      className="h-full w-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center">
+                                      <Music className="h-5 w-5 text-muted-foreground" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className={cn(
+                                    "truncate text-sm font-medium",
+                                    currentTrack?.id === item.track.id
+                                      ? "text-green-600 dark:text-green-400"
+                                      : "text-foreground"
+                                  )}>
+                                    {item.track.name}
+                                  </p>
+                                  <p className="truncate text-xs text-muted-foreground">
+                                    {item.track.artists?.map((a) => a.name).join(", ")}
+                                  </p>
+                                </div>
+                                <span className="text-xs text-muted-foreground shrink-0">
+                                  {formatTime(item.track.duration_ms)}
+                                </span>
+                                {currentTrack?.id === item.track.id ? (
+                                  <Music className="h-4 w-4 text-green-500 shrink-0" />
+                                ) : (
+                                  <Play className="h-4 w-4 text-muted-foreground shrink-0" />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {playlistTracks && (!playlistTracks.items || playlistTracks.items.length === 0) && (
+                          <div className="text-center text-muted-foreground py-8">
+                            This playlist is empty
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div>
+                        <h3 className="mb-2 text-sm font-medium text-primary">Your Playlists</h3>
+                        <div className="grid gap-2 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                          {playlists?.items?.map((playlist) => (
+                            <button
+                              key={playlist.id}
+                              onClick={() => setSelectedPlaylist(playlist)}
+                              className="flex flex-col items-center gap-2 rounded-lg border border-border bg-white dark:bg-gray-800 p-3 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-center"
+                            >
+                              <div className="h-16 w-16 shrink-0 overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
+                                {playlist.images?.[0]?.url ? (
+                                  <img
+                                    src={playlist.images[0].url}
+                                    alt={playlist.name}
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center">
+                                    <ListMusic className="h-8 w-8 text-gray-500 dark:text-gray-400" />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="w-full min-w-0">
+                                <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{playlist.name}</p>
+                                <p className="text-xs text-gray-600 dark:text-gray-400">
+                                  {playlist.tracks.total} tracks
+                                </p>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                        {(!playlists?.items || playlists.items.length === 0) && (
+                          <div className="text-center text-muted-foreground py-8">
+                            No playlists found
+                          </div>
+                        )}
+                      </div>
+                    )
                   )}
 
                   {/* Recently Played View */}

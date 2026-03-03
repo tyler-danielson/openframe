@@ -289,6 +289,7 @@ export class SpotifyService {
     contextUri?: string;
     uris?: string[];
     positionMs?: number;
+    offsetUri?: string;
   }): Promise<void> {
     const params = options?.deviceId
       ? `?device_id=${options.deviceId}`
@@ -298,6 +299,7 @@ export class SpotifyService {
     if (options?.contextUri) body.context_uri = options.contextUri;
     if (options?.uris) body.uris = options.uris;
     if (options?.positionMs) body.position_ms = options.positionMs;
+    if (options?.offsetUri) body.offset = { uri: options.offsetUri };
 
     await this.spotifyFetch(`/me/player/play${params}`, {
       method: "PUT",
@@ -443,6 +445,17 @@ export class SpotifyService {
       total: number;
     }>(`/me/albums?limit=${limit}&offset=${offset}`);
     return response;
+  }
+
+  async getPlaylistTracks(
+    playlistId: string,
+    limit = 50,
+    offset = 0
+  ): Promise<{
+    items: { track: SpotifyTrack; added_at: string }[];
+    total: number;
+  }> {
+    return this.spotifyFetch(`/playlists/${playlistId}/tracks?limit=${limit}&offset=${offset}`);
   }
 
   async getSavedTracks(
