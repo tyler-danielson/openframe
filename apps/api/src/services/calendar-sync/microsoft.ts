@@ -16,12 +16,13 @@ interface MSCalendar {
 interface MSEvent {
   id: string;
   subject?: string;
+  body?: { contentType?: string; content?: string };
   bodyPreview?: string;
   location?: { displayName?: string };
-  start: { dateTime: string; timeZone: string };
-  end: { dateTime: string; timeZone: string };
-  isAllDay: boolean;
-  isCancelled: boolean;
+  start?: { dateTime: string; timeZone: string };
+  end?: { dateTime: string; timeZone: string };
+  isAllDay?: boolean;
+  isCancelled?: boolean;
   seriesMasterId?: string;
   recurrence?: {
     pattern: {
@@ -44,6 +45,7 @@ interface MSEvent {
     type?: string;
   }>;
   "@odata.etag"?: string;
+  "@removed"?: { reason?: string };
 }
 
 interface MSCalendarListResponse {
@@ -69,6 +71,23 @@ let _calendarCredentials: MicrosoftCalendarCredentials = {};
 
 export function setMicrosoftCalendarCredentials(creds: MicrosoftCalendarCredentials) {
   _calendarCredentials = creds;
+}
+
+// --- HTML stripping for body content ---
+
+function stripHtml(html: string): string {
+  // Remove HTML tags, decode common entities, and trim
+  return html
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 // --- Color mapping ---
@@ -418,6 +437,7 @@ async function syncCalendarEvents(
     const params = new URLSearchParams({
       startDateTime: startDateTime.toISOString(),
       endDateTime: endDateTime.toISOString(),
+      $select: "id,subject,body,bodyPreview,location,start,end,isAllDay,isCancelled,seriesMasterId,recurrence,attendees",
     });
     url = `https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(msCalendarId)}/calendarView/delta?${params.toString()}`;
   }
@@ -429,7 +449,10 @@ async function syncCalendarEvents(
     const fetchUrl = nextLink ?? url;
 
     const response = await fetch(fetchUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Prefer: 'outlook.body-content-type="text"',
+      },
     });
 
     if (!response.ok) {
@@ -471,8 +494,8 @@ async function upsertEvent(
   calendarId: string,
   mevent: MSEvent
 ): Promise<void> {
-  // Handle cancelled events
-  if (mevent.isCancelled) {
+  // Handle removed events (delta sync returns @removed for deleted events)
+  if (mevent["@removed"] || mevent.isCancelled) {
     await db
       .delete(events)
       .where(
@@ -484,8 +507,14 @@ async function upsertEvent(
     return;
   }
 
-  const startTime = parseMSDateTime(mevent.start, mevent.isAllDay);
-  const endTime = parseMSDateTime(mevent.end, mevent.isAllDay);
+  // Skip events without start/end (shouldn't happen for non-removed events, but guard against it)
+  if (!mevent.start || !mevent.end) {
+    console.warn(`[Microsoft Sync] Skipping event ${mevent.id} — missing start/end`);
+    return;
+  }
+
+  const startTime = parseMSDateTime(mevent.start, mevent.isAllDay ?? false);
+  const endTime = parseMSDateTime(mevent.end, mevent.isAllDay ?? false);
 
   // Parse recurrence rule
   const recurrenceRule = msRecurrenceToRRule(mevent.recurrence);
@@ -504,15 +533,20 @@ async function upsertEvent(
       organizer: a.type === "required",
     })) ?? [];
 
+  // Extract description from body.content (full text), falling back to bodyPreview
+  const description = mevent.body?.content
+    ? stripHtml(mevent.body.content)
+    : (mevent.bodyPreview ?? null);
+
   const eventData = {
     calendarId,
     externalId: mevent.id,
     title: mevent.subject ?? "(No title)",
-    description: mevent.bodyPreview ?? null,
+    description,
     location: mevent.location?.displayName ?? null,
     startTime,
     endTime,
-    isAllDay: mevent.isAllDay,
+    isAllDay: mevent.isAllDay ?? false,
     status: "confirmed" as const,
     recurrenceRule,
     recurringEventId: mevent.seriesMasterId ?? null,
