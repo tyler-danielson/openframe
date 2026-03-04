@@ -8547,7 +8547,7 @@ function BillingSettings() {
               </p>
             </div>
             <a
-              href={billing?.stripePortalUrl || "/billing"}
+              href={billing?.stripePortalUrl || "/pricing"}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium"
             >
               <CreditCard className="h-4 w-4" />
@@ -8952,7 +8952,7 @@ function ModulesTab({
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{mod.description}</p>
                     {!enabled && depsNotMet && <p className="text-xs text-destructive mt-1">Requires: {depNames.join(", ")}</p>}
-                    {!mod.available && <p className="text-xs text-destructive mt-1"><a href="https://openframe.us/billing" target="_blank" rel="noopener noreferrer" className="underline">Upgrade plan</a>{" "}to enable</p>}
+                    {!mod.available && <p className="text-xs text-destructive mt-1"><a href="https://openframe.us/pricing" target="_blank" rel="noopener noreferrer" className="underline">Upgrade plan</a>{" "}to enable</p>}
                   </div>
                 </div>
               );
@@ -9030,7 +9030,7 @@ function ModulesTab({
                         )}
                         {!mod.available && (
                           <p className="text-xs text-destructive mt-1">
-                            <a href="https://openframe.us/billing" target="_blank" rel="noopener noreferrer" className="underline">
+                            <a href="https://openframe.us/pricing" target="_blank" rel="noopener noreferrer" className="underline">
                               Upgrade plan
                             </a>{" "}to enable
                           </p>
