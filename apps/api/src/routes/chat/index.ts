@@ -5,7 +5,7 @@ import {
   chatMessages,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
-import { getSystemSetting } from "../settings/index.js";
+import { getSystemSetting, getCategorySettings } from "../settings/index.js";
 import { buildChatContext, streamChat } from "../../services/ai-chat.js";
 import type { AIChatProvider } from "@openframe/shared";
 
@@ -24,6 +24,7 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
       const user = await getCurrentUser(request);
       if (!user) return reply.unauthorized("Not authenticated");
 
+      // Check global keys (platform-level)
       const [anthropicKey, openaiKey, geminiKey, defaultProvider] =
         await Promise.all([
           getSystemSetting(fastify.db, "anthropic", "api_key"),
@@ -32,13 +33,45 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
           getSystemSetting(fastify.db, "chat", "provider"),
         ]);
 
+      // Check user-scoped keys (BYOK)
+      const [userAnthropicKey, userOpenaiKey, userGeminiKey, hostedAiSetting] =
+        await Promise.all([
+          getSystemSetting(fastify.db, "anthropic", "api_key", user.id),
+          getSystemSetting(fastify.db, "openai", "api_key", user.id),
+          getSystemSetting(fastify.db, "google", "gemini_api_key", user.id),
+          getSystemSetting(fastify.db, "chat", "hosted_ai_enabled", user.id),
+        ]);
+
+      const isHosted = fastify.hostedMode;
+
+      // Check if cloud AI relay is available (self-hosted instances connected to cloud)
+      let cloudAiAvailable = false;
+      if (!isHosted) {
+        const cloudCfg = await getCategorySettings(fastify.db, "cloud") as Record<string, string>;
+        cloudAiAvailable = !!(
+          cloudCfg?.enabled === "true" &&
+          cloudCfg?.instance_id &&
+          cloudCfg?.relay_secret
+        );
+      }
+
       return {
         success: true,
         data: {
-          claude: !!anthropicKey,
-          openai: !!openaiKey,
-          gemini: !!geminiKey,
+          claude: !!anthropicKey || !!userAnthropicKey,
+          openai: !!openaiKey || !!userOpenaiKey,
+          gemini: !!geminiKey || !!userGeminiKey,
           defaultProvider: (defaultProvider as AIChatProvider) || "claude",
+          // Hosted AI info (works for both hosted instances and self-hosted via cloud relay)
+          hostedAiAvailable:
+            (isHosted && (!!anthropicKey || !!openaiKey || !!geminiKey)) ||
+            cloudAiAvailable,
+          hostedAiEnabled: hostedAiSetting === "true",
+          hasOwnKey: {
+            claude: !!userAnthropicKey,
+            openai: !!userOpenaiKey,
+            gemini: !!userGeminiKey,
+          },
         },
       };
     }
@@ -202,23 +235,88 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
       const settingModel = await getSystemSetting(fastify.db, "chat", "model");
       const model = requestModel || settingModel || undefined;
 
-      // Get API key for provider
+      // Resolve API key: user-scoped BYOK first, then hosted AI fallback
       let apiKey: string | null = null;
-      switch (provider) {
-        case "claude":
-          apiKey = await getSystemSetting(fastify.db, "anthropic", "api_key");
-          break;
-        case "openai":
-          apiKey = await getSystemSetting(fastify.db, "openai", "api_key");
-          break;
-        case "gemini":
-          apiKey = await getSystemSetting(fastify.db, "google", "gemini_api_key");
-          break;
+      let keySource: "user" | "platform" | "self_hosted" | "cloud" = "self_hosted";
+
+      // Map provider to setting category/key
+      const providerKeyMap: Record<string, { category: string; key: string }> = {
+        claude: { category: "anthropic", key: "api_key" },
+        openai: { category: "openai", key: "api_key" },
+        gemini: { category: "google", key: "gemini_api_key" },
+      };
+      const keyInfo = providerKeyMap[provider];
+
+      if (keyInfo) {
+        // 1. Try user-scoped key (BYOK)
+        apiKey = await getSystemSetting(
+          fastify.db,
+          keyInfo.category,
+          keyInfo.key,
+          user.id
+        );
+        if (apiKey) {
+          keySource = "user";
+        }
+
+        // 2. If no user key, check hosted vs self-hosted mode
+        if (!apiKey && fastify.hostedMode) {
+          // Check if user has opted in to hosted AI
+          const hostedConsent = await getSystemSetting(
+            fastify.db,
+            "chat",
+            "hosted_ai_enabled",
+            user.id
+          );
+          if (hostedConsent === "true") {
+            // Get platform-level (global) key
+            apiKey = await getSystemSetting(
+              fastify.db,
+              keyInfo.category,
+              keyInfo.key
+            );
+            if (apiKey) {
+              keySource = "platform";
+            }
+          } else {
+            return reply.code(402).send({
+              error: "hosted_ai_required",
+              message:
+                "Enable hosted AI to use this feature, or add your own API key in Settings.",
+              enableUrl: "/api/billing/enable-ai",
+            });
+          }
+        } else if (!apiKey) {
+          // Self-hosted mode: fall back to global key
+          apiKey = await getSystemSetting(
+            fastify.db,
+            keyInfo.category,
+            keyInfo.key
+          );
+          if (apiKey) {
+            keySource = "self_hosted";
+          }
+        }
       }
 
-      if (!apiKey) {
+      // If still no key, check if cloud AI relay is available (self-hosted → cloud)
+      let useCloudRelay = false;
+      let cloudSettings: Record<string, string> | null = null;
+      if (!apiKey && !fastify.hostedMode) {
+        cloudSettings = await getCategorySettings(fastify.db, "cloud") as Record<string, string>;
+        if (
+          cloudSettings?.enabled === "true" &&
+          cloudSettings?.instance_id &&
+          cloudSettings?.relay_secret
+        ) {
+          useCloudRelay = true;
+          keySource = "cloud";
+        }
+      }
+
+      if (!apiKey && !useCloudRelay) {
         return reply.badRequest(
-          `API key not configured for ${provider}. Add it in Settings.`
+          `API key not configured for ${provider}. Add it in Settings or enable Cloud AI.`
         );
       }
 
@@ -298,26 +396,114 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
       let tokenUsage: any = null;
 
       try {
-        for await (const chunk of streamChat(
-          provider,
-          apiKey,
-          context.systemPrompt,
-          historyMessages,
-          model
-        )) {
-          if (chunk.type === "token") {
-            fullResponse += chunk.data;
-            sendEvent("token", { token: chunk.data });
-          } else if (chunk.type === "done") {
-            tokenUsage = chunk.usage || null;
-          } else if (chunk.type === "error") {
-            sendEvent("error", { error: chunk.data });
+        if (useCloudRelay && cloudSettings) {
+          // Cloud AI relay: forward to cloud, parse SSE response
+          const cloudUrl =
+            cloudSettings.url ||
+            (cloudSettings.ws_endpoint
+              ? (() => {
+                  try {
+                    const u = new URL(cloudSettings.ws_endpoint);
+                    return `${u.protocol === "wss:" ? "https" : "http"}://${u.host}`;
+                  } catch {
+                    return null;
+                  }
+                })()
+              : null);
+
+          if (!cloudUrl) {
+            sendEvent("error", { error: "Cloud URL not configured" });
             reply.raw.end();
             return;
           }
+
+          const relayResponse = await fetch(`${cloudUrl}/api/ai/relay`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-instance-id": cloudSettings.instance_id!,
+              "x-relay-secret": cloudSettings.relay_secret!,
+            },
+            body: JSON.stringify({
+              provider,
+              model: model || undefined,
+              systemPrompt: context.systemPrompt,
+              messages: historyMessages,
+            }),
+          });
+
+          if (!relayResponse.ok) {
+            const errBody = await relayResponse.json().catch(() => ({ error: "Cloud AI relay error" })) as any;
+            sendEvent("error", { error: errBody.error || errBody.message || `Cloud error: ${relayResponse.status}` });
+            reply.raw.end();
+            return;
+          }
+
+          if (!relayResponse.body) {
+            sendEvent("error", { error: "No response from cloud relay" });
+            reply.raw.end();
+            return;
+          }
+
+          // Parse SSE events from the cloud relay response
+          const reader = relayResponse.body.getReader();
+          const decoder = new TextDecoder();
+          let sseBuffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            sseBuffer += decoder.decode(value, { stream: true });
+            const lines = sseBuffer.split("\n");
+            sseBuffer = lines.pop() || "";
+
+            let currentEvent = "";
+            for (const line of lines) {
+              if (line.startsWith("event: ")) {
+                currentEvent = line.slice(7).trim();
+              } else if (line.startsWith("data: ")) {
+                const data = line.slice(6);
+                try {
+                  const parsed = JSON.parse(data);
+                  if (currentEvent === "token" && parsed.token) {
+                    fullResponse += parsed.token;
+                    sendEvent("token", { token: parsed.token });
+                  } else if (currentEvent === "done") {
+                    tokenUsage = parsed.usage || null;
+                  } else if (currentEvent === "error") {
+                    sendEvent("error", { error: parsed.error });
+                    reply.raw.end();
+                    return;
+                  }
+                } catch { /* skip malformed */ }
+                currentEvent = "";
+              }
+            }
+          }
+        } else {
+          // Direct AI call with local API key
+          for await (const chunk of streamChat(
+            provider,
+            apiKey!,
+            context.systemPrompt,
+            historyMessages,
+            model
+          )) {
+            if (chunk.type === "token") {
+              fullResponse += chunk.data;
+              sendEvent("token", { token: chunk.data });
+            } else if (chunk.type === "done") {
+              tokenUsage = chunk.usage || null;
+            } else if (chunk.type === "error") {
+              sendEvent("error", { error: chunk.data });
+              reply.raw.end();
+              return;
+            }
+          }
         }
 
-        // Save assistant response to DB
+        // Save assistant response to DB (include keySource for billing filtering)
         const [savedMessage] = await fastify.db
           .insert(chatMessages)
           .values({
@@ -326,7 +512,7 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
             content: fullResponse,
             provider,
             model: model || null,
-            tokenUsage,
+            tokenUsage: tokenUsage ? { ...tokenUsage, keySource } : { keySource },
           })
           .returning();
 

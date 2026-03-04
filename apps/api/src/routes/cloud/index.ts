@@ -111,6 +111,7 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
               // Store cloud settings
               const settings = [
                 { category: "cloud", key: "enabled", value: "true", isSecret: false },
+                { category: "cloud", key: "url", value: cloudUrl, isSecret: false },
                 { category: "cloud", key: "instance_id", value: pollData.instanceId, isSecret: false },
                 { category: "cloud", key: "relay_secret", value: pollData.relaySecret, isSecret: true },
                 { category: "cloud", key: "ws_endpoint", value: pollData.wsEndpoint, isSecret: false },
@@ -194,9 +195,17 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      // Derive cloud URL from wsEndpoint (wss://host/path → https://host)
+      let cloudUrl: string | null = null;
+      try {
+        const wsUrl = new URL(wsEndpoint);
+        cloudUrl = `${wsUrl.protocol === "wss:" ? "https" : "http"}://${wsUrl.host}`;
+      } catch { /* leave null */ }
+
       // Store cloud settings
       const settings = [
         { category: "cloud", key: "enabled", value: "true", isSecret: false },
+        ...(cloudUrl ? [{ category: "cloud", key: "url", value: cloudUrl, isSecret: false }] : []),
         { category: "cloud", key: "instance_id", value: instanceId, isSecret: false },
         { category: "cloud", key: "relay_secret", value: relaySecret, isSecret: true },
         { category: "cloud", key: "ws_endpoint", value: wsEndpoint, isSecret: false },

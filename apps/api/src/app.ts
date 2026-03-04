@@ -61,6 +61,8 @@ import { cloudRoutes } from "./routes/cloud/index.js";
 import { adminRoutes } from "./routes/admin/index.js";
 import { supportRoutes } from "./routes/support/index.js";
 import { matterRoutes } from "./routes/matter/index.js";
+import { usageRoutes } from "./routes/usage/index.js";
+import { aiRelayRoutes } from "./routes/ai-relay/index.js";
 import { cloudPlugin } from "./plugins/cloud.js";
 import { matterPlugin } from "./plugins/matter.js";
 import { planLimitsPlugin } from "./plugins/plan-limits.js";
@@ -245,6 +247,8 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(adminRoutes, { prefix: "/api/v1/admin" });
   await app.register(supportRoutes, { prefix: "/api/v1/support" });
   await app.register(matterRoutes, { prefix: "/api/v1/matter" });
+  await app.register(usageRoutes, { prefix: "/api/v1/usage" });
+  await app.register(aiRelayRoutes, { prefix: "/api/v1/ai-relay" });
 
   // --- Static file serving (combined container mode) ---
   const publicDir = path.join(process.cwd(), "public");
