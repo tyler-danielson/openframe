@@ -8546,13 +8546,29 @@ function BillingSettings() {
                 {billing?.plan?.status === "active" ? "Active" : billing?.plan?.status || "Active"}
               </p>
             </div>
-            <a
-              href={billing?.stripePortalUrl || "/pricing"}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium"
+            <button
+              onClick={async () => {
+                if (billing?.stripePortalUrl) {
+                  // POST to portal endpoint to get Stripe portal URL
+                  try {
+                    const res = await fetch(billing.stripePortalUrl, { method: "POST" });
+                    const data = await res.json();
+                    if (data?.data?.url) {
+                      window.location.href = data.data.url;
+                    }
+                  } catch {
+                    // Fallback to dashboard
+                    window.open("https://openframe.us/dashboard", "_blank");
+                  }
+                } else {
+                  window.open("https://openframe.us/pricing", "_blank");
+                }
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium cursor-pointer"
             >
               <CreditCard className="h-4 w-4" />
-              Manage Billing
-            </a>
+              {billing?.stripePortalUrl ? "Manage Billing" : "Upgrade Plan"}
+            </button>
           </div>
         </CardContent>
       </Card>
