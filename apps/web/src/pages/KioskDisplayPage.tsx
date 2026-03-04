@@ -123,14 +123,18 @@ function KioskApp() {
         const ss = useScreensaverStore.getState();
         if (ss.isActive && ss.behavior === "hide-toolbar") {
           ss.updateActivity(); // resets isActive → sidebar reappears
-          // Left or back specifically: activate sidebar nav after sidebar re-renders
+          // Left or back specifically: activate nav after re-render
           if (page === "scroll:left" || page === "action:back") {
             setTimeout(() => {
               const nav = useBlockNavStore.getState();
-              const sidebarBlocks = nav.blocks.filter((b) => b.group === "nav");
-              if (sidebarBlocks.length > 0) {
-                const sorted = [...sidebarBlocks].sort((a, b) => a.y - b.y || a.x - b.x);
-                useBlockNavStore.setState({ mode: "selecting", focusedBlockId: sorted[0]?.id ?? null });
+              if (displayType === "tv") {
+                nav.setTvNavOpen(true);
+              } else {
+                const sidebarBlocks = nav.blocks.filter((b) => b.group === "nav");
+                if (sidebarBlocks.length > 0) {
+                  const sorted = [...sidebarBlocks].sort((a, b) => a.y - b.y || a.x - b.x);
+                  useBlockNavStore.setState({ mode: "selecting", focusedBlockId: sorted[0]?.id ?? null });
+                }
               }
             }, 100);
             return; // Consume the event
@@ -143,18 +147,32 @@ function KioskApp() {
           const dir = page.replace("scroll:", "") as "up" | "down" | "left" | "right";
           const nav = useBlockNavStore.getState();
 
-          if (nav.mode === "idle" && displayType === "tv" && nav.blocks.length > 0) {
+          // TV popup nav: left/right navigate items, up closes
+          if (displayType === "tv" && nav.tvNavOpen) {
+            const navBlocks = nav.blocks.filter((b) => b.group === "nav");
+            const maxIdx = Math.max(0, navBlocks.length - 1);
+            if (dir === "left") {
+              nav.setTvNavIndex(Math.max(0, nav.tvNavIndex - 1));
+            } else if (dir === "right") {
+              nav.setTvNavIndex(Math.min(maxIdx, nav.tvNavIndex + 1));
+            } else if (dir === "up" || dir === "down") {
+              nav.setTvNavOpen(false);
+            }
+          } else if (nav.mode === "idle" && displayType === "tv" && nav.blocks.length > 0) {
             useBlockNavStore.setState({ _debug: `activate! dt=${displayType} b=${nav.blocks.length}` });
-            // Left arrow from idle: activate sidebar nav directly
-            // Other directions: activate page content blocks only
-            nav.activateSelection(dir === "left" ? "nav" : undefined);
-            // If activation didn't change mode (no matching blocks), fall through to scroll
-            const afterNav = useBlockNavStore.getState();
-            if (afterNav.mode === "idle") {
-              const amount = 300;
-              if (dir === "up") window.scrollBy(0, -amount);
-              else if (dir === "down") window.scrollBy(0, amount);
-              else if (dir === "right") window.scrollBy(amount, 0);
+            if (dir === "left") {
+              // Open the TV popup nav
+              nav.setTvNavOpen(true);
+            } else {
+              // Other directions: activate page content blocks
+              nav.activateSelection();
+              const afterNav = useBlockNavStore.getState();
+              if (afterNav.mode === "idle") {
+                const amount = 300;
+                if (dir === "up") window.scrollBy(0, -amount);
+                else if (dir === "down") window.scrollBy(0, amount);
+                else if (dir === "right") window.scrollBy(amount, 0);
+              }
             }
           } else if (nav.mode === "selecting") {
             useBlockNavStore.setState({ _debug: `nav:${dir}` });
@@ -173,7 +191,17 @@ function KioskApp() {
           }
         } else if (page === "action:select") {
           const nav = useBlockNavStore.getState();
-          if (nav.mode === "selecting") {
+          if (displayType === "tv" && nav.tvNavOpen) {
+            // Select the focused popup nav item
+            const navBlocks = nav.blocks.filter((b) => b.group === "nav");
+            const target = navBlocks[nav.tvNavIndex];
+            if (target?.instantAction) {
+              target.instantAction();
+            }
+          } else if (displayType === "tv" && nav.mode === "idle") {
+            // OK from idle in TV mode: open popup nav
+            nav.setTvNavOpen(true);
+          } else if (nav.mode === "selecting") {
             nav.enterBlock();
           } else if (nav.mode === "controlling") {
             nav.executeControl("enter");
@@ -182,7 +210,9 @@ function KioskApp() {
           }
         } else if (page === "action:back") {
           const nav = useBlockNavStore.getState();
-          if (nav.mode === "controlling") {
+          if (displayType === "tv" && nav.tvNavOpen) {
+            nav.setTvNavOpen(false);
+          } else if (nav.mode === "controlling") {
             nav.exitBlock();
           } else if (nav.mode === "selecting") {
             nav.deactivateNavigation();
@@ -239,10 +269,14 @@ function KioskApp() {
           e.preventDefault();
           setTimeout(() => {
             const nav = useBlockNavStore.getState();
-            const sidebarBlocks = nav.blocks.filter((b) => b.group === "nav");
-            if (sidebarBlocks.length > 0) {
-              const sorted = [...sidebarBlocks].sort((a, b) => a.y - b.y || a.x - b.x);
-              useBlockNavStore.setState({ mode: "selecting", focusedBlockId: sorted[0]?.id ?? null });
+            if (displayType === "tv") {
+              nav.setTvNavOpen(true);
+            } else {
+              const sidebarBlocks = nav.blocks.filter((b) => b.group === "nav");
+              if (sidebarBlocks.length > 0) {
+                const sorted = [...sidebarBlocks].sort((a, b) => a.y - b.y || a.x - b.x);
+                useBlockNavStore.setState({ mode: "selecting", focusedBlockId: sorted[0]?.id ?? null });
+              }
             }
           }, 100);
           return;
@@ -256,18 +290,32 @@ function KioskApp() {
 
       if (keyMap[e.key]) {
         const dir = keyMap[e.key] as "up" | "down" | "left" | "right";
-        if (nav.mode === "idle" && nav.blocks.length > 0) {
-          nav.activateSelection(dir === "left" ? "nav" : undefined);
-          // If activation didn't change mode (no matching blocks), fall through to scroll
-          const afterNav = useBlockNavStore.getState();
-          if (afterNav.mode !== "idle") {
-            e.preventDefault();
-          } else if (dir !== "left") {
-            e.preventDefault();
-            const amount = 300;
-            if (dir === "up") window.scrollBy(0, -amount);
-            else if (dir === "down") window.scrollBy(0, amount);
-            else if (dir === "right") window.scrollBy(amount, 0);
+
+        // TV popup nav: left/right navigate items, up/down closes
+        if (displayType === "tv" && nav.tvNavOpen) {
+          e.preventDefault();
+          const navBlocks = nav.blocks.filter((b) => b.group === "nav");
+          const maxIdx = Math.max(0, navBlocks.length - 1);
+          if (dir === "left") {
+            nav.setTvNavIndex(Math.max(0, nav.tvNavIndex - 1));
+          } else if (dir === "right") {
+            nav.setTvNavIndex(Math.min(maxIdx, nav.tvNavIndex + 1));
+          } else if (dir === "up" || dir === "down") {
+            nav.setTvNavOpen(false);
+          }
+        } else if (displayType === "tv" && nav.mode === "idle" && nav.blocks.length > 0) {
+          e.preventDefault();
+          if (dir === "left") {
+            nav.setTvNavOpen(true);
+          } else {
+            nav.activateSelection();
+            const afterNav = useBlockNavStore.getState();
+            if (afterNav.mode === "idle") {
+              const amount = 300;
+              if (dir === "up") window.scrollBy(0, -amount);
+              else if (dir === "down") window.scrollBy(0, amount);
+              else if (dir === "right") window.scrollBy(amount, 0);
+            }
           }
         } else if (nav.mode === "selecting") {
           e.preventDefault();
@@ -277,7 +325,15 @@ function KioskApp() {
           nav.executeControl(dir);
         }
       } else if (e.key === "Enter") {
-        if (nav.mode === "selecting") {
+        if (displayType === "tv" && nav.tvNavOpen) {
+          e.preventDefault();
+          const navBlocks = nav.blocks.filter((b) => b.group === "nav");
+          const target = navBlocks[nav.tvNavIndex];
+          if (target?.instantAction) target.instantAction();
+        } else if (displayType === "tv" && nav.mode === "idle") {
+          e.preventDefault();
+          nav.setTvNavOpen(true);
+        } else if (nav.mode === "selecting") {
           e.preventDefault();
           nav.enterBlock();
         } else if (nav.mode === "controlling") {
@@ -285,7 +341,10 @@ function KioskApp() {
           nav.executeControl("enter");
         }
       } else if (e.key === "Escape") {
-        if (nav.mode === "controlling") {
+        if (displayType === "tv" && nav.tvNavOpen) {
+          e.preventDefault();
+          nav.setTvNavOpen(false);
+        } else if (nav.mode === "controlling") {
           e.preventDefault();
           nav.exitBlock();
         } else if (nav.mode === "selecting") {
@@ -296,7 +355,7 @@ function KioskApp() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [displayType]);
 
   // Request fullscreen on load if enabled (skip when embedded in an iframe, e.g. Tizen TV)
   const isEmbedded = window.self !== window.top;

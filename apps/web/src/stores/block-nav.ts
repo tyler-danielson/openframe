@@ -36,6 +36,8 @@ interface BlockNavState {
   blocks: NavigableBlock[];
   focusedBlockId: string | null;
   _debug: string; // temporary debug trace
+  tvNavOpen: boolean; // TV popup navigation overlay
+  tvNavIndex: number; // focused index in the popup nav
 
   // Actions
   registerBlocks: (blocks: NavigableBlock[], group?: string) => void;
@@ -49,6 +51,8 @@ interface BlockNavState {
   executeControl: (key: string) => boolean;
   updateBlockControls: (blockId: string, controls: TVBlockControls | null) => void;
   executeRemoteAction: (widgetId: string, actionKey: string, data?: Record<string, unknown>) => boolean;
+  setTvNavOpen: (open: boolean) => void;
+  setTvNavIndex: (index: number) => void;
 }
 
 export const useBlockNavStore = create<BlockNavState>()((set, get) => ({
@@ -56,6 +60,8 @@ export const useBlockNavStore = create<BlockNavState>()((set, get) => ({
   blocks: [],
   focusedBlockId: null,
   _debug: "",
+  tvNavOpen: false,
+  tvNavIndex: 0,
 
   registerBlocks: (newBlocks, group) => {
     if (group) {
@@ -152,12 +158,18 @@ export const useBlockNavStore = create<BlockNavState>()((set, get) => ({
     const cx = current.x + current.width / 2;
     const cy = current.y + current.height / 2;
 
+    // When navigating up/down within a group, stay in the same group
+    // to prevent page blocks from stealing focus from sidebar items.
+    // Allow cross-group navigation only on left/right.
+    const stayInGroup = (direction === "up" || direction === "down") && !!current.group;
+
     // Filter candidates in the pressed direction and score them
     let best: NavigableBlock | null = null;
     let bestScore = Infinity;
 
     for (const block of blocks) {
       if (block.id === focusedBlockId) continue;
+      if (stayInGroup && block.group !== current.group) continue;
 
       const bx = block.x + block.width / 2;
       const by = block.y + block.height / 2;
@@ -243,4 +255,7 @@ export const useBlockNavStore = create<BlockNavState>()((set, get) => ({
     }
     return false;
   },
+
+  setTvNavOpen: (open) => set({ tvNavOpen: open, tvNavIndex: 0 }),
+  setTvNavIndex: (index) => set({ tvNavIndex: index }),
 }));

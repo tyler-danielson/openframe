@@ -326,8 +326,8 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
   const hideToolbarForBurnIn = screensaverActive && screensaverBehavior === "hide-toolbar";
 
   // Display-only mode: hide sidebar entirely (hard remove from DOM)
-  const hideNav = kioskDisplayType === "display";
-  // TV mode: larger nav items with focus rings for D-pad navigation
+  // TV mode: hide sidebar, use popup nav instead
+  const hideNav = kioskDisplayType === "display" || kioskDisplayType === "tv";
   const isTvMode = kioskDisplayType === "tv";
 
   // Block navigation for TV sidebar
@@ -336,45 +336,66 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
   const registerBlocks = useBlockNavStore((s) => s.registerBlocks);
   const clearBlocks = useBlockNavStore((s) => s.clearBlocks);
 
+  // TV popup nav state
+  const tvNavOpen = useBlockNavStore((s) => s.tvNavOpen);
+  const tvNavIndex = useBlockNavStore((s) => s.tvNavIndex);
+  const setTvNavOpen = useBlockNavStore((s) => s.setTvNavOpen);
+  const setTvNavIndex = useBlockNavStore((s) => s.setTvNavIndex);
+
+  // All TV popup nav items (main items + media items combined)
+  const tvPopupItems = useMemo(() => {
+    const items = [...navItems];
+    // Insert media items after Photos if media is enabled
+    if (showMedia) {
+      const photosIdx = items.findIndex(i => i.label === "Photos");
+      const insertIdx = photosIdx >= 0 ? photosIdx + 1 : items.length;
+      filteredMediaItems.forEach((mi, i) => {
+        items.splice(insertIdx + i, 0, { ...mi, feature: undefined as any, moduleId: null });
+      });
+    }
+    return items;
+  }, [navItems, showMedia, filteredMediaItems]);
+
+  // Handle TV popup nav selection
+  const handleTvNavSelect = useCallback((index: number) => {
+    const item = tvPopupItems[index];
+    if (item) {
+      setTvNavOpen(false);
+      navigate(item.to);
+    }
+  }, [tvPopupItems, navigate, setTvNavOpen]);
+
   // Register sidebar nav items as navigable blocks (at x=-1, left of page content)
   useEffect(() => {
-    if (!isTvMode || hideNav) return;
+    if (!isTvMode) return;
 
-    // Build sidebar blocks from visible nav items
-    const sidebarBlocks: NavigableBlock[] = navItems.map((item, index) => ({
+    // Build nav blocks from popup items so block-nav store knows about them
+    const sidebarBlocks: NavigableBlock[] = tvPopupItems.map((item, index) => ({
       id: `nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`,
       group: "nav",
-      x: -1,
-      y: index,
+      x: index,
+      y: 0,
       width: 1,
       height: 1,
       label: item.label,
-      instantAction: () => navigate(item.to),
+      instantAction: () => {
+        setTvNavOpen(false);
+        navigate(item.to);
+      },
     }));
 
     registerBlocks(sidebarBlocks, "nav");
     return () => clearBlocks("nav");
-  }, [isTvMode, hideNav, navItems, navigate, registerBlocks, clearBlocks]);
+  }, [isTvMode, tvPopupItems, navigate, registerBlocks, clearBlocks, setTvNavOpen]);
 
-  // Helper to get block nav focus classes for a sidebar item
-  const getNavBlockClasses = (itemLabel: string) => {
-    if (blockNavMode === "idle") return "";
-    const blockId = `nav-${itemLabel.toLowerCase().replace(/\s+/g, "-")}`;
-    const isFocused = focusedBlockId === blockId;
-    if (blockNavMode === "selecting" && isFocused) {
-      return "ring-3 ring-primary/80 shadow-[0_0_20px_hsl(var(--primary)/0.4)] scale-110";
-    }
-    if (blockNavMode === "controlling" && !isFocused) {
-      return "opacity-30";
-    }
+  // Helper to get block nav focus classes for a sidebar item (unused in TV popup, kept for non-TV)
+  const getNavBlockClasses = (_itemLabel: string) => {
     return "";
   };
 
-  // Check if a sidebar item is focused (for showing label tooltip)
-  const isNavItemFocused = (itemLabel: string) => {
-    if (blockNavMode !== "selecting") return false;
-    const blockId = `nav-${itemLabel.toLowerCase().replace(/\s+/g, "-")}`;
-    return focusedBlockId === blockId;
+  // Check if a sidebar item is focused (unused in TV popup, kept for non-TV)
+  const isNavItemFocused = (_itemLabel: string) => {
+    return false;
   };
 
   // React Router v7 wraps navigations in startTransition which can fail to commit
@@ -679,6 +700,37 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
           <Outlet />
         </Suspense>
       </main>
+
+      {/* TV Popup Navigation Overlay */}
+      {isTvMode && tvNavOpen && (
+        <div className="fixed inset-x-0 bottom-0 z-[100] h-[15vh] bg-black/90 backdrop-blur-md border-t border-primary/30 animate-in slide-in-from-bottom duration-200">
+          <div className="h-full flex items-center justify-center px-4">
+            <div className="flex items-center gap-1 overflow-x-auto max-w-full px-4">
+              {tvPopupItems.map((item, index) => {
+                const isActive = location.pathname === item.to || location.pathname.startsWith(item.to + "/");
+                const isFocused = tvNavIndex === index;
+                return (
+                  <button
+                    key={item.to}
+                    onClick={() => handleTvNavSelect(index)}
+                    className={cn(
+                      "flex flex-col items-center justify-center gap-1.5 px-4 py-2 rounded-xl transition-all min-w-[80px] shrink-0",
+                      isFocused
+                        ? "bg-primary text-primary-foreground scale-110 ring-2 ring-primary shadow-[0_0_20px_hsl(var(--primary)/0.5)]"
+                        : isActive
+                          ? "bg-primary/20 text-primary"
+                          : "text-muted-foreground hover:text-primary hover:bg-white/5"
+                    )}
+                  >
+                    <item.icon className="h-6 w-6" />
+                    <span className="text-xs font-medium whitespace-nowrap">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
