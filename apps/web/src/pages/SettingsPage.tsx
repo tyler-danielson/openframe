@@ -10619,7 +10619,7 @@ function CustomScreensManagerTab() {
       queryClient.invalidateQueries({ queryKey: ["custom-screens"] });
       setShowAddModal(false);
       setNewScreenName("");
-      navigate(`/screen/${screen.slug}/edit`);
+      navigate(`/settings/custom-screens/${screen.id}`);
     },
   });
 
@@ -10721,7 +10721,7 @@ function CustomScreensManagerTab() {
                     <Eye className="h-4 w-4" />
                   </button>
                   <button
-                    onClick={() => navigate(`/screen/${screen.slug}/edit`)}
+                    onClick={() => navigate(`/settings/custom-screens/${screen.id}`)}
                     className="rounded-md p-1.5 text-muted-foreground transition-colors hover:text-primary"
                     title="Edit layout"
                   >

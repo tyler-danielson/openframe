@@ -85,7 +85,7 @@ function BuilderInner({
 }
 
 export function CustomScreenBuilderPage() {
-  const { slug } = useParams<{ slug: string }>();
+  const { slug, screenId } = useParams<{ slug?: string; screenId?: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -100,10 +100,11 @@ export function CustomScreenBuilderPage() {
   const localLayoutConfigRef = useRef<ScreensaverLayoutConfig>(DEFAULT_LAYOUT_CONFIG);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Support loading by screenId (settings route) or slug (direct route)
   const { data: screen, isLoading } = useQuery({
-    queryKey: ["custom-screen", slug],
-    queryFn: () => api.getCustomScreenBySlug(slug!),
-    enabled: !!slug,
+    queryKey: ["custom-screen", screenId || slug],
+    queryFn: () => screenId ? api.getCustomScreen(screenId) : api.getCustomScreenBySlug(slug!),
+    enabled: !!(screenId || slug),
   });
 
   // Initialize from screen data
@@ -132,7 +133,7 @@ export function CustomScreenBuilderPage() {
         await api.updateCustomScreen(screen.id, {
           layoutConfig: localLayoutConfigRef.current as unknown as Record<string, unknown>,
         });
-        queryClient.invalidateQueries({ queryKey: ["custom-screen", slug] });
+        queryClient.invalidateQueries({ queryKey: ["custom-screen", screenId || slug] });
         queryClient.invalidateQueries({ queryKey: ["custom-screens"] });
         setSaveStatus("saved");
         setTimeout(() => setSaveStatus("idle"), 1500);
@@ -147,7 +148,7 @@ export function CustomScreenBuilderPage() {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [screen, localLayoutConfig, slug, queryClient]);
+  }, [screen, localLayoutConfig, screenId, slug, queryClient]);
 
   const handleConfigChange = useCallback((newConfig: ScreensaverLayoutConfig) => {
     setLocalLayoutConfig(newConfig);
@@ -205,7 +206,7 @@ export function CustomScreenBuilderPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => navigate(`/screen/${slug}`)}
+            onClick={() => navigate(screenId ? "/settings/custom-screens" : `/screen/${slug}`)}
           >
             <ArrowLeft className="h-4 w-4 mr-1" />
             Back
