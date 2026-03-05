@@ -48,7 +48,6 @@ function BuilderInner({
       width: scaledWidth,
       height: scaledHeight,
       config: { ...definition.defaultConfig },
-      visible: true,
     });
     setShowAddBlockModal(false);
   }, [addWidget, layoutConfig.gridColumns, layoutConfig.gridRows, setShowAddBlockModal]);

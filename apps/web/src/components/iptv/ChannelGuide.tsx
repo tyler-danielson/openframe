@@ -100,7 +100,7 @@ export function ChannelGuide({
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore) {
+        if (entries[0]?.isIntersecting && hasMore) {
           setVisibleCount((prev) =>
             Math.min(prev + CHANNELS_PER_PAGE, sortedChannels.length)
           );
