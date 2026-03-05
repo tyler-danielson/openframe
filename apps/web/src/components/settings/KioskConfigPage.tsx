@@ -1,11 +1,20 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
 import {
   Trash2, Copy, RefreshCw, ExternalLink, Monitor, Calendar, ListTodo,
   Music, Tv, Newspaper, Home, Image as ImageIcon, Trophy, PanelLeft,
   Puzzle, Settings, QrCode, Power, Maximize, Clock, ChevronDown, ChevronUp,
+  GripVertical, LayoutDashboard,
 } from "lucide-react";
+import * as LucideIcons from "lucide-react";
+import {
+  DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy, arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { api, type Kiosk, type KioskSettings, type KioskEnabledFeatures, type ColorScheme, COLOR_SCHEMES } from "../../services/api";
 import { useModuleStore } from "../../stores/modules";
 import { SIDEBAR_FEATURES, type SidebarFeature } from "../../stores/sidebar";
@@ -14,6 +23,7 @@ import { appUrl } from "../../lib/cloud";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../ui/Card";
 import { Button } from "../ui/Button";
 import { DISPLAY_TYPE_OPTIONS, DISPLAY_MODE_OPTIONS, HOME_PAGE_OPTIONS, FEATURE_OPTIONS } from "../../data/kiosk-options";
+import type { CustomScreen } from "@openframe/shared";
 
 interface KioskConfigPageProps {
   kioskId: string;
@@ -27,6 +37,7 @@ const SIDEBAR_FEATURE_LABELS: Record<string, string> = {
   tasks: "Tasks",
   routines: "Routines",
   dashboard: "Dashboard",
+  cardview: "Card View",
   photos: "Photos",
   spotify: "Spotify",
   iptv: "Live TV",
@@ -39,6 +50,39 @@ const SIDEBAR_FEATURE_LABELS: Record<string, string> = {
   chat: "Chat",
   screensaver: "Custom",
 };
+
+function resolveIcon(name: string): React.ComponentType<{ className?: string }> {
+  const icons = LucideIcons as Record<string, unknown>;
+  if (icons[name] && typeof icons[name] === "function") {
+    return icons[name] as React.ComponentType<{ className?: string }>;
+  }
+  return LayoutDashboard;
+}
+
+function KioskSortableSidebarItem({ id, label, iconName, enabled, onToggle }: {
+  id: string; label: string; iconName: string; enabled: boolean; onToggle: (enabled: boolean) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = { transform: CSS.Transform.toString(transform), transition };
+  const Icon = resolveIcon(iconName);
+  return (
+    <div ref={setNodeRef} style={style} className={cn(
+      "flex items-center gap-3 py-2.5 px-1",
+      isDragging && "z-50 bg-card shadow-lg rounded-lg",
+      !enabled && "opacity-50"
+    )}>
+      <button {...attributes} {...listeners} className="cursor-grab text-muted-foreground hover:text-foreground touch-none">
+        <GripVertical className="h-4 w-4" />
+      </button>
+      <Icon className="h-4 w-4 text-primary" />
+      <span className="flex-1 font-medium text-sm">{label}</span>
+      <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} className="rounded" />
+        Visible
+      </label>
+    </div>
+  );
+}
 
 // These must be defined OUTSIDE the component to maintain stable React identity across renders.
 // Defining them inside would cause React to unmount/remount all instances on every render,
@@ -112,6 +156,17 @@ export function KioskConfigPage({ kioskId, renderTableSections }: KioskConfigPag
   });
 
   const kiosk = kiosks?.find((k) => k.id === kioskId);
+
+  // Custom screens for sidebar ordering
+  const { data: customScreens = [] } = useQuery({
+    queryKey: ["custom-screens"],
+    queryFn: () => api.getCustomScreens(),
+  });
+
+  const kioskDndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   const updateKiosk = useMutation({
     mutationFn: (data: Parameters<typeof api.updateKiosk>[1]) =>
@@ -680,40 +735,73 @@ export function KioskConfigPage({ kioskId, renderTableSections }: KioskConfigPag
 
       {/* Sidebar Section */}
       <Card className="border-2 border-primary/40 overflow-hidden">
-        <SectionHeader id="sidebar" icon={<PanelLeft />} title="Sidebar" description="Choose which features appear in the sidebar" isCollapsed={!!collapsedSections.sidebar} onToggle={toggleSection} />
+        <SectionHeader id="sidebar" icon={<PanelLeft />} title="Sidebar" description="Drag to reorder, toggle visibility" isCollapsed={!!collapsedSections.sidebar} onToggle={toggleSection} />
         {!collapsedSections.sidebar && (
           <CardContent className="border-t border-border/50">
-            <div className="divide-y divide-border/50">
-              {SIDEBAR_FEATURES.map((feature) => {
-                const sidebarSettings = settings.sidebar ?? {};
-                const featureState = sidebarSettings[feature] ?? { enabled: true, pinned: false };
-                return (
-                  <div key={feature} className="flex items-center justify-between py-3">
-                    <span className="font-medium">{SIDEBAR_FEATURE_LABELS[feature] ?? feature}</span>
-                    <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                      <input
-                        type="checkbox"
-                        checked={featureState.enabled !== false}
-                        onChange={(e) => {
-                          const current = settings.sidebar ?? {};
-                          updateKiosk.mutate({
-                            settings: {
-                              ...settings,
-                              sidebar: {
-                                ...current,
-                                [feature]: { ...current[feature], enabled: e.target.checked },
-                              },
-                            },
-                          });
-                        }}
-                        className="rounded"
-                      />
-                      Visible
-                    </label>
-                  </div>
-                );
-              })}
-            </div>
+            {(() => {
+              const sidebarSettings = settings.sidebar ?? {};
+              const currentOrder: string[] = settings.sidebarOrder ?? [...SIDEBAR_FEATURES];
+              // Ensure all built-in features and custom screens are in the order
+              const effectiveOrder = [...currentOrder];
+              for (const f of SIDEBAR_FEATURES) {
+                if (!effectiveOrder.includes(f)) effectiveOrder.push(f);
+              }
+              for (const cs of customScreens) {
+                if (!effectiveOrder.includes(cs.id)) effectiveOrder.push(cs.id);
+              }
+              const customScreensMap = new Map(customScreens.map(s => [s.id, s]));
+
+              const handleKioskDragEnd = (event: DragEndEvent) => {
+                const { active, over } = event;
+                if (!over || active.id === over.id) return;
+                const oldIdx = effectiveOrder.indexOf(String(active.id));
+                const newIdx = effectiveOrder.indexOf(String(over.id));
+                if (oldIdx === -1 || newIdx === -1) return;
+                const newOrder = arrayMove(effectiveOrder, oldIdx, newIdx);
+                updateKiosk.mutate({
+                  settings: { ...settings, sidebarOrder: newOrder },
+                });
+              };
+
+              return (
+                <DndContext sensors={kioskDndSensors} collisionDetection={closestCenter} onDragEnd={handleKioskDragEnd}>
+                  <SortableContext items={effectiveOrder} strategy={verticalListSortingStrategy}>
+                    <div className="divide-y divide-border/50">
+                      {effectiveOrder.map((key) => {
+                        const builtin = SIDEBAR_FEATURE_LABELS[key];
+                        const cs = customScreensMap.get(key);
+                        if (!builtin && !cs) return null;
+                        const label = builtin ?? cs?.name ?? key;
+                        const iconName = builtin ? (key === "calendar" ? "Calendar" : key === "tasks" ? "ListTodo" : key === "photos" ? "Image" : key === "dashboard" ? "LayoutDashboard" : key === "homeassistant" ? "Home" : "Monitor") : (cs?.icon ?? "LayoutDashboard");
+                        const featureState = sidebarSettings[key] ?? { enabled: true };
+                        const enabled = featureState.enabled !== false;
+                        return (
+                          <KioskSortableSidebarItem
+                            key={key}
+                            id={key}
+                            label={label}
+                            iconName={iconName}
+                            enabled={enabled}
+                            onToggle={(v) => {
+                              const current = settings.sidebar ?? {};
+                              updateKiosk.mutate({
+                                settings: {
+                                  ...settings,
+                                  sidebar: {
+                                    ...current,
+                                    [key]: { ...current[key], enabled: v },
+                                  },
+                                },
+                              });
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              );
+            })()}
           </CardContent>
         )}
       </Card>

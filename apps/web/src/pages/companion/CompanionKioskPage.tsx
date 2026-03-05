@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Maximize,
   Moon,
+  Share2,
 } from "lucide-react";
 import { api, type Kiosk } from "../../services/api";
 
@@ -173,6 +174,13 @@ export function CompanionKioskPage() {
         >
           <Moon className="h-4 w-4 text-primary" />
           Screen
+        </button>
+        <button
+          onClick={() => navigate(`/companion/kiosks/${kioskId}/fileshare`)}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-card border border-border text-sm font-medium text-foreground hover:bg-primary/5 transition-colors min-h-[44px]"
+        >
+          <Share2 className="h-4 w-4 text-primary" />
+          Share
         </button>
       </div>
 

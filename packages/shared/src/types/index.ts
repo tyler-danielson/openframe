@@ -40,7 +40,7 @@ export interface ApiKeyInfo {
 export type OAuthProvider = "google" | "microsoft";
 
 // Calendar types
-export type CalendarProvider = "google" | "microsoft" | "caldav" | "ics" | "sports" | "homeassistant";
+export type CalendarProvider = "google" | "microsoft" | "caldav" | "ics" | "sports" | "homeassistant" | "local";
 
 export interface CalendarVisibility {
   week: boolean;
@@ -1285,3 +1285,16 @@ export interface MatterCommandRequest {
 export type TicketStatus = "open" | "in_progress" | "waiting_on_user" | "resolved" | "closed";
 export type TicketPriority = "low" | "normal" | "high" | "urgent";
 export type TicketCategory = "billing" | "bug" | "feature_request" | "account" | "general";
+
+// Custom Screen types
+export interface CustomScreen {
+  id: string;
+  userId: string;
+  name: string;
+  icon: string;
+  slug: string;
+  layoutConfig: Record<string, unknown>;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}

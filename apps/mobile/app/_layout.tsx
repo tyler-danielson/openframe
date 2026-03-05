@@ -25,7 +25,11 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     if (isLoading) return;
 
     const inAuthGroup = segments[0] === "(auth)";
+    const inOAuthCallback = segments[0] === "auth" && segments[1] === "callback";
     const needsAuth = !isAuthenticated || !serverUrl;
+
+    // Don't redirect while the OAuth callback is processing
+    if (inOAuthCallback) return;
 
     if (needsAuth && !inAuthGroup) {
       // Redirect to login
@@ -63,6 +67,7 @@ export default function RootLayout() {
           }}
         >
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+          <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen
             name="event/[id]"

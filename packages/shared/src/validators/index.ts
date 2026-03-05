@@ -18,7 +18,7 @@ export const createApiKeySchema = z.object({
 
 // Calendar validators
 export const calendarQuerySchema = z.object({
-  provider: z.enum(["google", "microsoft", "caldav", "ics", "sports"]).optional(),
+  provider: z.enum(["google", "microsoft", "caldav", "ics", "sports", "homeassistant", "local"]).optional(),
   includeHidden: z.coerce.boolean().default(false),
 });
 

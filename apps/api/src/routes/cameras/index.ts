@@ -8,8 +8,15 @@ import { mediamtx, MediaMTXService } from "../../services/mediamtx.js";
  * Derive a Reolink-compatible snapshot URL from an RTSP URL.
  * Reolink cameras expose snapshots at: http://<host>/cgi-bin/api.cgi?cmd=Snap&channel=<N>
  * RTSP paths like /h264Preview_01_main → channel 0 (01 = channel 1 in 1-indexed, 0 in API)
+ *
+ * Credentials are included as query parameters because Reolink uses HTTP Digest Auth
+ * which is not supported by the Fetch API. URL query params work as a fallback.
  */
-function deriveSnapshotUrl(rtspUrl: string | null): string | null {
+function deriveSnapshotUrl(
+  rtspUrl: string | null,
+  username?: string | null,
+  password?: string | null
+): string | null {
   if (!rtspUrl) return null;
   try {
     const parsed = new URL(rtspUrl);
@@ -23,7 +30,15 @@ function deriveSnapshotUrl(rtspUrl: string | null): string | null {
       channel = Math.max(0, parseInt(channelMatch[1]!, 10) - 1);
     }
 
-    return `http://${hostname}/cgi-bin/api.cgi?cmd=Snap&channel=${channel}&rs=${Date.now()}`;
+    const url = new URL(`http://${hostname}/cgi-bin/api.cgi`);
+    url.searchParams.set("cmd", "Snap");
+    url.searchParams.set("channel", channel.toString());
+    url.searchParams.set("rs", Date.now().toString());
+    // Reolink accepts credentials as query parameters (digest auth fallback)
+    if (username) url.searchParams.set("user", username);
+    if (password) url.searchParams.set("password", password);
+
+    return url.toString();
   } catch {
     return null;
   }
@@ -543,7 +558,7 @@ export const cameraRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Use configured snapshot URL, or derive one from RTSP URL
-      const snapshotUrl = camera.snapshotUrl || deriveSnapshotUrl(camera.rtspUrl);
+      const snapshotUrl = camera.snapshotUrl || deriveSnapshotUrl(camera.rtspUrl, camera.username, camera.password);
 
       if (!snapshotUrl) {
         return reply.badRequest("Camera does not have a snapshot URL configured and none could be derived");

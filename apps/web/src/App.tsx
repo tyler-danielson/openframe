@@ -32,6 +32,8 @@ import { TvSetupPage } from "./pages/TvSetupPage";
 import { InviteAcceptPage } from "./pages/InviteAcceptPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { PlannerBuilderPage } from "./pages/PlannerBuilderPage";
+import { CustomScreenPage } from "./pages/CustomScreenPage";
+import { CustomScreenBuilderPage } from "./pages/CustomScreenBuilderPage";
 import { ProfileSettingsPage } from "./pages/ProfileSettingsPage";
 import { DemoProvider } from "./contexts/DemoContext";
 import { DemoLayout } from "./components/ui/DemoLayout";
@@ -343,6 +345,8 @@ export default function App() {
           <Route path="kitchen" element={<ModuleGate moduleId="recipes"><KitchenPage /></ModuleGate>} />
           <Route path="recipes" element={<Navigate to="/kitchen" replace />} />
           <Route path="chat" element={<ModuleGate moduleId="ai-chat"><ChatPage /></ModuleGate>} />
+          <Route path="screen/:slug" element={<CustomScreenPage />} />
+          <Route path="screen/:slug/edit" element={<CustomScreenBuilderPage />} />
           <Route
             path="remarkable"
             element={

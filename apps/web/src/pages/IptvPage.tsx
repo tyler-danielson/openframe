@@ -17,6 +17,7 @@ import {
   Youtube,
 } from "lucide-react";
 import { api } from "../services/api";
+import { useToast } from "../components/ui/Toaster";
 import { useIptvStore } from "../stores/iptv";
 import { Button } from "../components/ui/Button";
 import { VideoPlayer } from "../components/iptv/VideoPlayer";
@@ -43,6 +44,7 @@ const TABS: { id: TabView; label: string; icon: React.ComponentType<{ className?
 
 export function IptvPage() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [showServerSettings, setShowServerSettings] = useState(false);
   const [activeTab, setActiveTab] = useState<TabView>("dashboard");
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
@@ -222,7 +224,29 @@ export function IptvPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["iptv-guide"] });
     },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to refresh guide data",
+        description: error?.message || "Check your IPTV server credentials and try again.",
+        type: "error",
+      });
+    },
   });
+
+  // Auto-trigger cache refresh when guide data comes back uncached (first load)
+  const [autoRefreshAttempted, setAutoRefreshAttempted] = useState(false);
+  useEffect(() => {
+    if (
+      guideData &&
+      !guideData.cached &&
+      !autoRefreshAttempted &&
+      !refreshCacheMutation.isPending &&
+      servers.length > 0
+    ) {
+      setAutoRefreshAttempted(true);
+      refreshCacheMutation.mutate();
+    }
+  }, [guideData, autoRefreshAttempted, refreshCacheMutation.isPending, servers.length]);
 
   // Delete server mutation
   const deleteServerMutation = useMutation({
@@ -242,8 +266,20 @@ export function IptvPage() {
       queryClient.invalidateQueries({ queryKey: ["iptv-channels"] });
       queryClient.invalidateQueries({ queryKey: ["iptv-servers"] });
       // Refresh cache after sync
-      await api.refreshIptvCache();
-      queryClient.invalidateQueries({ queryKey: ["iptv-guide"] });
+      try {
+        await api.refreshIptvCache();
+        queryClient.invalidateQueries({ queryKey: ["iptv-guide"] });
+      } catch {
+        // Guide will auto-refresh on next load
+        queryClient.invalidateQueries({ queryKey: ["iptv-guide"] });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Sync failed",
+        description: error?.message || "Check your IPTV server credentials.",
+        type: "error",
+      });
     },
   });
 

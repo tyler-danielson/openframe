@@ -20,6 +20,22 @@ import type { Camera } from "@openframe/shared";
 
 type StreamMode = "webrtc" | "hls" | "mjpeg" | "snapshot";
 
+/**
+ * Replace the hostname in a MediaMTX URL with the current browser hostname.
+ * MediaMTX is co-deployed on the same host as the app, so the browser should
+ * connect to the same hostname it used to reach the app — not "localhost"
+ * which is what the server-side defaults to.
+ */
+function resolveStreamUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.hostname = window.location.hostname;
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
 interface CameraFeedProps {
   camera: Camera;
   onEdit?: () => void;
@@ -84,8 +100,8 @@ export function CameraFeed({
           if (cancelled) return;
 
           setStreamUrls({
-            webrtcUrl: result.webrtcUrl,
-            hlsUrl: result.hlsUrl,
+            webrtcUrl: resolveStreamUrl(result.webrtcUrl),
+            hlsUrl: resolveStreamUrl(result.hlsUrl),
           });
         } else {
           // Fall back to MJPEG or snapshot

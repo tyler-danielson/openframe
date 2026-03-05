@@ -140,9 +140,7 @@ export class IptvCacheService {
         .from(iptvEpg)
         .where(inArray(iptvEpg.channelId, channelIds));
 
-      if (epgRows.length === 0) return false;
-
-      // Build EPG map
+      // Build EPG map (may be empty — that's OK, we still have channels)
       const epgMap = new Map<string, CachedEpgEntry[]>();
       let maxCreatedAt = new Date(0);
 
@@ -189,12 +187,13 @@ export class IptvCacheService {
           channelCount: categoryChannelCounts.get(cat.id) || 0,
         })),
         epg: epgMap,
-        lastUpdated: maxCreatedAt,
+        lastUpdated: maxCreatedAt.getTime() > 0 ? maxCreatedAt : new Date(),
       };
 
       // Store in memory cache
+      const cacheTs = maxCreatedAt.getTime() > 0 ? maxCreatedAt : new Date();
       userCache.set(userId, cacheData);
-      cacheTimestamps.set(userId, maxCreatedAt);
+      cacheTimestamps.set(userId, cacheTs);
 
       this.fastify.log.info(
         `IPTV cache loaded from DB for user ${userId}: ${cacheData.channels.length} channels, ${epgMap.size} channels with EPG`
@@ -364,6 +363,7 @@ export class IptvCacheService {
           const BATCH_SIZE = 10;
           let epgFetchAttempts = 0;
           let epgFetchSuccesses = 0;
+          let epgFetchFailures = 0;
 
           for (let i = 0; i < serverChannels.length; i += BATCH_SIZE) {
             const batch = serverChannels.slice(i, i + BATCH_SIZE);
@@ -398,9 +398,13 @@ export class IptvCacheService {
                 }));
                 return { channelId: channel.id, entries };
               } catch (err) {
-                // Log first few errors
-                if (epgFetchAttempts <= 3) {
-                  this.fastify.log.warn({ err, channelName: channel.name }, "EPG fetch failed");
+                epgFetchFailures++;
+                // Log first 10 errors with details, then just count
+                if (epgFetchFailures <= 10) {
+                  this.fastify.log.warn(
+                    { err, channelName: channel.name, epgId: channel.epgChannelId || channel.externalId },
+                    "EPG fetch failed for channel"
+                  );
                 }
                 return { channelId: channel.id, entries: [] };
               }
@@ -417,7 +421,8 @@ export class IptvCacheService {
           this.fastify.log.info({
             server: server.name,
             attempts: epgFetchAttempts,
-            successes: epgFetchSuccesses
+            successes: epgFetchSuccesses,
+            failures: epgFetchFailures
           }, "EPG fetch completed for server");
         } catch (error) {
           this.fastify.log.warn(

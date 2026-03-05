@@ -164,9 +164,11 @@ class MediaMTXService {
    */
   getWebRTCUrl(pathName: string): string {
     // WebRTC endpoint for MediaMTX
+    // Don't encodeURIComponent — path names contain slashes (e.g. "camera/uuid")
+    // that must be preserved as URL path segments
     const webrtcPort = process.env.MEDIAMTX_WEBRTC_PORT || "8889";
     const host = process.env.MEDIAMTX_HOST || "localhost";
-    return `http://${host}:${webrtcPort}/${encodeURIComponent(pathName)}`;
+    return `http://${host}:${webrtcPort}/${pathName}`;
   }
 
   /**
@@ -175,7 +177,7 @@ class MediaMTXService {
   getHLSUrl(pathName: string): string {
     const hlsPort = process.env.MEDIAMTX_HLS_PORT || "8888";
     const host = process.env.MEDIAMTX_HOST || "localhost";
-    return `http://${host}:${hlsPort}/${encodeURIComponent(pathName)}/index.m3u8`;
+    return `http://${host}:${hlsPort}/${pathName}/index.m3u8`;
   }
 
   /**

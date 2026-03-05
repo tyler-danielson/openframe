@@ -56,6 +56,7 @@ import { companionAccessRoutes } from "./routes/companion/access.js";
 import { companionDataRoutes } from "./routes/companion/data.js";
 import { assumptionRoutes } from "./routes/assumptions/index.js";
 import { shoppingRoutes } from "./routes/shopping/index.js";
+import { screenRoutes } from "./routes/screens/index.js";
 import { userRoutes } from "./routes/users/index.js";
 import { cloudRoutes } from "./routes/cloud/index.js";
 import { adminRoutes } from "./routes/admin/index.js";
@@ -63,6 +64,7 @@ import { supportRoutes } from "./routes/support/index.js";
 import { matterRoutes } from "./routes/matter/index.js";
 import { usageRoutes } from "./routes/usage/index.js";
 import { aiRelayRoutes } from "./routes/ai-relay/index.js";
+import { fileshareRoutes } from "./routes/fileshare/index.js";
 import { cloudPlugin } from "./plugins/cloud.js";
 import { matterPlugin } from "./plugins/matter.js";
 import { planLimitsPlugin } from "./plugins/plan-limits.js";
@@ -138,43 +140,45 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
     crossOriginOpenerPolicy: false, // Allow cross-origin window interactions
   });
 
-  // Swagger documentation (development only)
-  if (config.nodeEnv !== "production") {
-    await app.register(swagger, {
-      openapi: {
-        openapi: "3.0.0",
-        info: {
-          title: "OpenFrame API",
-          description: "Self-hosted calendar dashboard API",
-          version: "1.0.0",
+  // Swagger documentation
+  await app.register(swagger, {
+    openapi: {
+      openapi: "3.0.0",
+      info: {
+        title: "OpenFrame API",
+        description:
+          "OpenFrame REST API — manage calendars, tasks, kiosks, smart home, and more.",
+        version: "1.0.0",
+      },
+      servers: [
+        ...(config.nodeEnv === "production"
+          ? [{ url: "https://api.openframe.us", description: "Production" }]
+          : []),
+        {
+          url: `http://localhost:${config.port}`,
+          description: "Development",
         },
-        servers: [
-          {
-            url: `http://localhost:${config.port}`,
-            description: "Development server",
+      ],
+      components: {
+        securitySchemes: {
+          bearerAuth: {
+            type: "http",
+            scheme: "bearer",
+            bearerFormat: "JWT",
           },
-        ],
-        components: {
-          securitySchemes: {
-            bearerAuth: {
-              type: "http",
-              scheme: "bearer",
-              bearerFormat: "JWT",
-            },
-            apiKey: {
-              type: "apiKey",
-              in: "header",
-              name: "X-API-Key",
-            },
+          apiKey: {
+            type: "apiKey",
+            in: "header",
+            name: "X-API-Key",
           },
         },
       },
-    });
+    },
+  });
 
-    await app.register(swaggerUi, {
-      routePrefix: "/docs",
-    });
-  }
+  await app.register(swaggerUi, {
+    routePrefix: "/docs",
+  });
 
   // Custom plugins
   await app.register(databasePlugin, { connectionString: config.databaseUrl });
@@ -242,6 +246,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(companionDataRoutes, { prefix: "/api/v1/companion/data" });
   await app.register(assumptionRoutes, { prefix: "/api/v1/assumptions" });
   await app.register(shoppingRoutes, { prefix: "/api/v1/shopping" });
+  await app.register(screenRoutes, { prefix: "/api/v1/screens" });
   await app.register(userRoutes, { prefix: "/api/v1/users" });
   await app.register(cloudRoutes, { prefix: "/api/v1/cloud" });
   await app.register(adminRoutes, { prefix: "/api/v1/admin" });
@@ -249,6 +254,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(matterRoutes, { prefix: "/api/v1/matter" });
   await app.register(usageRoutes, { prefix: "/api/v1/usage" });
   await app.register(aiRelayRoutes, { prefix: "/api/v1/ai-relay" });
+  await app.register(fileshareRoutes, { prefix: "/api/v1/fileshare" });
 
   // --- Static file serving (combined container mode) ---
   const publicDir = path.join(process.cwd(), "public");

@@ -591,7 +591,10 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
 
         return { success: true, data: epgEntries };
       } catch (error) {
-        // Return empty EPG if fetch fails
+        fastify.log.warn(
+          { err: error, channelId: id, channelName: result.channel.name },
+          "EPG fetch failed for channel"
+        );
         return { success: true, data: [] };
       }
     }

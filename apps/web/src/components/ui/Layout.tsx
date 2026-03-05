@@ -32,11 +32,13 @@ import {
   Cpu,
   Kanban,
 } from "lucide-react";
+import * as LucideIcons from "lucide-react";
 import { api, type KioskEnabledFeatures, type KioskDisplayType } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
 import { isCloudMode } from "../../lib/cloud";
-import { useSidebarStore, type SidebarFeature } from "../../stores/sidebar";
+import { useSidebarStore, SIDEBAR_FEATURES, type SidebarFeature } from "../../stores/sidebar";
 import { useModuleStore } from "../../stores/modules";
+import type { CustomScreen } from "@openframe/shared";
 import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import { useScreensaverStore } from "../../stores/screensaver";
 import { useBlockNavStore, type NavigableBlock } from "../../stores/block-nav";
@@ -48,6 +50,33 @@ interface LayoutProps {
   kioskDisplayType?: KioskDisplayType | null;
   className?: string;
   basePath?: string;
+}
+
+// Built-in feature definitions (icon + route + label)
+const BUILTIN_FEATURE_MAP: Record<string, { icon: any; path: string; label: string; moduleId: string | null }> = {
+  calendar: { icon: Calendar, path: "calendar", label: "Calendar", moduleId: null },
+  tasks: { icon: ListTodo, path: "tasks", label: "Tasks", moduleId: null },
+  routines: { icon: ListChecks, path: "routines", label: "Routines", moduleId: "routines" },
+  dashboard: { icon: LayoutDashboard, path: "dashboard", label: "Dashboard", moduleId: null },
+  cardview: { icon: Kanban, path: "cardview", label: "Card View", moduleId: null },
+  photos: { icon: Image, path: "photos", label: "Photos", moduleId: "photos" },
+  cameras: { icon: Camera, path: "cameras", label: "Cameras", moduleId: "cameras" },
+  multiview: { icon: LayoutGrid, path: "multiview", label: "Multi-View", moduleId: "cameras" },
+  homeassistant: { icon: Home, path: "homeassistant", label: "Home Assistant", moduleId: "homeassistant" },
+  matter: { icon: Cpu, path: "matter", label: "Matter", moduleId: "matter" },
+  map: { icon: MapPin, path: "map", label: "Map", moduleId: "map" },
+  kitchen: { icon: ChefHat, path: "kitchen", label: "Kitchen", moduleId: "recipes" },
+  chat: { icon: MessageCircle, path: "chat", label: "Chat", moduleId: "ai-chat" },
+  screensaver: { icon: Monitor, path: "screensaver", label: "Custom", moduleId: null },
+};
+
+/** Resolve a lucide icon name to a component (fallback to LayoutDashboard) */
+function resolveLucideIcon(name: string): React.ComponentType<{ className?: string }> {
+  const icons = LucideIcons as Record<string, unknown>;
+  if (icons[name] && typeof icons[name] === "function") {
+    return icons[name] as React.ComponentType<{ className?: string }>;
+  }
+  return LayoutDashboard;
 }
 
 // Media sub-items (base paths, will be prefixed in component)
@@ -73,6 +102,8 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarFeatures = useSidebarStore((s) => s.features);
+  const sidebarOrder = useSidebarStore((s) => s.order);
+  const sidebarCustomScreens = useSidebarStore((s) => s.customScreens);
   const isModuleEnabled = useModuleStore((s) => s.isEnabled);
 
   // Detect kiosk mode base path from URL (e.g., /kiosk/abc123), or use explicit basePath prop (e.g., /demo)
@@ -86,6 +117,21 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
   const buildPath = useCallback((path: string) => {
     return basePath ? `${basePath}/${path}` : `/${path}`;
   }, [basePath]);
+
+  // Fetch custom screens for navigation
+  const { data: customScreensData } = useQuery({
+    queryKey: ["custom-screens"],
+    queryFn: () => api.getCustomScreens(),
+    enabled: isAuthenticated && !basePath, // Only for main app, not kiosk
+    staleTime: 30_000,
+  });
+  const customScreensMap = useMemo(() => {
+    const map: Record<string, CustomScreen> = {};
+    if (customScreensData) {
+      for (const s of customScreensData) map[s.id] = s;
+    }
+    return map;
+  }, [customScreensData]);
 
   // Media items with correct paths
   const mediaItems = useMemo(() =>
@@ -198,25 +244,55 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
     return kioskEnabledFeatures[feature] !== false;
   }, [kioskEnabledFeatures]);
 
-  // Build nav items based on authentication status (with kiosk prefix if needed)
+  // Build nav items based on order array, authentication status, and custom screens
   const navItems = useMemo(() => {
-    const items: { to: string; icon: any; label: string; feature: string | undefined; moduleId: string | null }[] = [
-      { to: buildPath("calendar"), icon: Calendar, label: "Calendar", feature: "calendar", moduleId: null },
-      { to: buildPath("tasks"), icon: ListTodo, label: "Tasks", feature: "tasks", moduleId: null },
-      { to: buildPath("routines"), icon: ListChecks, label: "Routines", feature: "routines", moduleId: "routines" },
-      { to: buildPath("dashboard"), icon: LayoutDashboard, label: "Dashboard", feature: "dashboard", moduleId: null },
-      { to: buildPath("cardview"), icon: Kanban, label: "Card View", feature: "cardview", moduleId: null },
-      { to: buildPath("photos"), icon: Image, label: "Photos", feature: "photos", moduleId: "photos" },
-      // Media is handled separately with submenu
-      { to: buildPath("cameras"), icon: Camera, label: "Cameras", feature: "cameras", moduleId: "cameras" },
-      { to: buildPath("multiview"), icon: LayoutGrid, label: "Multi-View", feature: "multiview", moduleId: "cameras" },
-      { to: buildPath("homeassistant"), icon: Home, label: "Home Assistant", feature: "homeassistant", moduleId: "homeassistant" },
-      { to: buildPath("matter"), icon: Cpu, label: "Matter", feature: "matter", moduleId: "matter" },
-      { to: buildPath("map"), icon: MapPin, label: "Map", feature: "map", moduleId: "map" },
-      { to: buildPath("kitchen"), icon: ChefHat, label: "Kitchen", feature: "kitchen", moduleId: "recipes" },
-      { to: buildPath("chat"), icon: MessageCircle, label: "Chat", feature: "chat", moduleId: "ai-chat" },
-      { to: buildPath("screensaver"), icon: Monitor, label: "Custom", feature: "screensaver", moduleId: null },
-    ];
+    type NavItem = { to: string; icon: any; label: string; feature: string | undefined; moduleId: string | null; isCustom?: boolean };
+    const items: NavItem[] = [];
+
+    // Iterate through the order array to build items in correct sequence
+    for (const key of sidebarOrder) {
+      const builtin = BUILTIN_FEATURE_MAP[key];
+      if (builtin) {
+        // Built-in feature
+        items.push({
+          to: buildPath(builtin.path),
+          icon: builtin.icon,
+          label: builtin.label,
+          feature: key,
+          moduleId: builtin.moduleId,
+        });
+      } else {
+        // Custom screen (UUID key)
+        const cs = customScreensMap[key];
+        if (cs) {
+          items.push({
+            to: buildPath(`screen/${cs.slug}`),
+            icon: resolveLucideIcon(cs.icon),
+            label: cs.name,
+            feature: undefined,
+            moduleId: null,
+            isCustom: true,
+          });
+        }
+      }
+    }
+
+    // Also add any custom screens not yet in the order array
+    if (customScreensData) {
+      const orderSet = new Set(sidebarOrder);
+      for (const cs of customScreensData) {
+        if (!orderSet.has(cs.id)) {
+          items.push({
+            to: buildPath(`screen/${cs.slug}`),
+            icon: resolveLucideIcon(cs.icon),
+            label: cs.name,
+            feature: undefined,
+            moduleId: null,
+            isCustom: true,
+          });
+        }
+      }
+    }
 
     // First filter: remove items whose module is not enabled
     let filteredItems = items.filter(item => !item.moduleId || isModuleEnabled(item.moduleId));
@@ -228,8 +304,12 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
         !item.feature || isFeatureEnabled(item.feature as keyof KioskEnabledFeatures)
       );
     } else {
-      // Normal mode: use sidebar store enabled state
+      // Normal mode: use sidebar store enabled state for built-in features
       filteredItems = filteredItems.filter(item => {
+        if (item.isCustom) {
+          // Custom screens use their own state in sidebarCustomScreens
+          return true; // always show if they exist — pin/enable handled below
+        }
         const feat = item.feature as SidebarFeature;
         if (!feat) return true;
         return !sidebarFeatures[feat] || sidebarFeatures[feat].enabled;
@@ -238,7 +318,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
 
     // Only show reMarkable, profiles, and settings if authenticated AND not accessing via kiosk URL
     if (isAuthenticated && !basePath) {
-      const authItems: typeof items = [
+      const authItems: NavItem[] = [
         { to: "/profiles", icon: Users, label: "Family", feature: undefined, moduleId: null },
         { to: "/settings", icon: Settings, label: "Settings", feature: undefined, moduleId: null },
       ];
@@ -254,26 +334,41 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
     }
 
     return filteredItems;
-  }, [buildPath, isAuthenticated, basePath, kioskEnabledFeatures, isFeatureEnabled, sidebarFeatures, isModuleEnabled, authUser]);
+  }, [buildPath, isAuthenticated, basePath, kioskEnabledFeatures, isFeatureEnabled, sidebarFeatures, sidebarOrder, sidebarCustomScreens, customScreensMap, customScreensData, isModuleEnabled, authUser]);
+
+  // Helper to check pinned state for any nav item (built-in or custom)
+  const isItemPinned = useCallback((item: { feature: string | undefined; isCustom?: boolean; to: string }) => {
+    if (item.isCustom) {
+      // Find custom screen ID from the to path
+      const cs = customScreensData?.find(s => item.to.endsWith(`/screen/${s.slug}`));
+      if (cs) {
+        const state = sidebarCustomScreens[cs.id];
+        return !state || state.pinned; // default pinned
+      }
+      return true;
+    }
+    const feat = item.feature as SidebarFeature;
+    if (!feat) return true; // auth-only items always pinned
+    return !sidebarFeatures[feat] || sidebarFeatures[feat].pinned;
+  }, [sidebarFeatures, sidebarCustomScreens, customScreensData]);
 
   // Derive pinned vs more items (non-kiosk only)
   const pinnedItems = useMemo(() => {
     if (kioskEnabledFeatures) return navItems; // kiosk: all items are "pinned"
-    return navItems.filter(item => {
-      const feat = item.feature as SidebarFeature;
-      if (!feat) return true; // auth-only items always pinned
-      return !sidebarFeatures[feat] || sidebarFeatures[feat].pinned;
-    });
-  }, [navItems, kioskEnabledFeatures, sidebarFeatures]);
+    return navItems.filter(item => isItemPinned(item));
+  }, [navItems, kioskEnabledFeatures, isItemPinned]);
 
   const moreItems = useMemo(() => {
     if (kioskEnabledFeatures) return []; // kiosk: no overflow
     return navItems.filter(item => {
+      if (item.isCustom) {
+        return !isItemPinned(item);
+      }
       const feat = item.feature as SidebarFeature;
       if (!feat) return false; // auth-only items never in More
       return sidebarFeatures[feat] && !sidebarFeatures[feat].pinned;
     });
-  }, [navItems, kioskEnabledFeatures, sidebarFeatures]);
+  }, [navItems, kioskEnabledFeatures, sidebarFeatures, isItemPinned]);
 
   // Check if media features are enabled (module + sidebar/kiosk)
   const spotifyModuleOn = isModuleEnabled("spotify");

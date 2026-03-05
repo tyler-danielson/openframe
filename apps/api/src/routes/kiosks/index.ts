@@ -33,7 +33,10 @@ type KioskCommandType =
   | "screensaver"
   | "widget-control"
   | "iptv-play"
-  | "camera-view";
+  | "camera-view"
+  | "file-share"
+  | "file-share-dismiss"
+  | "file-share-page";
 
 export interface KioskCommand {
   type: KioskCommandType;
@@ -56,6 +59,9 @@ const VALID_COMMAND_TYPES: KioskCommandType[] = [
   "widget-control",
   "iptv-play",
   "camera-view",
+  "file-share",
+  "file-share-dismiss",
+  "file-share-page",
 ];
 
 // In-memory widget state store (kioskId -> widgetId -> state)

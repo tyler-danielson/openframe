@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, Crown, Eye, EyeOff, ExternalLink, RefreshCw, ChevronDown, ChevronRight, User } from "lucide-react";
+import { Star, Crown, Eye, EyeOff, ExternalLink, RefreshCw, ChevronDown, ChevronRight, User, Pencil, Trash2, Plus, Check, X } from "lucide-react";
 import type { Calendar, CalendarProvider, CalendarVisibility, CalendarEvent, FavoriteSportsTeam } from "@openframe/shared";
 import { ToggleGroup } from "../ui/Toggle";
 import { Button } from "../ui/Button";
@@ -18,6 +18,7 @@ interface CalendarListForAccountProps {
   onUpdateTeam: (id: string, updates: TeamUpdate) => void;
   onConnect: () => void;
   onManageTeams: () => void;
+  onDeleteCalendar?: (id: string) => void;
 }
 
 // Default visibility for calendars without visibility set
@@ -68,6 +69,11 @@ const PROVIDER_CONFIG: Record<
     connectLabel: "Add Calendar",
     description: "Subscribe to calendars from your Home Assistant instance.",
   },
+  local: {
+    name: "My Calendars",
+    connectLabel: "Create Calendar",
+    description: "Create calendars that live only in OpenFrame.",
+  },
 };
 
 // Sort calendars: primary -> favorites -> read-write -> alphabetical
@@ -93,12 +99,18 @@ function CalendarRow({
   calendar,
   events,
   onUpdateCalendar,
+  onDeleteCalendar,
 }: {
   calendar: Calendar;
   events?: CalendarEvent[];
   onUpdateCalendar: (id: string, updates: CalendarUpdate) => void;
+  onDeleteCalendar?: (id: string) => void;
 }) {
   const [showPreview, setShowPreview] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(calendar.name);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const isLocal = calendar.provider === "local";
   const visibility = calendar.visibility ?? DEFAULT_VISIBILITY;
 
   // Get upcoming events for this calendar
@@ -186,38 +198,130 @@ function CalendarRow({
           {/* Calendar name + preview toggle */}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => hasEvents && setShowPreview(!showPreview)}
-                className={`font-medium truncate text-left ${hasEvents ? "hover:text-primary cursor-pointer" : ""}`}
-                title={hasEvents ? "Click to preview events" : undefined}
-              >
-                {calendar.name}
-              </button>
-              {hasEvents && (
-                <button
-                  type="button"
-                  onClick={() => setShowPreview(!showPreview)}
-                  className="p-0.5 text-muted-foreground/40 hover:text-primary transition-colors flex-shrink-0"
-                >
-                  {showPreview ? (
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronRight className="h-3.5 w-3.5" />
+              {isRenaming ? (
+                <div className="flex items-center gap-1 flex-1 min-w-0">
+                  <input
+                    type="text"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && renameValue.trim()) {
+                        onUpdateCalendar(calendar.id, { name: renameValue.trim() });
+                        setIsRenaming(false);
+                      } else if (e.key === "Escape") {
+                        setRenameValue(calendar.name);
+                        setIsRenaming(false);
+                      }
+                    }}
+                    className="flex-1 min-w-0 px-2 py-0.5 text-sm rounded border border-primary bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (renameValue.trim()) {
+                        onUpdateCalendar(calendar.id, { name: renameValue.trim() });
+                        setIsRenaming(false);
+                      }
+                    }}
+                    className="p-0.5 text-green-500 hover:text-green-600"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRenameValue(calendar.name);
+                      setIsRenaming(false);
+                    }}
+                    className="p-0.5 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => hasEvents && setShowPreview(!showPreview)}
+                    className={`font-medium truncate text-left ${hasEvents ? "hover:text-primary cursor-pointer" : ""}`}
+                    title={hasEvents ? "Click to preview events" : undefined}
+                  >
+                    {calendar.name}
+                  </button>
+                  {isLocal && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenameValue(calendar.name);
+                        setIsRenaming(true);
+                      }}
+                      className="p-0.5 text-muted-foreground/40 hover:text-primary transition-colors flex-shrink-0"
+                      title="Rename calendar"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
                   )}
-                </button>
-              )}
-              {calendar.isPrimary && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/20 text-primary text-xs font-medium flex-shrink-0">
-                  <Crown className="h-3 w-3" />
-                  Primary
-                </span>
+                  {hasEvents && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPreview(!showPreview)}
+                      className="p-0.5 text-muted-foreground/40 hover:text-primary transition-colors flex-shrink-0"
+                    >
+                      {showPreview ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  )}
+                  {calendar.isPrimary && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/20 text-primary text-xs font-medium flex-shrink-0">
+                      <Crown className="h-3 w-3" />
+                      Primary
+                    </span>
+                  )}
+                </>
               )}
             </div>
             <p className="text-xs text-muted-foreground">
               {calendar.isReadOnly ? "Read-only" : "Read-write"}
             </p>
           </div>
+
+          {/* Delete button for local calendars */}
+          {isLocal && onDeleteCalendar && !showDeleteConfirm && (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="p-1 rounded-md text-muted-foreground/40 hover:text-red-500 transition-colors flex-shrink-0 mr-2"
+              title="Delete calendar"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
+          {isLocal && showDeleteConfirm && (
+            <div className="flex items-center gap-1 mr-2 flex-shrink-0">
+              <span className="text-xs text-red-500">Delete?</span>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteCalendar?.(calendar.id);
+                  setShowDeleteConfirm(false);
+                }}
+                className="p-0.5 text-red-500 hover:text-red-600"
+              >
+                <Check className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="p-0.5 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Visibility toggles */}
@@ -329,6 +433,7 @@ export function CalendarListForAccount({
   onUpdateTeam,
   onConnect,
   onManageTeams,
+  onDeleteCalendar,
 }: CalendarListForAccountProps) {
   const config = PROVIDER_CONFIG[provider];
 
@@ -536,6 +641,7 @@ export function CalendarListForAccount({
                         calendar={calendar}
                         events={events}
                         onUpdateCalendar={onUpdateCalendar}
+                        onDeleteCalendar={onDeleteCalendar}
                       />
                     ))}
                   </AnimatePresence>
@@ -587,6 +693,7 @@ export function CalendarListForAccount({
                   calendar={calendar}
                   events={events}
                   onUpdateCalendar={onUpdateCalendar}
+                  onDeleteCalendar={onDeleteCalendar}
                 />
               ))}
             </AnimatePresence>
@@ -631,7 +738,16 @@ export function CalendarListForAccount({
       )}
 
       {/* Add more calendars button */}
-      {provider !== "ics" && (
+      {provider === "local" && (
+        <div className="pt-4">
+          <Button variant="outline" size="sm" onClick={onConnect}>
+            <Plus className="mr-2 h-4 w-4" />
+            Create Calendar
+          </Button>
+        </div>
+      )}
+
+      {provider !== "ics" && provider !== "local" && (
         <div className="pt-4">
           <Button variant="outline" size="sm" onClick={onConnect}>
             <RefreshCw className="mr-2 h-4 w-4" />

@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { ChevronLeft, ChevronRight, Star, Play } from "lucide-react";
+import { ChevronLeft, ChevronRight, Star, Play, Loader2 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import type { IptvChannel } from "@openframe/shared";
@@ -26,6 +26,7 @@ const CHANNEL_COL_WIDTH = 160; // pixels for channel column
 const TIME_HEADER_HEIGHT = 36; // pixels for time header
 const CHANNEL_ROW_HEIGHT = 56; // pixels per channel row
 const MIN_PROGRAM_WIDTH = 60; // minimum width for very short programs
+const CHANNELS_PER_PAGE = 50; // channels to render per batch
 
 export function ChannelGuide({
   channels,
@@ -43,7 +44,9 @@ export function ChannelGuide({
 
   const [viewStartTime, setViewStartTime] = useState(initialStartTime);
   const [hoursToShow] = useState(3);
-  const gridRef = useRef<HTMLDivElement>(null);
+  const [visibleCount, setVisibleCount] = useState(CHANNELS_PER_PAGE);
+  const gridScrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   // Filter by search, then sort channels: favorites first, then alphabetically
   const sortedChannels = useMemo(() => {
@@ -77,8 +80,38 @@ export function ChannelGuide({
     });
   }, [channels, favorites, searchQuery, epg]);
 
-  // Show all channels, not just those with EPG data
-  const channelsWithEpg = sortedChannels;
+  // Reset visible count when search/channels change
+  useEffect(() => {
+    setVisibleCount(CHANNELS_PER_PAGE);
+  }, [searchQuery, channels.length]);
+
+  // Slice to only render visible channels
+  const visibleChannels = useMemo(
+    () => sortedChannels.slice(0, visibleCount),
+    [sortedChannels, visibleCount]
+  );
+
+  const hasMore = visibleCount < sortedChannels.length;
+
+  // IntersectionObserver for infinite scroll
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore) {
+          setVisibleCount((prev) =>
+            Math.min(prev + CHANNELS_PER_PAGE, sortedChannels.length)
+          );
+        }
+      },
+      { rootMargin: "200px" }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, sortedChannels.length]);
 
   // Generate time slots for the header
   const timeSlots = useMemo(() => {
@@ -104,12 +137,11 @@ export function ChannelGuide({
     return position;
   }, [viewStartTime, hoursToShow]);
 
-  // Auto-scroll to current time on mount
+  // Auto-scroll grid horizontally to current time on mount
   useEffect(() => {
-    if (gridRef.current && nowIndicatorPosition !== null) {
-      // Scroll so "now" is about 1/3 from the left
+    if (gridScrollRef.current && nowIndicatorPosition !== null) {
       const scrollPosition = Math.max(0, nowIndicatorPosition - SLOT_WIDTH);
-      gridRef.current.scrollLeft = scrollPosition;
+      gridScrollRef.current.scrollLeft = scrollPosition;
     }
   }, []); // Only on mount
 
@@ -140,7 +172,7 @@ export function ChannelGuide({
 
   const totalGridWidth = hoursToShow * 2 * SLOT_WIDTH;
 
-  if (channelsWithEpg.length === 0) {
+  if (sortedChannels.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center p-8 text-center">
         <div className="text-muted-foreground">
@@ -162,7 +194,7 @@ export function ChannelGuide({
           Earlier
         </Button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={navigateToNow}>
             Jump to Now
           </Button>
@@ -173,6 +205,9 @@ export function ChannelGuide({
               day: "numeric",
             })}
           </span>
+          <span className="text-xs text-muted-foreground">
+            {visibleChannels.length} of {sortedChannels.length} channels
+          </span>
         </div>
 
         <Button variant="outline" size="sm" onClick={navigateLater}>
@@ -181,54 +216,65 @@ export function ChannelGuide({
         </Button>
       </div>
 
-      {/* Guide grid */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Sticky time header row (spans full width) */}
+      <div className="flex border-b border-border bg-muted/50" style={{ height: TIME_HEADER_HEIGHT }}>
+        {/* Channel column header */}
+        <div className="flex-shrink-0 border-r border-border" style={{ width: CHANNEL_COL_WIDTH }} />
+        {/* Time slots header - horizontally scrollable, synced */}
+        <div
+          ref={gridScrollRef}
+          className="flex-1 overflow-x-auto"
+          style={{ scrollbarWidth: "none" }}
+        >
+          <div className="flex" style={{ width: totalGridWidth }}>
+            {timeSlots.map((slot, idx) => (
+              <div
+                key={idx}
+                className="flex items-center border-r border-border/50 px-2 text-sm font-medium"
+                style={{ width: SLOT_WIDTH, height: TIME_HEADER_HEIGHT }}
+              >
+                {formatTimeSlot(slot)}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Scrollable body (single vertical scroll for both columns) */}
+      <div className="flex flex-1 overflow-y-auto">
         {/* Fixed channel column */}
         <div
           className="flex-shrink-0 border-r border-border bg-card"
           style={{ width: CHANNEL_COL_WIDTH }}
         >
-          {/* Spacer for time header */}
-          <div
-            className="border-b border-border bg-muted/50"
-            style={{ height: TIME_HEADER_HEIGHT }}
-          />
-
-          {/* Channel list */}
-          <div className="overflow-y-auto" style={{ height: `calc(100% - ${TIME_HEADER_HEIGHT}px)` }}>
-            {channelsWithEpg.map((channel) => (
-              <ChannelRow
-                key={channel.id}
-                channel={channel}
-                isFavorite={favorites.some((f) => f.id === channel.id)}
-                onSelect={() => onChannelSelect(channel)}
-              />
-            ))}
-          </div>
+          {visibleChannels.map((channel) => (
+            <ChannelRow
+              key={channel.id}
+              channel={channel}
+              isFavorite={favorites.some((f) => f.id === channel.id)}
+              onSelect={() => onChannelSelect(channel)}
+            />
+          ))}
+          {/* Sentinel + loading indicator */}
+          <div ref={sentinelRef} className="h-1" />
+          {hasMore && (
+            <div className="flex items-center justify-center py-3">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          )}
         </div>
 
-        {/* Scrollable time grid */}
+        {/* Scrollable time grid - syncs horizontal scroll with header */}
         <div
-          ref={gridRef}
-          className="flex-1 overflow-x-auto overflow-y-auto"
+          className="flex-1 overflow-x-auto"
+          onScroll={(e) => {
+            // Sync horizontal scroll with header
+            if (gridScrollRef.current) {
+              gridScrollRef.current.scrollLeft = (e.target as HTMLDivElement).scrollLeft;
+            }
+          }}
         >
-          <div style={{ width: totalGridWidth, minHeight: "100%" }}>
-            {/* Time header */}
-            <div
-              className="sticky top-0 z-10 flex border-b border-border bg-muted/50"
-              style={{ height: TIME_HEADER_HEIGHT }}
-            >
-              {timeSlots.map((slot, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center border-r border-border/50 px-2 text-sm font-medium"
-                  style={{ width: SLOT_WIDTH }}
-                >
-                  {formatTimeSlot(slot)}
-                </div>
-              ))}
-            </div>
-
+          <div style={{ width: totalGridWidth }}>
             {/* Program grid with now indicator */}
             <div className="relative">
               {/* Now indicator */}
@@ -241,8 +287,8 @@ export function ChannelGuide({
                 </div>
               )}
 
-              {/* Program rows */}
-              {channelsWithEpg.map((channel) => (
+              {/* Program rows - only rendered channels */}
+              {visibleChannels.map((channel) => (
                 <ProgramRow
                   key={channel.id}
                   channel={channel}
@@ -252,6 +298,14 @@ export function ChannelGuide({
                   onChannelSelect={onChannelSelect}
                 />
               ))}
+
+              {/* Spacer for sentinel alignment */}
+              {hasMore && (
+                <div className="flex items-center justify-center py-3 text-xs text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Loading more channels...
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -57,6 +57,7 @@ import type {
   MatterCommissionRequest,
   MatterCommandRequest,
   ShoppingItem,
+  CustomScreen,
 } from "@openframe/shared";
 
 // API Key types
@@ -2084,6 +2085,38 @@ class ApiClient {
     await this.fetch("/shopping/checked", { method: "DELETE" });
   }
 
+  // Custom Screens
+
+  async getCustomScreens(): Promise<CustomScreen[]> {
+    return this.fetch<CustomScreen[]>("/screens");
+  }
+
+  async getCustomScreen(id: string): Promise<CustomScreen> {
+    return this.fetch<CustomScreen>(`/screens/${id}`);
+  }
+
+  async getCustomScreenBySlug(slug: string): Promise<CustomScreen> {
+    return this.fetch<CustomScreen>(`/screens/by-slug/${slug}`);
+  }
+
+  async createCustomScreen(data: { name: string; icon?: string; layoutConfig?: Record<string, unknown> }): Promise<CustomScreen> {
+    return this.fetch<CustomScreen>("/screens", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateCustomScreen(id: string, data: Partial<{ name: string; icon: string; layoutConfig: Record<string, unknown>; sortOrder: number }>): Promise<CustomScreen> {
+    return this.fetch<CustomScreen>(`/screens/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteCustomScreen(id: string): Promise<void> {
+    await this.fetch(`/screens/${id}`, { method: "DELETE" });
+  }
+
   // User Management
 
   async getUsers(): Promise<
@@ -3789,6 +3822,7 @@ export interface KioskSettings {
     expandAllLists?: boolean;
   };
   sidebar?: Record<string, { enabled?: boolean; pinned?: boolean }>;
+  sidebarOrder?: string[]; // ordered screen IDs for this kiosk
   spotify?: {
     oauthTokenId?: string;
   };

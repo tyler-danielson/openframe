@@ -45,6 +45,9 @@ export interface SettingCategoryDefinition {
 }
 
 class ApiClient {
+  // Mutex for token refresh to prevent race conditions
+  private refreshPromise: Promise<boolean> | null = null;
+
   private getApiBase(): string {
     const { serverUrl } = useAuthStore.getState();
     if (!serverUrl) {
@@ -53,11 +56,62 @@ class ApiClient {
     return `${serverUrl.replace(/\/$/, "")}/api/v1`;
   }
 
+  private getAuthBase(): string {
+    const { serverUrl } = useAuthStore.getState();
+    if (!serverUrl) {
+      throw new Error("Server URL not configured");
+    }
+    return `${serverUrl.replace(/\/$/, "")}`;
+  }
+
+  private async refreshTokens(): Promise<boolean> {
+    const { refreshToken, setTokens, logout } = useAuthStore.getState();
+
+    if (!refreshToken) {
+      return false;
+    }
+
+    try {
+      const apiBase = this.getApiBase();
+      const refreshResponse = await fetch(`${apiBase}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (refreshResponse.ok) {
+        const data = await refreshResponse.json();
+        setTokens(data.data.accessToken, data.data.refreshToken);
+        return true;
+      } else {
+        logout();
+        return false;
+      }
+    } catch {
+      logout();
+      return false;
+    }
+  }
+
+  private async ensureValidTokens(): Promise<boolean> {
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.refreshPromise = this.refreshTokens().finally(() => {
+      this.refreshPromise = null;
+    });
+
+    return this.refreshPromise;
+  }
+
   private async fetch<T>(
     path: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    skipAuth = false
   ): Promise<T> {
-    const { apiKey } = useAuthStore.getState();
+    const { accessToken, refreshToken, authMethod, apiKey } =
+      useAuthStore.getState();
     const apiBase = this.getApiBase();
 
     const headers: HeadersInit = {
@@ -69,22 +123,53 @@ class ApiClient {
       (headers as Record<string, string>)["Content-Type"] = "application/json";
     }
 
-    // Use API key for authentication
-    if (apiKey) {
-      (headers as Record<string, string>)["x-api-key"] = apiKey;
+    // Dual-mode auth: Bearer token or API key
+    if (!skipAuth) {
+      if (authMethod === "token" && accessToken) {
+        (headers as Record<string, string>)["Authorization"] =
+          `Bearer ${accessToken}`;
+      } else if (apiKey) {
+        (headers as Record<string, string>)["x-api-key"] = apiKey;
+      }
     }
 
-    const response = await fetch(`${apiBase}${path}`, {
+    let response = await fetch(`${apiBase}${path}`, {
       ...options,
       headers,
     });
 
+    // Handle token refresh on 401 when using token auth
+    if (
+      response.status === 401 &&
+      authMethod === "token" &&
+      refreshToken &&
+      !skipAuth
+    ) {
+      const refreshed = await this.ensureValidTokens();
+
+      if (refreshed) {
+        const { accessToken: newAccessToken } = useAuthStore.getState();
+        (headers as Record<string, string>)["Authorization"] =
+          `Bearer ${newAccessToken}`;
+        response = await fetch(`${apiBase}${path}`, {
+          ...options,
+          headers,
+        });
+      } else {
+        throw new Error("Session expired");
+      }
+    }
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      // Handle Fastify error format { message, error, statusCode } and
+      // custom formats { error: "message" } / { error: { message } }
       const errorMessage =
-        typeof errorData.error === "string"
+        errorData.message ??
+        (typeof errorData.error === "string"
           ? errorData.error
-          : errorData.error?.message ?? "Request failed";
+          : errorData.error?.message) ??
+        "Request failed";
       throw new Error(errorMessage);
     }
 
@@ -95,6 +180,49 @@ class ApiClient {
   // Auth
   async validateApiKey(): Promise<User> {
     return this.fetch<User>("/auth/me");
+  }
+
+  async login(
+    serverUrl: string,
+    email: string,
+    password: string
+  ): Promise<{ user: User; accessToken: string; refreshToken: string }> {
+    const base = `${serverUrl.replace(/\/$/, "")}/api/v1`;
+    const response = await fetch(`${base}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const errorMessage =
+        errorData.message ??
+        (typeof errorData.error === "string"
+          ? errorData.error
+          : errorData.error?.message) ??
+        "Login failed";
+      throw new Error(errorMessage);
+    }
+
+    const result = await response.json();
+    const data = result.data ?? result;
+    return {
+      user: data.user,
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+    };
+  }
+
+  async fetchCurrentUser(): Promise<User> {
+    const user = await this.fetch<User>("/auth/me");
+    useAuthStore.getState().setUser(user);
+    return user;
+  }
+
+  getOAuthUrl(provider: "google" | "microsoft"): string {
+    const base = this.getAuthBase();
+    return `${base}/api/v1/auth/oauth/${provider}`;
   }
 
   // Calendars

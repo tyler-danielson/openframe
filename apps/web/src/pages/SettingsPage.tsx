@@ -5,7 +5,7 @@ import { useSearchParams, useNavigate, useLocation, Link } from "react-router-do
 import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat, CreditCard, Server, Puzzle, LifeBuoy, Send, Lightbulb, Menu } from "lucide-react";
 import { Users, UserPlus } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import type { Camera, Invitation } from "@openframe/shared";
+import type { Camera, Invitation, Calendar as CalendarType } from "@openframe/shared";
 import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type CompanionUser, type CompanionPermissions, type CloudInstance, type CloudBillingInfo, type PlanLimits, type SupportTicketSummary, type MyTicketDetail } from "../services/api";
 import { useAuthStore } from "../stores/auth";
 import { isCloudMode, appPath, appUrl } from "../lib/cloud";
@@ -35,6 +35,7 @@ import { SupportButton } from "../components/settings/SupportButton";
 import { ConnectionsTab } from "../components/settings/ConnectionsTab";
 import { SettingsSidebar, type SidebarGroup, type SettingsTab } from "../components/settings/SettingsSidebar";
 import { KioskConfigPage } from "../components/settings/KioskConfigPage";
+import { ScreensTab } from "../components/settings/ScreensTab";
 import { SetupGuide } from "../components/ui/SetupGuide";
 import { SETUP_GUIDES } from "../data/setup-guides";
 import { HandwritingCanvas } from "../components/ui/HandwritingCanvas";
@@ -46,7 +47,7 @@ import { buildOAuthUrl } from "../utils/oauth-scopes";
 import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings } from "@openframe/shared";
 
 // SettingsTab type re-exported from SettingsSidebar
-const STATIC_TAB_IDS: SettingsTab[] = ["account", "connections", "modules", "kiosks", "ai", "assumptions", "automations", "companion", "users", "cloud", "system", "billing", "instances", "support"];
+const STATIC_TAB_IDS: SettingsTab[] = ["account", "connections", "modules", "screens", "kiosks", "ai", "assumptions", "automations", "companion", "users", "cloud", "system", "billing", "instances", "support", "calendars", "todos", "photos"];
 
 function isValidTab(tab: string): tab is SettingsTab {
   return STATIC_TAB_IDS.includes(tab as SettingsTab);
@@ -56,6 +57,7 @@ const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; descript
   { id: "account", label: "Account", icon: <User className="h-4 w-4" />, description: "Profile & login" },
   { id: "connections", label: "Connections", icon: <Link2 className="h-4 w-4" />, description: "Linked services & accounts" },
   { id: "modules", label: "Modules", icon: <Puzzle className="h-4 w-4" />, description: "Add & manage features" },
+  { id: "screens", label: "Screens", icon: <PanelLeft className="h-4 w-4" />, description: "Manage sidebar screens" },
   { id: "kiosks", label: "Kiosks", icon: <Monitor className="h-4 w-4" />, description: "Display devices" },
   { id: "ai", label: "AI", icon: <Sparkles className="h-4 w-4" />, description: "Assistant & models", moduleId: "__ai__" },
   { id: "assumptions", label: "Assumptions", icon: <Lightbulb className="h-4 w-4" />, description: "AI behavior rules" },
@@ -67,10 +69,14 @@ const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; descript
   { id: "billing", label: "Billing", icon: <CreditCard className="h-4 w-4" />, description: "Plan & subscription", cloudOnly: true },
   { id: "instances", label: "Instances", icon: <Server className="h-4 w-4" />, description: "Linked instances", cloudOnly: true },
   { id: "support", label: "Support", icon: <LifeBuoy className="h-4 w-4" />, description: "Help & tickets", cloudOnly: true, moduleId: null },
+  { id: "calendars", label: "Calendars", icon: <Calendar className="h-4 w-4" />, description: "Manage calendar accounts" },
+  { id: "todos", label: "To-Dos", icon: <ListTodo className="h-4 w-4" />, description: "Task lists & providers" },
+  { id: "photos", label: "Photo Albums", icon: <ImageIcon className="h-4 w-4" />, description: "Upload & manage photos" },
 ];
 
 const SIDEBAR_GROUPS: SidebarGroup[] = [
-  { label: "General", tabIds: ["account", "connections", "modules"] },
+  { label: "General", tabIds: ["account", "connections", "modules", "screens"] },
+  { label: "Manage", tabIds: ["calendars", "todos", "photos"] },
   { label: "AI & More", tabIds: ["ai", "assumptions", "automations"] },
   { label: "Devices", tabIds: ["kiosks", "companion"] },
   { label: "Admin", tabIds: ["users", "cloud", "system", "billing", "instances", "support"] },
@@ -80,21 +86,22 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
 const AI_MODULE_IDS = ["ai-chat", "ai-briefing", "gmail", "telegram", "capacities"];
 
 function useFilteredTabs() {
-  const isModuleEnabled = useModuleStore((s) => s.isEnabled);
+  const modules = useModuleStore((s) => s.modules);
   return useMemo(() => {
+    const isEnabled = (id: string) => modules[id] ?? false;
     return allTabs.filter((tab) => {
       if (isCloudMode && tab.selfHostedOnly) return false;
       if (!isCloudMode && tab.cloudOnly) return false;
       // Module gating
       if (tab.moduleId === "__ai__") {
-        return AI_MODULE_IDS.some((id) => isModuleEnabled(id));
+        return AI_MODULE_IDS.some((id) => isEnabled(id));
       }
       if (tab.moduleId) {
-        return isModuleEnabled(tab.moduleId);
+        return isEnabled(tab.moduleId);
       }
       return true;
     });
-  }, [isModuleEnabled]);
+  }, [modules]);
 }
 
 // Static fallback for initial render (used where hooks can't be called)
@@ -1317,31 +1324,66 @@ function CompanionSettings() {
                               />
                               All Calendars
                             </label>
-                            {user.permissions.allowedCalendarIds !== null && (
-                              <div className="pl-4 space-y-1">
-                                {(calendars as any[]).map((cal) => (
-                                  <label key={cal.id} className="flex items-center gap-2 text-sm">
-                                    <input
-                                      type="checkbox"
-                                      checked={(user.permissions.allowedCalendarIds || []).includes(cal.id)}
-                                      onChange={() => {
-                                        const current = user.permissions.allowedCalendarIds || [];
-                                        const next = current.includes(cal.id)
-                                          ? current.filter((id: string) => id !== cal.id)
-                                          : [...current, cal.id];
-                                        togglePermission(user, "allowedCalendarIds", next);
-                                      }}
-                                      className="rounded border-border"
-                                    />
-                                    <span
-                                      className="w-3 h-3 rounded-full shrink-0"
-                                      style={{ backgroundColor: cal.color || "hsl(var(--primary))" }}
-                                    />
-                                    {cal.name}
-                                  </label>
-                                ))}
-                              </div>
-                            )}
+                            {user.permissions.allowedCalendarIds !== null && (() => {
+                              const providerOrder = ["google", "microsoft", "caldav", "ics", "sports", "homeassistant"] as const;
+                              const providerNames: Record<string, string> = {
+                                google: "Google Calendar",
+                                microsoft: "Microsoft Outlook",
+                                caldav: "CalDAV",
+                                ics: "ICS Subscriptions",
+                                sports: "Sports",
+                                homeassistant: "Home Assistant",
+                              };
+                              const grouped = new Map<string, CalendarType[]>();
+                              for (const cal of calendars as CalendarType[]) {
+                                const key = cal.provider;
+                                if (!grouped.has(key)) grouped.set(key, []);
+                                grouped.get(key)!.push(cal);
+                              }
+                              for (const [, cals] of grouped) {
+                                cals.sort((a, b) => {
+                                  if (a.isVisible !== b.isVisible) return a.isVisible ? -1 : 1;
+                                  return a.name.localeCompare(b.name);
+                                });
+                              }
+                              return (
+                                <div className="pl-4 space-y-1">
+                                  {providerOrder.map((provider) => {
+                                    const cals = grouped.get(provider);
+                                    if (!cals?.length) return null;
+                                    return (
+                                      <div key={provider} className="mt-2">
+                                        <div className="text-xs font-medium text-muted-foreground mb-1">
+                                          {providerNames[provider] || provider}
+                                        </div>
+                                        {cals.map((cal) => (
+                                          <label key={cal.id} className={`flex items-center gap-2 text-sm${!cal.isVisible ? " opacity-50" : ""}`}>
+                                            <input
+                                              type="checkbox"
+                                              checked={(user.permissions.allowedCalendarIds || []).includes(cal.id)}
+                                              onChange={() => {
+                                                const current = user.permissions.allowedCalendarIds || [];
+                                                const next = current.includes(cal.id)
+                                                  ? current.filter((id: string) => id !== cal.id)
+                                                  : [...current, cal.id];
+                                                togglePermission(user, "allowedCalendarIds", next);
+                                              }}
+                                              className="rounded border-border"
+                                            />
+                                            <span
+                                              className="w-3 h-3 rounded-full shrink-0"
+                                              style={{ backgroundColor: cal.color || "hsl(var(--primary))" }}
+                                            />
+                                            <span className="truncate">{cal.name}</span>
+                                            {!cal.isVisible && <EyeOff className="h-3 w-3 text-muted-foreground shrink-0" />}
+                                          </label>
+                                        ))}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
                       )}
@@ -9691,6 +9733,9 @@ export function SettingsPage() {
   const [selectedCalendarProvider, setSelectedCalendarProvider] = useState<CalendarProvider | null>("google");
   const [addAccountModalView, setAddAccountModalView] = useState<"select" | "caldav" | "ics" | null>(null);
   const [showHACalendarModal, setShowHACalendarModal] = useState(false);
+  const [showCreateLocalCalendarModal, setShowCreateLocalCalendarModal] = useState(false);
+  const [newLocalCalendarName, setNewLocalCalendarName] = useState("");
+  const [newLocalCalendarColor, setNewLocalCalendarColor] = useState("#3b82f6");
 
   // Fetch favorite teams for sports provider in calendar settings
   const { data: calendarFavoriteTeams = [] } = useQuery({
@@ -9960,6 +10005,8 @@ export function SettingsPage() {
               }}
             />
           )}
+          {/* Screens Tab */}
+          {activeTab === "screens" && <ScreensTab />}
           {/* Connections Tab */}
           {activeTab === "connections" && (
             connectionService ? (
@@ -9974,15 +10021,20 @@ export function SettingsPage() {
                 </button>
                 {/* Service-specific connection settings */}
                 {connectionService === "calendars" && (
-                  <>
-                    <Card className="border-2 border-primary/40">
-                      <CardHeader>
-                        <CardTitle>Calendar Settings</CardTitle>
-                        <CardDescription>
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                        <Calendar className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-medium">Calendars</p>
+                        <p className="text-sm text-muted-foreground">
                           Manage your calendar accounts and configure visibility settings
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
+                        </p>
+                      </div>
+                    </div>
+                    <Card className="border-2 border-primary/40">
+                      <CardContent className="pt-6">
                         <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6 min-h-[500px]">
                           <div className="lg:border-r lg:border-border lg:pr-6">
                             <CalendarAccountsList
@@ -10023,12 +10075,18 @@ export function SettingsPage() {
                                     setAddAccountModalView("caldav");
                                   } else if (selectedCalendarProvider === "homeassistant") {
                                     setShowHACalendarModal(true);
+                                  } else if (selectedCalendarProvider === "local") {
+                                    setShowCreateLocalCalendarModal(true);
                                   } else {
                                     setAddAccountModalView("select");
                                   }
                                 }}
                                 onManageTeams={() => {
                                   handleTabChange("kiosks");
+                                }}
+                                onDeleteCalendar={async (id) => {
+                                  await api.deleteCalendar(id);
+                                  queryClient.invalidateQueries({ queryKey: ["calendars"] });
                                 }}
                               />
                             ) : (
@@ -10075,7 +10133,80 @@ export function SettingsPage() {
                         setShowHACalendarModal(false);
                       }}
                     />
-                  </>
+                    {/* Create Local Calendar Modal */}
+                    {showCreateLocalCalendarModal && (
+                      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                        <div className="bg-card border border-border rounded-xl p-6 shadow-xl w-full max-w-md">
+                          <h3 className="text-lg font-semibold mb-4">Create Local Calendar</h3>
+                          <form
+                            onSubmit={async (e) => {
+                              e.preventDefault();
+                              if (!newLocalCalendarName.trim()) return;
+                              await api.createLocalCalendar(newLocalCalendarName.trim(), newLocalCalendarColor);
+                              queryClient.invalidateQueries({ queryKey: ["calendars"] });
+                              setShowCreateLocalCalendarModal(false);
+                              setNewLocalCalendarName("");
+                              setNewLocalCalendarColor("#3b82f6");
+                              setSelectedCalendarProvider("local");
+                            }}
+                            className="space-y-4"
+                          >
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Name</label>
+                              <input
+                                type="text"
+                                value={newLocalCalendarName}
+                                onChange={(e) => setNewLocalCalendarName(e.target.value)}
+                                placeholder="Calendar name"
+                                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                                autoFocus
+                                required
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-2">Color</label>
+                              <div className="flex gap-2 flex-wrap">
+                                {["#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316"].map((color) => (
+                                  <button
+                                    key={color}
+                                    type="button"
+                                    onClick={() => setNewLocalCalendarColor(color)}
+                                    className={`w-8 h-8 rounded-full border-2 transition-all ${
+                                      newLocalCalendarColor === color
+                                        ? "border-foreground scale-110"
+                                        : "border-transparent hover:scale-105"
+                                    }`}
+                                    style={{ backgroundColor: color }}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                            <div className="flex gap-3 pt-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="flex-1"
+                                onClick={() => {
+                                  setShowCreateLocalCalendarModal(false);
+                                  setNewLocalCalendarName("");
+                                  setNewLocalCalendarColor("#3b82f6");
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                type="submit"
+                                className="flex-1"
+                                disabled={!newLocalCalendarName.trim()}
+                              >
+                                Create
+                              </Button>
+                            </div>
+                          </form>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
                 {connectionService === "spotify" && <SpotifySettings />}
                 {connectionService === "iptv" && (
@@ -10100,6 +10231,173 @@ export function SettingsPage() {
             ) : (
               <ConnectionsTab onNavigateToTab={handleTabChange} onNavigateToService={handleNavigateToService} />
             )
+          )}
+          {/* Calendars Tab */}
+          {activeTab === "calendars" && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                  <Calendar className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="font-medium">Calendars</p>
+                  <p className="text-sm text-muted-foreground">
+                    Manage your calendar accounts and configure visibility settings
+                  </p>
+                </div>
+              </div>
+              <Card className="border-2 border-primary/40">
+                <CardContent className="pt-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6 min-h-[500px]">
+                    <div className="lg:border-r lg:border-border lg:pr-6">
+                      <CalendarAccountsList
+                        calendars={calendars}
+                        favoriteTeams={calendarFavoriteTeams}
+                        selectedProvider={selectedCalendarProvider}
+                        onSelectProvider={setSelectedCalendarProvider}
+                        onAddAccount={() => setAddAccountModalView("select")}
+                        onSyncAll={() => syncAll.mutate()}
+                        isSyncing={syncAll.isPending}
+                      />
+                    </div>
+                    <div className="min-h-0">
+                      {selectedCalendarProvider ? (
+                        <CalendarListForAccount
+                          provider={selectedCalendarProvider}
+                          calendars={calendars}
+                          favoriteTeams={calendarFavoriteTeams}
+                          events={events}
+                          onUpdateCalendar={(id, updates) =>
+                            updateCalendar.mutate({ id, data: updates })
+                          }
+                          onUpdateTeam={(id, updates) =>
+                            updateFavoriteTeam.mutate({ id, data: updates })
+                          }
+                          onConnect={() => {
+                            const authToken = useAuthStore.getState().accessToken;
+                            if (selectedCalendarProvider === "google") {
+                              window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings/calendars"));
+                            } else if (selectedCalendarProvider === "microsoft") {
+                              window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings/calendars"));
+                            } else if (selectedCalendarProvider === "sports") {
+                              handleTabChange("kiosks");
+                            } else if (selectedCalendarProvider === "ics") {
+                              setAddAccountModalView("ics");
+                            } else if (selectedCalendarProvider === "caldav") {
+                              setAddAccountModalView("caldav");
+                            } else if (selectedCalendarProvider === "homeassistant") {
+                              setShowHACalendarModal(true);
+                            } else if (selectedCalendarProvider === "local") {
+                              setShowCreateLocalCalendarModal(true);
+                            } else {
+                              setAddAccountModalView("select");
+                            }
+                          }}
+                          onManageTeams={() => {
+                            handleTabChange("kiosks");
+                          }}
+                          onDeleteCalendar={async (id) => {
+                            await api.deleteCalendar(id);
+                            queryClient.invalidateQueries({ queryKey: ["calendars"] });
+                          }}
+                        />
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-muted-foreground">
+                          Select an account type to view calendars
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <AddAccountModal
+                isOpen={addAccountModalView !== null}
+                onClose={() => setAddAccountModalView(null)}
+                initialView={addAccountModalView ?? "select"}
+                onConnectGoogle={() => {
+                  const authToken = useAuthStore.getState().accessToken;
+                  window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings/calendars"));
+                }}
+                onConnectMicrosoft={() => {
+                  const authToken = useAuthStore.getState().accessToken;
+                  window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings/calendars"));
+                }}
+                onConnectCalDAV={async (url, username, password) => {
+                  console.log("CalDAV connection:", { url, username });
+                  throw new Error("CalDAV connection not yet implemented");
+                }}
+                onSubscribeICS={async (url, name) => {
+                  await api.subscribeICS(url, name);
+                  queryClient.invalidateQueries({ queryKey: ["calendars"] });
+                  setSelectedCalendarProvider("ics");
+                }}
+                onManageSports={() => {
+                  setAddAccountModalView(null);
+                  handleTabChange("kiosks");
+                }}
+              />
+              <HACalendarModal
+                isOpen={showHACalendarModal}
+                onClose={() => setShowHACalendarModal(false)}
+                onSubscribe={async (entityId, name) => {
+                  await api.subscribeHomeAssistantCalendar(entityId, name);
+                  queryClient.invalidateQueries({ queryKey: ["calendars"] });
+                  setShowHACalendarModal(false);
+                }}
+              />
+            </div>
+          )}
+          {/* To-Dos Tab */}
+          {activeTab === "todos" && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                  <ListTodo className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="font-medium">Task Lists</p>
+                  <p className="text-sm text-muted-foreground">
+                    Manage your to-do lists and task providers
+                  </p>
+                </div>
+              </div>
+              <Card className="border-2 border-primary/40">
+                <CardHeader>
+                  <CardTitle>Coming Soon</CardTitle>
+                  <CardDescription>
+                    Task list management will be available here. For now, manage tasks from the Tasks page.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            </div>
+          )}
+          {/* Photo Albums Tab */}
+          {activeTab === "photos" && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+              <Card className="border-2 border-primary/40">
+                <CardHeader>
+                  <CardTitle>
+                    <div className="flex items-center gap-2">
+                      <FolderOpen className="h-5 w-5" />
+                      Photo Albums
+                    </div>
+                  </CardTitle>
+                  <CardDescription>Upload and manage your photo albums</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <LocalPhotoAlbums onSelectAlbum={() => {}} />
+                </CardContent>
+              </Card>
+              <Card className="border-2 border-primary/40">
+                <CardHeader>
+                  <CardTitle>All Photos</CardTitle>
+                  <CardDescription>Browse and manage all uploaded photos</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ManageAllPhotos />
+                </CardContent>
+              </Card>
+            </div>
           )}
           {/* Account Tab */}
           {activeTab === "account" && (

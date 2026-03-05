@@ -49,6 +49,7 @@ export const calendarProviderEnum = pgEnum("calendar_provider", [
   "ics",
   "sports",
   "homeassistant",
+  "local",
 ]);
 
 export const eventStatusEnum = pgEnum("event_status", [
@@ -548,6 +549,7 @@ export interface KioskSettings {
     expandAllLists?: boolean;
   };
   sidebar?: Record<string, { enabled?: boolean; pinned?: boolean }>;
+  sidebarOrder?: string[]; // ordered screen IDs for this kiosk
   spotify?: {
     oauthTokenId?: string;
   };
@@ -2828,3 +2830,38 @@ export const shoppingItemsRelations = relations(shoppingItems, ({ one }) => ({
 }));
 
 export type ShoppingItem = typeof shoppingItems.$inferSelect;
+
+// Custom Screens - user-created dashboard screens with widget layouts
+export const customScreens = pgTable(
+  "custom_screens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    icon: text("icon").notNull().default("LayoutDashboard"),
+    slug: text("slug").notNull(),
+    layoutConfig: jsonb("layout_config").$type<Record<string, unknown>>().notNull().default({}),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("custom_screens_user_idx").on(table.userId),
+    uniqueIndex("custom_screens_user_slug_idx").on(table.userId, table.slug),
+  ]
+);
+
+export const customScreensRelations = relations(customScreens, ({ one }) => ({
+  user: one(users, {
+    fields: [customScreens.userId],
+    references: [users.id],
+  }),
+}));
+
+export type CustomScreen = typeof customScreens.$inferSelect;

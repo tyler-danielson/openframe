@@ -13,7 +13,10 @@ export type KioskCommandType =
   | "screensaver"
   | "widget-control"
   | "iptv-play"
-  | "camera-view";
+  | "camera-view"
+  | "file-share"
+  | "file-share-dismiss"
+  | "file-share-page";
 
 export interface KioskCommand {
   type: KioskCommandType;

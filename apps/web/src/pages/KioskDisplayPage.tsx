@@ -11,6 +11,7 @@ import { Layout } from "../components/ui/Layout";
 import { useScreensaverStore } from "../stores/screensaver";
 import { useRemoteControlStore } from "../stores/remote-control";
 import { useBlockNavStore } from "../stores/block-nav";
+import { FileShareOverlay } from "../components/FileShareOverlay";
 
 // Import all pages
 import { DashboardPage } from "./DashboardPage";
@@ -26,6 +27,7 @@ import { KitchenPage } from "./KitchenPage";
 import { ScreensaverDisplayPage } from "./ScreensaverDisplayPage";
 import { MultiViewPage } from "./MultiViewPage";
 import { CardViewPage } from "./CardViewPage";
+import { CustomScreenPage } from "./CustomScreenPage";
 
 // Feature to route mapping
 const FEATURE_ROUTES: Record<string, { path: string; element: JSX.Element }> = {
@@ -481,6 +483,7 @@ function KioskApp() {
     return (
       <>
         <Screensaver alwaysActive displayType={displayType} />
+        <FileShareOverlay />
         <ConnectionStatusIndicator status={connectionStatus} lastOnlineAt={lastOnlineAt} />
         {fullscreenPrompt}
         {controlsOverlay}
@@ -494,6 +497,7 @@ function KioskApp() {
       <div className="min-h-screen bg-background">
         <CalendarPage />
         {showScreensaverOverlay && <Screensaver displayType={displayType} />}
+        <FileShareOverlay />
         <ConnectionStatusIndicator status={connectionStatus} lastOnlineAt={lastOnlineAt} />
         {fullscreenPrompt}
         {controlsOverlay}
@@ -507,6 +511,7 @@ function KioskApp() {
       <div className="min-h-screen bg-background">
         <DashboardPage />
         {showScreensaverOverlay && <Screensaver displayType={displayType} />}
+        <FileShareOverlay />
         <ConnectionStatusIndicator status={connectionStatus} lastOnlineAt={lastOnlineAt} />
         {fullscreenPrompt}
         {controlsOverlay}
@@ -523,11 +528,14 @@ function KioskApp() {
           {enabledRoutes.map(({ feature, path, element }) => (
             <Route key={feature} path={path} element={element} />
           ))}
+          {/* Custom screens */}
+          <Route path="screen/:slug" element={<CustomScreenPage />} />
           {/* Redirect disabled routes to home page */}
           <Route path="*" element={<Navigate to={effectiveHomePage} replace />} />
         </Route>
       </Routes>
       {showScreensaverOverlay && <Screensaver displayType={displayType} />}
+      <FileShareOverlay />
       <ConnectionStatusIndicator status={connectionStatus} lastOnlineAt={lastOnlineAt} />
       {fullscreenPrompt}
       {controlsOverlay}
@@ -657,6 +665,13 @@ function KioskCommandPoller({ token }: { token: string }) {
           // Forward cast commands to the remote control store
           // These will be consumed by IptvPage / CamerasPage
           console.log(`[Kiosk] Forwarding cast command: ${cmd.type}`);
+          addRemoteCommand(cmd);
+          break;
+
+        case "file-share":
+        case "file-share-dismiss":
+        case "file-share-page":
+          console.log(`[Kiosk] Forwarding file share command: ${cmd.type}`);
           addRemoteCommand(cmd);
           break;
 

@@ -538,15 +538,34 @@ async function upsertEvent(
     ? stripHtml(mevent.body.content)
     : (mevent.bodyPreview ?? null);
 
+  const [existing] = await db
+    .select()
+    .from(events)
+    .where(
+      and(eq(events.calendarId, calendarId), eq(events.externalId, mevent.id))
+    )
+    .limit(1);
+
+  // Delta sync may omit unchanged fields — preserve existing values when
+  // the delta response doesn't include them (field is undefined).
+  const title =
+    mevent.subject !== undefined
+      ? (mevent.subject || "(No title)")
+      : (existing?.title ?? "(No title)");
+
   const eventData = {
     calendarId,
     externalId: mevent.id,
-    title: mevent.subject ?? "(No title)",
-    description,
-    location: mevent.location?.displayName ?? null,
+    title,
+    description:
+      mevent.body !== undefined ? description : (existing?.description ?? null),
+    location:
+      mevent.location !== undefined
+        ? (mevent.location?.displayName ?? null)
+        : (existing?.location ?? null),
     startTime,
     endTime,
-    isAllDay: mevent.isAllDay ?? false,
+    isAllDay: mevent.isAllDay ?? existing?.isAllDay ?? false,
     status: "confirmed" as const,
     recurrenceRule,
     recurringEventId: mevent.seriesMasterId ?? null,
@@ -555,14 +574,6 @@ async function upsertEvent(
     etag: mevent["@odata.etag"] ?? null,
     updatedAt: new Date(),
   };
-
-  const [existing] = await db
-    .select()
-    .from(events)
-    .where(
-      and(eq(events.calendarId, calendarId), eq(events.externalId, mevent.id))
-    )
-    .limit(1);
 
   if (existing) {
     await db.update(events).set(eventData).where(eq(events.id, existing.id));

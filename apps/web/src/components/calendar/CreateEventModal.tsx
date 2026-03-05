@@ -46,7 +46,7 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
   const defaultEventDuration = useCalendarStore((state) => state.defaultEventDuration);
 
   // Filter to only editable calendars
-  const editableCalendars = calendars.filter((c) => !c.isReadOnly && c.syncEnabled);
+  const editableCalendars = calendars.filter((c) => !c.isReadOnly && (c.syncEnabled || c.provider === "local"));
   const defaultCalendar = editableCalendars.find((c) => c.isPrimary) ?? editableCalendars[0];
 
   const [title, setTitle] = useState("");

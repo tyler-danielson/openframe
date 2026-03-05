@@ -354,6 +354,17 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
     },
   });
 
+  const disconnectOAuthMutation = useMutation({
+    mutationFn: (provider: string) => api.disconnectOAuth(provider),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["me"] });
+      queryClient.invalidateQueries({ queryKey: ["calendars"] });
+      queryClient.invalidateQueries({ queryKey: ["spotify-accounts"] });
+      setConfirmDisconnect(null);
+      setDisconnecting(null);
+    },
+  });
+
   // --- Status helpers ---
 
   function getServiceStatus(service: ServiceDef): {
@@ -511,8 +522,13 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
       case "homeassistant":
         deleteHAConfig.mutate();
         break;
+      case "google":
+      case "microsoft":
+      case "spotify":
+        disconnectOAuthMutation.mutate(serviceId);
+        break;
       default: {
-        // For OAuth and multi-resource services, navigate to config
+        // For multi-resource services, navigate to config
         const service = SERVICES.find((s) => s.id === serviceId);
         if (service?.configService) {
           onNavigateToService(service.configService);
@@ -678,7 +694,7 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
                               Configure
                             </Button>
                           )}
-                          {["telegram", "remarkable", "capacities", "homeassistant"].includes(service.id) && (
+                          {["telegram", "remarkable", "capacities", "homeassistant", "google", "microsoft", "spotify"].includes(service.id) && (
                             <Button
                               variant="outline"
                               size="sm"

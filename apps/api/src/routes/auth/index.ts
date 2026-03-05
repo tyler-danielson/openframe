@@ -7,6 +7,7 @@ import {
   oauthTokens,
   kioskConfig,
   kiosks,
+  calendars,
 } from "@openframe/database/schema";
 // Note: kioskConfig is still used for screensaver settings (PUT /kiosk/screensaver)
 import {
@@ -2335,6 +2336,49 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       );
 
       return { success: true };
+    }
+  );
+
+  // Disconnect OAuth provider (delete tokens + associated calendars/events)
+  fastify.delete<{ Params: { provider: string } }>(
+    "/oauth/:provider",
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) return;
+
+      const { provider } = request.params;
+      const validProviders = ["google", "microsoft", "spotify"] as const;
+      type OAuthProvider = (typeof validProviders)[number];
+      if (!validProviders.includes(provider as OAuthProvider)) {
+        return reply.badRequest("Invalid provider. Must be google, microsoft, or spotify.");
+      }
+      const typedProvider = provider as OAuthProvider;
+
+      const db = fastify.db;
+
+      // Delete calendars (events cascade via FK) for this provider
+      if (typedProvider === "google" || typedProvider === "microsoft") {
+        await db
+          .delete(calendars)
+          .where(
+            and(
+              eq(calendars.userId, user.id),
+              eq(calendars.provider, typedProvider)
+            )
+          );
+      }
+
+      // Delete OAuth tokens for this provider
+      await db
+        .delete(oauthTokens)
+        .where(
+          and(
+            eq(oauthTokens.userId, user.id),
+            eq(oauthTokens.provider, typedProvider)
+          )
+        );
+
+      return { ok: true };
     }
   );
 };

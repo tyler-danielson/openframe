@@ -75,6 +75,12 @@ const PROVIDER_CONFIG: Record<
     bgColor: "bg-cyan-500/10",
     description: "Calendars from your Home Assistant instance",
   },
+  local: {
+    name: "My Calendars",
+    icon: <span className="text-lg">📅</span>,
+    bgColor: "bg-primary/10",
+    description: "Calendars stored locally in OpenFrame",
+  },
 };
 
 interface CalendarAccountsListProps {
@@ -107,7 +113,7 @@ export function CalendarAccountsList({
     const groups: ProviderGroup[] = [];
 
     // Standard calendar providers
-    const providers: CalendarProvider[] = ["google", "microsoft", "caldav", "ics", "homeassistant"];
+    const providers: CalendarProvider[] = ["google", "microsoft", "caldav", "ics", "homeassistant", "local"];
 
     for (const provider of providers) {
       const providerCalendars = calendars.filter((c) => c.provider === provider);

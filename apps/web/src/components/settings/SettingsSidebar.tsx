@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { ExternalLink } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 export type SettingsTab =
@@ -15,7 +16,11 @@ export type SettingsTab =
   | "system"
   | "billing"
   | "instances"
-  | "support";
+  | "support"
+  | "screens"
+  | "calendars"
+  | "todos"
+  | "photos";
 
 export interface SidebarGroup {
   label: string;
@@ -45,7 +50,7 @@ export function SettingsSidebar({
   const filteredTabIds = new Set(filteredTabs.map((t) => t.id));
 
   return (
-    <aside className="w-64 shrink-0 bg-card/50 border-r border-border/50 overflow-y-auto h-full">
+    <aside className="w-64 shrink-0 bg-card/50 border-r border-border/50 overflow-y-auto h-full flex flex-col">
       <div className="p-4 pb-2">
         <h1 className="text-lg font-semibold text-foreground">Settings</h1>
       </div>
@@ -88,6 +93,17 @@ export function SettingsSidebar({
           );
         })}
       </nav>
+      <div className="mt-auto border-t border-border/50 px-2 py-3">
+        <a
+          href="https://openframe.us/dashboard"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+        >
+          <ExternalLink className="h-4 w-4 shrink-0" />
+          <span className="flex-1 text-left">OpenFrame Cloud</span>
+        </a>
+      </div>
     </aside>
   );
 }

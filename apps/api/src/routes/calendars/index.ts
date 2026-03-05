@@ -40,7 +40,7 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
         querystring: {
           type: "object",
           properties: {
-            provider: { type: "string", enum: ["google", "microsoft", "caldav", "ics", "sports"] },
+            provider: { type: "string", enum: ["google", "microsoft", "caldav", "ics", "sports", "homeassistant", "local"] },
             includeHidden: { type: "boolean" },
           },
         },
@@ -155,6 +155,7 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
         body: {
           type: "object",
           properties: {
+            name: { type: "string", minLength: 1, maxLength: 100 },
             color: { type: "string" },
             isVisible: { type: "boolean" },
             syncEnabled: { type: "boolean" },
@@ -182,6 +183,7 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { id } = request.params as { id: string };
       const updates = request.body as Partial<{
+        name: string;
         color: string;
         isVisible: boolean;
         syncEnabled: boolean;
@@ -190,6 +192,18 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
         showOnDashboard: boolean;
         visibility: { week: boolean; month: boolean; day: boolean; popup: boolean; screensaver: boolean };
       }>;
+
+      // Only allow name updates on local calendars
+      if (updates.name !== undefined) {
+        const [existing] = await fastify.db
+          .select()
+          .from(calendars)
+          .where(and(eq(calendars.id, id), eq(calendars.userId, user.id)))
+          .limit(1);
+        if (!existing || existing.provider !== "local") {
+          throw fastify.httpErrors.badRequest("Name can only be updated on local calendars");
+        }
+      }
 
       // If setting this calendar as primary, unset isPrimary on all other calendars first
       if (updates.isPrimary === true) {
@@ -208,6 +222,53 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
       if (!calendar) {
         return reply.notFound("Calendar not found");
       }
+
+      return {
+        success: true,
+        data: calendar,
+      };
+    }
+  );
+
+  // Create a local calendar
+  fastify.post(
+    "/local",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Create a local calendar",
+        tags: ["Calendars"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        body: {
+          type: "object",
+          properties: {
+            name: { type: "string", minLength: 1, maxLength: 100 },
+            color: { type: "string" },
+          },
+          required: ["name"],
+        },
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+      const { name, color } = request.body as { name: string; color?: string };
+
+      const [calendar] = await fastify.db
+        .insert(calendars)
+        .values({
+          userId: user.id,
+          provider: "local",
+          externalId: `local_${crypto.randomUUID()}`,
+          name,
+          color: color || "#3b82f6",
+          isVisible: true,
+          syncEnabled: false,
+          isReadOnly: false,
+        })
+        .returning();
 
       return {
         success: true,
@@ -256,6 +317,11 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!calendar) {
         return reply.notFound("Calendar not found");
+      }
+
+      // Local calendars don't sync
+      if (calendar.provider === "local") {
+        return reply.badRequest("Local calendars do not support syncing");
       }
 
       // Get OAuth token for the provider (only google/microsoft have OAuth)

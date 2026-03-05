@@ -70,6 +70,11 @@ export interface XtremeCodesAuthResponse {
   server_info: XtremeCodesServerInfo;
 }
 
+// Default timeout for API requests (15 seconds)
+const DEFAULT_TIMEOUT_MS = 15_000;
+// Shorter timeout for EPG requests (per-channel, many in parallel)
+const EPG_TIMEOUT_MS = 10_000;
+
 export class XtremeCodesClient {
   private serverUrl: string;
   private username: string;
@@ -80,6 +85,12 @@ export class XtremeCodesClient {
     this.serverUrl = credentials.serverUrl.replace(/\/+$/, "");
     this.username = credentials.username;
     this.password = credentials.password;
+  }
+
+  private fetchWithTimeout(url: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
   }
 
   private buildApiUrl(action: string, params: Record<string, string> = {}): string {
@@ -100,7 +111,7 @@ export class XtremeCodesClient {
    */
   async authenticate(): Promise<XtremeCodesAuthResponse> {
     const url = this.buildApiUrl("");
-    const response = await fetch(url);
+    const response = await this.fetchWithTimeout(url);
 
     if (!response.ok) {
       throw new Error(`Authentication failed: ${response.status}`);
@@ -167,7 +178,7 @@ export class XtremeCodesClient {
    */
   async getLiveCategories(): Promise<XtremeCodesCategory[]> {
     const url = this.buildApiUrl("get_live_categories");
-    const response = await fetch(url);
+    const response = await this.fetchWithTimeout(url);
 
     if (!response.ok) {
       throw new Error(`Failed to fetch categories: ${response.status}`);
@@ -188,7 +199,7 @@ export class XtremeCodesClient {
     }
 
     const url = this.buildApiUrl("get_live_streams", params);
-    const response = await fetch(url);
+    const response = await this.fetchWithTimeout(url);
 
     if (!response.ok) {
       throw new Error(`Failed to fetch streams: ${response.status}`);
@@ -209,7 +220,7 @@ export class XtremeCodesClient {
       limit: limit.toString(),
     });
 
-    const response = await fetch(url);
+    const response = await this.fetchWithTimeout(url, EPG_TIMEOUT_MS);
 
     if (!response.ok) {
       throw new Error(`Failed to fetch EPG: ${response.status}`);
@@ -227,7 +238,7 @@ export class XtremeCodesClient {
       stream_id: "all",
     });
 
-    const response = await fetch(url);
+    const response = await this.fetchWithTimeout(url, 30_000); // 30s for full EPG
 
     if (!response.ok) {
       throw new Error(`Failed to fetch full EPG: ${response.status}`);
