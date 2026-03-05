@@ -57,7 +57,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          "pdf-viewer": ["pdfjs-dist", "react-pdf"],
+          "pdf-viewer": ["react-pdf"],
         },
       },
     },
