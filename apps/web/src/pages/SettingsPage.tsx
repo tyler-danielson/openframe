@@ -47,7 +47,7 @@ import { buildOAuthUrl } from "../utils/oauth-scopes";
 import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings } from "@openframe/shared";
 
 // SettingsTab type re-exported from SettingsSidebar
-const STATIC_TAB_IDS: SettingsTab[] = ["account", "connections", "modules", "screens", "kiosks", "ai", "assumptions", "automations", "companion", "users", "cloud", "system", "billing", "instances", "support", "calendars", "todos", "photos"];
+const STATIC_TAB_IDS: SettingsTab[] = ["account", "connections", "modules", "screens", "kiosks", "ai", "assumptions", "automations", "companion", "users", "cloud", "system", "billing", "instances", "support", "calendars", "todos", "photos", "custom-screens"];
 
 function isValidTab(tab: string): tab is SettingsTab {
   return STATIC_TAB_IDS.includes(tab as SettingsTab);
@@ -72,11 +72,12 @@ const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; descript
   { id: "calendars", label: "Calendars", icon: <Calendar className="h-4 w-4" />, description: "Manage calendar accounts" },
   { id: "todos", label: "To-Dos", icon: <ListTodo className="h-4 w-4" />, description: "Task lists & providers" },
   { id: "photos", label: "Photo Albums", icon: <ImageIcon className="h-4 w-4" />, description: "Upload & manage photos" },
+  { id: "custom-screens", label: "Custom Screens", icon: <LayoutDashboard className="h-4 w-4" />, description: "Create & edit custom screens" },
 ];
 
 const SIDEBAR_GROUPS: SidebarGroup[] = [
   { label: "General", tabIds: ["account", "connections", "modules", "screens"] },
-  { label: "Manage", tabIds: ["calendars", "todos", "photos"] },
+  { label: "Manage", tabIds: ["calendars", "todos", "photos", "custom-screens"] },
   { label: "AI & More", tabIds: ["ai", "assumptions", "automations"] },
   { label: "Devices", tabIds: ["kiosks", "companion"] },
   { label: "Admin", tabIds: ["users", "cloud", "system", "billing", "instances", "support"] },
@@ -10399,6 +10400,8 @@ export function SettingsPage() {
               </Card>
             </div>
           )}
+          {/* Custom Screens Tab */}
+          {activeTab === "custom-screens" && <CustomScreensManagerTab />}
           {/* Account Tab */}
           {activeTab === "account" && (
             <div className="max-w-2xl space-y-6">
@@ -10593,6 +10596,207 @@ export function SettingsPage() {
         </div>
       </div>
       <SupportButton />
+    </div>
+  );
+}
+
+function CustomScreensManagerTab() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newScreenName, setNewScreenName] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+
+  const { data: screens = [], isLoading } = useQuery({
+    queryKey: ["custom-screens"],
+    queryFn: () => api.getCustomScreens(),
+  });
+
+  const createScreen = useMutation({
+    mutationFn: (data: { name: string }) => api.createCustomScreen(data),
+    onSuccess: (screen) => {
+      queryClient.invalidateQueries({ queryKey: ["custom-screens"] });
+      setShowAddModal(false);
+      setNewScreenName("");
+      navigate(`/screen/${screen.slug}/edit`);
+    },
+  });
+
+  const updateScreen = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => api.updateCustomScreen(id, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["custom-screens"] });
+      setEditingId(null);
+    },
+  });
+
+  const deleteScreen = useMutation({
+    mutationFn: (id: string) => api.deleteCustomScreen(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["custom-screens"] });
+    },
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <LayoutDashboard className="h-5 w-5" />
+        </div>
+        <div className="flex-1">
+          <h2 className="text-lg font-semibold">Custom Screens</h2>
+          <p className="text-sm text-muted-foreground">
+            Create custom dashboard screens with the drag-and-drop layout builder.
+          </p>
+        </div>
+        <Button size="sm" onClick={() => setShowAddModal(true)}>
+          <Plus className="h-4 w-4 mr-1" />
+          New Screen
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin mr-2" />
+          Loading...
+        </div>
+      ) : screens.length === 0 ? (
+        <Card className="border-dashed border-2 border-border">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <LayoutDashboard className="h-10 w-10 text-muted-foreground/50 mb-3" />
+            <p className="text-sm font-medium text-muted-foreground">No custom screens yet</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Create a screen to build a custom layout with widgets
+            </p>
+            <Button size="sm" className="mt-4" onClick={() => setShowAddModal(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              Create your first screen
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {screens.map((screen) => (
+            <Card key={screen.id} className="border-primary/20">
+              <CardContent className="flex items-center gap-3 p-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <LayoutDashboard className="h-4 w-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  {editingId === screen.id ? (
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && editName.trim()) {
+                          updateScreen.mutate({ id: screen.id, name: editName.trim() });
+                        }
+                        if (e.key === "Escape") setEditingId(null);
+                      }}
+                      onBlur={() => {
+                        if (editName.trim() && editName.trim() !== screen.name) {
+                          updateScreen.mutate({ id: screen.id, name: editName.trim() });
+                        } else {
+                          setEditingId(null);
+                        }
+                      }}
+                      className="w-full rounded border border-primary/30 bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      autoFocus
+                    />
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium truncate">{screen.name}</p>
+                      <p className="text-xs text-muted-foreground">/screen/{screen.slug}</p>
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => navigate(`/screen/${screen.slug}`)}
+                    className="rounded-md p-1.5 text-muted-foreground transition-colors hover:text-primary"
+                    title="View screen"
+                  >
+                    <Eye className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => navigate(`/screen/${screen.slug}/edit`)}
+                    className="rounded-md p-1.5 text-muted-foreground transition-colors hover:text-primary"
+                    title="Edit layout"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingId(screen.id);
+                      setEditName(screen.name);
+                    }}
+                    className="rounded-md p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                    title="Rename"
+                  >
+                    <Settings className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm(`Delete "${screen.name}"? This cannot be undone.`)) {
+                        deleteScreen.mutate(screen.id);
+                      }
+                    }}
+                    className="rounded-md p-1.5 text-muted-foreground transition-colors hover:text-destructive"
+                    title="Delete screen"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Add Screen Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-lg">
+            <h3 className="text-lg font-semibold mb-4">New Custom Screen</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Screen Name</label>
+                <input
+                  type="text"
+                  value={newScreenName}
+                  onChange={(e) => setNewScreenName(e.target.value)}
+                  placeholder="e.g., My Dashboard"
+                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newScreenName.trim()) {
+                      createScreen.mutate({ name: newScreenName.trim() });
+                    }
+                  }}
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setShowAddModal(false); setNewScreenName(""); }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!newScreenName.trim() || createScreen.isPending}
+                  onClick={() => createScreen.mutate({ name: newScreenName.trim() })}
+                >
+                  {createScreen.isPending ? "Creating..." : "Create & Edit"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -20,7 +20,8 @@ export type SettingsTab =
   | "screens"
   | "calendars"
   | "todos"
-  | "photos";
+  | "photos"
+  | "custom-screens";
 
 export interface SidebarGroup {
   label: string;
