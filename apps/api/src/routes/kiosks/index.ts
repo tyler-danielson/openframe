@@ -7,11 +7,128 @@ import {
   calendars,
   events,
   customScreens,
+  type KioskDashboard,
+  type DashboardType,
+  type KioskEnabledFeatures,
+  type KioskSettings,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { randomUUID } from "crypto";
 import type { UploadTokenData } from "../photos/index.js";
 import { getSystemSetting } from "../settings/index.js";
+
+// Dashboard type metadata for migration
+const DASHBOARD_TYPE_DEFAULTS: Record<string, { icon: string; label: string }> = {
+  calendar: { icon: "Calendar", label: "Calendar" },
+  tasks: { icon: "ListTodo", label: "Tasks" },
+  routines: { icon: "ListChecks", label: "Routines" },
+  dashboard: { icon: "LayoutDashboard", label: "Dashboard" },
+  cardview: { icon: "Kanban", label: "Card View" },
+  photos: { icon: "Image", label: "Photos" },
+  spotify: { icon: "Music", label: "Spotify" },
+  iptv: { icon: "Tv", label: "Live TV" },
+  cameras: { icon: "Camera", label: "Cameras" },
+  multiview: { icon: "LayoutGrid", label: "Multi-View" },
+  homeassistant: { icon: "Home", label: "Home Assistant" },
+  matter: { icon: "Cpu", label: "Matter" },
+  map: { icon: "MapPin", label: "Map" },
+  kitchen: { icon: "ChefHat", label: "Kitchen" },
+  chat: { icon: "MessageCircle", label: "Chat" },
+  screensaver: { icon: "Monitor", label: "Custom Screen" },
+};
+
+/** Default sidebar order for migration */
+const DEFAULT_SIDEBAR_ORDER = [
+  "calendar", "tasks", "routines", "dashboard", "cardview", "photos",
+  "spotify", "iptv", "cameras", "multiview", "homeassistant", "matter",
+  "map", "kitchen", "chat", "screensaver",
+];
+
+/** Migrate old kiosk fields to dashboards array */
+function migrateKioskToDashboards(kiosk: {
+  enabledFeatures?: KioskEnabledFeatures | null;
+  settings?: KioskSettings | null;
+}): KioskDashboard[] {
+  const features = kiosk.enabledFeatures ?? {};
+  const settings: KioskSettings = kiosk.settings ?? {};
+  const sidebarSettings = settings.sidebar ?? {};
+  const order: string[] = settings.sidebarOrder ?? DEFAULT_SIDEBAR_ORDER;
+
+  // Ensure all known types appear in order
+  const effectiveOrder = [...order];
+  for (const key of DEFAULT_SIDEBAR_ORDER) {
+    if (!effectiveOrder.includes(key)) effectiveOrder.push(key);
+  }
+
+  const dashboards: KioskDashboard[] = [];
+
+  for (const key of effectiveOrder) {
+    const meta = DASHBOARD_TYPE_DEFAULTS[key];
+    if (!meta) continue;
+
+    // Check if feature is enabled (default true if not specified)
+    const featureEnabled = (features as Record<string, boolean | undefined>)[key] !== false;
+    // Check sidebar enabled
+    const sidebarState = sidebarSettings[key];
+    const sidebarEnabled = !sidebarState || sidebarState.enabled !== false;
+
+    if (!featureEnabled || !sidebarEnabled) continue;
+
+    const pinned = !sidebarState || sidebarState.pinned !== false;
+
+    // Build config from per-feature settings
+    const config: Record<string, unknown> = {};
+    if (key === "calendar" && settings.calendar) {
+      Object.assign(config, settings.calendar);
+    } else if (key === "tasks" && settings.tasks) {
+      Object.assign(config, settings.tasks);
+    } else if (key === "spotify" && settings.spotify) {
+      Object.assign(config, settings.spotify);
+    }
+
+    dashboards.push({
+      id: randomUUID(),
+      type: key as DashboardType,
+      name: meta.label,
+      icon: meta.icon,
+      pinned,
+      config,
+    });
+  }
+
+  // If nothing came through, provide defaults
+  if (dashboards.length === 0) {
+    dashboards.push(
+      { id: randomUUID(), type: "calendar", name: "Calendar", icon: "Calendar", pinned: true, config: {} },
+      { id: randomUUID(), type: "tasks", name: "Tasks", icon: "ListTodo", pinned: true, config: {} },
+    );
+  }
+
+  return dashboards;
+}
+
+/** Compute enabledFeatures from dashboards for backward compat */
+function dashboardsToEnabledFeatures(dashboards: KioskDashboard[]): KioskEnabledFeatures {
+  const features: Record<string, boolean> = {};
+  for (const db of dashboards) {
+    features[db.type] = true;
+  }
+  return features as KioskEnabledFeatures;
+}
+
+/** Compute sidebar settings from dashboards for backward compat */
+function dashboardsToSidebarSettings(dashboards: KioskDashboard[]): {
+  sidebar: Record<string, { enabled?: boolean; pinned?: boolean }>;
+  sidebarOrder: string[];
+} {
+  const sidebar: Record<string, { enabled?: boolean; pinned?: boolean }> = {};
+  const sidebarOrder: string[] = [];
+  for (const db of dashboards) {
+    sidebarOrder.push(db.type);
+    sidebar[db.type] = { enabled: true, pinned: db.pinned };
+  }
+  return { sidebar, sidebarOrder };
+}
 
 // Extend Fastify with upload tokens (shared with photos routes)
 declare module "fastify" {
@@ -195,6 +312,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
             },
             screensaverLayoutConfig: { type: "object" },
             settings: { type: "object" },
+            dashboards: { type: "array", nullable: true },
           },
         },
       },
@@ -215,7 +333,14 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         screensaverTransition?: string;
         screensaverLayoutConfig?: Record<string, unknown>;
         settings?: Record<string, unknown>;
+        dashboards?: KioskDashboard[];
       };
+
+      // Default dashboards for new kiosks
+      const defaultDashboards: KioskDashboard[] = body.dashboards ?? [
+        { id: randomUUID(), type: "calendar", name: "Calendar", icon: "Calendar", pinned: true, config: {} },
+        { id: randomUUID(), type: "tasks", name: "Tasks", icon: "ListTodo", pinned: true, config: {} },
+      ];
 
       const [kiosk] = await fastify.db
         .insert(kiosks)
@@ -229,6 +354,8 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
           screensaverLayout: (body.screensaverLayout as any) ?? "builder",
           screensaverTransition: (body.screensaverTransition as any) ?? "fade",
           screensaverLayoutConfig: body.screensaverLayoutConfig ?? null,
+          dashboards: defaultDashboards,
+          enabledFeatures: dashboardsToEnabledFeatures(defaultDashboards),
           settings: body.settings ?? {},
         })
         .returning();
@@ -315,6 +442,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
             startFullscreen: { type: "boolean" },
             fullscreenDelayMinutes: { type: "integer", minimum: 0, maximum: 120 },
             settings: { type: "object" },
+            dashboards: { type: "array", nullable: true },
           },
         },
       },
@@ -346,6 +474,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         startFullscreen?: boolean;
         fullscreenDelayMinutes?: number;
         settings?: Record<string, unknown>;
+        dashboards?: KioskDashboard[];
       };
 
       const updates: Record<string, unknown> = { updatedAt: new Date() };
@@ -368,6 +497,15 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       if (body.startFullscreen !== undefined) updates.startFullscreen = body.startFullscreen;
       if (body.fullscreenDelayMinutes !== undefined) updates.fullscreenDelayMinutes = body.fullscreenDelayMinutes;
       if (body.settings !== undefined) updates.settings = body.settings;
+
+      // Dashboards: write + dual-write backward compat fields
+      if (body.dashboards !== undefined) {
+        updates.dashboards = body.dashboards;
+        updates.enabledFeatures = dashboardsToEnabledFeatures(body.dashboards);
+        const { sidebar, sidebarOrder } = dashboardsToSidebarSettings(body.dashboards);
+        const existingSettings = (body.settings ?? updates.settings ?? {}) as Record<string, unknown>;
+        updates.settings = { ...existingSettings, sidebar, sidebarOrder };
+      }
 
       const [kiosk] = await fastify.db
         .update(kiosks)
@@ -656,6 +794,19 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      // Lazy-migrate: if dashboards is null, compute from old fields
+      let dashboards = kiosk.dashboards as KioskDashboard[] | null;
+      if (!dashboards) {
+        dashboards = migrateKioskToDashboards(kiosk);
+        // Async write-back (don't await — fire and forget)
+        fastify.db
+          .update(kiosks)
+          .set({ dashboards })
+          .where(eq(kiosks.id, kiosk.id))
+          .then(() => fastify.log.info(`Lazy-migrated dashboards for kiosk ${kiosk.id}`))
+          .catch((err) => fastify.log.error(err, `Failed to lazy-migrate dashboards for kiosk ${kiosk.id}`));
+      }
+
       // Return config without sensitive data (userId, id)
       return {
         success: true,
@@ -667,6 +818,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
           homePage: kiosk.homePage,
           selectedCalendarIds: kiosk.selectedCalendarIds,
           enabledFeatures: kiosk.enabledFeatures,
+          dashboards,
           screensaverEnabled: kiosk.screensaverEnabled,
           screensaverTimeout: kiosk.screensaverTimeout,
           screensaverInterval: kiosk.screensaverInterval,

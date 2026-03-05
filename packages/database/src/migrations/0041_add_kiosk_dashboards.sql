@@ -1,0 +1,1 @@
+ALTER TABLE "kiosks" ADD COLUMN IF NOT EXISTS "dashboards" JSONB;

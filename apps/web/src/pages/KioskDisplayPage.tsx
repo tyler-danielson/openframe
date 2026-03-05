@@ -29,21 +29,24 @@ import { MultiViewPage } from "./MultiViewPage";
 import { CardViewPage } from "./CardViewPage";
 import { CustomScreenPage } from "./CustomScreenPage";
 
-// Feature to route mapping
-const FEATURE_ROUTES: Record<string, { path: string; element: JSX.Element }> = {
+// Feature to route mapping (used for backward compat + dashboard type -> component lookup)
+const FEATURE_ROUTES: Record<string, { path: string; element: JSX.Element; wildcard?: boolean }> = {
   calendar: { path: "calendar", element: <CalendarPage /> },
   dashboard: { path: "dashboard", element: <DashboardPage /> },
   tasks: { path: "tasks", element: <TasksPage /> },
-  photos: { path: "photos/*", element: <PhotosPage /> },
+  photos: { path: "photos", element: <PhotosPage />, wildcard: true },
   spotify: { path: "spotify", element: <SpotifyPage /> },
   iptv: { path: "iptv", element: <IptvPage /> },
   cameras: { path: "cameras", element: <CamerasPage /> },
-  homeassistant: { path: "homeassistant/*", element: <HomeAssistantPage /> },
+  homeassistant: { path: "homeassistant", element: <HomeAssistantPage />, wildcard: true },
   map: { path: "map", element: <MapPage /> },
-  kitchen: { path: "kitchen/*", element: <KitchenPage /> },
+  kitchen: { path: "kitchen", element: <KitchenPage />, wildcard: true },
   screensaver: { path: "screensaver", element: <ScreensaverDisplayPage /> },
   multiview: { path: "multiview", element: <MultiViewPage /> },
   cardview: { path: "cardview", element: <CardViewPage /> },
+  routines: { path: "routines", element: <CalendarPage /> }, // placeholder
+  matter: { path: "matter", element: <HomeAssistantPage /> }, // placeholder
+  chat: { path: "chat", element: <DashboardPage /> }, // placeholder
 };
 
 // Silk browser keep-alive: plays silent audio to prevent Echo Show from closing the tab
@@ -82,7 +85,7 @@ function useSilkKeepAlive() {
 
 // Kiosk app content - uses the same Layout and pages as the main app
 function KioskApp() {
-  const { isAuthReady, displayMode, displayType, homePage, enabledFeatures, connectionStatus, lastOnlineAt, startFullscreen, fullscreenDelayMinutes } = useKiosk();
+  const { isAuthReady, displayMode, displayType, homePage, enabledFeatures, dashboards, connectionStatus, lastOnlineAt, startFullscreen, fullscreenDelayMinutes } = useKiosk();
   const location = useLocation();
   const navigate = useNavigate();
   const hasAttemptedFullscreen = useRef(false);
@@ -410,31 +413,62 @@ function KioskApp() {
     });
   };
 
-  // Determine enabled routes based on features
+  // Determine enabled routes based on dashboards or features
   const enabledRoutes = useMemo(() => {
     if (displayMode !== "full") return [];
 
+    // Dashboard-based routing
+    if (dashboards.length > 0) {
+      const typeCount: Record<string, number> = {};
+      const routes: { feature: string; path: string; element: JSX.Element; dashboardId: string }[] = [];
+      for (const db of dashboards) {
+        const count = typeCount[db.type] ?? 0;
+        typeCount[db.type] = count + 1;
+        const featureRoute = FEATURE_ROUTES[db.type];
+        if (!featureRoute) continue;
+        const path = count === 0
+          ? (featureRoute.wildcard ? `${featureRoute.path}/*` : featureRoute.path)
+          : `d/${db.id}`;
+        routes.push({
+          feature: db.type,
+          path,
+          element: featureRoute.element,
+          dashboardId: db.id,
+        });
+      }
+      // Also add the generic /d/:id route for multi-instance support
+      return routes;
+    }
+
+    // Legacy: feature flag based
     return Object.entries(FEATURE_ROUTES)
       .filter(([feature]) => {
-        // Check if feature is enabled (default to true if not specified)
         const featureEnabled = enabledFeatures[feature as keyof typeof enabledFeatures];
         return featureEnabled !== false;
       })
       .map(([feature, route]) => ({
         feature,
-        ...route,
+        path: route.wildcard ? `${route.path}/*` : route.path,
+        element: route.element,
+        dashboardId: undefined as string | undefined,
       }));
-  }, [displayMode, enabledFeatures]);
+  }, [displayMode, enabledFeatures, dashboards]);
 
   // Get the effective home page
   const effectiveHomePage = useMemo(() => {
-    // If the specified home page is not enabled, fall back to first enabled route
+    // Dashboard-based: first dashboard's route
+    if (dashboards.length > 0) {
+      const firstType = dashboards[0]!.type;
+      const featureRoute = FEATURE_ROUTES[firstType];
+      return featureRoute?.path ?? "calendar";
+    }
+    // Legacy: check if home page is enabled
     const homePageEnabled = enabledFeatures[homePage as keyof typeof enabledFeatures];
     if (homePageEnabled === false && enabledRoutes.length > 0) {
       return enabledRoutes[0]?.path.replace("/*", "") ?? "calendar";
     }
     return homePage || "calendar";
-  }, [homePage, enabledFeatures, enabledRoutes]);
+  }, [homePage, enabledFeatures, enabledRoutes, dashboards]);
 
   // Clear the refresh flag once auth is ready
   useEffect(() => {
@@ -523,10 +557,10 @@ function KioskApp() {
   return (
     <>
       <Routes>
-        <Route element={<Layout kioskEnabledFeatures={enabledFeatures} kioskDisplayType={displayType} />}>
+        <Route element={<Layout kioskEnabledFeatures={enabledFeatures} kioskDisplayType={displayType} kioskDashboards={dashboards.length > 0 ? dashboards : undefined} />}>
           <Route index element={<Navigate to={effectiveHomePage} replace />} />
-          {enabledRoutes.map(({ feature, path, element }) => (
-            <Route key={feature} path={path} element={element} />
+          {enabledRoutes.map(({ feature, path, element, dashboardId }) => (
+            <Route key={dashboardId ?? feature} path={path} element={element} />
           ))}
           {/* Custom screens */}
           <Route path="screen/:slug" element={<CustomScreenPage />} />

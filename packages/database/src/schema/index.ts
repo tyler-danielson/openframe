@@ -507,6 +507,35 @@ export const kioskDisplayModeEnum = pgEnum("kiosk_display_mode", [
   "dashboard-only",    // Only dashboard page
 ]);
 
+// Dashboard types for kiosk navigation
+export type DashboardType =
+  | "calendar"
+  | "tasks"
+  | "routines"
+  | "dashboard"
+  | "cardview"
+  | "photos"
+  | "spotify"
+  | "iptv"
+  | "cameras"
+  | "multiview"
+  | "homeassistant"
+  | "matter"
+  | "map"
+  | "kitchen"
+  | "chat"
+  | "screensaver"
+  | "custom";
+
+export interface KioskDashboard {
+  id: string;
+  type: DashboardType;
+  name: string;
+  icon: string; // lucide icon name
+  pinned: boolean;
+  config: Record<string, unknown>;
+}
+
 // Kiosk enabled features type
 export interface KioskEnabledFeatures {
   calendar?: boolean;
@@ -599,6 +628,7 @@ export const kiosks = pgTable(
     homePage: text("home_page").default("calendar"),
     selectedCalendarIds: text("selected_calendar_ids").array(),
     enabledFeatures: jsonb("enabled_features").$type<KioskEnabledFeatures>(),
+    dashboards: jsonb("dashboards").$type<KioskDashboard[]>(),
     settings: jsonb("settings").$type<KioskSettings>().default({}),
     // Screensaver settings
     screensaverEnabled: boolean("screensaver_enabled").default(true).notNull(),

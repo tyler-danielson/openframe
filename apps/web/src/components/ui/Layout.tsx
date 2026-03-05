@@ -32,7 +32,10 @@ import {
   Kanban,
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
-import { api, type KioskEnabledFeatures, type KioskDisplayType } from "../../services/api";
+import { resolveLucideIcon as sharedResolveLucideIcon, isCustomIcon } from "../../lib/icon-utils";
+import { DashboardIcon } from "./DashboardIcon";
+import { api, type KioskEnabledFeatures, type KioskDisplayType, type KioskDashboard } from "../../services/api";
+import { getDashboardTypeOption } from "../../data/kiosk-options";
 import { useAuthStore } from "../../stores/auth";
 import { isCloudMode } from "../../lib/cloud";
 import { useSidebarStore, SIDEBAR_FEATURES, type SidebarFeature } from "../../stores/sidebar";
@@ -47,6 +50,7 @@ import { useDemoMode } from "../../contexts/DemoContext";
 interface LayoutProps {
   kioskEnabledFeatures?: KioskEnabledFeatures | null;
   kioskDisplayType?: KioskDisplayType | null;
+  kioskDashboards?: KioskDashboard[] | null;
   className?: string;
   basePath?: string;
 }
@@ -71,11 +75,7 @@ const BUILTIN_FEATURE_MAP: Record<string, { icon: any; path: string; label: stri
 
 /** Resolve a lucide icon name to a component (fallback to LayoutDashboard) */
 function resolveLucideIcon(name: string): React.ComponentType<{ className?: string }> {
-  const icons = LucideIcons as Record<string, unknown>;
-  if (icons[name] && typeof icons[name] === "function") {
-    return icons[name] as React.ComponentType<{ className?: string }>;
-  }
-  return LayoutDashboard;
+  return sharedResolveLucideIcon(name);
 }
 
 // Media sub-items (base paths, will be prefixed in component)
@@ -84,7 +84,7 @@ const mediaItemsBase = [
   { path: "iptv", icon: Tv, label: "Live TV" },
 ];
 
-export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, basePath: baseProp }: LayoutProps = {}) {
+export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards, className, basePath: baseProp }: LayoutProps = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -235,8 +235,35 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
 
   // Build nav items based on order array, authentication status, and custom screens
   const navItems = useMemo(() => {
-    type NavItem = { to: string; icon: any; label: string; feature: string | undefined; moduleId: string | null; isCustom?: boolean };
+    type NavItem = { to: string; icon: any; label: string; feature: string | undefined; moduleId: string | null; isCustom?: boolean; isPinned?: boolean; dashboardId?: string };
     const items: NavItem[] = [];
+
+    // If kioskDashboards is provided, build nav directly from dashboards array
+    if (kioskDashboards && kioskDashboards.length > 0) {
+      // Track first occurrence of each type for short paths
+      const typeCount: Record<string, number> = {};
+      for (const db of kioskDashboards) {
+        const count = typeCount[db.type] ?? 0;
+        typeCount[db.type] = count + 1;
+        const opt = getDashboardTypeOption(db.type);
+        const routePath = count === 0
+          ? (opt?.path ?? db.type)
+          : `d/${db.id}`;
+        const iconName = db.icon;
+        items.push({
+          to: buildPath(routePath),
+          icon: isCustomIcon(iconName)
+            ? (props: { className?: string }) => <DashboardIcon icon={iconName} {...props} />
+            : resolveLucideIcon(iconName),
+          label: db.name,
+          feature: db.type,
+          moduleId: opt?.moduleId ?? null,
+          isPinned: db.pinned,
+          dashboardId: db.id,
+        });
+      }
+      return items;
+    }
 
     // Iterate through the order array to build items in correct sequence
     for (const key of sidebarOrder) {
@@ -323,7 +350,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
     }
 
     return filteredItems;
-  }, [buildPath, isAuthenticated, basePath, kioskEnabledFeatures, isFeatureEnabled, sidebarFeatures, sidebarOrder, sidebarCustomScreens, customScreensMap, customScreensData, isModuleEnabled, authUser]);
+  }, [buildPath, isAuthenticated, basePath, kioskEnabledFeatures, kioskDashboards, isFeatureEnabled, sidebarFeatures, sidebarOrder, sidebarCustomScreens, customScreensMap, customScreensData, isModuleEnabled, authUser]);
 
   // Helper to check pinned state for any nav item (built-in or custom)
   const isItemPinned = useCallback((item: { feature: string | undefined; isCustom?: boolean; to: string }) => {
@@ -341,14 +368,20 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
     return !sidebarFeatures[feat] || sidebarFeatures[feat].pinned;
   }, [sidebarFeatures, sidebarCustomScreens, customScreensData]);
 
-  // Derive pinned vs more items (non-kiosk only)
+  // Derive pinned vs more items
   const pinnedItems = useMemo(() => {
-    if (kioskEnabledFeatures) return navItems; // kiosk: all items are "pinned"
+    if (kioskDashboards && kioskDashboards.length > 0) {
+      return navItems.filter(item => item.isPinned !== false);
+    }
+    if (kioskEnabledFeatures) return navItems; // legacy kiosk: all items are "pinned"
     return navItems.filter(item => isItemPinned(item));
-  }, [navItems, kioskEnabledFeatures, isItemPinned]);
+  }, [navItems, kioskEnabledFeatures, kioskDashboards, isItemPinned]);
 
   const moreItems = useMemo(() => {
-    if (kioskEnabledFeatures) return []; // kiosk: no overflow
+    if (kioskDashboards && kioskDashboards.length > 0) {
+      return navItems.filter(item => item.isPinned === false);
+    }
+    if (kioskEnabledFeatures) return []; // legacy kiosk: no overflow
     return navItems.filter(item => {
       if (item.isCustom) {
         return !isItemPinned(item);
@@ -357,13 +390,15 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
       if (!feat) return false; // auth-only items never in More
       return sidebarFeatures[feat] && !sidebarFeatures[feat].pinned;
     });
-  }, [navItems, kioskEnabledFeatures, sidebarFeatures, isItemPinned]);
+  }, [navItems, kioskEnabledFeatures, kioskDashboards, sidebarFeatures, isItemPinned]);
 
   // Check if media features are enabled (module + sidebar/kiosk)
+  // When dashboards are provided, media items are regular nav items (no separate submenu)
+  const hasDashboards = kioskDashboards && kioskDashboards.length > 0;
   const spotifyModuleOn = isModuleEnabled("spotify");
   const iptvModuleOn = isModuleEnabled("iptv");
-  const spotifyEnabled = spotifyModuleOn && (kioskEnabledFeatures ? isFeatureEnabled("spotify") : (!sidebarFeatures.spotify || sidebarFeatures.spotify.enabled));
-  const iptvEnabled = iptvModuleOn && (kioskEnabledFeatures ? isFeatureEnabled("iptv") : (!sidebarFeatures.iptv || sidebarFeatures.iptv.enabled));
+  const spotifyEnabled = !hasDashboards && spotifyModuleOn && (kioskEnabledFeatures ? isFeatureEnabled("spotify") : (!sidebarFeatures.spotify || sidebarFeatures.spotify.enabled));
+  const iptvEnabled = !hasDashboards && iptvModuleOn && (kioskEnabledFeatures ? isFeatureEnabled("iptv") : (!sidebarFeatures.iptv || sidebarFeatures.iptv.enabled));
   const spotifyPinned = kioskEnabledFeatures ? true : (!sidebarFeatures.spotify || sidebarFeatures.spotify.pinned);
   const iptvPinned = kioskEnabledFeatures ? true : (!sidebarFeatures.iptv || sidebarFeatures.iptv.pinned);
 
@@ -547,81 +582,108 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
         </button>
 
         <nav className={cn("flex flex-1 flex-col items-center", isTvMode ? "gap-3" : "gap-2")}>
-          {/* Pinned nav items before media */}
-          {pinnedItems.filter(item => ["Calendar", "Tasks", "Dashboard", "Photos"].includes(item.label)).map((item) => (
-            <div key={item.to} className="relative">
-              <NavLink
-                to={item.to}
-                tabIndex={isTvMode ? 0 : undefined}
-                onClick={handleNavClick(item.to)}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center justify-center rounded-lg transition-all duration-200",
-                    isTvMode ? "h-12 w-12 focus:outline-none focus:ring-2 focus:ring-primary/50" : "h-10 w-10",
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                    isTvMode && getNavBlockClasses(item.label)
-                  )
-                }
-                title={item.label}
-              >
-                <item.icon className={isTvMode ? "h-6 w-6" : "h-5 w-5"} />
-              </NavLink>
-              {isTvMode && isNavItemFocused(item.label) && (
-                <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 bg-black/90 text-white text-sm px-3 py-1.5 rounded-lg whitespace-nowrap z-50 pointer-events-none border border-primary/30">
-                  {item.label}
+          {hasDashboards ? (
+            /* Dashboard-based nav: all items in order, no media submenu */
+            pinnedItems.map((item) => (
+              <div key={item.dashboardId ?? item.to} className="relative">
+                <NavLink
+                  to={item.to}
+                  tabIndex={isTvMode ? 0 : undefined}
+                  onClick={handleNavClick(item.to)}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex items-center justify-center rounded-lg transition-all duration-200",
+                      isTvMode ? "h-12 w-12 focus:outline-none focus:ring-2 focus:ring-primary/50" : "h-10 w-10",
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    )
+                  }
+                  title={item.label}
+                >
+                  <item.icon className={isTvMode ? "h-6 w-6" : "h-5 w-5"} />
+                </NavLink>
+              </div>
+            ))
+          ) : (
+            <>
+              {/* Pinned nav items before media */}
+              {pinnedItems.filter(item => ["Calendar", "Tasks", "Dashboard", "Photos"].includes(item.label)).map((item) => (
+                <div key={item.to} className="relative">
+                  <NavLink
+                    to={item.to}
+                    tabIndex={isTvMode ? 0 : undefined}
+                    onClick={handleNavClick(item.to)}
+                    className={({ isActive }) =>
+                      cn(
+                        "flex items-center justify-center rounded-lg transition-all duration-200",
+                        isTvMode ? "h-12 w-12 focus:outline-none focus:ring-2 focus:ring-primary/50" : "h-10 w-10",
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                        isTvMode && getNavBlockClasses(item.label)
+                      )
+                    }
+                    title={item.label}
+                  >
+                    <item.icon className={isTvMode ? "h-6 w-6" : "h-5 w-5"} />
+                  </NavLink>
+                  {isTvMode && isNavItemFocused(item.label) && (
+                    <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 bg-black/90 text-white text-sm px-3 py-1.5 rounded-lg whitespace-nowrap z-50 pointer-events-none border border-primary/30">
+                      {item.label}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
+              ))}
 
-          {/* Media button with submenu - only show if at least one media item is pinned */}
-          {showMedia && (
-            <button
-              onClick={() => setIsMediaMenuOpen(!isMediaMenuOpen)}
-              tabIndex={isTvMode ? 0 : undefined}
-              className={cn(
-                "flex items-center justify-center rounded-lg transition-colors",
-                isTvMode ? "h-12 w-12 focus:outline-none focus:ring-2 focus:ring-primary/50" : "h-10 w-10",
-                isMediaRoute || isMediaMenuOpen
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              {/* Media button with submenu - only show if at least one media item is pinned */}
+              {showMedia && (
+                <button
+                  onClick={() => setIsMediaMenuOpen(!isMediaMenuOpen)}
+                  tabIndex={isTvMode ? 0 : undefined}
+                  className={cn(
+                    "flex items-center justify-center rounded-lg transition-colors",
+                    isTvMode ? "h-12 w-12 focus:outline-none focus:ring-2 focus:ring-primary/50" : "h-10 w-10",
+                    isMediaRoute || isMediaMenuOpen
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
+                  title="Media"
+                >
+                  <Play className={isTvMode ? "h-6 w-6" : "h-5 w-5"} />
+                </button>
               )}
-              title="Media"
-            >
-              <Play className={isTvMode ? "h-6 w-6" : "h-5 w-5"} />
-            </button>
+
+              {/* Remaining pinned nav items (after media) */}
+              {pinnedItems.filter(item => !["Calendar", "Tasks", "Dashboard", "Photos"].includes(item.label)).map((item) => (
+                <div key={item.to} className="relative">
+                  <NavLink
+                    to={item.to}
+                    tabIndex={isTvMode ? 0 : undefined}
+                    onClick={handleNavClick(item.to)}
+                    className={({ isActive }) =>
+                      cn(
+                        "flex items-center justify-center rounded-lg transition-all duration-200",
+                        isTvMode ? "h-12 w-12 focus:outline-none focus:ring-2 focus:ring-primary/50" : "h-10 w-10",
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                        isTvMode && getNavBlockClasses(item.label)
+                      )
+                    }
+                    title={item.label}
+                  >
+                    <item.icon className={isTvMode ? "h-6 w-6" : "h-5 w-5"} />
+                  </NavLink>
+                  {isTvMode && isNavItemFocused(item.label) && (
+                    <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 bg-black/90 text-white text-sm px-3 py-1.5 rounded-lg whitespace-nowrap z-50 pointer-events-none border border-primary/30">
+                      {item.label}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </>
           )}
-
-          {/* Remaining pinned nav items (after media) */}
-          {pinnedItems.filter(item => !["Calendar", "Tasks", "Dashboard", "Photos"].includes(item.label)).map((item) => (
-            <div key={item.to} className="relative">
-              <NavLink
-                to={item.to}
-                tabIndex={isTvMode ? 0 : undefined}
-                onClick={handleNavClick(item.to)}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center justify-center rounded-lg transition-all duration-200",
-                    isTvMode ? "h-12 w-12 focus:outline-none focus:ring-2 focus:ring-primary/50" : "h-10 w-10",
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                    isTvMode && getNavBlockClasses(item.label)
-                  )
-                }
-                title={item.label}
-              >
-                <item.icon className={isTvMode ? "h-6 w-6" : "h-5 w-5"} />
-              </NavLink>
-              {isTvMode && isNavItemFocused(item.label) && (
-                <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 bg-black/90 text-white text-sm px-3 py-1.5 rounded-lg whitespace-nowrap z-50 pointer-events-none border border-primary/30">
-                  {item.label}
-                </div>
-              )}
-            </div>
-          ))}
 
         </nav>
 

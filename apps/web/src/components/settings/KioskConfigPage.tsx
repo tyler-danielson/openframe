@@ -5,9 +5,12 @@ import {
   Trash2, Copy, RefreshCw, ExternalLink, Monitor, Calendar, ListTodo,
   Music, Tv, Newspaper, Home, Image as ImageIcon, Trophy, PanelLeft,
   Puzzle, Settings, QrCode, Power, Maximize, Clock, ChevronDown, ChevronUp,
-  GripVertical, LayoutDashboard,
+  GripVertical, LayoutDashboard, Plus, X, Settings2,
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
+import { resolveLucideIcon } from "../../lib/icon-utils";
+import { DashboardIcon } from "../ui/DashboardIcon";
+import { IconPicker } from "../ui/IconPicker";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent,
 } from "@dnd-kit/core";
@@ -15,14 +18,14 @@ import {
   SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy, arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { api, type Kiosk, type KioskSettings, type KioskEnabledFeatures, type ColorScheme, COLOR_SCHEMES } from "../../services/api";
+import { api, type Kiosk, type KioskSettings, type KioskEnabledFeatures, type KioskDashboard, type ColorScheme, COLOR_SCHEMES } from "../../services/api";
 import { useModuleStore } from "../../stores/modules";
 import { SIDEBAR_FEATURES, type SidebarFeature } from "../../stores/sidebar";
 import { cn } from "../../lib/utils";
 import { appUrl } from "../../lib/cloud";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../ui/Card";
 import { Button } from "../ui/Button";
-import { DISPLAY_TYPE_OPTIONS, DISPLAY_MODE_OPTIONS, HOME_PAGE_OPTIONS, FEATURE_OPTIONS } from "../../data/kiosk-options";
+import { DISPLAY_TYPE_OPTIONS, DISPLAY_MODE_OPTIONS, HOME_PAGE_OPTIONS, FEATURE_OPTIONS, DASHBOARD_TYPE_OPTIONS, getDashboardTypeOption, getDefaultDashboards } from "../../data/kiosk-options";
 import type { CustomScreen } from "@openframe/shared";
 
 interface KioskConfigPageProps {
@@ -31,55 +34,39 @@ interface KioskConfigPageProps {
   renderTableSections?: (kiosk: Kiosk) => React.ReactNode;
 }
 
-// Sidebar feature labels for display
-const SIDEBAR_FEATURE_LABELS: Record<string, string> = {
-  calendar: "Calendar",
-  tasks: "Tasks",
-  routines: "Routines",
-  dashboard: "Dashboard",
-  cardview: "Card View",
-  photos: "Photos",
-  spotify: "Spotify",
-  iptv: "Live TV",
-  cameras: "Cameras",
-  multiview: "Multi-View",
-  homeassistant: "Home Assistant",
-  matter: "Matter",
-  map: "Map",
-  kitchen: "Kitchen",
-  chat: "Chat",
-  screensaver: "Custom Screen",
-};
-
 function resolveIcon(name: string): React.ComponentType<{ className?: string }> {
-  const icons = LucideIcons as Record<string, unknown>;
-  if (icons[name] && typeof icons[name] === "function") {
-    return icons[name] as React.ComponentType<{ className?: string }>;
-  }
-  return LayoutDashboard;
+  return resolveLucideIcon(name);
 }
 
-function KioskSortableSidebarItem({ id, label, iconName, enabled, onToggle }: {
-  id: string; label: string; iconName: string; enabled: boolean; onToggle: (enabled: boolean) => void;
+function SortableDashboardItem({ dashboard, onTogglePin, onEdit, onDelete }: {
+  dashboard: KioskDashboard;
+  onTogglePin: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: dashboard.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
-  const Icon = resolveIcon(iconName);
   return (
     <div ref={setNodeRef} style={style} className={cn(
       "flex items-center gap-3 py-2.5 px-1",
       isDragging && "z-50 bg-card shadow-lg rounded-lg",
-      !enabled && "opacity-50"
     )}>
       <button {...attributes} {...listeners} className="cursor-grab text-muted-foreground hover:text-foreground touch-none">
         <GripVertical className="h-4 w-4" />
       </button>
-      <Icon className="h-4 w-4 text-primary" />
-      <span className="flex-1 font-medium text-sm">{label}</span>
-      <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
-        <input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} className="rounded" />
-        Visible
+      <DashboardIcon icon={dashboard.icon} className="h-4 w-4 text-primary" />
+      <span className="flex-1 font-medium text-sm">{dashboard.name}</span>
+      <span className="text-xs text-muted-foreground">{dashboard.type}</span>
+      <label className="flex items-center gap-1.5 text-sm text-muted-foreground" title={dashboard.pinned ? "Pinned to taskbar" : "In More menu"}>
+        <input type="checkbox" checked={dashboard.pinned} onChange={onTogglePin} className="rounded" />
+        Pin
       </label>
+      <button onClick={onEdit} className="p-1 text-muted-foreground hover:text-foreground" title="Settings">
+        <Settings2 className="h-4 w-4" />
+      </button>
+      <button onClick={onDelete} className="p-1 text-muted-foreground hover:text-destructive" title="Remove">
+        <X className="h-4 w-4" />
+      </button>
     </div>
   );
 }
@@ -405,247 +392,8 @@ export function KioskConfigPage({ kioskId, renderTableSections }: KioskConfigPag
         )}
       </Card>
 
-      {/* Calendar Section */}
-      <Card className="border-2 border-primary/40 overflow-hidden">
-        <SectionHeader id="calendar" icon={<Calendar />} title="Calendar" description="Display preferences for this kiosk" isCollapsed={!!collapsedSections.calendar} onToggle={toggleSection} />
-        {!collapsedSections.calendar && (
-          <CardContent className="space-y-4 border-t border-border/50">
-            <SettingRow label="Calendar name" description="Display name shown at the top">
-              <input
-                type="text"
-                value={settings.calendar?.familyName ?? ""}
-                onChange={(e) => updateSettings("calendar", { familyName: e.target.value })}
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-48"
-                placeholder="Family Calendar"
-              />
-            </SettingRow>
-
-            <SettingRow label="Home address" description="Used for travel time calculations">
-              <input
-                type="text"
-                value={settings.calendar?.homeAddress ?? ""}
-                onChange={(e) => updateSettings("calendar", { homeAddress: e.target.value })}
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-64"
-                placeholder="123 Main St, City, State"
-              />
-            </SettingRow>
-
-            <SettingRow label="Default view" description="Calendar view when kiosk loads">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={settings.calendar?.view ?? "month"}
-                onChange={(e) => updateSettings("calendar", { view: e.target.value })}
-              >
-                <option value="month">Month</option>
-                <option value="week">Week</option>
-                <option value="day">Day</option>
-                <option value="agenda">Agenda</option>
-                <option value="schedule">Schedule</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Week starts on" description="First day of the week">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={settings.calendar?.weekStartsOn ?? 1}
-                onChange={(e) => updateSettings("calendar", { weekStartsOn: Number(e.target.value) })}
-              >
-                <option value={1}>Monday</option>
-                <option value={0}>Sunday</option>
-                <option value={6}>Saturday</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Day view hours" description="Visible time range">
-              <div className="flex items-center gap-2">
-                <select
-                  className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px]"
-                  value={settings.calendar?.dayStartHour ?? 7}
-                  onChange={(e) => updateSettings("calendar", { dayStartHour: Number(e.target.value) })}
-                >
-                  {Array.from({ length: 24 }, (_, i) => (
-                    <option key={i} value={i}>
-                      {i === 0 ? "12 AM" : i < 12 ? `${i} AM` : i === 12 ? "12 PM" : `${i - 12} PM`}
-                    </option>
-                  ))}
-                </select>
-                <span className="text-muted-foreground">to</span>
-                <select
-                  className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px]"
-                  value={settings.calendar?.dayEndHour ?? 22}
-                  onChange={(e) => updateSettings("calendar", { dayEndHour: Number(e.target.value) })}
-                >
-                  {Array.from({ length: 24 }, (_, i) => (
-                    <option key={i} value={i}>
-                      {i === 0 ? "12 AM" : i < 12 ? `${i} AM` : i === 12 ? "12 PM" : `${i - 12} PM`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </SettingRow>
-
-            <SettingRow label="Time format" description="Clock display format">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={settings.calendar?.timeFormat ?? "12h"}
-                onChange={(e) => updateSettings("calendar", { timeFormat: e.target.value })}
-              >
-                <option value="12h">12-hour</option>
-                <option value="12h-seconds">12-hour with seconds</option>
-                <option value="24h">24-hour</option>
-                <option value="24h-seconds">24-hour with seconds</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Default event duration" description="Duration for new events">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={settings.calendar?.defaultEventDuration ?? 60}
-                onChange={(e) => updateSettings("calendar", { defaultEventDuration: Number(e.target.value) })}
-              >
-                <option value={15}>15 minutes</option>
-                <option value={30}>30 minutes</option>
-                <option value={60}>1 hour</option>
-                <option value={90}>1.5 hours</option>
-                <option value={120}>2 hours</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Ticker speed" description="Event ticker scroll speed">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={settings.calendar?.tickerSpeed ?? "normal"}
-                onChange={(e) => updateSettings("calendar", { tickerSpeed: e.target.value })}
-              >
-                <option value="slow">Slow</option>
-                <option value="normal">Normal</option>
-                <option value="fast">Fast</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Week mode" description="Week view behavior">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={settings.calendar?.weekMode ?? "current"}
-                onChange={(e) => updateSettings("calendar", { weekMode: e.target.value })}
-              >
-                <option value="current">Current week</option>
-                <option value="rolling">Rolling 7 days</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Month mode" description="Month view behavior">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={settings.calendar?.monthMode ?? "current"}
-                onChange={(e) => updateSettings("calendar", { monthMode: e.target.value })}
-              >
-                <option value="current">Current month</option>
-                <option value="rolling">Rolling 4 weeks</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Week view widget" description="Widget in the 8th cell of week view">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={settings.calendar?.weekCellWidget ?? "next-week"}
-                onChange={(e) => updateSettings("calendar", { weekCellWidget: e.target.value })}
-              >
-                <option value="next-week">Next Week</option>
-                <option value="camera">Camera</option>
-                <option value="map">Map</option>
-                <option value="spotify">Spotify</option>
-                <option value="home-control">Home Control</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Auto refresh interval" description="Minutes between data refreshes (0 = off)">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={settings.calendar?.autoRefreshInterval ?? 0}
-                onChange={(e) => updateSettings("calendar", { autoRefreshInterval: Number(e.target.value) })}
-              >
-                <option value={0}>Off</option>
-                <option value={1}>1 minute</option>
-                <option value={5}>5 minutes</option>
-                <option value={15}>15 minutes</option>
-                <option value={30}>30 minutes</option>
-                <option value={60}>1 hour</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Show drive time" description="Display driving time on next event">
-              <ToggleSwitch
-                checked={settings.calendar?.showDriveTimeOnNext ?? false}
-                onChange={(v) => updateSettings("calendar", { showDriveTimeOnNext: v })}
-              />
-            </SettingRow>
-
-            <SettingRow label="Show week numbers" description="Display week numbers in calendar">
-              <ToggleSwitch
-                checked={settings.calendar?.showWeekNumbers ?? false}
-                onChange={(v) => updateSettings("calendar", { showWeekNumbers: v })}
-              />
-            </SettingRow>
-
-            {/* Calendar selection checkboxes */}
-            <CalendarSelectionSection
-              kiosk={kiosk}
-              onUpdate={(ids) => updateKiosk.mutate({ selectedCalendarIds: ids })}
-            />
-          </CardContent>
-        )}
-      </Card>
-
-      {/* Tasks Section */}
-      <Card className="border-2 border-primary/40 overflow-hidden">
-        <SectionHeader id="tasks" icon={<ListTodo />} title="Tasks" description="Layout and display preferences" isCollapsed={!!collapsedSections.tasks} onToggle={toggleSection} />
-        {!collapsedSections.tasks && (
-          <CardContent className="space-y-4 border-t border-border/50">
-            <SettingRow label="Layout" description="How tasks are displayed">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={settings.tasks?.layout ?? "lists"}
-                onChange={(e) => updateSettings("tasks", { layout: e.target.value })}
-              >
-                <option value="lists">Collapsible Lists</option>
-                <option value="grid">Grid</option>
-                <option value="columns">Columns (Side-by-Side)</option>
-                <option value="kanban">Kanban (By Status)</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Show completed tasks" description="Display completed tasks by default">
-              <ToggleSwitch
-                checked={settings.tasks?.showCompleted ?? false}
-                onChange={(v) => updateSettings("tasks", { showCompleted: v })}
-              />
-            </SettingRow>
-
-            <SettingRow label="Expand all lists" description="Auto-expand all task lists (Lists layout)">
-              <ToggleSwitch
-                checked={settings.tasks?.expandAllLists ?? false}
-                onChange={(v) => updateSettings("tasks", { expandAllLists: v })}
-              />
-            </SettingRow>
-          </CardContent>
-        )}
-      </Card>
-
-      {/* Spotify Section (module-gated) */}
-      {isModuleEnabled("spotify") && (
-        <Card className="border-2 border-primary/40 overflow-hidden">
-          <SectionHeader id="spotify" icon={<Music />} title="Spotify" description="Account assignment for this kiosk" isCollapsed={!!collapsedSections.spotify} onToggle={toggleSection} />
-          {!collapsedSections.spotify && (
-            <CardContent className="space-y-4 border-t border-border/50">
-              <SpotifyAccountPicker
-                selectedTokenId={settings.spotify?.oauthTokenId}
-                onSelect={(tokenId) => updateSettings("spotify", { oauthTokenId: tokenId })}
-              />
-            </CardContent>
-          )}
-        </Card>
-      )}
+      {/* Dashboards Section */}
+      <DashboardsSection kiosk={kiosk} updateKiosk={updateKiosk} isModuleEnabled={isModuleEnabled} />
 
       {/* Custom Screen Section */}
       <Card className="border-2 border-primary/40 overflow-hidden">
@@ -746,110 +494,392 @@ export function KioskConfigPage({ kioskId, renderTableSections }: KioskConfigPag
         )}
       </Card>
 
-      {/* Sidebar Section */}
-      <Card className="border-2 border-primary/40 overflow-hidden">
-        <SectionHeader id="sidebar" icon={<PanelLeft />} title="Sidebar" description="Drag to reorder, toggle visibility" isCollapsed={!!collapsedSections.sidebar} onToggle={toggleSection} />
-        {!collapsedSections.sidebar && (
-          <CardContent className="border-t border-border/50">
-            {(() => {
-              const sidebarSettings = settings.sidebar ?? {};
-              const currentOrder: string[] = settings.sidebarOrder ?? [...SIDEBAR_FEATURES];
-              // Ensure all built-in features and custom screens are in the order
-              const effectiveOrder = [...currentOrder];
-              for (const f of SIDEBAR_FEATURES) {
-                if (!effectiveOrder.includes(f)) effectiveOrder.push(f);
-              }
-              for (const cs of customScreens) {
-                if (!effectiveOrder.includes(cs.id)) effectiveOrder.push(cs.id);
-              }
-              const customScreensMap = new Map(customScreens.map(s => [s.id, s]));
-
-              const handleKioskDragEnd = (event: DragEndEvent) => {
-                const { active, over } = event;
-                if (!over || active.id === over.id) return;
-                const oldIdx = effectiveOrder.indexOf(String(active.id));
-                const newIdx = effectiveOrder.indexOf(String(over.id));
-                if (oldIdx === -1 || newIdx === -1) return;
-                const newOrder = arrayMove(effectiveOrder, oldIdx, newIdx);
-                updateKiosk.mutate({
-                  settings: { ...settings, sidebarOrder: newOrder },
-                });
-              };
-
-              return (
-                <DndContext sensors={kioskDndSensors} collisionDetection={closestCenter} onDragEnd={handleKioskDragEnd}>
-                  <SortableContext items={effectiveOrder} strategy={verticalListSortingStrategy}>
-                    <div className="divide-y divide-border/50">
-                      {effectiveOrder.map((key) => {
-                        const builtin = SIDEBAR_FEATURE_LABELS[key];
-                        const cs = customScreensMap.get(key);
-                        if (!builtin && !cs) return null;
-                        const label = builtin ?? cs?.name ?? key;
-                        const iconName = builtin ? (key === "calendar" ? "Calendar" : key === "tasks" ? "ListTodo" : key === "photos" ? "Image" : key === "dashboard" ? "LayoutDashboard" : key === "homeassistant" ? "Home" : "Monitor") : (cs?.icon ?? "LayoutDashboard");
-                        const featureState = sidebarSettings[key] ?? { enabled: true };
-                        const enabled = featureState.enabled !== false;
-                        return (
-                          <KioskSortableSidebarItem
-                            key={key}
-                            id={key}
-                            label={label}
-                            iconName={iconName}
-                            enabled={enabled}
-                            onToggle={(v) => {
-                              const current = settings.sidebar ?? {};
-                              updateKiosk.mutate({
-                                settings: {
-                                  ...settings,
-                                  sidebar: {
-                                    ...current,
-                                    [key]: { ...current[key], enabled: v },
-                                  },
-                                },
-                              });
-                            }}
-                          />
-                        );
-                      })}
-                    </div>
-                  </SortableContext>
-                </DndContext>
-              );
-            })()}
-          </CardContent>
-        )}
-      </Card>
-
-      {/* Features Section */}
-      <Card className="border-2 border-primary/40 overflow-hidden">
-        <SectionHeader id="features" icon={<Puzzle />} title="Features" description="Enable or disable features for this kiosk" isCollapsed={!!collapsedSections.features} onToggle={toggleSection} />
-        {!collapsedSections.features && (
-          <CardContent className="border-t border-border/50">
-            <div className="divide-y divide-border/50">
-              {FEATURE_OPTIONS.filter((opt) => !opt.moduleId || isModuleEnabled(opt.moduleId)).map((opt) => {
-                const features = kiosk.enabledFeatures ?? {};
-                const enabled = features[opt.key] !== false;
-                return (
-                  <div key={opt.key} className="flex items-center justify-between py-3">
-                    <span className="font-medium">{opt.label}</span>
-                    <ToggleSwitch
-                      checked={enabled}
-                      onChange={(v) => {
-                        updateKiosk.mutate({
-                          enabledFeatures: { ...features, [opt.key]: v },
-                        });
-                      }}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        )}
-      </Card>
-
       {/* Table-backed sections rendered via slot */}
       {renderTableSections?.(kiosk)}
     </div>
+  );
+}
+
+// Dashboard settings modal content by type
+function DashboardSettingsContent({ dashboard, onConfigChange, kiosk }: {
+  dashboard: KioskDashboard;
+  onConfigChange: (key: string, value: unknown) => void;
+  kiosk: Kiosk;
+}) {
+  const config = dashboard.config;
+
+  switch (dashboard.type) {
+    case "calendar":
+      return (
+        <div className="space-y-4">
+          <SettingRow label="Calendar name" description="Display name shown at the top">
+            <input
+              type="text"
+              value={(config.familyName as string) ?? ""}
+              onChange={(e) => onConfigChange("familyName", e.target.value)}
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-48"
+              placeholder="Family Calendar"
+            />
+          </SettingRow>
+          <SettingRow label="Home address" description="Used for travel time calculations">
+            <input
+              type="text"
+              value={(config.homeAddress as string) ?? ""}
+              onChange={(e) => onConfigChange("homeAddress", e.target.value)}
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-64"
+              placeholder="123 Main St, City, State"
+            />
+          </SettingRow>
+          <SettingRow label="Default view">
+            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+              value={(config.view as string) ?? "month"}
+              onChange={(e) => onConfigChange("view", e.target.value)}>
+              <option value="month">Month</option>
+              <option value="week">Week</option>
+              <option value="day">Day</option>
+              <option value="agenda">Agenda</option>
+              <option value="schedule">Schedule</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Week starts on">
+            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+              value={(config.weekStartsOn as number) ?? 1}
+              onChange={(e) => onConfigChange("weekStartsOn", Number(e.target.value))}>
+              <option value={1}>Monday</option>
+              <option value={0}>Sunday</option>
+              <option value={6}>Saturday</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Day view hours">
+            <div className="flex items-center gap-2">
+              <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px]"
+                value={(config.dayStartHour as number) ?? 7}
+                onChange={(e) => onConfigChange("dayStartHour", Number(e.target.value))}>
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>
+                    {i === 0 ? "12 AM" : i < 12 ? `${i} AM` : i === 12 ? "12 PM" : `${i - 12} PM`}
+                  </option>
+                ))}
+              </select>
+              <span className="text-muted-foreground">to</span>
+              <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px]"
+                value={(config.dayEndHour as number) ?? 22}
+                onChange={(e) => onConfigChange("dayEndHour", Number(e.target.value))}>
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>
+                    {i === 0 ? "12 AM" : i < 12 ? `${i} AM` : i === 12 ? "12 PM" : `${i - 12} PM`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </SettingRow>
+          <SettingRow label="Time format">
+            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+              value={(config.timeFormat as string) ?? "12h"}
+              onChange={(e) => onConfigChange("timeFormat", e.target.value)}>
+              <option value="12h">12-hour</option>
+              <option value="12h-seconds">12-hour with seconds</option>
+              <option value="24h">24-hour</option>
+              <option value="24h-seconds">24-hour with seconds</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Default event duration">
+            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+              value={(config.defaultEventDuration as number) ?? 60}
+              onChange={(e) => onConfigChange("defaultEventDuration", Number(e.target.value))}>
+              <option value={15}>15 minutes</option>
+              <option value={30}>30 minutes</option>
+              <option value={60}>1 hour</option>
+              <option value={90}>1.5 hours</option>
+              <option value={120}>2 hours</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Ticker speed">
+            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+              value={(config.tickerSpeed as string) ?? "normal"}
+              onChange={(e) => onConfigChange("tickerSpeed", e.target.value)}>
+              <option value="slow">Slow</option>
+              <option value="normal">Normal</option>
+              <option value="fast">Fast</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Week mode">
+            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+              value={(config.weekMode as string) ?? "current"}
+              onChange={(e) => onConfigChange("weekMode", e.target.value)}>
+              <option value="current">Current week</option>
+              <option value="rolling">Rolling 7 days</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Month mode">
+            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+              value={(config.monthMode as string) ?? "current"}
+              onChange={(e) => onConfigChange("monthMode", e.target.value)}>
+              <option value="current">Current month</option>
+              <option value="rolling">Rolling 4 weeks</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Week view widget">
+            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+              value={(config.weekCellWidget as string) ?? "next-week"}
+              onChange={(e) => onConfigChange("weekCellWidget", e.target.value)}>
+              <option value="next-week">Next Week</option>
+              <option value="camera">Camera</option>
+              <option value="map">Map</option>
+              <option value="spotify">Spotify</option>
+              <option value="home-control">Home Control</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Auto refresh interval">
+            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+              value={(config.autoRefreshInterval as number) ?? 0}
+              onChange={(e) => onConfigChange("autoRefreshInterval", Number(e.target.value))}>
+              <option value={0}>Off</option>
+              <option value={1}>1 minute</option>
+              <option value={5}>5 minutes</option>
+              <option value={15}>15 minutes</option>
+              <option value={30}>30 minutes</option>
+              <option value={60}>1 hour</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Show drive time">
+            <ToggleSwitch checked={!!config.showDriveTimeOnNext} onChange={(v) => onConfigChange("showDriveTimeOnNext", v)} />
+          </SettingRow>
+          <SettingRow label="Show week numbers">
+            <ToggleSwitch checked={!!config.showWeekNumbers} onChange={(v) => onConfigChange("showWeekNumbers", v)} />
+          </SettingRow>
+          <CalendarSelectionSection kiosk={kiosk} onUpdate={(ids) => onConfigChange("selectedCalendarIds", ids)} />
+        </div>
+      );
+
+    case "tasks":
+      return (
+        <div className="space-y-4">
+          <SettingRow label="Layout" description="How tasks are displayed">
+            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+              value={(config.layout as string) ?? "lists"}
+              onChange={(e) => onConfigChange("layout", e.target.value)}>
+              <option value="lists">Collapsible Lists</option>
+              <option value="grid">Grid</option>
+              <option value="columns">Columns (Side-by-Side)</option>
+              <option value="kanban">Kanban (By Status)</option>
+            </select>
+          </SettingRow>
+          <SettingRow label="Show completed tasks">
+            <ToggleSwitch checked={!!config.showCompleted} onChange={(v) => onConfigChange("showCompleted", v)} />
+          </SettingRow>
+          <SettingRow label="Expand all lists">
+            <ToggleSwitch checked={!!config.expandAllLists} onChange={(v) => onConfigChange("expandAllLists", v)} />
+          </SettingRow>
+        </div>
+      );
+
+    case "spotify":
+      return (
+        <div className="space-y-4">
+          <SpotifyAccountPicker
+            selectedTokenId={config.oauthTokenId as string | undefined}
+            onSelect={(tokenId) => onConfigChange("oauthTokenId", tokenId)}
+          />
+        </div>
+      );
+
+    default:
+      return <p className="text-sm text-muted-foreground">No additional settings for this dashboard type.</p>;
+  }
+}
+
+// Dashboards section
+function DashboardsSection({ kiosk, updateKiosk, isModuleEnabled }: {
+  kiosk: Kiosk;
+  updateKiosk: ReturnType<typeof useMutation<Kiosk, Error, Parameters<typeof api.updateKiosk>[1]>>;
+  isModuleEnabled: (id: string) => boolean;
+}) {
+  const [editingDashboard, setEditingDashboard] = useState<string | null>(null);
+  const [showAddMenu, setShowAddMenu] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const dashboards: KioskDashboard[] = kiosk.dashboards ?? [];
+
+  const saveDashboards = useCallback((newDashboards: KioskDashboard[]) => {
+    updateKiosk.mutate({ dashboards: newDashboards });
+  }, [updateKiosk]);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = dashboards.findIndex(d => d.id === String(active.id));
+    const newIdx = dashboards.findIndex(d => d.id === String(over.id));
+    if (oldIdx === -1 || newIdx === -1) return;
+    saveDashboards(arrayMove(dashboards, oldIdx, newIdx));
+  }, [dashboards, saveDashboards]);
+
+  const addDashboard = useCallback((type: import("../../services/api").DashboardType) => {
+    const opt = getDashboardTypeOption(type);
+    if (!opt) return;
+    const newDb: KioskDashboard = {
+      id: crypto.randomUUID(),
+      type,
+      name: opt.label,
+      icon: opt.defaultIcon,
+      pinned: true,
+      config: {},
+    };
+    saveDashboards([...dashboards, newDb]);
+    setShowAddMenu(false);
+  }, [dashboards, saveDashboards]);
+
+  const removeDashboard = useCallback((id: string) => {
+    saveDashboards(dashboards.filter(d => d.id !== id));
+  }, [dashboards, saveDashboards]);
+
+  const togglePin = useCallback((id: string) => {
+    saveDashboards(dashboards.map(d => d.id === id ? { ...d, pinned: !d.pinned } : d));
+  }, [dashboards, saveDashboards]);
+
+  const updateDashboard = useCallback((id: string, updates: Partial<KioskDashboard>) => {
+    saveDashboards(dashboards.map(d => d.id === id ? { ...d, ...updates } : d));
+  }, [dashboards, saveDashboards]);
+
+  const updateDashboardConfig = useCallback((id: string, key: string, value: unknown) => {
+    saveDashboards(dashboards.map(d =>
+      d.id === id ? { ...d, config: { ...d.config, [key]: value } } : d
+    ));
+  }, [dashboards, saveDashboards]);
+
+  const editingDb = dashboards.find(d => d.id === editingDashboard);
+
+  // Available types to add (filter by module and allowMultiple)
+  const availableTypes = useMemo(() => {
+    return DASHBOARD_TYPE_OPTIONS.filter(opt => {
+      if (opt.moduleId && !isModuleEnabled(opt.moduleId)) return false;
+      if (!opt.allowMultiple && dashboards.some(d => d.type === opt.type)) return false;
+      return true;
+    });
+  }, [dashboards, isModuleEnabled]);
+
+  return (
+    <>
+      <Card className="border-2 border-primary/40 overflow-hidden">
+        <div className="flex items-center justify-between p-4">
+          <div className="flex items-center gap-3">
+            <span className="text-primary [&>svg]:h-5 [&>svg]:w-5"><LayoutDashboard /></span>
+            <div>
+              <h3 className="font-semibold text-foreground">Dashboards</h3>
+              <p className="text-sm text-muted-foreground">Navigation items, order, and per-dashboard settings</p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setShowAddMenu(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Add
+          </Button>
+        </div>
+        <CardContent className="border-t border-border/50 pt-0">
+          {dashboards.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4">No dashboards configured. Add one to get started.</p>
+          ) : (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={dashboards.map(d => d.id)} strategy={verticalListSortingStrategy}>
+                <div className="divide-y divide-border/50">
+                  {dashboards.map(db => (
+                    <SortableDashboardItem
+                      key={db.id}
+                      dashboard={db}
+                      onTogglePin={() => togglePin(db.id)}
+                      onEdit={() => setEditingDashboard(db.id)}
+                      onDelete={() => removeDashboard(db.id)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Add dashboard modal */}
+      {showAddMenu && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center pt-[10vh] overflow-y-auto" onClick={() => setShowAddMenu(false)}>
+          <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-md mx-4 mb-8" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h3 className="font-semibold text-foreground">Add Dashboard</h3>
+              <button onClick={() => setShowAddMenu(false)} className="p-1 text-muted-foreground hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-2">
+              {availableTypes.length === 0 ? (
+                <p className="px-3 py-6 text-sm text-muted-foreground text-center">All dashboard types already added</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {availableTypes.map(opt => {
+                    const Icon = resolveIcon(opt.defaultIcon);
+                    return (
+                      <button
+                        key={opt.type}
+                        onClick={() => addDashboard(opt.type)}
+                        className="flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-left hover:bg-accent transition-colors"
+                      >
+                        <div className="flex items-center justify-center h-8 w-8 rounded-md bg-primary/10">
+                          <Icon className="h-4 w-4 text-primary" />
+                        </div>
+                        <span className="font-medium">{opt.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dashboard settings modal */}
+      {editingDb && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center pt-[10vh] overflow-y-auto" onClick={() => setEditingDashboard(null)}>
+          <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-lg mx-4 mb-8" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h3 className="font-semibold text-foreground">Edit: {editingDb.name}</h3>
+              <button onClick={() => setEditingDashboard(null)} className="p-1 text-muted-foreground hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              {/* Common fields */}
+              <SettingRow label="Name">
+                <input
+                  type="text"
+                  value={editingDb.name}
+                  onChange={(e) => updateDashboard(editingDb.id, { name: e.target.value })}
+                  className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-48"
+                />
+              </SettingRow>
+              <SettingRow label="Icon">
+                <IconPicker
+                  value={editingDb.icon}
+                  onChange={(icon) => updateDashboard(editingDb.id, { icon })}
+                />
+              </SettingRow>
+              <SettingRow label="Pinned to taskbar">
+                <ToggleSwitch checked={editingDb.pinned} onChange={(v) => updateDashboard(editingDb.id, { pinned: v })} />
+              </SettingRow>
+
+              {/* Type-specific settings */}
+              <div className="border-t border-border/50 pt-4">
+                <DashboardSettingsContent
+                  dashboard={editingDb}
+                  onConfigChange={(key, value) => updateDashboardConfig(editingDb.id, key, value)}
+                  kiosk={kiosk}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

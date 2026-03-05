@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type KioskConfig, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type KioskSettings } from "../services/api";
+import { api, type KioskConfig, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type KioskSettings, type KioskDashboard } from "../services/api";
 import { useScreensaverStore, type ScreensaverLayoutConfig, DEFAULT_LAYOUT_CONFIG } from "../stores/screensaver";
 import { useCalendarStore } from "../stores/calendar";
 import { useTasksStore } from "../stores/tasks";
@@ -19,6 +19,8 @@ interface KioskContextValue {
   homePage: string;
   selectedCalendarIds: string[] | null;
   enabledFeatures: KioskEnabledFeatures;
+  dashboards: KioskDashboard[];
+  getDashboardConfig: (dashboardId: string) => Record<string, unknown>;
   startFullscreen: boolean;
   fullscreenDelayMinutes: number | null;
   isLoading: boolean;
@@ -55,6 +57,8 @@ const KioskContext = createContext<KioskContextValue>({
   homePage: "calendar",
   selectedCalendarIds: null,
   enabledFeatures: DEFAULT_ENABLED_FEATURES,
+  dashboards: [],
+  getDashboardConfig: () => ({}),
   startFullscreen: false,
   fullscreenDelayMinutes: null,
   isLoading: false,
@@ -132,37 +136,43 @@ export function KioskProvider({ token, children }: KioskProviderProps) {
         synced: true,
       });
 
-      // Apply per-kiosk calendar settings
-      const cal = config.settings?.calendar;
+      // Apply calendar/tasks settings from dashboards (first of each type) or from legacy settings
+      const dbs = config.dashboards ?? [];
+      const firstCalDb = dbs.find(d => d.type === "calendar");
+      const calConfig = firstCalDb?.config ?? {};
+      const cal = Object.keys(calConfig).length > 0 ? calConfig : config.settings?.calendar;
       if (cal) {
         const calUpdate: Record<string, unknown> = {};
-        if (cal.weekStartsOn !== undefined) calUpdate.weekStartsOn = cal.weekStartsOn;
-        if (cal.dayStartHour !== undefined) calUpdate.dayStartHour = cal.dayStartHour;
-        if (cal.dayEndHour !== undefined) calUpdate.dayEndHour = cal.dayEndHour;
-        if (cal.timeFormat !== undefined) calUpdate.timeFormat = cal.timeFormat;
-        if (cal.tickerSpeed !== undefined) calUpdate.tickerSpeed = cal.tickerSpeed;
-        if (cal.weekMode !== undefined) calUpdate.weekMode = cal.weekMode;
-        if (cal.monthMode !== undefined) calUpdate.monthMode = cal.monthMode;
-        if (cal.weekCellWidget !== undefined) calUpdate.weekCellWidget = cal.weekCellWidget;
-        if (cal.showDriveTimeOnNext !== undefined) calUpdate.showDriveTimeOnNext = cal.showDriveTimeOnNext;
-        if (cal.showWeekNumbers !== undefined) calUpdate.showWeekNumbers = cal.showWeekNumbers;
-        if (cal.defaultEventDuration !== undefined) calUpdate.defaultEventDuration = cal.defaultEventDuration;
-        if (cal.autoRefreshInterval !== undefined) calUpdate.autoRefreshInterval = cal.autoRefreshInterval;
-        if (cal.view !== undefined) calUpdate.view = cal.view;
-        if (cal.familyName !== undefined) calUpdate.familyName = cal.familyName;
-        if (cal.homeAddress !== undefined) calUpdate.homeAddress = cal.homeAddress;
+        const c = cal as Record<string, unknown>;
+        if (c.weekStartsOn !== undefined) calUpdate.weekStartsOn = c.weekStartsOn;
+        if (c.dayStartHour !== undefined) calUpdate.dayStartHour = c.dayStartHour;
+        if (c.dayEndHour !== undefined) calUpdate.dayEndHour = c.dayEndHour;
+        if (c.timeFormat !== undefined) calUpdate.timeFormat = c.timeFormat;
+        if (c.tickerSpeed !== undefined) calUpdate.tickerSpeed = c.tickerSpeed;
+        if (c.weekMode !== undefined) calUpdate.weekMode = c.weekMode;
+        if (c.monthMode !== undefined) calUpdate.monthMode = c.monthMode;
+        if (c.weekCellWidget !== undefined) calUpdate.weekCellWidget = c.weekCellWidget;
+        if (c.showDriveTimeOnNext !== undefined) calUpdate.showDriveTimeOnNext = c.showDriveTimeOnNext;
+        if (c.showWeekNumbers !== undefined) calUpdate.showWeekNumbers = c.showWeekNumbers;
+        if (c.defaultEventDuration !== undefined) calUpdate.defaultEventDuration = c.defaultEventDuration;
+        if (c.autoRefreshInterval !== undefined) calUpdate.autoRefreshInterval = c.autoRefreshInterval;
+        if (c.view !== undefined) calUpdate.view = c.view;
+        if (c.familyName !== undefined) calUpdate.familyName = c.familyName;
+        if (c.homeAddress !== undefined) calUpdate.homeAddress = c.homeAddress;
         if (Object.keys(calUpdate).length > 0) {
           useCalendarStore.setState(calUpdate);
         }
       }
 
-      // Apply per-kiosk tasks settings
-      const tasks = config.settings?.tasks;
+      const firstTaskDb = dbs.find(d => d.type === "tasks");
+      const taskConfig = firstTaskDb?.config ?? {};
+      const tasks = Object.keys(taskConfig).length > 0 ? taskConfig : config.settings?.tasks;
       if (tasks) {
         const tasksUpdate: Record<string, unknown> = {};
-        if (tasks.layout !== undefined) tasksUpdate.layout = tasks.layout;
-        if (tasks.showCompleted !== undefined) tasksUpdate.showCompleted = tasks.showCompleted;
-        if (tasks.expandAllLists !== undefined) tasksUpdate.expandAllLists = tasks.expandAllLists;
+        const t = tasks as Record<string, unknown>;
+        if (t.layout !== undefined) tasksUpdate.layout = t.layout;
+        if (t.showCompleted !== undefined) tasksUpdate.showCompleted = t.showCompleted;
+        if (t.expandAllLists !== undefined) tasksUpdate.expandAllLists = t.expandAllLists;
         if (Object.keys(tasksUpdate).length > 0) {
           useTasksStore.setState(tasksUpdate);
         }
@@ -205,10 +215,22 @@ export function KioskProvider({ token, children }: KioskProviderProps) {
   const displayType = config?.displayType ?? "touch";
   const homePage = config?.homePage ?? "calendar";
   const selectedCalendarIds = config?.selectedCalendarIds ?? null;
-  const enabledFeatures = config?.enabledFeatures ?? DEFAULT_ENABLED_FEATURES;
   const startFullscreen = config?.startFullscreen ?? false;
   const fullscreenDelayMinutes = config?.fullscreenDelayMinutes ?? null;
   const settings = config?.settings ?? {};
+
+  // Derive dashboards from config (fall back to old fields)
+  const dashboards: KioskDashboard[] = config?.dashboards ?? [];
+
+  // Compute enabledFeatures from dashboards for backward compat
+  const enabledFeatures: KioskEnabledFeatures = dashboards.length > 0
+    ? Object.fromEntries(dashboards.map(db => [db.type, true])) as unknown as KioskEnabledFeatures
+    : config?.enabledFeatures ?? DEFAULT_ENABLED_FEATURES;
+
+  const getDashboardConfig = useCallback((dashboardId: string): Record<string, unknown> => {
+    const db = dashboards.find(d => d.id === dashboardId);
+    return db?.config ?? {};
+  }, [dashboards]);
 
   return (
     <KioskContext.Provider
@@ -221,6 +243,8 @@ export function KioskProvider({ token, children }: KioskProviderProps) {
         homePage,
         selectedCalendarIds,
         enabledFeatures,
+        dashboards,
+        getDashboardConfig,
         startFullscreen,
         fullscreenDelayMinutes,
         isLoading: isLoading || !isAuthReady,

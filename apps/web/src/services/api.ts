@@ -752,6 +752,7 @@ class ApiClient {
     screensaverTransition?: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
     screensaverLayoutConfig?: Record<string, unknown>;
     settings?: KioskSettings;
+    dashboards?: KioskDashboard[];
   }): Promise<Kiosk> {
     return this.fetch<Kiosk>("/kiosks", {
       method: "POST",
@@ -781,6 +782,7 @@ class ApiClient {
       screensaverScreenId?: string | null;
       startFullscreen?: boolean;
       fullscreenDelayMinutes?: number | null;
+      dashboards?: KioskDashboard[];
     }
   ): Promise<Kiosk> {
     return this.fetch<Kiosk>(`/kiosks/${id}`, {
@@ -2116,6 +2118,43 @@ class ApiClient {
 
   async deleteCustomScreen(id: string): Promise<void> {
     await this.fetch(`/screens/${id}`, { method: "DELETE" });
+  }
+
+  // Custom Icons
+
+  async uploadIcon(file: File): Promise<{ icon: string }> {
+    const { accessToken, apiKey } = useAuthStore.getState();
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const headers: Record<string, string> = {};
+    if (apiKey) {
+      headers["x-api-key"] = apiKey;
+    } else if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+
+    const response = await fetch(`${API_BASE}/icons/upload`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message ?? "Failed to upload icon");
+    }
+
+    return response.json();
+  }
+
+  async listCustomIcons(): Promise<string[]> {
+    const result = await this.fetch<{ icons: string[] }>("/icons");
+    return result.icons;
+  }
+
+  async deleteCustomIcon(filename: string): Promise<void> {
+    await this.fetch(`/icons/${filename}`, { method: "DELETE" });
   }
 
   // User Management
@@ -3768,6 +3807,34 @@ export interface CastRequest {
 export type KioskDisplayMode = "full" | "screensaver-only" | "calendar-only" | "dashboard-only";
 export type KioskDisplayType = "touch" | "tv" | "display";
 
+export type DashboardType =
+  | "calendar"
+  | "tasks"
+  | "routines"
+  | "dashboard"
+  | "cardview"
+  | "photos"
+  | "spotify"
+  | "iptv"
+  | "cameras"
+  | "multiview"
+  | "homeassistant"
+  | "matter"
+  | "map"
+  | "kitchen"
+  | "chat"
+  | "screensaver"
+  | "custom";
+
+export interface KioskDashboard {
+  id: string;
+  type: DashboardType;
+  name: string;
+  icon: string;
+  pinned: boolean;
+  config: Record<string, unknown>;
+}
+
 export type KioskCommandType =
   | "refresh"
   | "reload-photos"
@@ -3860,6 +3927,7 @@ export interface Kiosk {
   homePage: string | null;
   selectedCalendarIds: string[] | null;
   enabledFeatures: KioskEnabledFeatures | null;
+  dashboards: KioskDashboard[] | null;
   settings: KioskSettings | null;
   screensaverEnabled: boolean;
   screensaverTimeout: number;
@@ -3884,6 +3952,7 @@ export interface KioskConfig {
   homePage: string | null;
   selectedCalendarIds: string[] | null;
   enabledFeatures: KioskEnabledFeatures | null;
+  dashboards: KioskDashboard[] | null;
   settings: KioskSettings | null;
   screensaverEnabled: boolean;
   screensaverTimeout: number;
