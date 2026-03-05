@@ -48,7 +48,7 @@ const SIDEBAR_FEATURE_LABELS: Record<string, string> = {
   map: "Map",
   kitchen: "Kitchen",
   chat: "Chat",
-  screensaver: "Custom",
+  screensaver: "Custom Screen",
 };
 
 function resolveIcon(name: string): React.ComponentType<{ className?: string }> {
@@ -647,19 +647,19 @@ export function KioskConfigPage({ kioskId, renderTableSections }: KioskConfigPag
         </Card>
       )}
 
-      {/* Screensaver Section */}
+      {/* Custom Screen Section */}
       <Card className="border-2 border-primary/40 overflow-hidden">
-        <SectionHeader id="screensaver" icon={<Monitor />} title="Screensaver" description="Timeout, behavior, and layout" isCollapsed={!!collapsedSections.screensaver} onToggle={toggleSection} />
+        <SectionHeader id="screensaver" icon={<Monitor />} title="Custom Screen" description="Idle screen timeout, behavior, and layout" isCollapsed={!!collapsedSections.screensaver} onToggle={toggleSection} />
         {!collapsedSections.screensaver && (
           <CardContent className="space-y-4 border-t border-border/50">
-            <SettingRow label="Enabled" description="Enable screensaver on idle">
+            <SettingRow label="Enabled" description="Show custom screen on idle">
               <ToggleSwitch
                 checked={kiosk.screensaverEnabled}
                 onChange={(v) => updateKiosk.mutate({ screensaverEnabled: v })}
               />
             </SettingRow>
 
-            <SettingRow label="Idle timeout" description="Seconds before screensaver activates">
+            <SettingRow label="Idle timeout" description="Seconds before custom screen activates">
               <select
                 className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
                 value={kiosk.screensaverTimeout}
@@ -675,13 +675,13 @@ export function KioskConfigPage({ kioskId, renderTableSections }: KioskConfigPag
               </select>
             </SettingRow>
 
-            <SettingRow label="Behavior" description="What happens when screensaver activates">
+            <SettingRow label="Behavior" description="What happens when custom screen activates">
               <select
                 className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
                 value={kiosk.screensaverBehavior}
                 onChange={(e) => updateKiosk.mutate({ screensaverBehavior: e.target.value as any })}
               >
-                <option value="screensaver">Full screensaver</option>
+                <option value="screensaver">Full custom screen</option>
                 <option value="hide-toolbar">Hide toolbar only</option>
               </select>
             </SettingRow>
@@ -700,7 +700,7 @@ export function KioskConfigPage({ kioskId, renderTableSections }: KioskConfigPag
               </select>
             </SettingRow>
 
-            <SettingRow label="Layout" description="Screensaver display layout">
+            <SettingRow label="Layout" description="Custom screen display layout">
               <select
                 className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
                 value={kiosk.screensaverLayout}

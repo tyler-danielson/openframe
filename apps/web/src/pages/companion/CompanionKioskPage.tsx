@@ -188,7 +188,7 @@ export function CompanionKioskPage() {
         <div className="text-center py-12 text-muted-foreground">
           <p>No controllable widgets on this kiosk.</p>
           <p className="text-sm mt-1">
-            Add IPTV, Spotify, HA Entity, or Photo widgets in the screensaver builder.
+            Add IPTV, Spotify, HA Entity, or Photo widgets in the custom screen builder.
           </p>
         </div>
       ) : (

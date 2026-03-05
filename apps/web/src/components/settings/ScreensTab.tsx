@@ -60,7 +60,7 @@ const BUILTIN_INFO: Record<string, { label: string; iconName: string }> = {
   map: { label: "Map", iconName: "MapPin" },
   kitchen: { label: "Kitchen", iconName: "ChefHat" },
   chat: { label: "Chat", iconName: "MessageCircle" },
-  screensaver: { label: "Custom", iconName: "Monitor" },
+  screensaver: { label: "Custom Screen", iconName: "Monitor" },
 };
 
 function resolveLucideIcon(name: string): React.ComponentType<{ className?: string }> {

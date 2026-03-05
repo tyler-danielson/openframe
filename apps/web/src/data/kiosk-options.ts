@@ -10,9 +10,9 @@ export const DISPLAY_TYPE_OPTIONS: { value: KioskDisplayType; label: string; des
 // Display mode options
 export const DISPLAY_MODE_OPTIONS: { value: KioskDisplayMode; label: string; description: string }[] = [
   { value: "full", label: "Full App", description: "Full navigation with all enabled features" },
-  { value: "screensaver-only", label: "Screensaver Only", description: "Only shows the screensaver, no app UI" },
-  { value: "calendar-only", label: "Calendar Only", description: "Only calendar page with screensaver overlay" },
-  { value: "dashboard-only", label: "Dashboard Only", description: "Only dashboard page with screensaver overlay" },
+  { value: "screensaver-only", label: "Custom Screen Only", description: "Only shows the custom screen, no app UI" },
+  { value: "calendar-only", label: "Calendar Only", description: "Only calendar page with custom screen overlay" },
+  { value: "dashboard-only", label: "Dashboard Only", description: "Only dashboard page with custom screen overlay" },
 ];
 
 // Home page options

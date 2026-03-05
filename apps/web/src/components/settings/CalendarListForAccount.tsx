@@ -365,7 +365,7 @@ function CalendarRow({
             },
             {
               key: "screensaver",
-              label: "Screensaver",
+              label: "Custom Screen",
               checked: visibility.screensaver,
               onChange: (checked) =>
                 onUpdateCalendar(calendar.id, {
@@ -576,7 +576,7 @@ export function CalendarListForAccount({
                     },
                     {
                       key: "screensaver",
-                      label: "Screensaver",
+                      label: "Custom Screen",
                       checked: visibility.screensaver,
                       onChange: (checked) =>
                         onUpdateTeam(team.id, { visibility: { screensaver: checked } }),

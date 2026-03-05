@@ -139,7 +139,7 @@ const SIDEBAR_FEATURE_INFO: { feature: SidebarFeature; label: string; icon: Reac
   { feature: "map", label: "Map", icon: <MapPin className="h-4 w-4" /> },
   { feature: "kitchen", label: "Kitchen", icon: <ChefHat className="h-4 w-4" /> },
   { feature: "chat", label: "Chat", icon: <MessageCircle className="h-4 w-4" /> },
-  { feature: "screensaver", label: "Custom", icon: <Monitor className="h-4 w-4" /> },
+  { feature: "screensaver", label: "Custom Screen", icon: <Monitor className="h-4 w-4" /> },
 ];
 
 // Composite widget info (v2)
@@ -992,7 +992,7 @@ function CompositeWidgetBuilder({
         <div>
           <p className="font-medium">Info Pane Widgets</p>
           <p className="text-sm text-muted-foreground">
-            Configure widgets shown on the screensaver info pane
+            Configure widgets shown on the custom screen info pane
           </p>
         </div>
         <button
@@ -7890,7 +7890,7 @@ function SportsSettings() {
               </li>
               <li className="flex items-start gap-2">
                 <span className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
-                Live scores also appear in the screensaver clock widget
+                Live scores also appear in the custom screen clock widget
               </li>
             </ul>
           </div>
@@ -9527,7 +9527,7 @@ function KiosksSettings({ isModuleEnabled }: { isModuleEnabled: (id: string) => 
                     <div className="min-w-0">
                       <h3 className="font-medium text-foreground truncate">{kiosk.name}</h3>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {kiosk.displayMode === "full" ? "Full" : kiosk.displayMode === "screensaver-only" ? "Screensaver" : kiosk.displayMode === "calendar-only" ? "Calendar" : "Dashboard"}
+                        {kiosk.displayMode === "full" ? "Full" : kiosk.displayMode === "screensaver-only" ? "Custom Screen" : kiosk.displayMode === "calendar-only" ? "Calendar" : "Dashboard"}
                         {" · "}
                         {kiosk.displayType === "touch" ? "Touch" : kiosk.displayType === "tv" ? "TV" : "Display"}
                       </p>

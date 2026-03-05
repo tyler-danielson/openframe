@@ -66,7 +66,7 @@ const BUILTIN_FEATURE_MAP: Record<string, { icon: any; path: string; label: stri
   map: { icon: MapPin, path: "map", label: "Map", moduleId: "map" },
   kitchen: { icon: ChefHat, path: "kitchen", label: "Kitchen", moduleId: "recipes" },
   chat: { icon: MessageCircle, path: "chat", label: "Chat", moduleId: "ai-chat" },
-  screensaver: { icon: Monitor, path: "screensaver", label: "Custom", moduleId: null },
+  screensaver: { icon: Monitor, path: "screensaver", label: "Custom Screen", moduleId: null },
 };
 
 /** Resolve a lucide icon name to a component (fallback to LayoutDashboard) */
@@ -635,12 +635,12 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
               <Monitor className="h-5 w-5" />
             </div>
           )}
-          {/* Screensaver toggle */}
+          {/* Custom screen toggle */}
           {screensaverEnabled && (
             <button
               onClick={activateScreensaver}
               className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-              title="Start screensaver"
+              title="Start custom screen"
             >
               <Moon className="h-5 w-5" />
             </button>

@@ -276,7 +276,7 @@ export function ScreensaverBuilderPage() {
             <ArrowLeft className="h-4 w-4" />
           </button>
           <h1 className="text-sm font-medium">
-            {isKioskMode ? (isLoadingKiosk ? "Loading..." : kiosk?.name || "Screensaver") : "Screensaver Builder"}
+            {isKioskMode ? (isLoadingKiosk ? "Loading..." : kiosk?.name || "Custom Screen") : "Custom Screen Builder"}
           </h1>
         </div>
         <div className="flex items-center gap-1.5">
