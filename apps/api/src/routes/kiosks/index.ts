@@ -6,6 +6,7 @@ import {
   photos,
   calendars,
   events,
+  customScreens,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { randomUUID } from "crypto";
@@ -310,6 +311,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
             },
             screensaverLayoutConfig: { type: "object" },
             screensaverBehavior: { type: "string", enum: ["screensaver", "hide-toolbar"] },
+            screensaverScreenId: { type: "string", format: "uuid", nullable: true },
             startFullscreen: { type: "boolean" },
             fullscreenDelayMinutes: { type: "integer", minimum: 0, maximum: 120 },
             settings: { type: "object" },
@@ -340,6 +342,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         screensaverTransition?: string;
         screensaverLayoutConfig?: Record<string, unknown>;
         screensaverBehavior?: string;
+        screensaverScreenId?: string | null;
         startFullscreen?: boolean;
         fullscreenDelayMinutes?: number;
         settings?: Record<string, unknown>;
@@ -361,6 +364,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       if (body.screensaverTransition !== undefined) updates.screensaverTransition = body.screensaverTransition;
       if (body.screensaverLayoutConfig !== undefined) updates.screensaverLayoutConfig = body.screensaverLayoutConfig;
       if (body.screensaverBehavior !== undefined) updates.screensaverBehavior = body.screensaverBehavior;
+      if (body.screensaverScreenId !== undefined) updates.screensaverScreenId = body.screensaverScreenId;
       if (body.startFullscreen !== undefined) updates.startFullscreen = body.startFullscreen;
       if (body.fullscreenDelayMinutes !== undefined) updates.fullscreenDelayMinutes = body.fullscreenDelayMinutes;
       if (body.settings !== undefined) updates.settings = body.settings;
@@ -639,6 +643,19 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         .set({ lastAccessedAt: new Date() })
         .where(eq(kiosks.id, kiosk.id));
 
+      // If a custom screen is linked, resolve its layout config
+      let resolvedLayoutConfig = kiosk.screensaverLayoutConfig;
+      if (kiosk.screensaverScreenId) {
+        const [screen] = await fastify.db
+          .select()
+          .from(customScreens)
+          .where(eq(customScreens.id, kiosk.screensaverScreenId))
+          .limit(1);
+        if (screen) {
+          resolvedLayoutConfig = screen.layoutConfig;
+        }
+      }
+
       // Return config without sensitive data (userId, id)
       return {
         success: true,
@@ -655,8 +672,9 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
           screensaverInterval: kiosk.screensaverInterval,
           screensaverLayout: kiosk.screensaverLayout,
           screensaverTransition: kiosk.screensaverTransition,
-          screensaverLayoutConfig: kiosk.screensaverLayoutConfig,
+          screensaverLayoutConfig: resolvedLayoutConfig,
           screensaverBehavior: kiosk.screensaverBehavior,
+          screensaverScreenId: kiosk.screensaverScreenId,
           startFullscreen: kiosk.startFullscreen,
           fullscreenDelayMinutes: kiosk.fullscreenDelayMinutes,
           settings: kiosk.settings,

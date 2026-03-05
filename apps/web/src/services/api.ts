@@ -778,6 +778,7 @@ class ApiClient {
       screensaverTransition?: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
       screensaverLayoutConfig?: Record<string, unknown>;
       screensaverBehavior?: "screensaver" | "hide-toolbar";
+      screensaverScreenId?: string | null;
       startFullscreen?: boolean;
       fullscreenDelayMinutes?: number | null;
     }
@@ -3867,6 +3868,7 @@ export interface Kiosk {
   screensaverTransition: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
   screensaverLayoutConfig: Record<string, unknown> | null;
   screensaverBehavior: "screensaver" | "hide-toolbar";
+  screensaverScreenId: string | null;
   startFullscreen: boolean;
   fullscreenDelayMinutes: number | null;
   lastAccessedAt: string | null;
@@ -3890,6 +3892,7 @@ export interface KioskConfig {
   screensaverTransition: "fade" | "slide-left" | "slide-right" | "slide-up" | "slide-down" | "zoom";
   screensaverLayoutConfig: Record<string, unknown> | null;
   screensaverBehavior: "screensaver" | "hide-toolbar";
+  screensaverScreenId: string | null;
   startFullscreen: boolean;
   fullscreenDelayMinutes: number | null;
 }

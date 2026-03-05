@@ -659,6 +659,19 @@ export function KioskConfigPage({ kioskId, renderTableSections }: KioskConfigPag
               />
             </SettingRow>
 
+            <SettingRow label="Source" description="Use a saved custom screen or this kiosk's own layout">
+              <select
+                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+                value={kiosk.screensaverScreenId ?? ""}
+                onChange={(e) => updateKiosk.mutate({ screensaverScreenId: e.target.value || null })}
+              >
+                <option value="">Kiosk's own layout</option>
+                {customScreens.map((screen) => (
+                  <option key={screen.id} value={screen.id}>{screen.name}</option>
+                ))}
+              </select>
+            </SettingRow>
+
             <SettingRow label="Idle timeout" description="Seconds before custom screen activates">
               <select
                 className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
