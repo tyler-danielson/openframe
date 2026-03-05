@@ -11,12 +11,21 @@ export function getCustomIconUrl(icon: string, authParam?: string): string {
   return authParam ? `${base}?${authParam}` : base;
 }
 
+function isReactComponent(value: unknown): boolean {
+  if (typeof value === "function") return true;
+  // forwardRef components are objects with $$typeof and render
+  if (value && typeof value === "object" && "$$typeof" in value) return true;
+  return false;
+}
+
 export function resolveLucideIcon(
   name: string
 ): React.ComponentType<{ className?: string }> {
   const icons = LucideIcons as Record<string, unknown>;
-  if (icons[name] && typeof icons[name] === "function") {
+  if (icons[name] && isReactComponent(icons[name])) {
     return icons[name] as React.ComponentType<{ className?: string }>;
   }
   return LayoutDashboard;
 }
+
+export { isReactComponent };

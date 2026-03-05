@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
+import { resolveLucideIcon as sharedResolveLucideIcon } from "../../lib/icon-utils";
 import {
   DndContext,
   closestCenter,
@@ -64,11 +65,7 @@ const BUILTIN_INFO: Record<string, { label: string; iconName: string }> = {
 };
 
 function resolveLucideIcon(name: string): React.ComponentType<{ className?: string }> {
-  const icons = LucideIcons as Record<string, unknown>;
-  if (icons[name] && typeof icons[name] === "function") {
-    return icons[name] as React.ComponentType<{ className?: string }>;
-  }
-  return LayoutDashboard;
+  return sharedResolveLucideIcon(name);
 }
 
 interface ScreenItem {

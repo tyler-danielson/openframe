@@ -4,7 +4,7 @@ import * as LucideIcons from "lucide-react";
 import { Search, ChevronDown, Upload, Trash2, Loader2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ICON_CATEGORIES, ALL_CURATED_ICONS } from "../../data/curated-icons";
-import { isCustomIcon, resolveLucideIcon } from "../../lib/icon-utils";
+import { isCustomIcon, resolveLucideIcon, isReactComponent } from "../../lib/icon-utils";
 import { DashboardIcon } from "./DashboardIcon";
 import { api } from "../../services/api";
 import { cn } from "../../lib/utils";
@@ -139,7 +139,7 @@ function LibraryTab({
     const results: string[] = [];
     for (const key of Object.keys(icons)) {
       if (
-        typeof icons[key] === "function" &&
+        isReactComponent(icons[key]) &&
         key.length > 0 &&
         key[0] === key[0]!.toUpperCase() &&
         !curatedSet.has(key) &&
