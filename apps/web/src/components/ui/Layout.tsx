@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   LayoutGrid,
   Settings,
-  LogOut,
   RefreshCw,
   Monitor,
   Tv,
@@ -89,7 +88,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const { logout, setUser, isAuthenticated, isDemo, user: authUser } = useAuthStore();
+  const { setUser, isAuthenticated, isDemo, user: authUser } = useAuthStore();
 
   const isKioskPath = window.location.pathname.startsWith("/kiosk/");
   const setScreensaverActive = useScreensaverStore((state) => state.setActive);
@@ -197,16 +196,6 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
       setUser(user);
     }
   }, [user, isLoading, setUser]);
-
-  const handleLogout = async () => {
-    try {
-      await api.logout();
-    } catch {
-      // Ignore errors
-    }
-    logout();
-    navigate("/login");
-  };
 
   const { isDemoMode } = useDemoMode();
 
@@ -316,11 +305,11 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
       });
     }
 
-    // Only show reMarkable, profiles, and settings if authenticated AND not accessing via kiosk URL
+    // Only show reMarkable, profiles, and admin if authenticated AND not accessing via kiosk URL
+    // Settings is rendered separately at the bottom of the sidebar
     if (isAuthenticated && !basePath) {
       const authItems: NavItem[] = [
         { to: "/profiles", icon: Users, label: "Family", feature: undefined, moduleId: null },
-        { to: "/settings", icon: Settings, label: "Settings", feature: undefined, moduleId: null },
       ];
       // Only show reMarkable if module is enabled
       if (isModuleEnabled("remarkable")) {
@@ -634,23 +623,6 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
             </div>
           ))}
 
-          {/* More button - show overflow items */}
-          {(moreItems.length > 0 || moreMediaItems.length > 0) && (
-            <button
-              ref={moreButtonRef}
-              onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
-              className={cn(
-                "flex items-center justify-center rounded-lg transition-colors",
-                "h-10 w-10",
-                isMoreMenuOpen
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              )}
-              title="More"
-            >
-              <MoreHorizontal className="h-5 w-5" />
-            </button>
-          )}
         </nav>
 
         <div className="flex flex-col items-center gap-2">
@@ -692,25 +664,39 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, className, base
           >
             <RefreshCw className={cn("h-5 w-5", isReconnecting && "animate-spin")} />
           </button>
-          {/* Hide logout/login in kiosk mode */}
-          {!isKioskPath && (
-            isAuthenticated ? (
-              <button
-                onClick={handleLogout}
-                className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
-                title="Logout"
-              >
-                <LogOut className="h-5 w-5" />
-              </button>
-            ) : (
-              <NavLink
-                to="/login"
-                className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                title="Login"
-              >
-                <LogOut className="h-5 w-5 rotate-180" />
-              </NavLink>
-            )
+          {/* More button - show overflow items */}
+          {(moreItems.length > 0 || moreMediaItems.length > 0) && (
+            <button
+              ref={moreButtonRef}
+              onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
+              className={cn(
+                "flex items-center justify-center rounded-lg transition-colors",
+                "h-10 w-10",
+                isMoreMenuOpen
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              )}
+              title="More"
+            >
+              <MoreHorizontal className="h-5 w-5" />
+            </button>
+          )}
+          {/* Settings at the bottom */}
+          {isAuthenticated && !isKioskPath && (
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                cn(
+                  "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+                  isActive
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                )
+              }
+              title="Settings"
+            >
+              <Settings className="h-5 w-5" />
+            </NavLink>
           )}
         </div>
       </aside>}
