@@ -84,6 +84,54 @@ export const moduleRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
+  // POST /api/v1/modules/batch — enable multiple modules at once
+  fastify.post<{
+    Body: { moduleIds: string[] };
+  }>(
+    "/batch",
+    {
+      preHandler: [authenticate],
+      schema: {
+        description: "Enable multiple modules at once",
+        tags: ["Modules"],
+        body: {
+          type: "object",
+          properties: {
+            moduleIds: {
+              type: "array",
+              items: { type: "string" },
+            },
+          },
+          required: ["moduleIds"],
+        },
+      },
+    },
+    async (request) => {
+      const { moduleIds } = request.body;
+      const userId = request.user.userId;
+      const isHosted = fastify.hostedMode;
+      const userIdValue = isHosted ? userId : null;
+
+      // Validate all module IDs
+      const validIds = moduleIds.filter(
+        (id) => MODULE_REGISTRY[id as ModuleId]
+      );
+
+      // Enable each module
+      for (const modId of validIds) {
+        await upsertModuleSetting(fastify.db, userIdValue, modId, true);
+      }
+
+      // Clear the module cache
+      moduleCache.delete(isHosted ? userId : "__instance__");
+
+      return {
+        success: true,
+        data: { enabled: validIds },
+      };
+    }
+  );
+
   // POST /api/v1/modules/:moduleId — toggle a module on/off
   fastify.post<{
     Params: { moduleId: string };

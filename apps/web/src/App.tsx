@@ -27,6 +27,7 @@ import { DeviceLoginPage } from "./pages/DeviceLoginPage";
 import { ChatPage } from "./pages/ChatPage";
 import { RoutinesPage } from "./pages/RoutinesPage";
 import { SetupPage } from "./pages/SetupPage";
+import { OnboardingPage } from "./pages/OnboardingPage";
 import { TvSetupPage } from "./pages/TvSetupPage";
 import { InviteAcceptPage } from "./pages/InviteAcceptPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
@@ -43,6 +44,7 @@ import { CompanionTasksPage } from "./pages/companion/CompanionTasksPage";
 import { CompanionKiosksPage } from "./pages/companion/CompanionKiosksPage";
 import { CompanionKioskPage } from "./pages/companion/CompanionKioskPage";
 import { CompanionWidgetPage } from "./pages/companion/CompanionWidgetPage";
+import { CompanionFileSharePage } from "./pages/companion/CompanionFileSharePage";
 import { CompanionMorePage } from "./pages/companion/CompanionMorePage";
 import { CompanionPhotosPage } from "./pages/companion/more/CompanionPhotosPage";
 import { CompanionIptvPage } from "./pages/companion/more/CompanionIptvPage";
@@ -123,6 +125,8 @@ export default function App() {
 
   // Setup status
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
+  // Onboarding status
+  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
 
   // Check setup status on app load (skip in cloud mode - always provisioned)
   useEffect(() => {
@@ -141,7 +145,8 @@ export default function App() {
         path.startsWith("/setup") ||
         path.startsWith("/tv-setup") ||
         path.startsWith("/companion") ||
-        path.startsWith("/demo")
+        path.startsWith("/demo") ||
+        path.startsWith("/onboarding")
       ) {
         setNeedsSetup(false);
         return;
@@ -156,6 +161,44 @@ export default function App() {
     }
     checkSetupStatus();
   }, []);
+
+  // Check onboarding status after auth is confirmed
+  useEffect(() => {
+    async function checkOnboarding() {
+      const path = window.location.pathname;
+      // Skip for special routes
+      if (
+        path.startsWith("/kiosk/") ||
+        path.startsWith("/upload") ||
+        path.startsWith("/auth/callback") ||
+        path.startsWith("/setup") ||
+        path.startsWith("/tv-setup") ||
+        path.startsWith("/companion") ||
+        path.startsWith("/demo") ||
+        path.startsWith("/onboarding") ||
+        path.startsWith("/admin") ||
+        path.startsWith("/login") ||
+        path.startsWith("/invite") ||
+        path.startsWith("/device-login")
+      ) {
+        setNeedsOnboarding(false);
+        return;
+      }
+
+      if (!isAuthenticated) {
+        setNeedsOnboarding(false);
+        return;
+      }
+
+      try {
+        const status = await api.getOnboardingStatus();
+        setNeedsOnboarding(!status.complete);
+      } catch {
+        setNeedsOnboarding(false);
+      }
+    }
+    checkOnboarding();
+  }, [isAuthenticated]);
 
   // Hide NowPlaying on settings pages, upload pages, and kiosk pages
   const isSettingsPage = location.pathname.startsWith("/settings");
@@ -232,11 +275,26 @@ export default function App() {
     );
   }
 
+  // Redirect to onboarding if needed
+  if (needsOnboarding && !location.pathname.startsWith("/onboarding")) {
+    return (
+      <Toaster>
+        <Routes>
+          <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/auth/callback" element={<AuthCallbackPage />} />
+          <Route path="*" element={<Navigate to="/onboarding" replace />} />
+        </Routes>
+      </Toaster>
+    );
+  }
+
   return (
     <ConnectionProvider>
     <Toaster>
       <Routes>
         <Route path="/setup" element={<SetupPage />} />
+        <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         {/* Public invite acceptance page */}
@@ -353,6 +411,7 @@ export default function App() {
           <Route path="kiosks" element={<CompanionKiosksPage />} />
           <Route path="kiosks/:kioskId" element={<CompanionKioskPage />} />
           <Route path="kiosks/:kioskId/widget/:widgetId" element={<CompanionWidgetPage />} />
+          <Route path="kiosks/:kioskId/fileshare" element={<CompanionFileSharePage />} />
           <Route path="more" element={<CompanionMorePage />} />
           <Route path="more/photos" element={<ModuleGate moduleId="photos"><CompanionPhotosPage /></ModuleGate>} />
           <Route path="more/iptv" element={<ModuleGate moduleId="iptv"><CompanionIptvPage /></ModuleGate>} />

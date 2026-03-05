@@ -217,10 +217,14 @@ class ApiClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      // Handle both { error: "message" } and { error: { message: "message" } } formats
-      const errorMessage = typeof errorData.error === "string"
-        ? errorData.error
-        : errorData.error?.message ?? "Request failed";
+      // Handle Fastify error format { message, error, statusCode } and
+      // custom formats { error: "message" } / { error: { message } }
+      const errorMessage =
+        errorData.message ??
+        (typeof errorData.error === "string"
+          ? errorData.error
+          : errorData.error?.message) ??
+        "Request failed";
       throw new Error(errorMessage);
     }
 
@@ -339,9 +343,16 @@ class ApiClient {
     await this.fetch("/calendars/sync-all", { method: "POST", body: JSON.stringify({}) });
   }
 
+  async createLocalCalendar(name: string, color?: string): Promise<Calendar> {
+    return this.fetch<Calendar>("/calendars/local", {
+      method: "POST",
+      body: JSON.stringify({ name, color }),
+    });
+  }
+
   async updateCalendar(
     id: string,
-    data: Partial<Pick<Calendar, "color" | "isVisible" | "syncEnabled" | "isPrimary" | "isFavorite" | "showOnDashboard">> & { visibility?: Partial<Calendar["visibility"]> }
+    data: Partial<Pick<Calendar, "color" | "isVisible" | "syncEnabled" | "isPrimary" | "isFavorite" | "showOnDashboard" | "name">> & { visibility?: Partial<Calendar["visibility"]> }
   ): Promise<Calendar> {
     return this.fetch<Calendar>(`/calendars/${id}`, {
       method: "PATCH",
@@ -2601,6 +2612,10 @@ class ApiClient {
     return this.fetch("/capacities/disconnect", { method: "DELETE" });
   }
 
+  async disconnectOAuth(provider: string): Promise<void> {
+    await this.fetch(`/auth/oauth/${provider}`, { method: "DELETE" });
+  }
+
   async testCapacitiesConnection(): Promise<{ connected: boolean; message: string }> {
     return this.fetch("/capacities/test", { method: "POST" });
   }
@@ -2955,6 +2970,22 @@ class ApiClient {
 
   async completeSetup(): Promise<void> {
     await this.fetch("/setup/complete", { method: "POST", body: JSON.stringify({}) });
+  }
+
+  // Onboarding
+  async getOnboardingStatus(): Promise<{ complete: boolean }> {
+    return this.fetch<{ complete: boolean }>("/setup/onboarding-status");
+  }
+
+  async completeOnboarding(): Promise<void> {
+    await this.fetch("/setup/onboarding-complete", { method: "POST", body: JSON.stringify({}) });
+  }
+
+  async batchEnableModules(moduleIds: string[]): Promise<void> {
+    await this.fetch("/modules/batch", {
+      method: "POST",
+      body: JSON.stringify({ moduleIds }),
+    });
   }
 
   async getAvailableProviders(): Promise<{ google: boolean; microsoft: boolean }> {
@@ -3629,6 +3660,39 @@ class ApiClient {
       body: JSON.stringify({ deviceIds }),
     });
   }
+
+  // ==================== FILE SHARE ====================
+
+  async uploadFileShare(file: File): Promise<FileShareResult> {
+    const { accessToken, apiKey } = useAuthStore.getState();
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const headers: Record<string, string> = {};
+    if (apiKey) {
+      headers["X-API-Key"] = apiKey;
+    } else if (accessToken) {
+      headers["Authorization"] = `Bearer ${accessToken}`;
+    }
+
+    const response = await fetch(`${API_BASE}/fileshare/upload`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: { message: response.statusText } }));
+      throw new Error(err.error?.message || "Upload failed");
+    }
+
+    const result = await response.json();
+    return result.data;
+  }
+
+  async deleteFileShare(shareId: string): Promise<void> {
+    await this.fetch(`/fileshare/${shareId}`, { method: "DELETE" });
+  }
 }
 
 // Family Profile types
@@ -3682,7 +3746,18 @@ export type KioskCommandType =
   | "screensaver"
   | "widget-control"
   | "iptv-play"
-  | "camera-view";
+  | "camera-view"
+  | "file-share"
+  | "file-share-dismiss"
+  | "file-share-page";
+
+export interface FileShareResult {
+  shareId: string;
+  fileType: "image" | "pdf";
+  pageCount?: number;
+  mimeType: string;
+  originalName: string;
+}
 
 export interface KioskCommand {
   type: KioskCommandType;

@@ -136,7 +136,7 @@ export function SetupPage() {
     try {
       await api.completeSetup();
       // Full page reload so App.tsx re-checks setup status
-      window.location.href = "/dashboard";
+      window.location.href = "/onboarding";
     } catch (err: any) {
       setError(err.message || "Failed to complete setup");
     } finally {

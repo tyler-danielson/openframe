@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { users, systemSettings, refreshTokens } from "@openframe/database/schema";
 import bcrypt from "bcryptjs";
 import { createHash, randomBytes, randomUUID } from "crypto";
@@ -317,6 +317,98 @@ export const setupRoutes: FastifyPluginAsync = async (fastify) => {
           value: "true",
           isSecret: false,
           description: "Whether initial setup has been completed",
+        });
+      }
+
+      return { success: true };
+    }
+  );
+
+  // GET /onboarding-status - Check if current user has completed onboarding
+  fastify.get(
+    "/onboarding-status",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Check if the current user has completed onboarding",
+        tags: ["Setup"],
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      const userId = fastify.hostedMode ? user!.id : null;
+
+      const condition = userId
+        ? and(
+            eq(systemSettings.category, "onboarding"),
+            eq(systemSettings.key, "complete"),
+            eq(systemSettings.userId, userId)
+          )
+        : and(
+            eq(systemSettings.category, "onboarding"),
+            eq(systemSettings.key, "complete"),
+            isNull(systemSettings.userId)
+          );
+
+      const [setting] = await fastify.db
+        .select()
+        .from(systemSettings)
+        .where(condition)
+        .limit(1);
+
+      return {
+        success: true,
+        data: { complete: setting?.value === "true" },
+      };
+    }
+  );
+
+  // POST /onboarding-complete - Mark onboarding as complete for current user
+  fastify.post(
+    "/onboarding-complete",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Mark onboarding as complete",
+        tags: ["Setup"],
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      const userId = fastify.hostedMode ? user!.id : null;
+
+      const condition = userId
+        ? and(
+            eq(systemSettings.category, "onboarding"),
+            eq(systemSettings.key, "complete"),
+            eq(systemSettings.userId, userId)
+          )
+        : and(
+            eq(systemSettings.category, "onboarding"),
+            eq(systemSettings.key, "complete"),
+            isNull(systemSettings.userId)
+          );
+
+      const [existing] = await fastify.db
+        .select()
+        .from(systemSettings)
+        .where(condition)
+        .limit(1);
+
+      if (existing) {
+        await fastify.db
+          .update(systemSettings)
+          .set({ value: "true", updatedAt: new Date() })
+          .where(eq(systemSettings.id, existing.id));
+      } else {
+        await fastify.db.insert(systemSettings).values({
+          userId,
+          category: "onboarding",
+          key: "complete",
+          value: "true",
+          isSecret: false,
         });
       }
 
