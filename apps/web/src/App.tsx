@@ -347,7 +347,7 @@ export default function App() {
             }
           />
           <Route
-            path="settings/custom-screens/:screenId"
+            path="settings/custom-screen-edit/:screenId"
             element={
               <SettingsProtectedRoute>
                 <CustomScreenBuilderPage />
