@@ -99,6 +99,8 @@ export function CustomScreenBuilderPage() {
   const [localLayoutConfig, setLocalLayoutConfig] = useState<ScreensaverLayoutConfig>(DEFAULT_LAYOUT_CONFIG);
   const localLayoutConfigRef = useRef<ScreensaverLayoutConfig>(DEFAULT_LAYOUT_CONFIG);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirtyRef = useRef(false);
+  const screenIdRef = useRef<string | null>(null);
 
   // Support loading by screenId (settings route) or slug (direct route)
   const { data: screen, isLoading } = useQuery({
@@ -116,25 +118,28 @@ export function CustomScreenBuilderPage() {
       };
       setLocalLayoutConfig(config);
       localLayoutConfigRef.current = config;
+      screenIdRef.current = screen.id;
+      dirtyRef.current = false;
     }
   }, [screen]);
 
-  // Debounced auto-save
+  // Debounced auto-save (only when dirty)
   useEffect(() => {
-    if (!screen) return;
+    if (!dirtyRef.current || !screenIdRef.current) return;
 
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
+    const currentScreenId = screenIdRef.current;
     saveTimeoutRef.current = setTimeout(async () => {
+      if (!dirtyRef.current) return;
       try {
         setSaveStatus("saving");
-        await api.updateCustomScreen(screen.id, {
+        await api.updateCustomScreen(currentScreenId, {
           layoutConfig: localLayoutConfigRef.current as unknown as Record<string, unknown>,
         });
-        queryClient.invalidateQueries({ queryKey: ["custom-screen", screenId || slug] });
-        queryClient.invalidateQueries({ queryKey: ["custom-screens"] });
+        dirtyRef.current = false;
         setSaveStatus("saved");
         setTimeout(() => setSaveStatus("idle"), 1500);
       } catch (error) {
@@ -148,9 +153,10 @@ export function CustomScreenBuilderPage() {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [screen, localLayoutConfig, screenId, slug, queryClient]);
+  }, [localLayoutConfig]);
 
   const handleConfigChange = useCallback((newConfig: ScreensaverLayoutConfig) => {
+    dirtyRef.current = true;
     setLocalLayoutConfig(newConfig);
     localLayoutConfigRef.current = newConfig;
   }, []);
