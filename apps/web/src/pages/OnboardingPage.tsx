@@ -150,6 +150,8 @@ export function OnboardingPage() {
 
       // Mark onboarding complete
       await api.completeOnboarding();
+      localStorage.removeItem("onboarding-dismissed");
+      sessionStorage.removeItem("onboarding-snoozed");
 
       // Refresh module store
       await fetchModules();
@@ -167,6 +169,8 @@ export function OnboardingPage() {
     setLoading(true);
     try {
       await api.completeOnboarding();
+      localStorage.removeItem("onboarding-dismissed");
+      sessionStorage.removeItem("onboarding-snoozed");
       navigate("/calendar", { replace: true });
     } catch {
       setLoading(false);

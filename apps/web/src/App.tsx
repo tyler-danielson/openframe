@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "./stores/auth";
 import { useScreensaverStore } from "./stores/screensaver";
 import { Layout } from "./components/ui/Layout";
@@ -127,8 +127,8 @@ export default function App() {
 
   // Setup status
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
-  // Onboarding status
-  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
+  // Onboarding prompt
+  const [showOnboardingPrompt, setShowOnboardingPrompt] = useState(false);
 
   // Check setup status on app load (skip in cloud mode - always provisioned)
   useEffect(() => {
@@ -164,7 +164,7 @@ export default function App() {
     checkSetupStatus();
   }, []);
 
-  // Check onboarding status after auth is confirmed
+  // Check onboarding status after auth is confirmed — show prompt instead of redirect
   useEffect(() => {
     async function checkOnboarding() {
       const path = window.location.pathname;
@@ -183,20 +183,25 @@ export default function App() {
         path.startsWith("/invite") ||
         path.startsWith("/device-login")
       ) {
-        setNeedsOnboarding(false);
         return;
       }
 
-      if (!isAuthenticated) {
-        setNeedsOnboarding(false);
-        return;
-      }
+      if (!isAuthenticated) return;
+
+      // Check if user dismissed onboarding permanently
+      const dismissed = localStorage.getItem("onboarding-dismissed");
+      if (dismissed === "never") return;
+
+      // Check if dismissed for this session
+      if (dismissed === "later" && sessionStorage.getItem("onboarding-snoozed")) return;
 
       try {
         const status = await api.getOnboardingStatus();
-        setNeedsOnboarding(!status.complete);
+        if (!status.complete) {
+          setShowOnboardingPrompt(true);
+        }
       } catch {
-        setNeedsOnboarding(false);
+        // ignore
       }
     }
     checkOnboarding();
@@ -272,20 +277,6 @@ export default function App() {
         <Routes>
           <Route path="/setup" element={<SetupPage />} />
           <Route path="*" element={<Navigate to="/setup" replace />} />
-        </Routes>
-      </Toaster>
-    );
-  }
-
-  // Redirect to onboarding if needed
-  if (needsOnboarding && !location.pathname.startsWith("/onboarding")) {
-    return (
-      <Toaster>
-        <Routes>
-          <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/auth/callback" element={<AuthCallbackPage />} />
-          <Route path="*" element={<Navigate to="/onboarding" replace />} />
         </Routes>
       </Toaster>
     );
@@ -455,6 +446,7 @@ export default function App() {
           isSettingsPage={isSettingsPage}
         />
       )}
+      {showOnboardingPrompt && <OnboardingPrompt onDismiss={() => setShowOnboardingPrompt(false)} />}
     </Toaster>
     </ConnectionProvider>
   );
@@ -492,5 +484,57 @@ function AppConnectionStatus() {
       status={connectionStatus}
       lastOnlineAt={lastOnlineAt}
     />
+  );
+}
+
+/** Onboarding prompt — non-blocking dialog for users who haven't completed onboarding. */
+function OnboardingPrompt({ onDismiss }: { onDismiss: () => void }) {
+  const navigate = useNavigate();
+
+  function handleYes() {
+    onDismiss();
+    navigate("/onboarding");
+  }
+
+  function handleRemindLater() {
+    localStorage.setItem("onboarding-dismissed", "later");
+    sessionStorage.setItem("onboarding-snoozed", "true");
+    onDismiss();
+  }
+
+  function handleNever() {
+    localStorage.setItem("onboarding-dismissed", "never");
+    onDismiss();
+  }
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
+      <div className="mx-4 w-full max-w-md rounded-xl border border-border bg-background p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-primary">Welcome to OpenFrame!</h3>
+        <p className="mt-2 text-sm text-muted-foreground">
+          It looks like you haven't completed the onboarding process. Would you like to set up your dashboard now?
+        </p>
+        <div className="mt-5 flex flex-col gap-2">
+          <button
+            onClick={handleYes}
+            className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            Yes, set up now
+          </button>
+          <button
+            onClick={handleRemindLater}
+            className="w-full rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-foreground hover:bg-accent transition-colors"
+          >
+            Remind me next time
+          </button>
+          <button
+            onClick={handleNever}
+            className="w-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Never
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
