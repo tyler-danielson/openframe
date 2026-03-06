@@ -118,10 +118,11 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
   }, [basePath]);
 
   // Fetch custom screens for navigation
+  const hasCustomDashboards = kioskDashboards?.some(db => db.type === "custom") ?? false;
   const { data: customScreensData } = useQuery({
     queryKey: ["custom-screens"],
     queryFn: () => api.getCustomScreens(),
-    enabled: isAuthenticated && !basePath, // Only for main app, not kiosk
+    enabled: (isAuthenticated && !basePath) || hasCustomDashboards,
     staleTime: 30_000,
   });
   const customScreensMap = useMemo(() => {
@@ -246,9 +247,17 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
         const count = typeCount[db.type] ?? 0;
         typeCount[db.type] = count + 1;
         const opt = getDashboardTypeOption(db.type);
-        const routePath = count === 0
-          ? (opt?.path ?? db.type)
-          : `d/${db.id}`;
+        let routePath: string;
+        if (db.type === "custom") {
+          // Custom dashboards route to screen/{slug}
+          const screenId = db.config?.screenId as string | undefined;
+          const screen = screenId ? customScreensMap[screenId] : undefined;
+          routePath = screen ? `screen/${screen.slug}` : `d/${db.id}`;
+        } else {
+          routePath = count === 0
+            ? (opt?.path ?? db.type)
+            : `d/${db.id}`;
+        }
         const iconName = db.icon;
         items.push({
           to: buildPath(routePath),

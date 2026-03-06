@@ -684,6 +684,14 @@ function DashboardSettingsContent({ dashboard, onConfigChange, kiosk }: {
         </div>
       );
 
+    case "custom":
+      return (
+        <CustomScreenPicker
+          selectedScreenId={config.screenId as string | undefined}
+          onSelect={(screenId) => onConfigChange("screenId", screenId)}
+        />
+      );
+
     default:
       return <p className="text-sm text-muted-foreground">No additional settings for this dashboard type.</p>;
   }
@@ -731,6 +739,10 @@ function DashboardsSection({ kiosk, updateKiosk, isModuleEnabled }: {
     };
     saveDashboards([...dashboards, newDb]);
     setShowAddMenu(false);
+    // Auto-open edit modal for custom dashboards so user can pick a screen
+    if (type === "custom") {
+      setEditingDashboard(newDb.id);
+    }
   }, [dashboards, saveDashboards]);
 
   const removeDashboard = useCallback((id: string) => {
@@ -939,6 +951,44 @@ function CalendarSelectionSection({ kiosk, onUpdate }: { kiosk: Kiosk; onUpdate:
           </label>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Custom screen picker sub-component
+function CustomScreenPicker({ selectedScreenId, onSelect }: { selectedScreenId?: string; onSelect: (id: string | undefined) => void }) {
+  const { data: screens } = useQuery({
+    queryKey: ["custom-screens"],
+    queryFn: () => api.getCustomScreens(),
+  });
+
+  return (
+    <div className="space-y-2">
+      <p className="font-medium">Custom screen</p>
+      <p className="text-sm text-muted-foreground">Choose which custom screen to display</p>
+      <select
+        className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+        value={selectedScreenId ?? ""}
+        onChange={(e) => onSelect(e.target.value || undefined)}
+      >
+        <option value="">Select a screen...</option>
+        {screens?.map((screen) => (
+          <option key={screen.id} value={screen.id}>
+            {screen.name}
+          </option>
+        ))}
+      </select>
+      {(!screens || screens.length === 0) && (
+        <p className="text-sm text-muted-foreground">
+          No custom screens yet.{" "}
+          <a href="/settings/custom-screens" className="text-primary hover:underline">Create one</a>
+        </p>
+      )}
+      {screens && screens.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          <a href="/settings/custom-screens" className="text-primary hover:underline">Manage custom screens</a>
+        </p>
+      )}
     </div>
   );
 }
