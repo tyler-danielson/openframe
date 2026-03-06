@@ -468,7 +468,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
             isAllDay: event.isAllDay,
             location: event.location,
             description: event.description,
-            calendarName: cal.name,
+            calendarName: cal.displayName || cal.name,
             calendarColor: cal.color ?? undefined,
           });
         }
@@ -1286,7 +1286,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
               isAllDay: event.isAllDay,
               location: event.location,
               description: event.description,
-              calendarName: cal.name,
+              calendarName: cal.displayName || cal.name,
               calendarColor: cal.color ?? undefined,
             });
           }
@@ -1396,7 +1396,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
               isAllDay: event.isAllDay,
               location: event.location,
               description: event.description,
-              calendarName: cal.name,
+              calendarName: cal.displayName || cal.name,
               calendarColor: cal.color ?? undefined,
             });
           }

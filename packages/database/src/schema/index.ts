@@ -256,6 +256,7 @@ export const calendars = pgTable(
     provider: calendarProviderEnum("provider").notNull(),
     externalId: text("external_id").notNull(), // provider's calendar ID
     name: text("name").notNull(),
+    displayName: text("display_name"),
     description: text("description"),
     color: text("color").default("#3B82F6"),
     oauthTokenId: uuid("oauth_token_id").references(() => oauthTokens.id, { onDelete: "set null" }),
@@ -266,6 +267,7 @@ export const calendars = pgTable(
     isReadOnly: boolean("is_read_only").default(false).notNull(),
     syncEnabled: boolean("sync_enabled").default(true).notNull(),
     showOnDashboard: boolean("show_on_dashboard").default(true).notNull(),
+    kioskEnabled: boolean("kiosk_enabled").default(true).notNull(),
     visibility: jsonb("visibility").$type<{ week: boolean; month: boolean; day: boolean; popup: boolean; screensaver: boolean }>().default({ week: false, month: false, day: false, popup: true, screensaver: false }).notNull(),
     syncToken: text("sync_token"), // for incremental sync
     sourceUrl: text("source_url"), // for ICS subscriptions - the URL to fetch from

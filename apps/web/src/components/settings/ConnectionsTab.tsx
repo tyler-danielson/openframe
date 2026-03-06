@@ -161,6 +161,15 @@ const SERVICES: ServiceDef[] = [
     configService: "iptv",
   },
   {
+    id: "photos",
+    name: "Photos",
+    description: "Photo albums & uploads",
+    icon: <span className="text-lg">🖼️</span>,
+    bgColor: "bg-primary/10",
+    category: "media",
+    configService: "photos",
+  },
+  {
     id: "youtube",
     name: "YouTube",
     description: "Video search & bookmarks",
@@ -300,6 +309,11 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
   const { data: newsFeeds = [] } = useQuery({
     queryKey: ["news-feeds"],
     queryFn: () => api.getNewsFeeds(),
+  });
+
+  const { data: photoAlbums = [] } = useQuery({
+    queryKey: ["photo-albums"],
+    queryFn: () => api.getAlbums(),
   });
 
   const { data: weatherSettings = [] } = useQuery({
@@ -465,6 +479,12 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
           detail: ytKey?.value ? "API key configured" : "Not connected",
         };
       }
+      case "photos":
+        return {
+          connected: photoAlbums.length > 0,
+          detail: `${photoAlbums.length} album${photoAlbums.length !== 1 ? "s" : ""}`,
+          count: photoAlbums.length,
+        };
       case "news":
         return {
           connected: newsFeeds.length > 0,
@@ -541,16 +561,70 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
     }
   }
 
-  // Split services into connected vs unconnected
-  const connectedServices = SERVICES.filter((s) => getServiceStatus(s).connected);
+  // Build per-account calendar entries from calendars data
+  const calendarAccountRows = useMemo(() => {
+    const map = new Map<string, { key: string; provider: string; label: string; count: number; enabledCount: number; icon: React.ReactNode; bgColor: string }>();
+
+    for (const cal of calendars) {
+      const key = cal.oauthTokenId
+        ? `oauth:${cal.oauthTokenId}`
+        : `provider:${cal.provider}`;
+
+      if (!map.has(key)) {
+        const serviceDef = SERVICES.find((s) => s.id === cal.provider);
+        map.set(key, {
+          key,
+          provider: cal.provider,
+          label: cal.accountLabel || serviceDef?.name || cal.provider,
+          count: 0,
+          enabledCount: 0,
+          icon: serviceDef?.icon ?? <span className="text-lg">📅</span>,
+          bgColor: serviceDef?.bgColor ?? "bg-primary/10",
+        });
+      }
+      const entry = map.get(key)!;
+      entry.count++;
+      if (cal.isVisible) entry.enabledCount++;
+    }
+
+    // Include linked OAuth providers with no calendars synced yet
+    for (const provider of ["google", "microsoft"] as const) {
+      if (
+        user?.linkedProviders?.includes(provider) &&
+        !Array.from(map.values()).some((r) => r.provider === provider)
+      ) {
+        const serviceDef = SERVICES.find((s) => s.id === provider)!;
+        map.set(`${provider}-pending`, {
+          key: `${provider}-pending`,
+          provider,
+          label: `${serviceDef.name} (syncing...)`,
+          count: 0,
+          enabledCount: 0,
+          icon: serviceDef.icon,
+          bgColor: serviceDef.bgColor,
+        });
+      }
+    }
+
+    return Array.from(map.values());
+  }, [calendars, user]);
+
+  // Split services into connected vs unconnected (exclude calendar category from static list)
+  const connectedServices = SERVICES.filter((s) => s.category !== "calendar" && getServiceStatus(s).connected);
   const unconnectedServices = SERVICES.filter((s) => !getServiceStatus(s).connected);
 
-  // Group connected services by category
-  const grouped = CATEGORY_ORDER.map((cat) => ({
-    category: cat,
-    label: CATEGORY_LABELS[cat],
-    services: connectedServices.filter((s) => s.category === cat),
-  })).filter((g) => g.services.length > 0);
+  // Group connected non-calendar services by category
+  const nonCalendarGroups = CATEGORY_ORDER
+    .filter((cat) => cat !== "calendar")
+    .map((cat) => ({
+      category: cat,
+      label: CATEGORY_LABELS[cat],
+      services: connectedServices.filter((s) => s.category === cat),
+    }))
+    .filter((g) => g.services.length > 0);
+
+  // Combined total for the header count
+  const totalConnected = connectedServices.length + calendarAccountRows.length;
 
   // Filter unconnected services for the add modal (by category + search)
   const filteredAddServices = useMemo(() => {
@@ -579,7 +653,7 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
           </div>
           <div>
             <p className="font-medium">
-              {connectedServices.length} connected service{connectedServices.length !== 1 ? "s" : ""}
+              {totalConnected} connected service{totalConnected !== 1 ? "s" : ""}
             </p>
             <p className="text-sm text-muted-foreground">
               Manage your linked accounts and integrations
@@ -600,7 +674,7 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
       </div>
 
       {/* Connected services list */}
-      {connectedServices.length === 0 ? (
+      {totalConnected === 0 ? (
         <div className="rounded-lg border-2 border-dashed border-border p-8 text-center">
           <Link2 className="mx-auto h-8 w-8 text-muted-foreground" />
           <p className="mt-3 font-medium">No connections yet</p>
@@ -609,120 +683,235 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
           </p>
         </div>
       ) : (
-        grouped.map((group) => (
-          <div key={group.category}>
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-primary">
-              {group.label}
-            </h3>
-            <div className="space-y-2">
-              {group.services.map((service) => {
-                const status = getServiceStatus(service);
-                const isConfirming = confirmDisconnect === service.id;
-                const isDisconnecting = disconnecting === service.id;
+        <>
+          {/* Calendar accounts (dynamic per-account rows) */}
+          {calendarAccountRows.length > 0 && (
+            <div>
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-primary">
+                {CATEGORY_LABELS.calendar}
+              </h3>
+              <div className="space-y-2">
+                {calendarAccountRows.map((account) => {
+                  const isConfirming = confirmDisconnect === account.key;
+                  const isDisconnecting = disconnecting === account.provider;
+                  const isOAuth = account.provider === "google" || account.provider === "microsoft";
+                  const isPending = account.key.endsWith("-pending");
 
-                return (
-                  <div
-                    key={service.id}
-                    className="flex items-center justify-between rounded-lg border border-border p-4 transition-colors hover:bg-muted/30"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${service.bgColor}`}
-                      >
-                        {service.icon}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium truncate">{service.name}</p>
-                          <span className="flex items-center gap-1 text-xs text-primary">
-                            <Check className="h-3 w-3" />
-                            Connected
-                          </span>
+                  return (
+                    <div
+                      key={account.key}
+                      className="flex items-center justify-between rounded-lg border border-border p-4 transition-colors hover:bg-muted/30"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${account.bgColor}`}
+                        >
+                          {account.icon}
                         </div>
-                        <p className="text-sm text-muted-foreground truncate">
-                          {status.detail}
-                        </p>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium truncate">{account.label}</p>
+                            <span className="flex items-center gap-1 text-xs text-primary">
+                              <Check className="h-3 w-3" />
+                              Connected
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground truncate">
+                            {account.count} calendar{account.count !== 1 ? "s" : ""}{account.count > 0 && ` (${account.enabledCount} enabled)`}
+                          </p>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="flex items-center gap-2 shrink-0 ml-4">
-                      {isConfirming ? (
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground whitespace-nowrap">
-                            Disconnect?
-                          </span>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setConfirmDisconnect(null)}
-                            disabled={isDisconnecting}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-destructive border-destructive/40 hover:bg-destructive/10"
-                            onClick={() => handleDisconnect(service.id)}
-                            disabled={isDisconnecting}
-                          >
-                            {isDisconnecting ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Unlink className="mr-1 h-3 w-3" />
+                      <div className="flex items-center gap-2 shrink-0 ml-4">
+                        {isConfirming ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                              Disconnect?
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setConfirmDisconnect(null)}
+                              disabled={isDisconnecting}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                              onClick={() => handleDisconnect(account.provider)}
+                              disabled={isDisconnecting}
+                            >
+                              {isDisconnecting ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Unlink className="mr-1 h-3 w-3" />
+                              )}
+                              Disconnect
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            {!isPending && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => navigate(`/settings/connections?service=calendars&account=${encodeURIComponent(account.key)}`)}
+                              >
+                                <Settings className="mr-1 h-3 w-3" />
+                                Configure
+                              </Button>
                             )}
-                            Disconnect
-                          </Button>
-                        </div>
-                      ) : (
-                        <>
-                          {(service.configRoute || service.configService || service.configTab) && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                if (service.configRoute) {
-                                  navigate(service.configRoute);
-                                } else if (service.configService) {
-                                  onNavigateToService(service.configService);
-                                } else if (service.configTab) {
-                                  onNavigateToTab(service.configTab);
-                                }
-                              }}
-                            >
-                              <Settings className="mr-1 h-3 w-3" />
-                              Configure
-                            </Button>
-                          )}
-                          {["telegram", "remarkable", "capacities", "homeassistant", "google", "microsoft", "spotify"].includes(service.id) && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-muted-foreground hover:text-destructive hover:border-destructive/40"
-                              onClick={() => setConfirmDisconnect(service.id)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          )}
-                          {["google", "microsoft", "spotify"].includes(service.id) && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleConnect(service)}
-                            >
-                              <RefreshCw className="mr-1 h-3 w-3" />
-                              Reconnect
-                            </Button>
-                          )}
-                        </>
-                      )}
+                            {isOAuth && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-muted-foreground hover:text-destructive hover:border-destructive/40"
+                                onClick={() => setConfirmDisconnect(account.key)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
+                            {isOAuth && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const service = SERVICES.find((s) => s.id === account.provider);
+                                  if (service) handleConnect(service);
+                                }}
+                              >
+                                <RefreshCw className="mr-1 h-3 w-3" />
+                                Reconnect
+                              </Button>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ))
+          )}
+
+          {/* Other connected services (static entries) */}
+          {nonCalendarGroups.map((group) => (
+            <div key={group.category}>
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-primary">
+                {group.label}
+              </h3>
+              <div className="space-y-2">
+                {group.services.map((service) => {
+                  const status = getServiceStatus(service);
+                  const isConfirming = confirmDisconnect === service.id;
+                  const isDisconnecting = disconnecting === service.id;
+
+                  return (
+                    <div
+                      key={service.id}
+                      className="flex items-center justify-between rounded-lg border border-border p-4 transition-colors hover:bg-muted/30"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${service.bgColor}`}
+                        >
+                          {service.icon}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium truncate">{service.name}</p>
+                            <span className="flex items-center gap-1 text-xs text-primary">
+                              <Check className="h-3 w-3" />
+                              Connected
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground truncate">
+                            {status.detail}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 ml-4">
+                        {isConfirming ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                              Disconnect?
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setConfirmDisconnect(null)}
+                              disabled={isDisconnecting}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                              onClick={() => handleDisconnect(service.id)}
+                              disabled={isDisconnecting}
+                            >
+                              {isDisconnecting ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Unlink className="mr-1 h-3 w-3" />
+                              )}
+                              Disconnect
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            {(service.configRoute || service.configService || service.configTab) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  if (service.configRoute) {
+                                    navigate(service.configRoute);
+                                  } else if (service.configService) {
+                                    onNavigateToService(service.configService);
+                                  } else if (service.configTab) {
+                                    onNavigateToTab(service.configTab);
+                                  }
+                                }}
+                              >
+                                <Settings className="mr-1 h-3 w-3" />
+                                Configure
+                              </Button>
+                            )}
+                            {["telegram", "remarkable", "capacities", "homeassistant", "spotify"].includes(service.id) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-muted-foreground hover:text-destructive hover:border-destructive/40"
+                                onClick={() => setConfirmDisconnect(service.id)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
+                            {["spotify"].includes(service.id) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleConnect(service)}
+                              >
+                                <RefreshCw className="mr-1 h-3 w-3" />
+                                Reconnect
+                              </Button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </>
       )}
 
       {/* Add Connection Modal */}

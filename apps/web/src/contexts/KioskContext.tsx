@@ -18,6 +18,7 @@ interface KioskContextValue {
   displayType: KioskDisplayType;
   homePage: string;
   selectedCalendarIds: string[] | null;
+  viewCalendars: Record<string, string[] | null> | null;
   enabledFeatures: KioskEnabledFeatures;
   dashboards: KioskDashboard[];
   getDashboardConfig: (dashboardId: string) => Record<string, unknown>;
@@ -56,6 +57,7 @@ const KioskContext = createContext<KioskContextValue>({
   displayType: "touch",
   homePage: "calendar",
   selectedCalendarIds: null,
+  viewCalendars: null,
   enabledFeatures: DEFAULT_ENABLED_FEATURES,
   dashboards: [],
   getDashboardConfig: () => ({}),
@@ -215,6 +217,20 @@ export function KioskProvider({ token, children }: KioskProviderProps) {
   const displayType = config?.displayType ?? "touch";
   const homePage = config?.homePage ?? "calendar";
   const selectedCalendarIds = config?.selectedCalendarIds ?? null;
+
+  // Derive per-view calendar selections from first calendar dashboard config
+  const viewCalendars = (() => {
+    const dbs = config?.dashboards ?? [];
+    const calDb = dbs.find(d => d.type === "calendar");
+    const vc = calDb?.config?.viewCalendars as Record<string, string[] | null> | undefined;
+    if (vc) return vc;
+    // Backward compat: if old selectedCalendarIds exists, apply to all views
+    if (selectedCalendarIds && selectedCalendarIds.length > 0) {
+      return { week: selectedCalendarIds, month: selectedCalendarIds, day: selectedCalendarIds, popup: selectedCalendarIds };
+    }
+    return null; // null = no per-view filtering (show all)
+  })();
+
   const startFullscreen = config?.startFullscreen ?? false;
   const fullscreenDelayMinutes = config?.fullscreenDelayMinutes ?? null;
   const settings = config?.settings ?? {};
@@ -242,6 +258,7 @@ export function KioskProvider({ token, children }: KioskProviderProps) {
         displayType,
         homePage,
         selectedCalendarIds,
+        viewCalendars,
         enabledFeatures,
         dashboards,
         getDashboardConfig,

@@ -1,0 +1,74 @@
+name: Build Raspberry Pi Image
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'pi/**'
+      - '.github/workflows/build-pi-image.yml'
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build-pi-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get clean
+          df -h
+
+      - name: Copy docker-compose into pi stage
+        run: |
+          cp docker/docker-compose.portable.yml pi/stage-openframe/01-server/files/docker-compose.yml
+
+      - name: Clone pi-gen
+        run: |
+          git clone --depth 1 -b arm64 https://github.com/RPi-Distro/pi-gen.git pi-gen-build
+
+      - name: Prepare pi-gen stages
+        run: |
+          # Symlink our custom stage
+          ln -s "$GITHUB_WORKSPACE/pi/stage-openframe" pi-gen-build/stage-openframe
+
+          # Copy config
+          cp pi/config pi-gen-build/config
+
+          # Skip stages 3/4/5 (desktop environments)
+          for stage in stage3 stage4 stage5; do
+            mkdir -p "pi-gen-build/$stage"
+            touch "pi-gen-build/$stage/SKIP" "pi-gen-build/$stage/SKIP_IMAGES"
+          done
+
+          # Only produce image from final stage
+          for stage in stage0 stage1 stage2; do
+            mkdir -p "pi-gen-build/$stage"
+            touch "pi-gen-build/$stage/SKIP_IMAGES"
+          done
+
+      - name: Build image
+        run: |
+          cd pi-gen-build
+          ./build-docker.sh
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openframe-pi-image
+          path: pi-gen-build/deploy/*.img.xz
+          retention-days: 14
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: pi-gen-build/deploy/*.img.xz
+          generate_release_notes: true

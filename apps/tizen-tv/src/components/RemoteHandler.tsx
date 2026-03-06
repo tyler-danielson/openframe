@@ -62,9 +62,14 @@ export function RemoteHandler({
 
   const handleKeyAction = useCallback(
     (action: KeyAction) => {
-      // Show brief feedback
-      setLastAction(action);
-      setTimeout(() => setLastAction(null), 500);
+      // Don't show toast for d-pad actions forwarded to iframe — the iframe
+      // decides whether to scroll, navigate popup, or move block focus.
+      // Showing "Scroll Right" etc is misleading.
+      const isDpad = action === "up" || action === "down" || action === "left" || action === "right" || action === "enter";
+      if (!isDpad || showSettings) {
+        setLastAction(action);
+        setTimeout(() => setLastAction(null), 500);
+      }
 
       switch (action) {
         // Navigation — send to iframe first; block nav handles back internally.

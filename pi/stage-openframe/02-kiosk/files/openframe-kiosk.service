@@ -1,0 +1,22 @@
+[Unit]
+Description=OpenFrame Kiosk (cage + Chromium)
+After=openframe-server.service
+Wants=openframe-server.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=WAYLAND_DISPLAY=wayland-0
+PAMName=login
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+ExecStart=/usr/bin/cage -- /usr/local/bin/kiosk.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target

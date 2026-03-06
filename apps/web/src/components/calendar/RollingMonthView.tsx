@@ -264,7 +264,7 @@ export function RollingMonthView({
     return (
       <div
         key={dateKey}
-        className="flex flex-col border-r border-b border-border overflow-hidden bg-card cursor-pointer"
+        className="flex flex-col border-r border-b border-white overflow-hidden bg-card cursor-pointer"
         onClick={() => handleDayClick(day)}
         onPointerDown={(e) => handleDayPointerDown(day, e)}
         onPointerMove={handleDayPointerMove}
@@ -273,14 +273,14 @@ export function RollingMonthView({
         onPointerCancel={handleDayPointerUp}
       >
         {/* Day header */}
-        <div className="px-2 py-1 border-b border-border bg-muted/50 flex items-center justify-between">
+        <div className={cn("px-2 py-1 border-b border-white flex items-center justify-between", isCurrentDay ? "bg-primary/10" : "bg-muted")}>
           <div className="flex items-center gap-1">
             {showWeekNumbers && isFirstOfRow && (
               <span className="text-[10px] font-normal text-muted-foreground bg-muted-foreground/10 px-1 py-0.5 rounded">
                 W{weekNumber}
               </span>
             )}
-            <span className="text-xs text-muted-foreground">{format(day, "EEE")}</span>
+            <span className={cn("text-xs font-medium", isCurrentDay ? "text-primary" : "text-foreground")}>{format(day, "EEE")}</span>
             <span
               className={cn(
                 "text-sm font-semibold inline-flex items-center justify-center",
@@ -371,7 +371,7 @@ export function RollingMonthView({
   };
 
   return (
-    <div className="h-full flex flex-col border-t border-l border-border">
+    <div className="h-full flex flex-col border-t border-l border-white">
       {/* Week rows */}
       {weeks.map((week, weekIndex) => (
         <div key={weekIndex} className="flex-1 grid grid-cols-7">

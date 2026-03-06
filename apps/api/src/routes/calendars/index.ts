@@ -76,7 +76,9 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
         data: filtered.map((r) => ({
           id: r.calendar.id,
           provider: r.calendar.provider,
-          name: r.calendar.name,
+          name: r.calendar.displayName || r.calendar.name,
+          displayName: r.calendar.displayName,
+          originalName: r.calendar.displayName ? r.calendar.name : null,
           description: r.calendar.description,
           color: r.calendar.color,
           isVisible: r.calendar.isVisible,
@@ -85,6 +87,7 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
           isReadOnly: r.calendar.isReadOnly,
           syncEnabled: r.calendar.syncEnabled,
           showOnDashboard: r.calendar.showOnDashboard,
+          kioskEnabled: r.calendar.kioskEnabled,
           lastSyncAt: r.calendar.lastSyncAt,
           visibility: r.calendar.visibility ?? { week: false, month: false, day: false, popup: true, screensaver: false },
           oauthTokenId: r.calendar.oauthTokenId,
@@ -156,12 +159,14 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
           type: "object",
           properties: {
             name: { type: "string", minLength: 1, maxLength: 100 },
+            displayName: { type: ["string", "null"], maxLength: 100 },
             color: { type: "string" },
             isVisible: { type: "boolean" },
             syncEnabled: { type: "boolean" },
             isPrimary: { type: "boolean" },
             isFavorite: { type: "boolean" },
             showOnDashboard: { type: "boolean" },
+            kioskEnabled: { type: "boolean" },
             visibility: {
               type: "object",
               properties: {
@@ -184,12 +189,14 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
       const { id } = request.params as { id: string };
       const updates = request.body as Partial<{
         name: string;
+        displayName: string | null;
         color: string;
         isVisible: boolean;
         syncEnabled: boolean;
         isPrimary: boolean;
         isFavorite: boolean;
         showOnDashboard: boolean;
+        kioskEnabled: boolean;
         visibility: { week: boolean; month: boolean; day: boolean; popup: boolean; screensaver: boolean };
       }>;
 
@@ -225,7 +232,11 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
 
       return {
         success: true,
-        data: calendar,
+        data: {
+          ...calendar,
+          name: calendar.displayName || calendar.name,
+          originalName: calendar.displayName ? calendar.name : null,
+        },
       };
     }
   );

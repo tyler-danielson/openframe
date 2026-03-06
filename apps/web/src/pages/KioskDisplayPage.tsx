@@ -152,7 +152,7 @@ function KioskApp() {
           const dir = page.replace("scroll:", "") as "up" | "down" | "left" | "right";
           const nav = useBlockNavStore.getState();
 
-          // TV popup nav: left/right navigate items, up closes
+          // TV popup nav: left/right navigate items, down closes, up is ignored
           if (displayType === "tv" && nav.tvNavOpen) {
             const navBlocks = nav.blocks.filter((b) => b.group === "nav");
             const maxIdx = Math.max(0, navBlocks.length - 1);
@@ -160,9 +160,10 @@ function KioskApp() {
               nav.setTvNavIndex(Math.max(0, nav.tvNavIndex - 1));
             } else if (dir === "right") {
               nav.setTvNavIndex(Math.min(maxIdx, nav.tvNavIndex + 1));
-            } else if (dir === "up" || dir === "down") {
+            } else if (dir === "down") {
               nav.setTvNavOpen(false);
             }
+            // up is ignored — popup is a single row, nothing above
           } else if (nav.mode === "idle" && displayType === "tv" && nav.blocks.length > 0) {
             useBlockNavStore.setState({ _debug: `activate! dt=${displayType} b=${nav.blocks.length}` });
             if (dir === "left") {
@@ -456,11 +457,9 @@ function KioskApp() {
 
   // Get the effective home page
   const effectiveHomePage = useMemo(() => {
-    // Dashboard-based: first dashboard's route
-    if (dashboards.length > 0) {
-      const firstType = dashboards[0]!.type;
-      const featureRoute = FEATURE_ROUTES[firstType];
-      return featureRoute?.path ?? "calendar";
+    // Dashboard-based: use the first enabled route
+    if (dashboards.length > 0 && enabledRoutes.length > 0) {
+      return enabledRoutes[0]!.path.replace("/*", "");
     }
     // Legacy: check if home page is enabled
     const homePageEnabled = enabledFeatures[homePage as keyof typeof enabledFeatures];

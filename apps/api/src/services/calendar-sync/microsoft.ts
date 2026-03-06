@@ -1,4 +1,4 @@
-import { eq, and, notInArray } from "drizzle-orm";
+import { eq, and, notInArray, isNotNull, inArray } from "drizzle-orm";
 import { calendars, events, oauthTokens } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
 
@@ -474,6 +474,10 @@ async function syncCalendarEvents(
     deltaLink = data["@odata.deltaLink"];
   } while (nextLink);
 
+  // Backfill recurring instances that are missing inherited properties
+  // (calendarView/delta doesn't populate subject/body/location for unmodified occurrences)
+  await backfillRecurringInstances(db, calendarDbId, accessToken);
+
   // Save delta link as syncToken for incremental sync
   if (deltaLink) {
     await db
@@ -484,6 +488,89 @@ async function syncCalendarEvents(
         updatedAt: new Date(),
       })
       .where(eq(calendars.id, calendarDbId));
+  }
+}
+
+// --- Backfill recurring instances from series masters ---
+
+async function backfillRecurringInstances(
+  db: Database,
+  calendarDbId: string,
+  accessToken: string
+): Promise<void> {
+  // Find instances with "(No title)" that have a recurringEventId (seriesMasterId)
+  const incomplete = await db
+    .select({
+      id: events.id,
+      recurringEventId: events.recurringEventId,
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.calendarId, calendarDbId),
+        eq(events.title, "(No title)"),
+        isNotNull(events.recurringEventId)
+      )
+    );
+
+  if (incomplete.length === 0) return;
+
+  // Group by seriesMasterId to batch API calls
+  const masterIds = [...new Set(incomplete.map((e) => e.recurringEventId!))];
+
+  for (const masterId of masterIds) {
+    try {
+      const response = await fetch(
+        `https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(masterId)}?$select=subject,body,bodyPreview,location,attendees`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Prefer: 'outlook.body-content-type="text"',
+          },
+        }
+      );
+
+      if (!response.ok) continue;
+
+      const master = (await response.json()) as MSEvent;
+
+      const description = master.body?.content
+        ? stripHtml(master.body.content)
+        : (master.bodyPreview ?? null);
+
+      const attendees =
+        master.attendees?.map((a) => ({
+          email: a.emailAddress.address,
+          name: a.emailAddress.name,
+          responseStatus: a.status?.response as
+            | "needsAction"
+            | "accepted"
+            | "declined"
+            | "tentative"
+            | undefined,
+          organizer: a.type === "required",
+        })) ?? [];
+
+      const instanceIds = incomplete
+        .filter((e) => e.recurringEventId === masterId)
+        .map((e) => e.id);
+
+      await db
+        .update(events)
+        .set({
+          title: master.subject || "(No title)",
+          description,
+          location: master.location?.displayName ?? null,
+          attendees,
+          updatedAt: new Date(),
+        })
+        .where(inArray(events.id, instanceIds));
+    } catch (err) {
+      console.error(
+        `[Microsoft Sync] Failed to fetch series master ${masterId}:`,
+        err
+      );
+    }
   }
 }
 

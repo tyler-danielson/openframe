@@ -163,7 +163,7 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
           ...event,
           calendar: {
             id: calendar.id,
-            name: calendar.name,
+            name: calendar.displayName || calendar.name,
             color: calendar.color,
           },
         },

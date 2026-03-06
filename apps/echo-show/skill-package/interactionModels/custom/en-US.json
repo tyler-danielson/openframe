@@ -1,0 +1,106 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "open frame",
+      "intents": [
+        {
+          "name": "NavigateIntent",
+          "slots": [
+            {
+              "name": "page",
+              "type": "PAGE_NAME"
+            }
+          ],
+          "samples": [
+            "show {page}",
+            "go to {page}",
+            "open {page}",
+            "navigate to {page}",
+            "switch to {page}",
+            "display {page}",
+            "show me {page}",
+            "show the {page}"
+          ]
+        },
+        {
+          "name": "NextPageIntent",
+          "samples": [
+            "next",
+            "next page",
+            "next slide",
+            "go forward",
+            "forward",
+            "skip"
+          ]
+        },
+        {
+          "name": "PreviousPageIntent",
+          "samples": [
+            "previous",
+            "previous page",
+            "go back",
+            "back",
+            "last page",
+            "go to previous"
+          ]
+        },
+        {
+          "name": "RefreshIntent",
+          "samples": [
+            "refresh",
+            "reload",
+            "refresh the page",
+            "reload the page",
+            "update",
+            "refresh display"
+          ]
+        },
+        {
+          "name": "SetupIntent",
+          "samples": [
+            "set up",
+            "configure",
+            "change server",
+            "setup",
+            "reconfigure",
+            "change configuration",
+            "settings"
+          ]
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        }
+      ],
+      "types": [
+        {
+          "name": "PAGE_NAME",
+          "values": [
+            { "name": { "value": "calendar", "synonyms": ["my calendar", "the calendar", "agenda"] } },
+            { "name": { "value": "dashboard", "synonyms": ["my dashboard", "the dashboard", "home"] } },
+            { "name": { "value": "photos", "synonyms": ["my photos", "the photos", "pictures", "photo gallery"] } },
+            { "name": { "value": "tasks", "synonyms": ["my tasks", "the tasks", "to do", "todo list"] } },
+            { "name": { "value": "screensaver", "synonyms": ["screen saver", "the screensaver", "slideshow"] } },
+            { "name": { "value": "homeassistant", "synonyms": ["home assistant", "smart home", "home automation"] } },
+            { "name": { "value": "cameras", "synonyms": ["security cameras", "the cameras", "camera view"] } },
+            { "name": { "value": "map", "synonyms": ["the map", "maps", "location"] } },
+            { "name": { "value": "kitchen", "synonyms": ["the kitchen", "recipes", "kitchen display"] } },
+            { "name": { "value": "spotify", "synonyms": ["music", "my music", "spotify player"] } }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -265,7 +265,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
     await app.register(fastifyStatic, {
       root: publicDir,
       prefix: "/",
-      wildcard: false,
+      wildcard: true,
     });
 
     // Custom cache headers via onSend hook

@@ -55,8 +55,8 @@ function NextWeekWidget({
 }) {
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="px-3 py-2 border-b border-white bg-muted h-16 flex flex-col justify-center shrink-0">
-        <p className="text-2xl font-bold text-foreground">Next Week</p>
+      <div className="px-3 py-1.5 border-b border-white bg-muted flex flex-col justify-center shrink-0">
+        <p className="text-3xl font-bold text-foreground leading-[2.75rem]">Next Week</p>
         <p className="text-xs text-muted-foreground">
           {isSameMonth(nextWeekData.start, nextWeekData.end)
             ? `${format(nextWeekData.start, "MMMM d")} - ${format(nextWeekData.end, "d")}`
@@ -172,7 +172,7 @@ function CameraWidget() {
   if (!camera) {
     return (
       <div className="flex flex-col h-full">
-        <div className="px-3 py-2 border-b border-white bg-muted h-16 flex items-center gap-2">
+        <div className="px-3 py-1.5 border-b border-white bg-muted flex items-center gap-2">
           <Camera className="h-5 w-5 text-muted-foreground" />
           <p className="text-2xl font-bold text-foreground">Camera</p>
         </div>
@@ -189,7 +189,7 @@ function CameraWidget() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-3 py-2 border-b border-white bg-muted h-16 flex items-center gap-2">
+      <div className="px-3 py-1.5 border-b border-white bg-muted flex items-center gap-2">
         <Camera className="h-5 w-5 text-muted-foreground" />
         <p className="text-lg font-bold text-foreground truncate">{cameraName}</p>
       </div>
@@ -242,7 +242,7 @@ function MapWidget() {
   if (isLoadingConfig || wsConnecting) {
     return (
       <div className="flex flex-col h-full">
-        <div className="px-3 py-2 border-b border-white bg-muted h-16 flex items-center gap-2">
+        <div className="px-3 py-1.5 border-b border-white bg-muted flex items-center gap-2">
           <MapPin className="h-5 w-5 text-muted-foreground" />
           <p className="text-2xl font-bold text-foreground">Map</p>
         </div>
@@ -256,7 +256,7 @@ function MapWidget() {
   if (!isConfigured) {
     return (
       <div className="flex flex-col h-full">
-        <div className="px-3 py-2 border-b border-white bg-muted h-16 flex items-center gap-2">
+        <div className="px-3 py-1.5 border-b border-white bg-muted flex items-center gap-2">
           <MapPin className="h-5 w-5 text-muted-foreground" />
           <p className="text-2xl font-bold text-foreground">Map</p>
         </div>
@@ -271,7 +271,7 @@ function MapWidget() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-3 py-2 border-b border-white bg-muted h-16 flex items-center gap-2">
+      <div className="px-3 py-1.5 border-b border-white bg-muted flex items-center gap-2">
         <MapPin className="h-5 w-5 text-muted-foreground" />
         <p className="text-lg font-bold text-foreground">
           Locations
@@ -328,7 +328,7 @@ function SpotifyWidget() {
   if (!isConnected) {
     return (
       <div className="flex flex-col h-full">
-        <div className="px-3 py-2 border-b border-white bg-muted h-16 flex items-center gap-2">
+        <div className="px-3 py-1.5 border-b border-white bg-muted flex items-center gap-2">
           <Music className="h-5 w-5 text-muted-foreground" />
           <p className="text-2xl font-bold text-foreground">Spotify</p>
         </div>
@@ -344,7 +344,7 @@ function SpotifyWidget() {
   if (isLoading) {
     return (
       <div className="flex flex-col h-full">
-        <div className="px-3 py-2 border-b border-white bg-muted h-16 flex items-center gap-2">
+        <div className="px-3 py-1.5 border-b border-white bg-muted flex items-center gap-2">
           <Music className="h-5 w-5 text-muted-foreground" />
           <p className="text-2xl font-bold text-foreground">Spotify</p>
         </div>
@@ -358,7 +358,7 @@ function SpotifyWidget() {
   if (!playback || !playback.item) {
     return (
       <div className="flex flex-col h-full">
-        <div className="px-3 py-2 border-b border-white bg-muted h-16 flex items-center gap-2">
+        <div className="px-3 py-1.5 border-b border-white bg-muted flex items-center gap-2">
           <Music className="h-5 w-5 text-muted-foreground" />
           <p className="text-2xl font-bold text-foreground">Spotify</p>
         </div>
@@ -378,7 +378,7 @@ function SpotifyWidget() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-3 py-2 border-b border-white bg-muted h-16 flex items-center gap-2">
+      <div className="px-3 py-1.5 border-b border-white bg-muted flex items-center gap-2">
         <Music className="h-5 w-5 text-green-500" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-foreground truncate">{item.name}</p>
@@ -472,7 +472,7 @@ function HomeControlWidget() {
   if (isLoadingConfig || isLoading) {
     return (
       <div className="flex flex-col h-full">
-        <div className="px-3 py-2 border-b border-white bg-muted h-16 flex items-center gap-2">
+        <div className="px-3 py-1.5 border-b border-white bg-muted flex items-center gap-2">
           <Home className="h-5 w-5 text-muted-foreground" />
           <p className="text-2xl font-bold text-foreground">Home</p>
         </div>
@@ -486,7 +486,7 @@ function HomeControlWidget() {
   if (!isConfigured) {
     return (
       <div className="flex flex-col h-full">
-        <div className="px-3 py-2 border-b border-white bg-muted h-16 flex items-center gap-2">
+        <div className="px-3 py-1.5 border-b border-white bg-muted flex items-center gap-2">
           <Home className="h-5 w-5 text-muted-foreground" />
           <p className="text-2xl font-bold text-foreground">Home</p>
         </div>
@@ -502,7 +502,7 @@ function HomeControlWidget() {
   if (dashboardEntities.length === 0) {
     return (
       <div className="flex flex-col h-full">
-        <div className="px-3 py-2 border-b border-white bg-muted h-16 flex items-center gap-2">
+        <div className="px-3 py-1.5 border-b border-white bg-muted flex items-center gap-2">
           <Home className="h-5 w-5 text-muted-foreground" />
           <p className="text-2xl font-bold text-foreground">Home</p>
         </div>
@@ -517,7 +517,7 @@ function HomeControlWidget() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-3 py-2 border-b border-white bg-muted h-16 flex items-center gap-2">
+      <div className="px-3 py-1.5 border-b border-white bg-muted flex items-center gap-2">
         <Home className="h-5 w-5 text-muted-foreground" />
         <p className="text-2xl font-bold text-foreground">Home</p>
         {!wsConnected && (

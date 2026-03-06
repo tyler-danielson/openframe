@@ -353,7 +353,7 @@ class ApiClient {
 
   async updateCalendar(
     id: string,
-    data: Partial<Pick<Calendar, "color" | "isVisible" | "syncEnabled" | "isPrimary" | "isFavorite" | "showOnDashboard" | "name">> & { visibility?: Partial<Calendar["visibility"]> }
+    data: Partial<Pick<Calendar, "color" | "isVisible" | "syncEnabled" | "isPrimary" | "isFavorite" | "showOnDashboard" | "kioskEnabled" | "name" | "displayName">> & { visibility?: Partial<Calendar["visibility"]> }
   ): Promise<Calendar> {
     return this.fetch<Calendar>(`/calendars/${id}`, {
       method: "PATCH",

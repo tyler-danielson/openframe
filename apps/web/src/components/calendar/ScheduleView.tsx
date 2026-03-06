@@ -348,9 +348,9 @@ export function ScheduleView({
               onPointerLeave={handleDayPointerUp}
               onPointerCancel={handleDayPointerUp}
             >
-              <p className={`text-xl font-semibold text-center flex items-center justify-center gap-2 ${isTodayHeader ? 'text-primary' : 'text-foreground'}`}>
+              <p className={`text-2xl font-semibold text-center flex items-center justify-center gap-2 ${isTodayHeader ? 'text-primary' : 'text-foreground'}`}>
                 <span>{format(day, "EEE")}</span>
-                <span className={`${isTodayHeader ? 'bg-primary text-primary-foreground rounded-full w-8 h-8 flex items-center justify-center' : ''}`}>
+                <span className={`${isTodayHeader ? 'bg-primary text-primary-foreground rounded-full w-9 h-9 flex items-center justify-center' : ''}`}>
                   {format(day, "d")}
                 </span>
               </p>

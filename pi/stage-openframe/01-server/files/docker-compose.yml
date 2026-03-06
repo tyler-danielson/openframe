@@ -1,0 +1,5 @@
+# This file is auto-copied from docker/docker-compose.portable.yml during build.
+# Do not edit directly — run pi/build.sh to regenerate.
+#
+# If running build.sh manually, it will overwrite this file.
+# For CI builds, the workflow copies the file before building.

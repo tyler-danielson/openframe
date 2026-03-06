@@ -1,0 +1,42 @@
+{
+  "manifest": {
+    "publishingInformation": {
+      "isAvailableWorldwide": false,
+      "distributionCountries": ["US"],
+      "locales": {
+        "en-US": {
+          "name": "OpenFrame Kiosk",
+          "summary": "Digital art frame and smart display kiosk for Echo Show",
+          "description": "Turn your Echo Show into a digital art frame, smart calendar, and kiosk display. Connect to your OpenFrame server to display photos, calendars, dashboards, and more.",
+          "examplePhrases": [
+            "Alexa open OpenFrame",
+            "Alexa next page",
+            "Alexa show calendar"
+          ],
+          "keywords": [
+            "kiosk",
+            "digital frame",
+            "smart display",
+            "calendar",
+            "dashboard"
+          ]
+        }
+      },
+      "category": "GAMES",
+      "testingInstructions": "Requires an Echo Show device with screen. Say 'Alexa, open OpenFrame' to launch."
+    },
+    "apis": {
+      "custom": {
+        "interfaces": [
+          {
+            "type": "ALEXA_PRESENTATION_HTML"
+          }
+        ],
+        "endpoint": {
+          "sourceDir": "lambda"
+        }
+      }
+    },
+    "manifestVersion": "1.0"
+  }
+}

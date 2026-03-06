@@ -388,9 +388,9 @@ export function WeekGridView({
         onPointerCancel={handleDayPointerUp}
       >
         {/* Day header */}
-        <div className="px-3 py-1.5 border-b border-white bg-muted shrink-0 h-[68px] overflow-hidden flex flex-col justify-center">
+        <div className={cn("px-3 py-1.5 border-b border-white shrink-0 flex flex-col justify-center", isCurrentDay ? "bg-primary/10" : "bg-muted")}>
           <div className="flex items-center justify-between">
-            <p className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <p className={cn("text-3xl font-bold flex items-center gap-2", isCurrentDay ? "text-primary" : "text-foreground")}>
               {showWeekNumbers && showWeekNumber && (
                 <span className="text-xs font-normal text-muted-foreground bg-muted-foreground/10 px-1.5 py-0.5 rounded">
                   W{weekNumber}
@@ -399,8 +399,8 @@ export function WeekGridView({
               <span>{format(day, "EEE")}</span>
               <span
                 className={cn(
-                  "inline-flex items-center justify-center",
-                  isCurrentDay && "bg-primary text-white rounded-full w-10 h-10"
+                  "inline-flex items-center justify-center w-11 h-11",
+                  isCurrentDay && "bg-primary text-primary-foreground rounded-full"
                 )}
               >
                 {format(day, "d")}

@@ -55,6 +55,8 @@ export interface Calendar {
   provider: CalendarProvider;
   externalId: string;
   name: string;
+  displayName: string | null;
+  originalName: string | null;
   description: string | null;
   color: string;
   icon: string | null;
@@ -64,6 +66,7 @@ export interface Calendar {
   isReadOnly: boolean;
   syncEnabled: boolean;
   showOnDashboard: boolean;
+  kioskEnabled: boolean;
   lastSyncAt: Date | null;
   visibility: CalendarVisibility;
   sourceUrl?: string | null; // URL for ICS subscriptions

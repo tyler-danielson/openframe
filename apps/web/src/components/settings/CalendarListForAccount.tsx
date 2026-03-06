@@ -1,766 +1,462 @@
-import { useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Star, Crown, Eye, EyeOff, ExternalLink, RefreshCw, ChevronDown, ChevronRight, User, Pencil, Trash2, Plus, Check, X } from "lucide-react";
-import type { Calendar, CalendarProvider, CalendarVisibility, CalendarEvent, FavoriteSportsTeam } from "@openframe/shared";
-import { ToggleGroup } from "../ui/Toggle";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Eye, EyeOff, Trash2, Check, X, Plus, Pencil, ChevronDown, ChevronUp, Monitor, MonitorOff, RotateCcw } from "lucide-react";
+import type { Calendar, CalendarProvider, CalendarEvent, FavoriteSportsTeam } from "@openframe/shared";
+import type { Kiosk } from "../../services/api";
 import { Button } from "../ui/Button";
 
-// Allow partial visibility updates
-type CalendarUpdate = Omit<Partial<Calendar>, 'visibility'> & { visibility?: Partial<CalendarVisibility> };
-type TeamUpdate = Omit<Partial<FavoriteSportsTeam>, 'visibility'> & { visibility?: Partial<CalendarVisibility> };
+type CalendarUpdate = Partial<Calendar>;
 
-interface CalendarListForAccountProps {
-  provider: CalendarProvider;
+interface CalendarConnectionsViewProps {
+  accountKey: string;
   calendars: Calendar[];
   favoriteTeams: FavoriteSportsTeam[];
   events?: CalendarEvent[];
+  kiosks?: Kiosk[];
+  onRevokeKioskAccess?: (calendarId: string, kioskId: string) => void;
   onUpdateCalendar: (id: string, updates: CalendarUpdate) => void;
-  onUpdateTeam: (id: string, updates: TeamUpdate) => void;
-  onConnect: () => void;
-  onManageTeams: () => void;
   onDeleteCalendar?: (id: string) => void;
+  onConnect: (provider: CalendarProvider) => void;
+  onManageTeams: () => void;
 }
 
-// Default visibility for calendars without visibility set
-const DEFAULT_VISIBILITY: CalendarVisibility = {
-  week: false,
-  month: false,
-  day: false,
-  popup: true,
-  screensaver: false,
-};
-
-// Provider display configuration
-const PROVIDER_CONFIG: Record<
-  CalendarProvider,
-  {
-    name: string;
-    connectLabel: string;
-    description: string;
-  }
-> = {
-  google: {
-    name: "Google Calendar",
-    connectLabel: "Connect Google Calendar",
-    description: "Sign in with Google to sync your calendars, events, and tasks.",
-  },
-  microsoft: {
-    name: "Microsoft Outlook",
-    connectLabel: "Connect Microsoft Outlook",
-    description: "Connect your Microsoft 365 or Outlook.com account.",
-  },
-  caldav: {
-    name: "CalDAV",
-    connectLabel: "Add CalDAV Account",
-    description: "Connect calendars from iCloud, Fastmail, or any CalDAV provider.",
-  },
-  ics: {
-    name: "ICS Subscription",
-    connectLabel: "Subscribe to Calendar",
-    description: "Subscribe to a .ics calendar feed URL to display events from external sources.",
-  },
-  sports: {
-    name: "Sports",
-    connectLabel: "Add Teams",
-    description: "Follow your favorite sports teams to see their game schedules on your calendar.",
-  },
-  homeassistant: {
-    name: "Home Assistant",
-    connectLabel: "Add Calendar",
-    description: "Subscribe to calendars from your Home Assistant instance.",
-  },
-  local: {
-    name: "My Calendars",
-    connectLabel: "Create Calendar",
-    description: "Create calendars that live only in OpenFrame.",
-  },
-};
-
-// Sort calendars: primary -> favorites -> read-write -> alphabetical
-function sortCalendars(cals: Calendar[]): Calendar[] {
-  return [...cals].sort((a, b) => {
-    if (a.isPrimary && !b.isPrimary) return -1;
-    if (!a.isPrimary && b.isPrimary) return 1;
-    if (a.isFavorite && !b.isFavorite) return -1;
-    if (!a.isFavorite && b.isFavorite) return 1;
-    if (!a.isReadOnly && b.isReadOnly) return -1;
-    if (a.isReadOnly && !b.isReadOnly) return 1;
-    return a.name.localeCompare(b.name);
+function getKiosksUsingCalendar(calendarId: string, kiosks: Kiosk[]): Kiosk[] {
+  return kiosks.filter(kiosk => {
+    if (!kiosk.isActive) return false;
+    // Legacy: selectedCalendarIds
+    if (kiosk.selectedCalendarIds === null) return true;
+    if (kiosk.selectedCalendarIds?.includes(calendarId)) return true;
+    // Modern: dashboard viewCalendars
+    const calDash = kiosk.dashboards?.find(d => d.type === "calendar");
+    if (!calDash) return false;
+    const vc = calDash.config?.viewCalendars as Record<string, string[] | null> | undefined;
+    if (!vc) return false;
+    return Object.values(vc).some(ids => ids === null || ids.includes(calendarId));
   });
 }
 
-interface AccountGroup {
-  key: string;
-  label: string;
-  calendars: Calendar[];
+export function CalendarConnectionsView({
+  accountKey,
+  calendars,
+  favoriteTeams,
+  events,
+  kiosks,
+  onRevokeKioskAccess,
+  onUpdateCalendar,
+  onDeleteCalendar,
+  onConnect,
+  onManageTeams,
+}: CalendarConnectionsViewProps) {
+  const isSports = accountKey === "sports";
+
+  // Filter calendars for this account
+  const accountCalendars = useMemo(() => {
+    if (isSports) return [];
+    if (accountKey.startsWith("oauth:")) {
+      const tokenId = accountKey.replace("oauth:", "");
+      return calendars.filter((c) => c.oauthTokenId === tokenId);
+    }
+    if (accountKey.startsWith("provider:")) {
+      const provider = accountKey.replace("provider:", "");
+      return calendars.filter((c) => c.provider === provider && !c.oauthTokenId);
+    }
+    return [];
+  }, [accountKey, calendars, isSports]);
+
+  const sortedCalendars = useMemo(
+    () =>
+      [...accountCalendars].sort((a, b) => {
+        if (a.isVisible && !b.isVisible) return -1;
+        if (!a.isVisible && b.isVisible) return 1;
+        return a.name.localeCompare(b.name);
+      }),
+    [accountCalendars]
+  );
+
+  const provider: CalendarProvider = isSports
+    ? "sports"
+    : (accountCalendars[0]?.provider ?? "local");
+
+  // Sports teams view
+  if (isSports) {
+    return (
+      <div className="space-y-1">
+        {favoriteTeams.map((team) => (
+          <div
+            key={team.id}
+            className={`flex items-center gap-2 px-2 py-1.5 rounded-md border transition-colors ${
+              team.isVisible
+                ? "border-border"
+                : "border-border/50 opacity-50"
+            }`}
+          >
+            {team.teamLogo ? (
+              <img
+                src={team.teamLogo}
+                alt={team.teamName}
+                className="w-5 h-5 object-contain shrink-0"
+              />
+            ) : (
+              <div
+                className="w-3 h-3 rounded-full shrink-0"
+                style={{ backgroundColor: team.teamColor ?? "#6366f1" }}
+              />
+            )}
+            <span className="text-sm truncate flex-1">{team.teamName}</span>
+            <span className="text-xs text-muted-foreground shrink-0">{team.league.toUpperCase()}</span>
+          </div>
+        ))}
+        <div className="pt-2">
+          <Button variant="outline" size="sm" onClick={onManageTeams}>
+            Manage Teams
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Calendar list for a single account
+  return (
+    <div className="space-y-0.5">
+      {sortedCalendars.map((cal) => (
+        <CalendarRow
+          key={cal.id}
+          calendar={cal}
+          events={events}
+          kiosks={kiosks}
+          onRevokeKioskAccess={onRevokeKioskAccess}
+          onUpdate={(updates) => onUpdateCalendar(cal.id, updates)}
+          onDelete={
+            onDeleteCalendar ? () => onDeleteCalendar(cal.id) : undefined
+          }
+        />
+      ))}
+
+      {sortedCalendars.length === 0 && (
+        <p className="text-sm text-muted-foreground py-4 text-center">
+          No calendars found for this account
+        </p>
+      )}
+
+      {/* Provider-specific actions */}
+      <div className="flex flex-wrap gap-2 pt-3">
+        {provider === "local" && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onConnect("local")}
+          >
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            Create Calendar
+          </Button>
+        )}
+        {provider === "ics" && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onConnect("ics")}
+          >
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            Subscribe to Calendar
+          </Button>
+        )}
+        {provider === "homeassistant" && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onConnect("homeassistant")}
+          >
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            Add Calendar
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- Single calendar row (compact) ---
+
+function formatEventTime(event: CalendarEvent): string {
+  const start = new Date(event.startTime);
+  const end = new Date(event.endTime);
+  if (event.isAllDay) {
+    return start.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " (all day)";
+  }
+  const dateStr = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const startStr = start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const endStr = end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${dateStr}, ${startStr} - ${endStr}`;
 }
 
 function CalendarRow({
   calendar,
   events,
-  onUpdateCalendar,
-  onDeleteCalendar,
+  kiosks,
+  onRevokeKioskAccess,
+  onUpdate,
+  onDelete,
 }: {
   calendar: Calendar;
   events?: CalendarEvent[];
-  onUpdateCalendar: (id: string, updates: CalendarUpdate) => void;
-  onDeleteCalendar?: (id: string) => void;
+  kiosks?: Kiosk[];
+  onRevokeKioskAccess?: (calendarId: string, kioskId: string) => void;
+  onUpdate: (updates: CalendarUpdate) => void;
+  onDelete?: () => void;
 }) {
-  const [showPreview, setShowPreview] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(calendar.name);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showEvents, setShowEvents] = useState(false);
+  const [showKiosks, setShowKiosks] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const todayMarkerRef = useRef<HTMLDivElement>(null);
   const isLocal = calendar.provider === "local";
-  const visibility = calendar.visibility ?? DEFAULT_VISIBILITY;
+  const canDelete = calendar.provider === "local" || calendar.provider === "ics";
 
-  // Get upcoming events for this calendar
   const calendarEvents = useMemo(() => {
     if (!events) return [];
-    const now = new Date();
-    return events
-      .filter((e) => e.calendarId === calendar.id && new Date(e.startTime) >= now)
-      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
-      .slice(0, 5);
-  }, [events, calendar.id]);
-
-  // Also get recent past events if no upcoming
-  const recentEvents = useMemo(() => {
-    if (!events || calendarEvents.length > 0) return [];
     return events
       .filter((e) => e.calendarId === calendar.id)
-      .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
-      .slice(0, 5);
-  }, [events, calendar.id, calendarEvents]);
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+  }, [events, calendar.id]);
 
-  const previewEvents = calendarEvents.length > 0 ? calendarEvents : recentEvents;
-  const hasEvents = events && events.some((e) => e.calendarId === calendar.id);
+  const kiosksUsingCalendar = useMemo(() => {
+    if (!kiosks) return [];
+    return getKiosksUsingCalendar(calendar.id, kiosks);
+  }, [kiosks, calendar.id]);
+
+  // Index of the first event starting today or later
+  const todayStartIndex = useMemo(() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    return calendarEvents.findIndex((e) => new Date(e.startTime) >= todayStart);
+  }, [calendarEvents]);
+
+  // Scroll to today when events panel opens
+  useEffect(() => {
+    if (showEvents && todayMarkerRef.current && previewRef.current) {
+      todayMarkerRef.current.scrollIntoView({ block: "start" });
+    }
+  }, [showEvents]);
 
   return (
     <div>
-      <motion.div
-        layout
-        layoutId={`cal-${calendar.id}`}
-        initial={false}
-        className={`flex items-center justify-between rounded-lg border p-3 transition-colors ${
-          calendar.isPrimary
-            ? "border-primary/50 bg-primary/5"
-            : calendar.isFavorite
-            ? "border-yellow-500/30 bg-yellow-500/5"
-            : "border-border hover:bg-muted/50"
+      {/* Compact row */}
+      <div
+        className={`flex items-center gap-2 px-2 py-1 rounded-md transition-colors ${
+          calendar.isVisible
+            ? "hover:bg-muted/30"
+            : "opacity-50"
         }`}
       >
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          {/* Hide button */}
-          <button
-            type="button"
-            onClick={() => onUpdateCalendar(calendar.id, { isVisible: false })}
-            className="p-1 rounded-md text-muted-foreground/40 hover:text-muted-foreground transition-colors flex-shrink-0"
-            title="Hide calendar"
-          >
-            <EyeOff className="h-4 w-4" />
-          </button>
+        {/* Color dot */}
+        <div
+          className="w-2.5 h-2.5 rounded-full shrink-0"
+          style={{ backgroundColor: calendar.color }}
+        />
 
-          {/* Set as primary */}
-          <button
-            type="button"
-            onClick={() => onUpdateCalendar(calendar.id, { isPrimary: true })}
-            className={`p-1 rounded-md transition-colors flex-shrink-0 ${
-              calendar.isPrimary
-                ? "text-primary"
-                : "text-muted-foreground/40 hover:text-primary"
-            }`}
-            title={calendar.isPrimary ? "Primary calendar" : "Set as primary"}
-            disabled={calendar.isPrimary}
-          >
-            <Crown className={`h-4 w-4 ${calendar.isPrimary ? "fill-current" : ""}`} />
-          </button>
-
-          {/* Favorite star */}
-          <button
-            type="button"
-            onClick={() => onUpdateCalendar(calendar.id, { isFavorite: !calendar.isFavorite })}
-            className={`p-1 rounded-md transition-colors flex-shrink-0 ${
-              calendar.isFavorite
-                ? "text-yellow-500 hover:text-yellow-600"
-                : "text-muted-foreground/40 hover:text-yellow-500"
-            }`}
-            title={calendar.isFavorite ? "Remove from favorites" : "Add to favorites"}
-          >
-            <Star className={`h-4 w-4 ${calendar.isFavorite ? "fill-current" : ""}`} />
-          </button>
-
-          {/* Color indicator */}
-          <div
-            className="h-4 w-4 rounded-md flex-shrink-0"
-            style={{ backgroundColor: calendar.color }}
-          />
-
-          {/* Calendar name + preview toggle */}
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              {isRenaming ? (
-                <div className="flex items-center gap-1 flex-1 min-w-0">
-                  <input
-                    type="text"
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && renameValue.trim()) {
-                        onUpdateCalendar(calendar.id, { name: renameValue.trim() });
-                        setIsRenaming(false);
-                      } else if (e.key === "Escape") {
-                        setRenameValue(calendar.name);
-                        setIsRenaming(false);
-                      }
-                    }}
-                    className="flex-1 min-w-0 px-2 py-0.5 text-sm rounded border border-primary bg-background focus:outline-none focus:ring-1 focus:ring-primary"
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (renameValue.trim()) {
-                        onUpdateCalendar(calendar.id, { name: renameValue.trim() });
-                        setIsRenaming(false);
-                      }
-                    }}
-                    className="p-0.5 text-green-500 hover:text-green-600"
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRenameValue(calendar.name);
-                      setIsRenaming(false);
-                    }}
-                    className="p-0.5 text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => hasEvents && setShowPreview(!showPreview)}
-                    className={`font-medium truncate text-left ${hasEvents ? "hover:text-primary cursor-pointer" : ""}`}
-                    title={hasEvents ? "Click to preview events" : undefined}
-                  >
-                    {calendar.name}
-                  </button>
-                  {isLocal && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRenameValue(calendar.name);
-                        setIsRenaming(true);
-                      }}
-                      className="p-0.5 text-muted-foreground/40 hover:text-primary transition-colors flex-shrink-0"
-                      title="Rename calendar"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                  {hasEvents && (
-                    <button
-                      type="button"
-                      onClick={() => setShowPreview(!showPreview)}
-                      className="p-0.5 text-muted-foreground/40 hover:text-primary transition-colors flex-shrink-0"
-                    >
-                      {showPreview ? (
-                        <ChevronDown className="h-3.5 w-3.5" />
-                      ) : (
-                        <ChevronRight className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  )}
-                  {calendar.isPrimary && (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/20 text-primary text-xs font-medium flex-shrink-0">
-                      <Crown className="h-3 w-3" />
-                      Primary
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {calendar.isReadOnly ? "Read-only" : "Read-write"}
-            </p>
-          </div>
-
-          {/* Delete button for local calendars */}
-          {isLocal && onDeleteCalendar && !showDeleteConfirm && (
-            <button
-              type="button"
-              onClick={() => setShowDeleteConfirm(true)}
-              className="p-1 rounded-md text-muted-foreground/40 hover:text-red-500 transition-colors flex-shrink-0 mr-2"
-              title="Delete calendar"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          )}
-          {isLocal && showDeleteConfirm && (
-            <div className="flex items-center gap-1 mr-2 flex-shrink-0">
-              <span className="text-xs text-red-500">Delete?</span>
-              <button
-                type="button"
-                onClick={() => {
-                  onDeleteCalendar?.(calendar.id);
-                  setShowDeleteConfirm(false);
+        {/* Name */}
+        <div className="flex-1 min-w-0">
+          {isRenaming ? (
+            <div className="flex items-center gap-1">
+              <input
+                type="text"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && renameValue.trim()) {
+                    if (isLocal) {
+                      onUpdate({ name: renameValue.trim() });
+                    } else {
+                      onUpdate({ displayName: renameValue.trim() });
+                    }
+                    setIsRenaming(false);
+                  } else if (e.key === "Escape") {
+                    setRenameValue(calendar.name);
+                    setIsRenaming(false);
+                  }
                 }}
-                className="p-0.5 text-red-500 hover:text-red-600"
-              >
-                <Check className="h-3.5 w-3.5" />
-              </button>
+                className="flex-1 min-w-0 px-1.5 py-0 text-sm rounded border border-primary bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                autoFocus
+              />
               <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(false)}
+                onClick={() => {
+                  if (renameValue.trim()) {
+                    if (isLocal) {
+                      onUpdate({ name: renameValue.trim() });
+                    } else {
+                      onUpdate({ displayName: renameValue.trim() });
+                    }
+                    setIsRenaming(false);
+                  }
+                }}
+                className="p-0.5 text-green-500 hover:text-green-600"
+              >
+                <Check className="h-3 w-3" />
+              </button>
+              {!isLocal && calendar.displayName && (
+                <button
+                  onClick={() => { onUpdate({ displayName: null }); setIsRenaming(false); }}
+                  className="p-0.5 text-muted-foreground hover:text-destructive"
+                  title="Reset to original name"
+                >
+                  <RotateCcw className="h-2.5 w-2.5" />
+                </button>
+              )}
+              <button
+                onClick={() => { setRenameValue(calendar.name); setIsRenaming(false); }}
                 className="p-0.5 text-muted-foreground hover:text-foreground"
               >
-                <X className="h-3.5 w-3.5" />
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <span className={`text-sm truncate ${!calendar.isVisible ? "text-muted-foreground" : ""}`}>
+                {calendar.name}
+              </span>
+              {calendar.originalName && (
+                <span className="text-xs text-muted-foreground truncate">
+                  ({calendar.originalName})
+                </span>
+              )}
+              <button
+                onClick={() => { setRenameValue(calendar.name); setIsRenaming(true); }}
+                className="p-0.5 text-muted-foreground/0 hover:text-primary group-hover:text-muted-foreground/30 transition-colors shrink-0"
+                title="Rename"
+              >
+                <Pencil className="h-2.5 w-2.5" />
               </button>
             </div>
           )}
         </div>
 
-        {/* Visibility toggles */}
-        <ToggleGroup
-          items={[
-            {
-              key: "week",
-              label: "Week",
-              checked: visibility.week,
-              onChange: (checked) =>
-                onUpdateCalendar(calendar.id, {
-                  visibility: { ...visibility, week: checked },
-                }),
-            },
-            {
-              key: "month",
-              label: "Month",
-              checked: visibility.month,
-              onChange: (checked) =>
-                onUpdateCalendar(calendar.id, {
-                  visibility: { ...visibility, month: checked },
-                }),
-            },
-            {
-              key: "day",
-              label: "Day",
-              checked: visibility.day,
-              onChange: (checked) =>
-                onUpdateCalendar(calendar.id, {
-                  visibility: { ...visibility, day: checked },
-                }),
-            },
-            {
-              key: "popup",
-              label: "Popup",
-              checked: visibility.popup,
-              onChange: (checked) =>
-                onUpdateCalendar(calendar.id, {
-                  visibility: { ...visibility, popup: checked },
-                }),
-            },
-            {
-              key: "screensaver",
-              label: "Custom Screen",
-              checked: visibility.screensaver,
-              onChange: (checked) =>
-                onUpdateCalendar(calendar.id, {
-                  visibility: { ...visibility, screensaver: checked },
-                }),
-            },
-          ]}
-        />
-      </motion.div>
-
-      {/* Event preview */}
-      <AnimatePresence>
-        {showPreview && previewEvents.length > 0 && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden ml-8 mr-2"
+        {/* Kiosk count badge */}
+        {kiosksUsingCalendar.length > 0 && (
+          <button
+            onClick={() => setShowKiosks(!showKiosks)}
+            className={`flex items-center gap-0.5 text-xs shrink-0 rounded px-1 py-0.5 transition-colors ${
+              showKiosks
+                ? "text-primary bg-primary/10"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            }`}
+            title={`Used by ${kiosksUsingCalendar.length} kiosk${kiosksUsingCalendar.length !== 1 ? "s" : ""}`}
           >
-            <div className="py-2 space-y-1">
-              {previewEvents.map((event) => {
-                const start = new Date(event.startTime);
-                const isUpcoming = start >= new Date();
-                return (
-                  <div
-                    key={event.id}
-                    className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-md bg-muted/30"
-                  >
-                    <div
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: calendar.color }}
-                    />
-                    <span className={`font-medium tabular-nums flex-shrink-0 ${isUpcoming ? "text-primary" : "text-muted-foreground"}`}>
-                      {event.isAllDay
-                        ? start.toLocaleDateString(undefined, { month: "short", day: "numeric" })
-                        : start.toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
-                          " " +
-                          start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                    </span>
-                    <span className="truncate text-muted-foreground">
-                      {event.title}
-                    </span>
-                  </div>
-                );
-              })}
-              {!calendarEvents.length && recentEvents.length > 0 && (
-                <p className="text-xs text-muted-foreground/60 px-3 italic">
-                  No upcoming events — showing recent
-                </p>
-              )}
-            </div>
-          </motion.div>
+            <Monitor className="h-3 w-3" />
+            <span>{kiosksUsingCalendar.length}</span>
+          </button>
         )}
-      </AnimatePresence>
-    </div>
-  );
-}
 
-export function CalendarListForAccount({
-  provider,
-  calendars,
-  favoriteTeams,
-  events,
-  onUpdateCalendar,
-  onUpdateTeam,
-  onConnect,
-  onManageTeams,
-  onDeleteCalendar,
-}: CalendarListForAccountProps) {
-  const config = PROVIDER_CONFIG[provider];
+        {/* Event count + preview toggle */}
+        <button
+          onClick={() => setShowEvents(!showEvents)}
+          className={`flex items-center gap-0.5 text-xs shrink-0 rounded px-1 py-0.5 transition-colors ${
+            showEvents
+              ? "text-primary bg-primary/10"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+          }`}
+          title={showEvents ? "Hide events" : "Preview events"}
+        >
+          <span>{calendarEvents.length}</span>
+          {showEvents ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        </button>
 
-  // Filter calendars for this provider
-  const providerCalendars = useMemo(() => {
-    return calendars.filter((c) => c.provider === provider);
-  }, [calendars, provider]);
-
-  // Group calendars by account
-  const accountGroups = useMemo(() => {
-    const groups = new Map<string, Calendar[]>();
-
-    for (const cal of providerCalendars) {
-      const key = cal.oauthTokenId || "unlinked";
-      if (!groups.has(key)) {
-        groups.set(key, []);
-      }
-      groups.get(key)!.push(cal);
-    }
-
-    // Convert to array with labels
-    const result: AccountGroup[] = [];
-    for (const [key, cals] of groups) {
-      const label = cals[0]?.accountLabel || "";
-      result.push({ key, label, calendars: sortCalendars(cals) });
-    }
-
-    return result;
-  }, [providerCalendars]);
-
-  const hasMultipleAccounts = accountGroups.length > 1;
-
-  // Flat sorted list for single-account view
-  const sortedCalendars = useMemo(() => sortCalendars(providerCalendars), [providerCalendars]);
-
-  // Separate visible and hidden calendars
-  const { visibleCalendars, hiddenCalendars } = useMemo(() => {
-    return {
-      visibleCalendars: sortedCalendars.filter((c) => c.isVisible),
-      hiddenCalendars: sortedCalendars.filter((c) => !c.isVisible),
-    };
-  }, [sortedCalendars]);
-
-  // Check if provider is connected
-  const isConnected = provider === "sports" ? favoriteTeams.length > 0 : providerCalendars.length > 0;
-
-  // Render empty state for unconnected providers
-  if (!isConnected) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-center p-8">
-        <div className="max-w-sm space-y-4">
-          <h3 className="text-lg font-semibold">{config.name}</h3>
-          <p className="text-sm text-muted-foreground">{config.description}</p>
-          <Button onClick={onConnect} className="mt-4">
-            <ExternalLink className="mr-2 h-4 w-4" />
-            {config.connectLabel}
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // Render sports teams
-  if (provider === "sports") {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between pb-2 border-b border-border">
-          <h3 className="text-sm font-medium text-muted-foreground">
-            Favorite Teams ({favoriteTeams.length})
-          </h3>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1">
-              {(["week", "month", "day", "popup", "screensaver"] as const).map((view) => (
-                <span
-                  key={view}
-                  className="px-2 py-1 text-xs font-medium text-muted-foreground"
-                >
-                  {view.charAt(0).toUpperCase() + view.slice(1)}
-                </span>
-              ))}
+        {/* Delete */}
+        {canDelete && onDelete && (
+          showDeleteConfirm ? (
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button onClick={() => { onDelete(); setShowDeleteConfirm(false); }} className="p-0.5 text-red-500 hover:text-red-600" title="Confirm delete">
+                <Check className="h-3 w-3" />
+              </button>
+              <button onClick={() => setShowDeleteConfirm(false)} className="p-0.5 text-muted-foreground hover:text-foreground" title="Cancel">
+                <X className="h-3 w-3" />
+              </button>
             </div>
-            <Button variant="outline" size="sm" onClick={onManageTeams}>
-              Manage Teams
-            </Button>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          {favoriteTeams.map((team) => {
-            const visibility = team.visibility || DEFAULT_VISIBILITY;
-            return (
-              <div
-                key={team.id}
-                className="flex items-center justify-between rounded-lg border border-border p-3"
-              >
-                <div className="flex items-center gap-3">
-                  {team.teamLogo && (
-                    <img
-                      src={team.teamLogo}
-                      alt={team.teamName}
-                      className="h-8 w-8 object-contain"
-                    />
-                  )}
-                  <div>
-                    <p className="font-medium">{team.teamName}</p>
-                    <p className="text-xs text-muted-foreground uppercase">
-                      {team.league}
-                    </p>
-                  </div>
-                </div>
-                <ToggleGroup
-                  items={[
-                    {
-                      key: "week",
-                      label: "Week",
-                      checked: visibility.week,
-                      onChange: (checked) =>
-                        onUpdateTeam(team.id, { visibility: { week: checked } }),
-                    },
-                    {
-                      key: "month",
-                      label: "Month",
-                      checked: visibility.month,
-                      onChange: (checked) =>
-                        onUpdateTeam(team.id, { visibility: { month: checked } }),
-                    },
-                    {
-                      key: "day",
-                      label: "Day",
-                      checked: visibility.day,
-                      onChange: (checked) =>
-                        onUpdateTeam(team.id, { visibility: { day: checked } }),
-                    },
-                    {
-                      key: "popup",
-                      label: "Popup",
-                      checked: visibility.popup,
-                      onChange: (checked) =>
-                        onUpdateTeam(team.id, { visibility: { popup: checked } }),
-                    },
-                    {
-                      key: "screensaver",
-                      label: "Custom Screen",
-                      checked: visibility.screensaver,
-                      onChange: (checked) =>
-                        onUpdateTeam(team.id, { visibility: { screensaver: checked } }),
-                    },
-                  ]}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
-  // Render calendars list
-  return (
-    <div className="space-y-4">
-      {/* Header with column labels */}
-      <div className="flex items-center justify-between pb-2 border-b border-border">
-        <h3 className="text-sm font-medium text-muted-foreground">
-          Calendars ({visibleCalendars.length})
-        </h3>
-        <div className="flex items-center gap-1">
-          {(["week", "month", "day", "popup", "screensaver"] as const).map((view) => (
-            <span
-              key={view}
-              className="px-2 py-1 text-xs font-medium text-muted-foreground"
+          ) : (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="p-0.5 text-muted-foreground/0 hover:text-red-500 transition-colors shrink-0"
+              title="Delete calendar"
             >
-              {view.charAt(0).toUpperCase() + view.slice(1)}
-            </span>
-          ))}
-        </div>
+              <Trash2 className="h-3 w-3" />
+            </button>
+          )
+        )}
+
+        {/* Kiosk enabled toggle */}
+        <button
+          onClick={() => onUpdate({ kioskEnabled: !calendar.kioskEnabled })}
+          className={`p-0.5 rounded transition-colors shrink-0 ${
+            calendar.kioskEnabled
+              ? "text-primary hover:bg-primary/10"
+              : "text-muted-foreground/40 hover:text-foreground hover:bg-muted/50"
+          }`}
+          title={calendar.kioskEnabled ? "Disable for kiosks" : "Enable for kiosks"}
+        >
+          {calendar.kioskEnabled ? <Monitor className="h-3.5 w-3.5" /> : <MonitorOff className="h-3.5 w-3.5" />}
+        </button>
+
+        {/* Visibility toggle */}
+        <button
+          onClick={() => onUpdate({ isVisible: !calendar.isVisible })}
+          className={`p-0.5 rounded transition-colors shrink-0 ${
+            calendar.isVisible
+              ? "text-primary hover:bg-primary/10"
+              : "text-muted-foreground/40 hover:text-foreground hover:bg-muted/50"
+          }`}
+          title={calendar.isVisible ? "Hide calendar" : "Show calendar"}
+        >
+          {calendar.isVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+        </button>
       </div>
 
-      {/* Calendar list - grouped by account if multiple accounts */}
-      {hasMultipleAccounts ? (
-        <div className="space-y-6">
-          {accountGroups.map((group) => {
-            const groupVisible = group.calendars.filter((c) => c.isVisible);
-            const groupHidden = group.calendars.filter((c) => !c.isVisible);
-            if (groupVisible.length === 0 && groupHidden.length === 0) return null;
-
-            return (
-              <div key={group.key} className="space-y-2">
-                {/* Account header */}
-                <div className="flex items-center gap-2 py-1">
-                  <User className="h-3.5 w-3.5 text-primary" />
-                  <span className="text-sm font-medium text-primary">
-                    {group.label || "Unknown Account"}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    ({groupVisible.length} calendar{groupVisible.length !== 1 ? "s" : ""})
-                  </span>
-                </div>
-
-                {/* Visible calendars for this account */}
-                <motion.div className="space-y-2" layoutScroll>
-                  <AnimatePresence mode="popLayout">
-                    {groupVisible.map((calendar) => (
-                      <CalendarRow
-                        key={calendar.id}
-                        calendar={calendar}
-                        events={events}
-                        onUpdateCalendar={onUpdateCalendar}
-                        onDeleteCalendar={onDeleteCalendar}
-                      />
-                    ))}
-                  </AnimatePresence>
-                </motion.div>
-
-                {/* Hidden calendars for this account */}
-                {groupHidden.length > 0 && (
-                  <details className="group ml-5">
-                    <summary className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer list-none">
-                      <EyeOff className="h-3.5 w-3.5" />
-                      <span>{groupHidden.length} hidden</span>
-                    </summary>
-                    <div className="mt-2 space-y-1">
-                      {groupHidden.map((calendar) => (
-                        <div
-                          key={calendar.id}
-                          className="flex items-center gap-3 rounded-lg border border-border/50 bg-muted/30 p-2.5 opacity-60 hover:opacity-80 transition-opacity"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => onUpdateCalendar(calendar.id, { isVisible: true })}
-                            className="p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors"
-                            title="Show calendar"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </button>
-                          <div
-                            className="h-3.5 w-3.5 rounded-md"
-                            style={{ backgroundColor: calendar.color }}
-                          />
-                          <span className="text-sm">{calendar.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </details>
+      {/* Kiosk access panel */}
+      {showKiosks && kiosksUsingCalendar.length > 0 && (
+        <div className="ml-5 mr-2 mb-1 border-l-2 border-primary/30 pl-3 py-1">
+          <p className="text-xs font-medium text-primary mb-1">Kiosk Access</p>
+          <div className="space-y-0.5">
+            {kiosksUsingCalendar.map(kiosk => (
+              <div key={kiosk.id} className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground truncate">{kiosk.name}</span>
+                {onRevokeKioskAccess && (
+                  <button
+                    onClick={() => onRevokeKioskAccess(calendar.id, kiosk.id)}
+                    className="p-0.5 text-muted-foreground/40 hover:text-red-500 transition-colors shrink-0"
+                    title={`Remove from ${kiosk.name}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
                 )}
               </div>
-            );
-          })}
+            ))}
+          </div>
         </div>
-      ) : (
-        /* Single account - flat list (original behavior) */
-        <>
-          <motion.div className="space-y-2" layoutScroll>
-            <AnimatePresence mode="popLayout">
-              {visibleCalendars.map((calendar) => (
-                <CalendarRow
-                  key={calendar.id}
-                  calendar={calendar}
-                  events={events}
-                  onUpdateCalendar={onUpdateCalendar}
-                  onDeleteCalendar={onDeleteCalendar}
-                />
-              ))}
-            </AnimatePresence>
-          </motion.div>
+      )}
 
-          {/* Hidden calendars section */}
-          {hiddenCalendars.length > 0 && (
-            <div className="mt-6 pt-4 border-t border-border">
-              <details className="group">
-                <summary className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer list-none">
-                  <EyeOff className="h-4 w-4" />
-                  <span>Hidden calendars ({hiddenCalendars.length})</span>
-                </summary>
-                <div className="mt-3 space-y-2">
-                  {hiddenCalendars.map((calendar) => (
-                    <div
-                      key={calendar.id}
-                      className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/30 p-3 opacity-60 hover:opacity-80 transition-opacity"
-                    >
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => onUpdateCalendar(calendar.id, { isVisible: true })}
-                          className="p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors"
-                          title="Show calendar"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
-                        <div
-                          className="h-4 w-4 rounded-md"
-                          style={{ backgroundColor: calendar.color }}
-                        />
-                        <span className="text-sm">{calendar.name}</span>
-                      </div>
-                    </div>
-                  ))}
+      {/* Event preview panel */}
+      {showEvents && (
+        <div className="ml-5 mr-2 mb-1 border-l-2 border-border pl-3 py-1">
+          {calendarEvents.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic">No events in range</p>
+          ) : (
+            <div ref={previewRef} className="space-y-0.5 max-h-48 overflow-y-auto">
+              {calendarEvents.map((evt, i) => (
+                <div
+                  key={evt.id}
+                  ref={i === todayStartIndex ? todayMarkerRef : undefined}
+                  className="flex items-baseline gap-2 text-xs"
+                >
+                  <span className="text-muted-foreground shrink-0 w-36">{formatEventTime(evt)}</span>
+                  <span className={`truncate ${evt.status === "cancelled" ? "line-through text-muted-foreground" : ""}`}>
+                    {evt.title || "(No title)"}
+                  </span>
+                  {evt.location && (
+                    <span className="text-muted-foreground/60 truncate shrink-0 max-w-32">@ {evt.location}</span>
+                  )}
                 </div>
-              </details>
+              ))}
             </div>
           )}
-        </>
-      )}
-
-      {/* Add more calendars button */}
-      {provider === "local" && (
-        <div className="pt-4">
-          <Button variant="outline" size="sm" onClick={onConnect}>
-            <Plus className="mr-2 h-4 w-4" />
-            Create Calendar
-          </Button>
-        </div>
-      )}
-
-      {provider !== "ics" && provider !== "local" && (
-        <div className="pt-4">
-          <Button variant="outline" size="sm" onClick={onConnect}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Reconnect to refresh calendars
-          </Button>
-        </div>
-      )}
-
-      {provider === "ics" && (
-        <div className="pt-4">
-          <Button variant="outline" size="sm" onClick={onConnect}>
-            Subscribe to another calendar
-          </Button>
         </div>
       )}
     </div>

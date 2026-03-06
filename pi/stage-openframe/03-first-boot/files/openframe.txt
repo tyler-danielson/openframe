@@ -1,0 +1,24 @@
+# OpenFrame Configuration
+# Edit this file before first boot to pre-configure your device.
+# This file lives on the FAT32 boot partition and can be edited from
+# any computer (Windows, Mac, Linux) before inserting the SD card.
+#
+# Remove the # at the start of a line to enable that setting.
+
+# --- WiFi ---
+# WIFI_SSID=YourNetworkName
+# WIFI_PASSWORD=YourPassword
+# WIFI_COUNTRY=US
+
+# --- Timezone ---
+# See: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+# TIMEZONE=America/New_York
+
+# --- Kiosk ---
+# URL to display on the screen (default: local server)
+# KIOSK_URL=http://localhost:8080
+
+# --- Feature toggles ---
+# Set to 0 to disable server or kiosk mode
+# ENABLE_SERVER=1
+# ENABLE_KIOSK=1

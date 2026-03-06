@@ -25,13 +25,11 @@ import { cn } from "../../lib/utils";
 import { appUrl } from "../../lib/cloud";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../ui/Card";
 import { Button } from "../ui/Button";
-import { DISPLAY_TYPE_OPTIONS, DISPLAY_MODE_OPTIONS, HOME_PAGE_OPTIONS, FEATURE_OPTIONS, DASHBOARD_TYPE_OPTIONS, getDashboardTypeOption, getDefaultDashboards } from "../../data/kiosk-options";
+import { DISPLAY_TYPE_OPTIONS, DISPLAY_MODE_OPTIONS, DASHBOARD_TYPE_OPTIONS, getDashboardTypeOption } from "../../data/kiosk-options";
 import type { CustomScreen } from "@openframe/shared";
 
 interface KioskConfigPageProps {
   kioskId: string;
-  /** Render slot for table-backed settings sections (sports, news, photos, HA, IPTV, spotify) */
-  renderTableSections?: (kiosk: Kiosk) => React.ReactNode;
 }
 
 function resolveIcon(name: string): React.ComponentType<{ className?: string }> {
@@ -128,7 +126,7 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
   );
 }
 
-export function KioskConfigPage({ kioskId, renderTableSections }: KioskConfigPageProps) {
+export function KioskConfigPage({ kioskId }: KioskConfigPageProps) {
   const queryClient = useQueryClient();
   const isModuleEnabled = useModuleStore((s) => s.isEnabled);
   const [copiedToken, setCopiedToken] = useState(false);
@@ -317,77 +315,67 @@ export function KioskConfigPage({ kioskId, renderTableSections }: KioskConfigPag
       <Card className="border-2 border-primary/40 overflow-hidden">
         <SectionHeader id="display" icon={<Monitor />} title="Display" description="Mode, type, home page, fullscreen" isCollapsed={!!collapsedSections.display} onToggle={toggleSection} />
         {!collapsedSections.display && (
-          <CardContent className="space-y-4 border-t border-border/50">
-            <SettingRow label="Display mode" description="How the kiosk app behaves">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={kiosk.displayMode}
-                onChange={(e) => updateKiosk.mutate({ displayMode: e.target.value as any })}
-              >
-                {DISPLAY_MODE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </SettingRow>
+          <CardContent className="border-t border-border/50">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 py-3">
+              <SettingRow label="Display mode">
+                <select
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm w-full"
+                  value={kiosk.displayMode}
+                  onChange={(e) => updateKiosk.mutate({ displayMode: e.target.value as any })}
+                >
+                  {DISPLAY_MODE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </SettingRow>
 
-            <SettingRow label="Display type" description="How users interact with this display">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={kiosk.displayType}
-                onChange={(e) => updateKiosk.mutate({ displayType: e.target.value as any })}
-              >
-                {DISPLAY_TYPE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </SettingRow>
+              <SettingRow label="Display type">
+                <select
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm w-full"
+                  value={kiosk.displayType}
+                  onChange={(e) => updateKiosk.mutate({ displayType: e.target.value as any })}
+                >
+                  {DISPLAY_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </SettingRow>
 
-            <SettingRow label="Home page" description="Default page when kiosk loads">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={kiosk.homePage ?? "calendar"}
-                onChange={(e) => updateKiosk.mutate({ homePage: e.target.value })}
-              >
-                {HOME_PAGE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </SettingRow>
+              <SettingRow label="Color scheme">
+                <select
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm w-full"
+                  value={kiosk.colorScheme}
+                  onChange={(e) => updateKiosk.mutate({ colorScheme: e.target.value as ColorScheme })}
+                >
+                  {COLOR_SCHEMES.map((scheme) => (
+                    <option key={scheme.value} value={scheme.value}>
+                      {scheme.label}
+                    </option>
+                  ))}
+                </select>
+              </SettingRow>
 
-            <SettingRow label="Color scheme" description="Theme for this kiosk">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={kiosk.colorScheme}
-                onChange={(e) => updateKiosk.mutate({ colorScheme: e.target.value as ColorScheme })}
-              >
-                {COLOR_SCHEMES.map((scheme) => (
-                  <option key={scheme.value} value={scheme.value}>
-                    {scheme.label}
-                  </option>
-                ))}
-              </select>
-            </SettingRow>
+              <SettingRow label="Fullscreen delay">
+                <select
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm w-full"
+                  value={kiosk.fullscreenDelayMinutes ?? 0}
+                  onChange={(e) => updateKiosk.mutate({ fullscreenDelayMinutes: Number(e.target.value) || null })}
+                >
+                  <option value={0}>Disabled</option>
+                  <option value={1}>1 minute</option>
+                  <option value={5}>5 minutes</option>
+                  <option value={10}>10 minutes</option>
+                  <option value={30}>30 minutes</option>
+                </select>
+              </SettingRow>
 
-            <SettingRow label="Start fullscreen" description="Automatically enter fullscreen on load">
-              <ToggleSwitch
-                checked={kiosk.startFullscreen}
-                onChange={(v) => updateKiosk.mutate({ startFullscreen: v })}
-              />
-            </SettingRow>
-
-            <SettingRow label="Fullscreen delay" description="Auto-fullscreen after N minutes (0 = disabled)">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={kiosk.fullscreenDelayMinutes ?? 0}
-                onChange={(e) => updateKiosk.mutate({ fullscreenDelayMinutes: Number(e.target.value) || null })}
-              >
-                <option value={0}>Disabled</option>
-                <option value={1}>1 minute</option>
-                <option value={5}>5 minutes</option>
-                <option value={10}>10 minutes</option>
-                <option value={30}>30 minutes</option>
-              </select>
-            </SettingRow>
+              <SettingRow label="Start fullscreen">
+                <ToggleSwitch
+                  checked={kiosk.startFullscreen}
+                  onChange={(v) => updateKiosk.mutate({ startFullscreen: v })}
+                />
+              </SettingRow>
+            </div>
           </CardContent>
         )}
       </Card>
@@ -395,116 +383,16 @@ export function KioskConfigPage({ kioskId, renderTableSections }: KioskConfigPag
       {/* Dashboards Section */}
       <DashboardsSection kiosk={kiosk} updateKiosk={updateKiosk} isModuleEnabled={isModuleEnabled} />
 
-      {/* Custom Screen Section */}
-      <Card className="border-2 border-primary/40 overflow-hidden">
-        <SectionHeader id="screensaver" icon={<Monitor />} title="Custom Screen" description="Idle screen timeout, behavior, and layout" isCollapsed={!!collapsedSections.screensaver} onToggle={toggleSection} />
-        {!collapsedSections.screensaver && (
-          <CardContent className="space-y-4 border-t border-border/50">
-            <SettingRow label="Enabled" description="Show custom screen on idle">
-              <ToggleSwitch
-                checked={kiosk.screensaverEnabled}
-                onChange={(v) => updateKiosk.mutate({ screensaverEnabled: v })}
-              />
-            </SettingRow>
-
-            <SettingRow label="Source" description="Use a saved custom screen or this kiosk's own layout">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={kiosk.screensaverScreenId ?? ""}
-                onChange={(e) => updateKiosk.mutate({ screensaverScreenId: e.target.value || null })}
-              >
-                <option value="">Kiosk's own layout</option>
-                {customScreens.map((screen) => (
-                  <option key={screen.id} value={screen.id}>{screen.name}</option>
-                ))}
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Idle timeout" description="Seconds before custom screen activates">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={kiosk.screensaverTimeout}
-                onChange={(e) => updateKiosk.mutate({ screensaverTimeout: Number(e.target.value) })}
-              >
-                <option value={30}>30 seconds</option>
-                <option value={60}>1 minute</option>
-                <option value={120}>2 minutes</option>
-                <option value={300}>5 minutes</option>
-                <option value={600}>10 minutes</option>
-                <option value={1800}>30 minutes</option>
-                <option value={3600}>1 hour</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Behavior" description="What happens when custom screen activates">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={kiosk.screensaverBehavior}
-                onChange={(e) => updateKiosk.mutate({ screensaverBehavior: e.target.value as any })}
-              >
-                <option value="screensaver">Full custom screen</option>
-                <option value="hide-toolbar">Hide toolbar only</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Slide interval" description="Seconds between photo slides">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={kiosk.screensaverInterval}
-                onChange={(e) => updateKiosk.mutate({ screensaverInterval: Number(e.target.value) })}
-              >
-                <option value={5}>5 seconds</option>
-                <option value={10}>10 seconds</option>
-                <option value={15}>15 seconds</option>
-                <option value={30}>30 seconds</option>
-                <option value={60}>1 minute</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Layout" description="Custom screen display layout">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={kiosk.screensaverLayout}
-                onChange={(e) => updateKiosk.mutate({ screensaverLayout: e.target.value as any })}
-              >
-                <option value="fullscreen">Fullscreen</option>
-                <option value="informational">Informational</option>
-                <option value="quad">Quad</option>
-                <option value="scatter">Scatter</option>
-                <option value="builder">Builder</option>
-                <option value="skylight">Skylight</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow label="Transition" description="Photo transition effect">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-                value={kiosk.screensaverTransition}
-                onChange={(e) => updateKiosk.mutate({ screensaverTransition: e.target.value as any })}
-              >
-                <option value="fade">Fade</option>
-                <option value="slide-left">Slide Left</option>
-                <option value="slide-right">Slide Right</option>
-                <option value="slide-up">Slide Up</option>
-                <option value="slide-down">Slide Down</option>
-                <option value="zoom">Zoom</option>
-              </select>
-            </SettingRow>
-          </CardContent>
-        )}
-      </Card>
-
-      {/* Table-backed sections rendered via slot */}
-      {renderTableSections?.(kiosk)}
     </div>
   );
 }
 
 // Dashboard settings modal content by type
-function DashboardSettingsContent({ dashboard, onConfigChange, kiosk }: {
+function DashboardSettingsContent({ dashboard, onConfigChange, kiosk, onKioskChange }: {
   dashboard: KioskDashboard;
   onConfigChange: (key: string, value: unknown) => void;
   kiosk: Kiosk;
+  onKioskChange: (data: Record<string, unknown>) => void;
 }) {
   const config = dashboard.config;
 
@@ -648,7 +536,7 @@ function DashboardSettingsContent({ dashboard, onConfigChange, kiosk }: {
           <SettingRow label="Show week numbers">
             <ToggleSwitch checked={!!config.showWeekNumbers} onChange={(v) => onConfigChange("showWeekNumbers", v)} />
           </SettingRow>
-          <CalendarSelectionSection kiosk={kiosk} onUpdate={(ids) => onConfigChange("selectedCalendarIds", ids)} />
+          <ViewCalendarSettings config={config} onConfigChange={onConfigChange} />
         </div>
       );
 
@@ -684,6 +572,20 @@ function DashboardSettingsContent({ dashboard, onConfigChange, kiosk }: {
         </div>
       );
 
+    case "screensaver":
+      return (
+        <ScreensaverSettings kiosk={kiosk} onKioskChange={onKioskChange} />
+      );
+
+    case "iptv":
+      return <IptvDashboardSettings config={config} onConfigChange={onConfigChange} />;
+
+    case "photos":
+      return <PhotosDashboardSettings config={config} onConfigChange={onConfigChange} />;
+
+    case "homeassistant":
+      return <HomeAssistantDashboardSettings config={config} onConfigChange={onConfigChange} />;
+
     case "custom":
       return (
         <CustomScreenPicker
@@ -695,6 +597,145 @@ function DashboardSettingsContent({ dashboard, onConfigChange, kiosk }: {
     default:
       return <p className="text-sm text-muted-foreground">No additional settings for this dashboard type.</p>;
   }
+}
+
+// IPTV dashboard settings — channel/favorites picker
+function IptvDashboardSettings({ config, onConfigChange }: { config: Record<string, unknown>; onConfigChange: (key: string, value: unknown) => void }) {
+  const { data: favorites = [] } = useQuery({
+    queryKey: ["iptv-favorites"],
+    queryFn: () => api.getIptvFavorites(),
+  });
+
+  const showFavoritesOnly = (config.showFavoritesOnly as boolean) ?? true;
+
+  return (
+    <div className="space-y-4">
+      <SettingRow label="Show favorites only" description="Only display favorited channels">
+        <ToggleSwitch checked={showFavoritesOnly} onChange={(v) => onConfigChange("showFavoritesOnly", v)} />
+      </SettingRow>
+      <div className="text-sm text-muted-foreground">
+        {favorites.length > 0
+          ? <p>{favorites.length} favorite channel{favorites.length !== 1 ? "s" : ""} configured</p>
+          : <p>No favorite channels yet</p>
+        }
+        <a href="/settings/connections?service=iptv" className="text-primary hover:underline text-xs">
+          Manage channels in Connections
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// Photos dashboard settings — album picker
+function PhotosDashboardSettings({ config, onConfigChange }: { config: Record<string, unknown>; onConfigChange: (key: string, value: unknown) => void }) {
+  const { data: albums = [] } = useQuery({
+    queryKey: ["photo-albums"],
+    queryFn: () => api.getAlbums(),
+  });
+
+  const selectedAlbumIds = (config.albumIds as string[]) ?? [];
+
+  const toggleAlbum = (albumId: string, checked: boolean) => {
+    if (checked) {
+      onConfigChange("albumIds", [...selectedAlbumIds, albumId]);
+    } else {
+      onConfigChange("albumIds", selectedAlbumIds.filter(id => id !== albumId));
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="font-medium">Photo albums</p>
+        <p className="text-sm text-muted-foreground">
+          Select which albums to display. Leave empty to show all.
+        </p>
+      </div>
+      {albums.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No albums yet.{" "}
+          <a href="/settings/connections?service=photos" className="text-primary hover:underline">Add photos in Connections</a>
+        </p>
+      ) : (
+        <div className="border border-border/50 rounded-lg divide-y divide-border/50 max-h-[40vh] overflow-y-auto">
+          {albums.map((album: { id: string; name: string; photoCount?: number }) => {
+            const isSelected = selectedAlbumIds.length === 0 || selectedAlbumIds.includes(album.id);
+            return (
+              <div key={album.id} className="flex items-center justify-between px-3 py-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-sm font-medium truncate">{album.name}</span>
+                  {album.photoCount != null && (
+                    <span className="text-xs text-muted-foreground">{album.photoCount} photos</span>
+                  )}
+                </div>
+                <ToggleSwitch checked={isSelected} onChange={(v) => toggleAlbum(album.id, v)} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {albums.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          <a href="/settings/connections?service=photos" className="text-primary hover:underline">Manage albums in Connections</a>
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Home Assistant dashboard settings — room picker
+function HomeAssistantDashboardSettings({ config, onConfigChange }: { config: Record<string, unknown>; onConfigChange: (key: string, value: unknown) => void }) {
+  const { data: rooms = [] } = useQuery({
+    queryKey: ["ha-rooms"],
+    queryFn: () => api.getHomeAssistantRooms(),
+  });
+
+  const selectedRoomIds = (config.roomIds as string[]) ?? [];
+
+  const toggleRoom = (roomId: string, checked: boolean) => {
+    if (checked) {
+      onConfigChange("roomIds", [...selectedRoomIds, roomId]);
+    } else {
+      onConfigChange("roomIds", selectedRoomIds.filter(id => id !== roomId));
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="font-medium">Rooms</p>
+        <p className="text-sm text-muted-foreground">
+          Select which rooms to show. Leave empty to show all.
+        </p>
+      </div>
+      {rooms.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No rooms configured.{" "}
+          <a href="/settings/connections?service=homeassistant" className="text-primary hover:underline">Set up rooms in Connections</a>
+        </p>
+      ) : (
+        <div className="border border-border/50 rounded-lg divide-y divide-border/50 max-h-[40vh] overflow-y-auto">
+          {rooms.map((room: { id: string; name: string; icon?: string }) => {
+            const isSelected = selectedRoomIds.length === 0 || selectedRoomIds.includes(room.id);
+            return (
+              <div key={room.id} className="flex items-center justify-between px-3 py-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  {room.icon && <span className="text-sm">{room.icon}</span>}
+                  <span className="text-sm font-medium truncate">{room.name}</span>
+                </div>
+                <ToggleSwitch checked={isSelected} onChange={(v) => toggleRoom(room.id, v)} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {rooms.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          <a href="/settings/connections?service=homeassistant" className="text-primary hover:underline">Manage rooms in Connections</a>
+        </p>
+      )}
+    </div>
+  );
 }
 
 // Dashboards section
@@ -852,7 +893,7 @@ function DashboardsSection({ kiosk, updateKiosk, isModuleEnabled }: {
       {/* Dashboard settings modal */}
       {editingDb && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center pt-[10vh] overflow-y-auto" onClick={() => setEditingDashboard(null)}>
-          <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-lg mx-4 mb-8" onClick={e => e.stopPropagation()}>
+          <div className={cn("bg-card border border-border rounded-xl shadow-xl w-full mx-4 mb-8", editingDb.type === "calendar" ? "max-w-2xl" : "max-w-lg")} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h3 className="font-semibold text-foreground">Edit: {editingDb.name}</h3>
               <button onClick={() => setEditingDashboard(null)} className="p-1 text-muted-foreground hover:text-foreground">
@@ -885,6 +926,7 @@ function DashboardsSection({ kiosk, updateKiosk, isModuleEnabled }: {
                   dashboard={editingDb}
                   onConfigChange={(key, value) => updateDashboardConfig(editingDb.id, key, value)}
                   kiosk={kiosk}
+                  onKioskChange={(data) => updateKiosk.mutate(data as any)}
                 />
               </div>
             </div>
@@ -895,62 +937,315 @@ function DashboardsSection({ kiosk, updateKiosk, isModuleEnabled }: {
   );
 }
 
-// Calendar selection sub-component
-function CalendarSelectionSection({ kiosk, onUpdate }: { kiosk: Kiosk; onUpdate: (ids: string[] | null) => void }) {
+// Per-view calendar selection component
+const VIEW_NAMES = ["week", "month", "day", "popup"] as const;
+type ViewName = typeof VIEW_NAMES[number];
+
+function ViewCalendarPickerModal({ view, groups, selected, allItems, onToggle, onSelectAll, onSelectNone, onClose }: {
+  view: ViewName;
+  groups: { label: string; items: { id: string; name: string; color: string }[] }[];
+  selected: string[] | null;
+  allItems: { id: string; name: string; color: string; group: string }[];
+  onToggle: (id: string, checked: boolean) => void;
+  onSelectAll: () => void;
+  onSelectNone: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/50 flex items-start justify-center pt-[15vh]" onClick={onClose}>
+      <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <h3 className="font-semibold text-foreground capitalize">{view} View — Calendars</h3>
+          <button onClick={onClose} className="p-1 text-muted-foreground hover:text-foreground">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="flex gap-2">
+            <button
+              onClick={onSelectAll}
+              className={cn(
+                "text-xs px-2.5 py-1 rounded border transition-colors",
+                selected === null
+                  ? "bg-primary/10 border-primary/40 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              )}
+            >
+              All
+            </button>
+            <button
+              onClick={onSelectNone}
+              className={cn(
+                "text-xs px-2.5 py-1 rounded border transition-colors",
+                selected !== null && selected.length === 0
+                  ? "bg-primary/10 border-primary/40 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              )}
+            >
+              None
+            </button>
+          </div>
+          <div className="max-h-[60vh] overflow-y-auto space-y-4">
+            {groups.map(group => (
+              <div key={group.label}>
+                <p className="text-xs font-semibold text-primary/80 uppercase tracking-wide mb-1.5">{group.label}</p>
+                <div className="space-y-1">
+                  {group.items.map(item => {
+                    const isChecked = selected === null || selected.includes(item.id);
+                    return (
+                      <div key={item.id} className="flex items-center justify-between py-1">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                          <span className="text-sm truncate">{item.name}</span>
+                        </div>
+                        <ToggleSwitch checked={isChecked} onChange={(v) => onToggle(item.id, v)} />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            {allItems.length === 0 && (
+              <p className="text-sm text-muted-foreground py-2">No calendars or teams found</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ViewCalendarSettings({ config, onConfigChange }: {
+  config: Record<string, unknown>;
+  onConfigChange: (key: string, value: unknown) => void;
+}) {
   const { data: calendarsData } = useQuery({
     queryKey: ["calendars"],
     queryFn: () => api.getCalendars(),
   });
+  const { data: favoriteTeams = [] } = useQuery({
+    queryKey: ["favorite-teams"],
+    queryFn: () => api.getFavoriteTeams(),
+  });
+
+  const [editingView, setEditingView] = useState<ViewName | null>(null);
 
   const calendars = calendarsData ?? [];
-  const selectedIds = kiosk.selectedCalendarIds ?? [];
-  const allSelected = selectedIds.length === 0; // empty = all
+  const viewCalendars = (config.viewCalendars ?? {}) as Record<string, string[] | null>;
+
+  // Build combined list of all selectable items with group labels
+  const allItems = useMemo(() => {
+    const items: { id: string; name: string; color: string; group: string }[] = [];
+    calendars.filter(cal => cal.isVisible && cal.kioskEnabled !== false).forEach(cal => {
+      const groupLabel = cal.accountLabel
+        ? `${cal.provider.charAt(0).toUpperCase() + cal.provider.slice(1)} (${cal.accountLabel})`
+        : cal.provider.charAt(0).toUpperCase() + cal.provider.slice(1);
+      items.push({ id: cal.id, name: cal.name, color: cal.color ?? "#666", group: groupLabel });
+    });
+    favoriteTeams.forEach(team => {
+      items.push({
+        id: `sports-${team.id}`,
+        name: team.teamName,
+        color: team.teamColor ?? "#6366f1",
+        group: `${team.league.toUpperCase()} (${team.sport})`,
+      });
+    });
+    return items;
+  }, [calendars, favoriteTeams]);
+
+  // Group items by their group label
+  const groups = useMemo(() => {
+    const map = new Map<string, typeof allItems>();
+    allItems.forEach(item => {
+      const list = map.get(item.group) ?? [];
+      list.push(item);
+      map.set(item.group, list);
+    });
+    return Array.from(map.entries()).map(([label, items]) => ({ label, items }));
+  }, [allItems]);
+
+  const getSelectedForView = (view: ViewName): string[] | null => {
+    return viewCalendars[view] ?? null;
+  };
+
+  const setSelectedForView = (view: ViewName, ids: string[] | null) => {
+    const updated = { ...viewCalendars, [view]: ids };
+    onConfigChange("viewCalendars", updated);
+  };
+
+  const getCountLabel = (view: ViewName): string => {
+    const selected = getSelectedForView(view);
+    if (selected === null) return `All (${allItems.length})`;
+    return `${selected.length}/${allItems.length}`;
+  };
+
+  const handleToggle = (view: ViewName, id: string, checked: boolean) => {
+    const selected = getSelectedForView(view);
+    if (selected === null) {
+      // Switching from "all" to specific: include everything except unchecked
+      if (!checked) {
+        setSelectedForView(view, allItems.map(i => i.id).filter(iid => iid !== id));
+      }
+    } else {
+      if (checked) {
+        const newIds = [...selected, id];
+        if (newIds.length === allItems.length) {
+          setSelectedForView(view, null);
+        } else {
+          setSelectedForView(view, newIds);
+        }
+      } else {
+        setSelectedForView(view, selected.filter(iid => iid !== id));
+      }
+    }
+  };
 
   return (
     <div className="space-y-2">
       <div>
-        <p className="font-medium">Visible calendars</p>
+        <p className="font-medium">Visible calendars per view</p>
         <p className="text-sm text-muted-foreground">
-          Which calendars to show on this kiosk (none selected = all visible)
+          Choose which calendars and sports teams appear in each view
         </p>
       </div>
-      <div className="space-y-1.5 max-h-48 overflow-y-auto">
-        {calendars.map((cal) => (
-          <label key={cal.id} className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={allSelected || selectedIds.includes(cal.id)}
-              onChange={(e) => {
-                if (allSelected) {
-                  // Switching from "all" to specific selection
-                  const allIds = calendars.map((c) => c.id);
-                  if (!e.target.checked) {
-                    onUpdate(allIds.filter((id) => id !== cal.id));
-                  }
-                } else {
-                  if (e.target.checked) {
-                    const newIds = [...selectedIds, cal.id];
-                    // If all are now selected, clear to "all"
-                    if (newIds.length === calendars.length) {
-                      onUpdate(null);
-                    } else {
-                      onUpdate(newIds);
-                    }
-                  } else {
-                    onUpdate(selectedIds.filter((id) => id !== cal.id));
-                  }
-                }
-              }}
-              className="rounded"
-            />
-            <span
-              className="w-3 h-3 rounded-full shrink-0"
-              style={{ backgroundColor: (cal as any).color ?? "#666" }}
-            />
-            {cal.name}
-          </label>
+      <div className="border border-border/50 rounded-lg overflow-hidden">
+        {VIEW_NAMES.map(view => (
+          <div key={view} className={view !== "week" ? "border-t border-border/50" : ""}>
+            <div className="flex items-center justify-between px-3 py-2.5">
+              <span className="text-sm font-medium capitalize">{view}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground">{getCountLabel(view)}</span>
+                <button
+                  onClick={() => setEditingView(view)}
+                  className="text-xs px-2.5 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+                >
+                  Configure
+                </button>
+              </div>
+            </div>
+          </div>
         ))}
       </div>
+
+      {editingView && (
+        <ViewCalendarPickerModal
+          view={editingView}
+          groups={groups}
+          selected={getSelectedForView(editingView)}
+          allItems={allItems}
+          onToggle={(id, checked) => handleToggle(editingView, id, checked)}
+          onSelectAll={() => setSelectedForView(editingView, null)}
+          onSelectNone={() => setSelectedForView(editingView, [])}
+          onClose={() => setEditingView(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Screensaver settings sub-component (moved from standalone Card into dashboard edit modal)
+function ScreensaverSettings({ kiosk, onKioskChange }: { kiosk: Kiosk; onKioskChange: (data: Record<string, unknown>) => void }) {
+  const { data: customScreens = [] } = useQuery({
+    queryKey: ["custom-screens"],
+    queryFn: () => api.getCustomScreens(),
+  });
+
+  return (
+    <div className="space-y-4">
+      <SettingRow label="Enabled" description="Show custom screen on idle">
+        <ToggleSwitch
+          checked={kiosk.screensaverEnabled}
+          onChange={(v) => onKioskChange({ screensaverEnabled: v })}
+        />
+      </SettingRow>
+
+      <SettingRow label="Source" description="Use a saved custom screen or this kiosk's own layout">
+        <select
+          className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+          value={kiosk.screensaverScreenId ?? ""}
+          onChange={(e) => onKioskChange({ screensaverScreenId: e.target.value || null })}
+        >
+          <option value="">Kiosk's own layout</option>
+          {customScreens.map((screen) => (
+            <option key={screen.id} value={screen.id}>{screen.name}</option>
+          ))}
+        </select>
+      </SettingRow>
+
+      <SettingRow label="Idle timeout" description="Seconds before custom screen activates">
+        <select
+          className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+          value={kiosk.screensaverTimeout}
+          onChange={(e) => onKioskChange({ screensaverTimeout: Number(e.target.value) })}
+        >
+          <option value={30}>30 seconds</option>
+          <option value={60}>1 minute</option>
+          <option value={120}>2 minutes</option>
+          <option value={300}>5 minutes</option>
+          <option value={600}>10 minutes</option>
+          <option value={1800}>30 minutes</option>
+          <option value={3600}>1 hour</option>
+        </select>
+      </SettingRow>
+
+      <SettingRow label="Behavior" description="What happens when custom screen activates">
+        <select
+          className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+          value={kiosk.screensaverBehavior}
+          onChange={(e) => onKioskChange({ screensaverBehavior: e.target.value })}
+        >
+          <option value="screensaver">Full custom screen</option>
+          <option value="hide-toolbar">Hide toolbar only</option>
+        </select>
+      </SettingRow>
+
+      <SettingRow label="Slide interval" description="Seconds between photo slides">
+        <select
+          className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+          value={kiosk.screensaverInterval}
+          onChange={(e) => onKioskChange({ screensaverInterval: Number(e.target.value) })}
+        >
+          <option value={5}>5 seconds</option>
+          <option value={10}>10 seconds</option>
+          <option value={15}>15 seconds</option>
+          <option value={30}>30 seconds</option>
+          <option value={60}>1 minute</option>
+        </select>
+      </SettingRow>
+
+      <SettingRow label="Layout" description="Custom screen display layout">
+        <select
+          className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+          value={kiosk.screensaverLayout}
+          onChange={(e) => onKioskChange({ screensaverLayout: e.target.value })}
+        >
+          <option value="fullscreen">Fullscreen</option>
+          <option value="informational">Informational</option>
+          <option value="quad">Quad</option>
+          <option value="scatter">Scatter</option>
+          <option value="builder">Builder</option>
+          <option value="skylight">Skylight</option>
+        </select>
+      </SettingRow>
+
+      <SettingRow label="Transition" description="Photo transition effect">
+        <select
+          className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+          value={kiosk.screensaverTransition}
+          onChange={(e) => onKioskChange({ screensaverTransition: e.target.value })}
+        >
+          <option value="fade">Fade</option>
+          <option value="slide-left">Slide Left</option>
+          <option value="slide-right">Slide Right</option>
+          <option value="slide-up">Slide Up</option>
+          <option value="slide-down">Slide Down</option>
+          <option value="zoom">Zoom</option>
+        </select>
+      </SettingRow>
+
+      <p className="text-xs text-muted-foreground">
+        <a href="/settings/custom-screens" className="text-primary hover:underline">Manage custom screens</a>
+      </p>
     </div>
   );
 }

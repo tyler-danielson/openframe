@@ -1,0 +1,15 @@
+[Unit]
+Description=OpenFrame First Boot Setup
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/home/pi/openframe/.env
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/openframe-firstboot.sh
+TimeoutStartSec=900
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

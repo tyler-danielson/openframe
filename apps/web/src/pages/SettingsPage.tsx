@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, useNavigate, useLocation, Link } from "react-router-dom";
@@ -27,8 +27,7 @@ import { AlbumPhotoGrid } from "../components/photos/AlbumPhotoGrid";
 import { ManageAllPhotos } from "../components/photos/ManageAllPhotos";
 import { EntityPicker } from "../components/homeassistant/EntityPicker";
 import { TeamSelector, FavoriteTeamCard } from "../components/sports";
-import { CalendarAccountsList } from "../components/settings/CalendarAccountsList";
-import { CalendarListForAccount } from "../components/settings/CalendarListForAccount";
+import { CalendarConnectionsView } from "../components/settings/CalendarListForAccount";
 import { AddAccountModal } from "../components/settings/AddAccountModal";
 import { HACalendarModal } from "../components/settings/HACalendarModal";
 import { SupportButton } from "../components/settings/SupportButton";
@@ -43,11 +42,12 @@ import { useHAWebSocket } from "../stores/homeassistant-ws";
 import { useModuleStore } from "../stores/modules";
 import { MODULE_REGISTRY, MODULE_CATEGORIES, type ModuleId } from "@openframe/shared";
 import type { CalendarProvider } from "@openframe/shared";
+import { CameraFeed } from "../components/cameras/CameraFeed";
 import { buildOAuthUrl } from "../utils/oauth-scopes";
 import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings } from "@openframe/shared";
 
 // SettingsTab type re-exported from SettingsSidebar
-const STATIC_TAB_IDS: SettingsTab[] = ["account", "connections", "modules", "screens", "kiosks", "ai", "assumptions", "automations", "companion", "users", "cloud", "system", "billing", "instances", "support", "calendars", "todos", "photos", "custom-screens"];
+const STATIC_TAB_IDS: SettingsTab[] = ["account", "connections", "modules", "screens", "kiosks", "ai", "assumptions", "automations", "companion", "users", "cloud", "system", "billing", "instances", "support", "cameras", "todos", "sports", "photos", "custom-screens"];
 
 function isValidTab(tab: string): tab is SettingsTab {
   return STATIC_TAB_IDS.includes(tab as SettingsTab);
@@ -69,15 +69,16 @@ const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; descript
   { id: "billing", label: "Billing", icon: <CreditCard className="h-4 w-4" />, description: "Plan & subscription", cloudOnly: true },
   { id: "instances", label: "Instances", icon: <Server className="h-4 w-4" />, description: "Linked instances", cloudOnly: true },
   { id: "support", label: "Support", icon: <LifeBuoy className="h-4 w-4" />, description: "Help & tickets", cloudOnly: true, moduleId: null },
-  { id: "calendars", label: "Calendars", icon: <Calendar className="h-4 w-4" />, description: "Manage calendar accounts" },
+  { id: "cameras", label: "Cameras", icon: <CameraIcon className="h-4 w-4" />, description: "Manage cameras & streams" },
   { id: "todos", label: "To-Dos", icon: <ListTodo className="h-4 w-4" />, description: "Task lists & providers" },
+  { id: "sports", label: "Sports", icon: <Trophy className="h-4 w-4" />, description: "Favorite teams & scores", moduleId: "sports" },
   { id: "photos", label: "Photo Albums", icon: <ImageIcon className="h-4 w-4" />, description: "Upload & manage photos" },
   { id: "custom-screens", label: "Custom Screens", icon: <LayoutDashboard className="h-4 w-4" />, description: "Create & edit custom screens" },
 ];
 
 const SIDEBAR_GROUPS: SidebarGroup[] = [
   { label: "General", tabIds: ["account", "connections", "modules", "screens"] },
-  { label: "Manage", tabIds: ["calendars", "todos", "photos", "custom-screens"] },
+  { label: "Manage", tabIds: ["cameras", "todos", "sports", "photos", "custom-screens"] },
   { label: "AI & More", tabIds: ["ai", "assumptions", "automations"] },
   { label: "Devices", tabIds: ["kiosks", "companion"] },
   { label: "Admin", tabIds: ["users", "cloud", "system", "billing", "instances", "support"] },
@@ -3590,6 +3591,7 @@ function CamerasSettings() {
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingCamera, setEditingCamera] = useState<string | null>(null);
+  const [previewingCamera, setPreviewingCamera] = useState<Camera | null>(null);
 
   // Form state
   const [formName, setFormName] = useState("");
@@ -4395,6 +4397,15 @@ function CamerasSettings() {
                       <Button
                         variant="outline"
                         size="sm"
+                        onClick={() => setPreviewingCamera(camera)}
+                        disabled={!camera.mjpegUrl && !camera.snapshotUrl && !camera.rtspUrl}
+                        title="Preview"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => handleEdit(camera)}
                       >
                         Edit
@@ -4476,7 +4487,190 @@ function CamerasSettings() {
           </CardContent>
         </Card>
       )}
+
+      {/* Camera Preview Modal */}
+      {previewingCamera && (
+        <CameraPreviewModal
+          camera={previewingCamera}
+          authToken={authToken}
+          onClose={() => setPreviewingCamera(null)}
+        />
+      )}
     </>
+  );
+}
+
+function CameraPreviewModal({ camera, authToken, onClose }: {
+  camera: Camera;
+  authToken: string | null;
+  onClose: () => void;
+}) {
+  const [logs, setLogs] = useState<{ time: string; msg: string; level: "info" | "warn" | "error" }[]>([]);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  const addLog = useCallback((msg: string, level: "info" | "warn" | "error" = "info") => {
+    const time = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    setLogs(prev => [...prev.slice(-99), { time, msg, level }]);
+  }, []);
+
+  // Log initial camera info on mount
+  useEffect(() => {
+    addLog(`Opening preview for "${camera.name}"`);
+    if (camera.rtspUrl) addLog(`RTSP URL: ${camera.rtspUrl}`);
+    if (camera.mjpegUrl) addLog(`MJPEG URL: ${camera.mjpegUrl}`);
+    if (camera.snapshotUrl) addLog(`Snapshot URL: ${camera.snapshotUrl}`);
+    if (camera.username) addLog(`Auth: username "${camera.username}" configured`);
+    if (!camera.rtspUrl && !camera.mjpegUrl && !camera.snapshotUrl) addLog("No stream URLs configured", "warn");
+  }, [camera, addLog]);
+
+  // Poll stream status
+  const { data: streamStatus } = useQuery({
+    queryKey: ["camera", "stream-status", camera.id],
+    queryFn: () => api.getCameraStreamStatus(camera.id),
+    refetchInterval: 5000,
+  });
+
+  const { data: mediamtxStatus } = useQuery({
+    queryKey: ["mediamtx", "status"],
+    queryFn: () => api.getMediaMTXStatus(),
+    staleTime: 30000,
+  });
+
+  // Log stream status changes
+  const prevStatusRef = useRef<string>("");
+  useEffect(() => {
+    if (!streamStatus) return;
+    const key = JSON.stringify(streamStatus);
+    if (key === prevStatusRef.current) return;
+    prevStatusRef.current = key;
+
+    if (streamStatus.mediamtxAvailable) {
+      addLog("MediaMTX: available");
+    } else if (camera.rtspUrl) {
+      addLog("MediaMTX: not available — RTSP streams won't work", "warn");
+    }
+    if (streamStatus.streamReady) {
+      addLog("Stream: ready");
+      if (streamStatus.webrtcUrl) addLog(`WebRTC endpoint: ${streamStatus.webrtcUrl}`);
+      if (streamStatus.hlsUrl) addLog(`HLS endpoint: ${streamStatus.hlsUrl}`);
+    } else if (camera.rtspUrl && streamStatus.mediamtxAvailable) {
+      addLog("Stream: not ready yet — starting...", "warn");
+    }
+  }, [streamStatus, camera.rtspUrl, addLog]);
+
+  // Test snapshot connectivity
+  useEffect(() => {
+    if (!camera.snapshotUrl && !camera.rtspUrl && !camera.mjpegUrl) return;
+    addLog("Testing snapshot endpoint...");
+    const img = new window.Image();
+    const startTime = performance.now();
+    img.onload = () => {
+      const ms = Math.round(performance.now() - startTime);
+      addLog(`Snapshot loaded: ${img.naturalWidth}x${img.naturalHeight} in ${ms}ms`);
+    };
+    img.onerror = () => {
+      addLog("Snapshot endpoint failed to load", "error");
+    };
+    img.src = `${api.getCameraSnapshotUrl(camera.id)}?token=${authToken}&t=${Date.now()}`;
+  }, [camera.id, authToken, camera.snapshotUrl, camera.rtspUrl, camera.mjpegUrl, addLog]);
+
+  // Auto-scroll logs
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center pt-[5vh] overflow-y-auto" onClick={onClose}>
+      <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-3xl mx-4 mb-8" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <div className="flex items-center gap-3">
+            <CameraIcon className="h-5 w-5 text-primary" />
+            <h3 className="font-semibold text-foreground">{camera.name}</h3>
+            <span className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
+              camera.isEnabled
+                ? "bg-green-500/20 text-green-600 dark:text-green-400"
+                : "bg-muted text-muted-foreground"
+            )}>
+              <span className={cn("h-1.5 w-1.5 rounded-full", camera.isEnabled ? "bg-green-500" : "bg-muted-foreground")} />
+              {camera.isEnabled ? "Enabled" : "Disabled"}
+            </span>
+          </div>
+          <button onClick={onClose} className="p-1 text-muted-foreground hover:text-foreground">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Live Feed */}
+        <div className="p-4">
+          <CameraFeed camera={camera} />
+        </div>
+
+        {/* Debug Panel */}
+        <div className="border-t border-border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-medium text-primary flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              Debug Log
+            </h4>
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              {mediamtxStatus && (
+                <span className="flex items-center gap-1.5">
+                  MediaMTX:
+                  <span className={cn("font-medium", mediamtxStatus.available ? "text-primary" : "text-destructive")}>
+                    {mediamtxStatus.available ? "Connected" : "Unavailable"}
+                  </span>
+                </span>
+              )}
+              {streamStatus && (
+                <span className="flex items-center gap-1.5">
+                  Stream:
+                  <span className={cn("font-medium", streamStatus.streamReady ? "text-primary" : "text-muted-foreground")}>
+                    {streamStatus.streamReady ? "Ready" : "Not ready"}
+                  </span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* URL Status */}
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="flex items-center gap-1.5">
+              {camera.rtspUrl ? <CheckCircle className="h-3.5 w-3.5 text-primary" /> : <XCircle className="h-3.5 w-3.5 text-muted-foreground" />}
+              <span className={camera.rtspUrl ? "text-foreground" : "text-muted-foreground"}>RTSP</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {camera.mjpegUrl ? <CheckCircle className="h-3.5 w-3.5 text-primary" /> : <XCircle className="h-3.5 w-3.5 text-muted-foreground" />}
+              <span className={camera.mjpegUrl ? "text-foreground" : "text-muted-foreground"}>MJPEG</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {camera.snapshotUrl ? <CheckCircle className="h-3.5 w-3.5 text-primary" /> : <XCircle className="h-3.5 w-3.5 text-muted-foreground" />}
+              <span className={camera.snapshotUrl ? "text-foreground" : "text-muted-foreground"}>Snapshot</span>
+            </div>
+          </div>
+
+          {/* Live Log */}
+          <div className="bg-black/90 rounded-lg p-3 font-mono text-xs max-h-48 overflow-y-auto">
+            {logs.length === 0 ? (
+              <p className="text-muted-foreground">Waiting for events...</p>
+            ) : (
+              logs.map((log, i) => (
+                <div key={i} className="flex gap-2 leading-relaxed">
+                  <span className="text-muted-foreground shrink-0">{log.time}</span>
+                  <span className={cn(
+                    log.level === "error" && "text-red-400",
+                    log.level === "warn" && "text-amber-400",
+                    log.level === "info" && "text-green-400",
+                  )}>{log.msg}</span>
+                </div>
+              ))
+            )}
+            <div ref={logEndRef} />
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -9430,44 +9624,7 @@ function KiosksSettings({ isModuleEnabled }: { isModuleEnabled: (id: string) => 
           <ArrowLeft className="h-4 w-4" />
           Back to Kiosks
         </button>
-        <KioskConfigPage
-          kioskId={selectedKioskId}
-          renderTableSections={() => (
-            <>
-              {isModuleEnabled("sports") && <SportsSettings />}
-              {isModuleEnabled("iptv") && <IptvChannelManager />}
-              {isModuleEnabled("news") && <NewsSettings />}
-              {isModuleEnabled("photos") && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                  <Card className="border-2 border-primary/40">
-                    <CardHeader>
-                      <CardTitle>
-                        <div className="flex items-center gap-2">
-                          <FolderOpen className="h-5 w-5" />
-                          Photo Albums
-                        </div>
-                      </CardTitle>
-                      <CardDescription>Upload and manage your photo albums</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <LocalPhotoAlbums onSelectAlbum={() => {}} />
-                    </CardContent>
-                  </Card>
-                  <Card className="border-2 border-primary/40">
-                    <CardHeader>
-                      <CardTitle>All Photos</CardTitle>
-                      <CardDescription>Browse and manage all uploaded photos</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <ManageAllPhotos />
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-              {isModuleEnabled("homeassistant") && <HomeAssistantSettings mode="rooms-only" />}
-            </>
-          )}
-        />
+        <KioskConfigPage kioskId={selectedKioskId} />
       </div>
     );
   }
@@ -9623,6 +9780,7 @@ export function SettingsPage() {
 
   // Connection service detail param (for drill-down within Connections tab)
   const connectionService = searchParams.get("service");
+  const accountParam = searchParams.get("account");
 
   // Local photos album selection state
   const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
@@ -9654,6 +9812,13 @@ export function SettingsPage() {
     }
   }, [tabFromPath, filteredTabs, navigate]);
 
+  // Redirect to connections hub if calendars service without account param
+  useEffect(() => {
+    if (connectionService === "calendars" && !accountParam) {
+      navigate("/settings/connections", { replace: true });
+    }
+  }, [connectionService, accountParam, navigate]);
+
   // Navigate to a settings tab
   const handleTabChange = (tab: SettingsTab) => {
     setIsMobileSidebarOpen(false);
@@ -9670,6 +9835,23 @@ export function SettingsPage() {
     queryKey: ["calendars"],
     queryFn: () => api.getCalendars(),
   });
+
+  // Derive account label for the calendar account detail view
+  const calendarAccountLabel = (() => {
+    if (!accountParam) return "Calendars";
+    if (accountParam === "sports") return "Sports Teams";
+    if (accountParam.startsWith("oauth:")) {
+      const tokenId = accountParam.replace("oauth:", "");
+      const cal = calendars.find((c) => c.oauthTokenId === tokenId);
+      return cal?.accountLabel || "Calendar Account";
+    }
+    if (accountParam.startsWith("provider:")) {
+      const provider = accountParam.replace("provider:", "");
+      const labels: Record<string, string> = { caldav: "CalDAV", ics: "ICS Subscriptions", local: "My Calendars", homeassistant: "Home Assistant" };
+      return labels[provider] || provider;
+    }
+    return "Calendars";
+  })();
 
   // Fetch events for calendar preview and recent activity
   const { data: events = [] } = useQuery({
@@ -9730,8 +9912,7 @@ export function SettingsPage() {
   // State for hidden calendars section
   const [hiddenCalendarsExpanded, setHiddenCalendarsExpanded] = useState(false);
 
-  // State for new two-column calendar settings layout
-  const [selectedCalendarProvider, setSelectedCalendarProvider] = useState<CalendarProvider | null>("google");
+  // State for calendar connection settings
   const [addAccountModalView, setAddAccountModalView] = useState<"select" | "caldav" | "ics" | null>(null);
   const [showHACalendarModal, setShowHACalendarModal] = useState(false);
   const [showCreateLocalCalendarModal, setShowCreateLocalCalendarModal] = useState(false);
@@ -9743,6 +9924,55 @@ export function SettingsPage() {
     queryKey: ["favorite-teams"],
     queryFn: () => api.getFavoriteTeams(),
   });
+
+  // Fetch kiosks for calendar kiosk access indicators
+  const { data: calendarKiosks = [] } = useQuery({
+    queryKey: ["kiosks"],
+    queryFn: () => api.getKiosks(),
+    enabled: connectionService === "calendars" && !!accountParam,
+  });
+
+  // Revoke a calendar from a specific kiosk
+  const handleRevokeKioskAccess = useCallback(async (calendarId: string, kioskId: string) => {
+    const kiosk = calendarKiosks.find(k => k.id === kioskId);
+    if (!kiosk) return;
+
+    const allCalendarIds = calendars.filter(c => c.kioskEnabled !== false).map(c => c.id);
+    const allSportsIds = calendarFavoriteTeams.map(t => `sports-${t.id}`);
+    const allIds = [...allCalendarIds, ...allSportsIds];
+
+    // Update legacy selectedCalendarIds
+    let newSelectedCalendarIds: string[] | null = kiosk.selectedCalendarIds;
+    if (newSelectedCalendarIds === null) {
+      newSelectedCalendarIds = allIds.filter(id => id !== calendarId);
+    } else {
+      newSelectedCalendarIds = newSelectedCalendarIds.filter(id => id !== calendarId);
+    }
+
+    // Update dashboard viewCalendars
+    let newDashboards = kiosk.dashboards ? [...kiosk.dashboards] : null;
+    if (newDashboards) {
+      newDashboards = newDashboards.map(d => {
+        if (d.type !== "calendar") return d;
+        const vc = (d.config?.viewCalendars ?? {}) as Record<string, string[] | null>;
+        const newVc: Record<string, string[] | null> = {};
+        for (const [view, ids] of Object.entries(vc)) {
+          if (ids === null) {
+            newVc[view] = allIds.filter(id => id !== calendarId);
+          } else {
+            newVc[view] = ids.filter(id => id !== calendarId);
+          }
+        }
+        return { ...d, config: { ...d.config, viewCalendars: newVc } };
+      });
+    }
+
+    await api.updateKiosk(kioskId, {
+      selectedCalendarIds: newSelectedCalendarIds,
+      ...(newDashboards ? { dashboards: newDashboards } : {}),
+    });
+    queryClient.invalidateQueries({ queryKey: ["kiosks"] });
+  }, [calendarKiosks, calendars, calendarFavoriteTeams, queryClient]);
 
   // Update favorite team mutation for calendar settings
   const updateFavoriteTeam = useMutation({
@@ -9790,7 +10020,7 @@ export function SettingsPage() {
       data,
     }: {
       id: string;
-      data: { isVisible?: boolean; syncEnabled?: boolean; isPrimary?: boolean; isFavorite?: boolean; showOnDashboard?: boolean; visibility?: { week?: boolean; month?: boolean; day?: boolean; popup?: boolean; screensaver?: boolean } };
+      data: { isVisible?: boolean; syncEnabled?: boolean; isPrimary?: boolean; isFavorite?: boolean; showOnDashboard?: boolean; kioskEnabled?: boolean; visibility?: { week?: boolean; month?: boolean; day?: boolean; popup?: boolean; screensaver?: boolean } };
     }) => api.updateCalendar(id, data),
     onMutate: async ({ id, data }) => {
       // If favoriting/unfavoriting, track it and save scroll position
@@ -10021,82 +10251,101 @@ export function SettingsPage() {
                   Back to Connections
                 </button>
                 {/* Service-specific connection settings */}
-                {connectionService === "calendars" && (
+                {connectionService === "calendars" && accountParam && (
                   <div className="space-y-6">
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                         <Calendar className="h-5 w-5 text-primary" />
                       </div>
-                      <div>
-                        <p className="font-medium">Calendars</p>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium">{calendarAccountLabel}</p>
                         <p className="text-sm text-muted-foreground">
-                          Manage your calendar accounts and configure visibility settings
+                          Manage calendar visibility
                         </p>
                       </div>
                     </div>
+                    {/* Account actions: last sync, re-sync, re-auth */}
+                    {accountParam && accountParam !== "sports" && (() => {
+                      const accountCals = accountParam.startsWith("oauth:")
+                        ? calendars.filter(c => c.oauthTokenId === accountParam.replace("oauth:", ""))
+                        : accountParam.startsWith("provider:")
+                          ? calendars.filter(c => c.provider === accountParam.replace("provider:", "") && !c.oauthTokenId)
+                          : [];
+                      const lastSync = accountCals
+                        .map(c => c.lastSyncAt ? new Date(c.lastSyncAt).getTime() : 0)
+                        .reduce((max, t) => Math.max(max, t), 0);
+                      const isOAuth = accountParam.startsWith("oauth:");
+                      const provider = isOAuth
+                        ? (accountCals[0]?.provider as string | undefined)
+                        : undefined;
+                      const isResyncable = accountCals.some(c => c.syncEnabled);
+
+                      return (
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                          {lastSync > 0 && (
+                            <span className="text-muted-foreground">
+                              <Clock className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
+                              Last synced {new Date(lastSync).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                            </span>
+                          )}
+                          {isResyncable && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={syncAll.isPending}
+                              onClick={() => syncAll.mutate()}
+                            >
+                              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncAll.isPending ? "animate-spin" : ""}`} />
+                              {syncAll.isPending ? "Syncing..." : "Re-sync"}
+                            </Button>
+                          )}
+                          {isOAuth && (provider === "google" || provider === "microsoft") && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const authToken = useAuthStore.getState().accessToken;
+                                window.location.href = buildOAuthUrl(provider as "google" | "microsoft", "calendar", authToken, appUrl("/settings/connections"));
+                              }}
+                            >
+                              <LogIn className="h-3.5 w-3.5 mr-1.5" />
+                              Re-authenticate
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })()}
                     <Card className="border-2 border-primary/40">
                       <CardContent className="pt-6">
-                        <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6 min-h-[500px]">
-                          <div className="lg:border-r lg:border-border lg:pr-6">
-                            <CalendarAccountsList
-                              calendars={calendars}
-                              favoriteTeams={calendarFavoriteTeams}
-                              selectedProvider={selectedCalendarProvider}
-                              onSelectProvider={setSelectedCalendarProvider}
-                              onAddAccount={() => setAddAccountModalView("select")}
-                              onSyncAll={() => syncAll.mutate()}
-                              isSyncing={syncAll.isPending}
-                            />
-                          </div>
-                          <div className="min-h-0">
-                            {selectedCalendarProvider ? (
-                              <CalendarListForAccount
-                                provider={selectedCalendarProvider}
-                                calendars={calendars}
-                                favoriteTeams={calendarFavoriteTeams}
-                                events={events}
-                                onUpdateCalendar={(id, updates) =>
-                                  updateCalendar.mutate({ id, data: updates })
-                                }
-                                onUpdateTeam={(id, updates) =>
-                                  updateFavoriteTeam.mutate({ id, data: updates })
-                                }
-                                onConnect={() => {
-                                  const authToken = useAuthStore.getState().accessToken;
-                                  if (selectedCalendarProvider === "google") {
-                                    window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings/connections?service=calendars&connected=true"));
-                                  } else if (selectedCalendarProvider === "microsoft") {
-                                    window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings/connections?service=calendars&connected=true"));
-                                  } else if (selectedCalendarProvider === "sports") {
-                                    // Sports settings now live in kiosk config; navigate to first kiosk if available
-                                    handleTabChange("kiosks");
-                                  } else if (selectedCalendarProvider === "ics") {
-                                    setAddAccountModalView("ics");
-                                  } else if (selectedCalendarProvider === "caldav") {
-                                    setAddAccountModalView("caldav");
-                                  } else if (selectedCalendarProvider === "homeassistant") {
-                                    setShowHACalendarModal(true);
-                                  } else if (selectedCalendarProvider === "local") {
-                                    setShowCreateLocalCalendarModal(true);
-                                  } else {
-                                    setAddAccountModalView("select");
-                                  }
-                                }}
-                                onManageTeams={() => {
-                                  handleTabChange("kiosks");
-                                }}
-                                onDeleteCalendar={async (id) => {
-                                  await api.deleteCalendar(id);
-                                  queryClient.invalidateQueries({ queryKey: ["calendars"] });
-                                }}
-                              />
-                            ) : (
-                              <div className="flex items-center justify-center h-full text-muted-foreground">
-                                Select an account type to view calendars
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                        <CalendarConnectionsView
+                          accountKey={accountParam}
+                          calendars={calendars}
+                          favoriteTeams={calendarFavoriteTeams}
+                          events={events}
+                          kiosks={calendarKiosks}
+                          onRevokeKioskAccess={handleRevokeKioskAccess}
+                          onUpdateCalendar={(id, updates) =>
+                            updateCalendar.mutate({ id, data: updates })
+                          }
+                          onDeleteCalendar={async (id) => {
+                            await api.deleteCalendar(id);
+                            queryClient.invalidateQueries({ queryKey: ["calendars"] });
+                          }}
+                          onConnect={(provider) => {
+                            if (provider === "sports") {
+                              handleTabChange("sports");
+                            } else if (provider === "ics") {
+                              setAddAccountModalView("ics");
+                            } else if (provider === "caldav") {
+                              setAddAccountModalView("caldav");
+                            } else if (provider === "homeassistant") {
+                              setShowHACalendarModal(true);
+                            } else if (provider === "local") {
+                              setShowCreateLocalCalendarModal(true);
+                            }
+                          }}
+                          onManageTeams={() => handleTabChange("sports")}
+                        />
                       </CardContent>
                     </Card>
                     <AddAccountModal
@@ -10105,11 +10354,11 @@ export function SettingsPage() {
                       initialView={addAccountModalView ?? "select"}
                       onConnectGoogle={() => {
                         const authToken = useAuthStore.getState().accessToken;
-                        window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings/connections?service=calendars&connected=true"));
+                        window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings/connections"));
                       }}
                       onConnectMicrosoft={() => {
                         const authToken = useAuthStore.getState().accessToken;
-                        window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings/connections?service=calendars&connected=true"));
+                        window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings/connections"));
                       }}
                       onConnectCalDAV={async (url, username, password) => {
                         console.log("CalDAV connection:", { url, username });
@@ -10118,11 +10367,10 @@ export function SettingsPage() {
                       onSubscribeICS={async (url, name) => {
                         await api.subscribeICS(url, name);
                         queryClient.invalidateQueries({ queryKey: ["calendars"] });
-                        setSelectedCalendarProvider("ics");
                       }}
                       onManageSports={() => {
                         setAddAccountModalView(null);
-                        handleTabChange("kiosks");
+                        handleTabChange("sports");
                       }}
                     />
                     <HACalendarModal
@@ -10148,7 +10396,6 @@ export function SettingsPage() {
                               setShowCreateLocalCalendarModal(false);
                               setNewLocalCalendarName("");
                               setNewLocalCalendarColor("#3b82f6");
-                              setSelectedCalendarProvider("local");
                             }}
                             className="space-y-4"
                           >
@@ -10211,13 +10458,43 @@ export function SettingsPage() {
                 )}
                 {connectionService === "spotify" && <SpotifySettings />}
                 {connectionService === "iptv" && (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                    <IptvSettings />
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                      <IptvSettings />
+                    </div>
+                    <IptvChannelManager />
                   </div>
                 )}
                 {connectionService === "plex" && <PlexSettings />}
                 {connectionService === "audiobookshelf" && <AudiobookshelfSettings />}
                 {connectionService === "news" && <NewsSettings />}
+                {connectionService === "photos" && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                    <Card className="border-2 border-primary/40">
+                      <CardHeader>
+                        <CardTitle>
+                          <div className="flex items-center gap-2">
+                            <FolderOpen className="h-5 w-5" />
+                            Photo Albums
+                          </div>
+                        </CardTitle>
+                        <CardDescription>Upload and manage your photo albums</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <LocalPhotoAlbums onSelectAlbum={() => {}} />
+                      </CardContent>
+                    </Card>
+                    <Card className="border-2 border-primary/40">
+                      <CardHeader>
+                        <CardTitle>All Photos</CardTitle>
+                        <CardDescription>Browse and manage all uploaded photos</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <ManageAllPhotos />
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
                 {connectionService === "cameras" && (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                     <CamerasSettings />
@@ -10233,119 +10510,21 @@ export function SettingsPage() {
               <ConnectionsTab onNavigateToTab={handleTabChange} onNavigateToService={handleNavigateToService} />
             )
           )}
-          {/* Calendars Tab */}
-          {activeTab === "calendars" && (
+          {/* Cameras Tab */}
+          {activeTab === "cameras" && (
             <div className="space-y-6">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <Calendar className="h-5 w-5 text-primary" />
+                  <CameraIcon className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <p className="font-medium">Calendars</p>
+                  <p className="font-medium">Cameras</p>
                   <p className="text-sm text-muted-foreground">
-                    Manage your calendar accounts and configure visibility settings
+                    Configure and preview your IP cameras and streaming servers
                   </p>
                 </div>
               </div>
-              <Card className="border-2 border-primary/40">
-                <CardContent className="pt-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6 min-h-[500px]">
-                    <div className="lg:border-r lg:border-border lg:pr-6">
-                      <CalendarAccountsList
-                        calendars={calendars}
-                        favoriteTeams={calendarFavoriteTeams}
-                        selectedProvider={selectedCalendarProvider}
-                        onSelectProvider={setSelectedCalendarProvider}
-                        onAddAccount={() => setAddAccountModalView("select")}
-                        onSyncAll={() => syncAll.mutate()}
-                        isSyncing={syncAll.isPending}
-                      />
-                    </div>
-                    <div className="min-h-0">
-                      {selectedCalendarProvider ? (
-                        <CalendarListForAccount
-                          provider={selectedCalendarProvider}
-                          calendars={calendars}
-                          favoriteTeams={calendarFavoriteTeams}
-                          events={events}
-                          onUpdateCalendar={(id, updates) =>
-                            updateCalendar.mutate({ id, data: updates })
-                          }
-                          onUpdateTeam={(id, updates) =>
-                            updateFavoriteTeam.mutate({ id, data: updates })
-                          }
-                          onConnect={() => {
-                            const authToken = useAuthStore.getState().accessToken;
-                            if (selectedCalendarProvider === "google") {
-                              window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings/calendars"));
-                            } else if (selectedCalendarProvider === "microsoft") {
-                              window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings/calendars"));
-                            } else if (selectedCalendarProvider === "sports") {
-                              handleTabChange("kiosks");
-                            } else if (selectedCalendarProvider === "ics") {
-                              setAddAccountModalView("ics");
-                            } else if (selectedCalendarProvider === "caldav") {
-                              setAddAccountModalView("caldav");
-                            } else if (selectedCalendarProvider === "homeassistant") {
-                              setShowHACalendarModal(true);
-                            } else if (selectedCalendarProvider === "local") {
-                              setShowCreateLocalCalendarModal(true);
-                            } else {
-                              setAddAccountModalView("select");
-                            }
-                          }}
-                          onManageTeams={() => {
-                            handleTabChange("kiosks");
-                          }}
-                          onDeleteCalendar={async (id) => {
-                            await api.deleteCalendar(id);
-                            queryClient.invalidateQueries({ queryKey: ["calendars"] });
-                          }}
-                        />
-                      ) : (
-                        <div className="flex items-center justify-center h-full text-muted-foreground">
-                          Select an account type to view calendars
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              <AddAccountModal
-                isOpen={addAccountModalView !== null}
-                onClose={() => setAddAccountModalView(null)}
-                initialView={addAccountModalView ?? "select"}
-                onConnectGoogle={() => {
-                  const authToken = useAuthStore.getState().accessToken;
-                  window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings/calendars"));
-                }}
-                onConnectMicrosoft={() => {
-                  const authToken = useAuthStore.getState().accessToken;
-                  window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings/calendars"));
-                }}
-                onConnectCalDAV={async (url, username, password) => {
-                  console.log("CalDAV connection:", { url, username });
-                  throw new Error("CalDAV connection not yet implemented");
-                }}
-                onSubscribeICS={async (url, name) => {
-                  await api.subscribeICS(url, name);
-                  queryClient.invalidateQueries({ queryKey: ["calendars"] });
-                  setSelectedCalendarProvider("ics");
-                }}
-                onManageSports={() => {
-                  setAddAccountModalView(null);
-                  handleTabChange("kiosks");
-                }}
-              />
-              <HACalendarModal
-                isOpen={showHACalendarModal}
-                onClose={() => setShowHACalendarModal(false)}
-                onSubscribe={async (entityId, name) => {
-                  await api.subscribeHomeAssistantCalendar(entityId, name);
-                  queryClient.invalidateQueries({ queryKey: ["calendars"] });
-                  setShowHACalendarModal(false);
-                }}
-              />
+              <CamerasSettings />
             </div>
           )}
           {/* To-Dos Tab */}
@@ -10372,6 +10551,8 @@ export function SettingsPage() {
               </Card>
             </div>
           )}
+          {/* Sports Tab */}
+          {activeTab === "sports" && <SportsSettings />}
           {/* Photo Albums Tab */}
           {activeTab === "photos" && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">

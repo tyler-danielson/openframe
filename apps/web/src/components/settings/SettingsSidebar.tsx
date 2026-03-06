@@ -18,8 +18,9 @@ export type SettingsTab =
   | "instances"
   | "support"
   | "screens"
-  | "calendars"
+  | "cameras"
   | "todos"
+  | "sports"
   | "photos"
   | "custom-screens";
 

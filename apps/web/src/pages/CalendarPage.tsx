@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { offlineCache, CACHE_KEYS, CACHE_MAX_AGES } from "../lib/offlineCache";
 import { getFederalHolidaysInRange } from "../data/federalHolidays";
 import { useConnection } from "../contexts/ConnectionContext";
+import { useKiosk } from "../contexts/KioskContext";
 import { useDemoGuard } from "../hooks/useDemoGuard";
 import type { CalendarEvent, SportsGame, FavoriteSportsTeam, CalendarVisibility } from "@openframe/shared";
 
@@ -351,6 +352,8 @@ function getWeatherIcon(iconCode: string): string {
 export function CalendarPage() {
   const queryClient = useQueryClient();
   const { guard } = useDemoGuard();
+  const { viewCalendars: kioskViewCalendars, token: kioskToken } = useKiosk();
+  const isKioskMode = kioskToken !== null;
   const {
     currentDate,
     view,
@@ -597,7 +600,7 @@ export function CalendarPage() {
     ]));
   }, [favoriteTeams]);
 
-  // Helper to check visibility for current view
+  // Helper to check visibility for current view (non-kiosk mode)
   const isVisibleForView = (visibility: CalendarVisibility | undefined, currentView: string): boolean => {
     if (!visibility) return true;
     switch (currentView) {
@@ -608,6 +611,21 @@ export function CalendarPage() {
       case "schedule": return visibility.week;
       default: return true;
     }
+  };
+
+  // Map calendar view name to viewCalendars key
+  const viewToKey = (currentView: string): string => {
+    switch (currentView) {
+      case "agenda": return "day";
+      case "schedule": return "week";
+      default: return currentView;
+    }
+  };
+
+  // Kiosk mode: get the allowed IDs for a given view key, null = all allowed
+  const getKioskAllowedIds = (viewKey: string): string[] | null => {
+    if (!isKioskMode || !kioskViewCalendars) return null;
+    return kioskViewCalendars[viewKey] ?? null;
   };
 
   // Generate federal holiday events for the current date range
@@ -635,55 +653,75 @@ export function CalendarPage() {
 
   // Combine and filter all events based on visibility settings for current view
   const rawEvents = useMemo(() => {
+    const allowedIds = getKioskAllowedIds(viewToKey(view));
     // Filter sports events based on team visibility
     // Sports event calendarId format is "sports-{favoriteTeamId}"
     const filteredSportsEvents = rawSportsEvents.filter(event => {
       if (!event.calendarId?.startsWith("sports-")) return false;
+      // Kiosk mode: check against per-view allowed list
+      if (isKioskMode && kioskViewCalendars) {
+        if (allowedIds === null) return true; // all allowed
+        return allowedIds.includes(event.calendarId); // calendarId is already "sports-{id}"
+      }
+      // Non-kiosk: use DB team visibility
       const teamDbId = event.calendarId.replace("sports-", "");
       const visibility = teamVisibility.get(teamDbId);
       return isVisibleForView(visibility, view);
     });
     return [...rawCalendarEvents, ...filteredSportsEvents, ...holidayEvents];
-  }, [rawCalendarEvents, rawSportsEvents, teamVisibility, view, holidayEvents]);
+  }, [rawCalendarEvents, rawSportsEvents, teamVisibility, view, holidayEvents, isKioskMode, kioskViewCalendars]);
 
   // Filter calendar events based on calendar visibility settings for current view
   const events = useMemo(() => {
+    const allowedIds = getKioskAllowedIds(viewToKey(view));
     return rawEvents.filter(event => {
       // Holiday events are always visible
       if (event.calendarId === "federal-holidays") {
         return true;
       }
-      // Sports events don't have calendarId visibility - they use team visibility (already filtered above)
+      // Sports events already filtered in rawEvents
       if (!event.calendarId || event.calendarId.startsWith("sports-")) {
-        return true; // Sports events already filtered in rawEvents
+        return true;
       }
+      // Kiosk mode: check against per-view allowed list
+      if (isKioskMode && kioskViewCalendars) {
+        if (allowedIds === null) return true; // all allowed
+        return allowedIds.includes(event.calendarId);
+      }
+      // Non-kiosk: use DB calendar visibility
       const visibility = calendarVisibility.get(event.calendarId);
-      if (!visibility) return true; // Default to visible if calendar not found
-
-      // Check visibility based on current view
+      if (!visibility) return true;
       return isVisibleForView(visibility, view);
     });
-  }, [rawEvents, calendarVisibility, view]);
+  }, [rawEvents, calendarVisibility, view, isKioskMode, kioskViewCalendars]);
 
   // Filter events for popup (day summary modal) based on popup visibility
   const popupEvents = useMemo(() => {
+    const popupAllowedIds = getKioskAllowedIds("popup");
     return [...rawCalendarEvents, ...rawSportsEvents, ...holidayEvents].filter(event => {
       // Holiday events always show in popup
       if (event.calendarId === "federal-holidays") {
         return true;
       }
-      // Check sports team popup visibility
+      // Kiosk mode: check against popup allowed list
+      if (isKioskMode && kioskViewCalendars) {
+        if (popupAllowedIds === null) return true;
+        if (event.calendarId?.startsWith("sports-")) {
+          return popupAllowedIds.includes(event.calendarId);
+        }
+        return event.calendarId ? popupAllowedIds.includes(event.calendarId) : true;
+      }
+      // Non-kiosk: use DB visibility
       if (event.calendarId?.startsWith("sports-")) {
         const teamDbId = event.calendarId.replace("sports-", "");
         const visibility = teamVisibility.get(teamDbId);
         return visibility?.popup ?? true;
       }
-      // Check calendar popup visibility
       const visibility = calendarVisibility.get(event.calendarId);
       if (!visibility) return true;
       return visibility.popup;
     });
-  }, [rawCalendarEvents, rawSportsEvents, holidayEvents, teamVisibility, calendarVisibility]);
+  }, [rawCalendarEvents, rawSportsEvents, holidayEvents, teamVisibility, calendarVisibility, isKioskMode, kioskViewCalendars]);
 
   // Delete event mutation
   const deleteEvent = useMutation({

@@ -1223,14 +1223,15 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.forbidden("Kiosk is disabled");
       }
 
-      // Get visible calendars
+      // Get visible calendars (only kiosk-enabled ones)
       const userCalendars = await fastify.db
         .select()
         .from(calendars)
         .where(
           and(
             eq(calendars.userId, kiosk.userId),
-            eq(calendars.isVisible, true)
+            eq(calendars.isVisible, true),
+            eq(calendars.kioskEnabled, true)
           )
         );
 
