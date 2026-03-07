@@ -591,6 +591,7 @@ export interface KioskSettings {
     reload?: boolean;
     join?: boolean;
   };
+  externalUrl?: string;
 }
 
 // Kiosk configuration
@@ -2922,12 +2923,13 @@ export const joinRequests = pgTable(
       .notNull()
       .references(() => kiosks.id, { onDelete: "cascade" }),
     userId: uuid("user_id")
-      .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     ownerId: uuid("owner_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     status: joinRequestStatusEnum("status").notNull().default("pending"),
+    email: text("email"),
+    name: text("name"),
     message: text("message"),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })

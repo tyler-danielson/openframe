@@ -3769,10 +3769,10 @@ class ApiClient {
 
   // ============ Join Requests ============
 
-  async submitJoinRequest(kioskToken: string, message?: string): Promise<JoinRequest> {
+  async submitJoinRequest(kioskToken: string, email: string, name?: string, message?: string): Promise<JoinRequest> {
     const res = await this.fetch<{ data: JoinRequest }>("/join-requests", {
       method: "POST",
-      body: JSON.stringify({ kioskToken, message }),
+      body: JSON.stringify({ kioskToken, email, name, message }),
     });
     return res.data;
   }
@@ -3796,8 +3796,8 @@ class ApiClient {
     await this.fetch(`/join-requests/${id}/reject`, { method: "POST" });
   }
 
-  async checkJoinStatus(kioskToken: string): Promise<{ status: "none" | "pending" | "approved" | "rejected" | "has_access" | "is_owner" }> {
-    const res = await this.fetch<{ data: { status: "none" | "pending" | "approved" | "rejected" | "has_access" | "is_owner" } }>(`/join-requests/check/${kioskToken}`);
+  async checkJoinStatus(kioskToken: string, email: string): Promise<{ status: "none" | "pending" | "approved" | "rejected" | "has_access" | "is_owner" }> {
+    const res = await this.fetch<{ data: { status: "none" | "pending" | "approved" | "rejected" | "has_access" | "is_owner" } }>(`/join-requests/check/${kioskToken}?email=${encodeURIComponent(email)}`);
     return res.data;
   }
 }
@@ -3935,6 +3935,7 @@ export interface KioskSettings {
     reload?: boolean;
     join?: boolean;
   };
+  externalUrl?: string; // Base URL for QR codes (e.g. https://openframe.danielson.cloud)
 }
 
 export interface JoinRequest {

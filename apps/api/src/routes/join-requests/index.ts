@@ -4,30 +4,30 @@ import { users, kiosks, joinRequests, companionAccess } from "@openframe/databas
 import { getCurrentUser } from "../../plugins/auth.js";
 
 export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
-  // POST / — Submit a join request (user scanned QR code)
+  // POST / — Submit a join request (public — kiosk token is the auth)
   fastify.post(
     "/",
     {
-      onRequest: [fastify.authenticateAny],
       schema: {
-        description: "Submit a join request for a kiosk",
+        description: "Submit a join request for a kiosk (no auth required, kiosk token authorizes)",
         tags: ["Join Requests"],
         body: {
           type: "object",
           properties: {
             kioskToken: { type: "string", format: "uuid" },
+            email: { type: "string", format: "email" },
+            name: { type: "string" },
             message: { type: "string" },
           },
-          required: ["kioskToken"],
+          required: ["kioskToken", "email"],
         },
       },
     },
     async (request, reply) => {
-      const user = await getCurrentUser(request);
-      if (!user) return reply.unauthorized("Not authenticated");
-
-      const { kioskToken, message } = request.body as {
+      const { kioskToken, email, name, message } = request.body as {
         kioskToken: string;
+        email: string;
+        name?: string;
         message?: string;
       };
 
@@ -40,35 +40,44 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!kiosk) return reply.notFound("Kiosk not found");
 
+      // Look up existing user by email (if they already have an account)
+      const [existingUser] = await fastify.db
+        .select()
+        .from(users)
+        .where(eq(users.email, email.toLowerCase().trim()))
+        .limit(1);
+
       // Can't request to join your own kiosk
-      if (kiosk.userId === user.id) {
+      if (existingUser && kiosk.userId === existingUser.id) {
         return reply.badRequest("You own this kiosk");
       }
 
       // Check if user already has companion access
-      const [existingAccess] = await fastify.db
-        .select()
-        .from(companionAccess)
-        .where(
-          and(
-            eq(companionAccess.ownerId, kiosk.userId),
-            eq(companionAccess.userId, user.id),
-            eq(companionAccess.isActive, true)
+      if (existingUser) {
+        const [existingAccess] = await fastify.db
+          .select()
+          .from(companionAccess)
+          .where(
+            and(
+              eq(companionAccess.ownerId, kiosk.userId),
+              eq(companionAccess.userId, existingUser.id),
+              eq(companionAccess.isActive, true)
+            )
           )
-        )
-        .limit(1);
+          .limit(1);
 
-      if (existingAccess) {
-        return reply.badRequest("You already have access");
+        if (existingAccess) {
+          return reply.badRequest("This email already has access");
+        }
       }
 
-      // Check if there's already a pending request
+      // Check if there's already a pending request for this email + kiosk
       const [existingRequest] = await fastify.db
         .select()
         .from(joinRequests)
         .where(
           and(
-            eq(joinRequests.userId, user.id),
+            eq(joinRequests.email, email.toLowerCase().trim()),
             eq(joinRequests.kioskId, kiosk.id),
             eq(joinRequests.status, "pending")
           )
@@ -76,20 +85,22 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
         .limit(1);
 
       if (existingRequest) {
-        return reply.badRequest("You already have a pending request");
+        return reply.badRequest("A request for this email is already pending");
       }
 
-      const [request_] = await fastify.db
+      const [jr] = await fastify.db
         .insert(joinRequests)
         .values({
           kioskId: kiosk.id,
-          userId: user.id,
+          userId: existingUser?.id ?? null,
           ownerId: kiosk.userId,
+          email: email.toLowerCase().trim(),
+          name: name?.trim() || existingUser?.name || null,
           message: message || null,
         })
         .returning();
 
-      return reply.status(201).send({ success: true, data: request_! });
+      return reply.status(201).send({ success: true, data: jr! });
     }
   );
 
@@ -130,6 +141,9 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
           userName: users.name,
           userEmail: users.email,
           userAvatar: users.avatarUrl,
+          // Email/name from the join request itself (for unauthenticated requests)
+          requestEmail: joinRequests.email,
+          requestName: joinRequests.name,
           status: joinRequests.status,
           message: joinRequests.message,
           resolvedAt: joinRequests.resolvedAt,
@@ -141,7 +155,22 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
         .where(and(...conditions))
         .orderBy(joinRequests.createdAt);
 
-      return { success: true, data: rows };
+      // Normalize: prefer user data if linked, fall back to request data
+      const data = rows.map((r) => ({
+        id: r.id,
+        kioskId: r.kioskId,
+        kioskName: r.kioskName,
+        userId: r.userId,
+        userName: r.userName || r.requestName,
+        userEmail: r.userEmail || r.requestEmail,
+        userAvatar: r.userAvatar,
+        status: r.status,
+        message: r.message,
+        resolvedAt: r.resolvedAt,
+        createdAt: r.createdAt,
+      }));
+
+      return { success: true, data };
     }
   );
 
@@ -174,7 +203,7 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // POST /:id/approve — Approve a join request
+  // POST /:id/approve — Approve a join request (find-or-create user, grant companion access)
   fastify.post(
     "/:id/approve",
     {
@@ -191,8 +220,8 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const user = await getCurrentUser(request);
-      if (!user) return reply.unauthorized("Not authenticated");
+      const owner = await getCurrentUser(request);
+      if (!owner) return reply.unauthorized("Not authenticated");
 
       const { id } = request.params as { id: string };
 
@@ -202,7 +231,7 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
         .where(
           and(
             eq(joinRequests.id, id),
-            eq(joinRequests.ownerId, user.id),
+            eq(joinRequests.ownerId, owner.id),
             eq(joinRequests.status, "pending")
           )
         )
@@ -210,29 +239,65 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!jr) return reply.notFound("Join request not found");
 
+      // Resolve the target user: find by userId, by email, or create new
+      let targetUserId = jr.userId;
+
+      if (!targetUserId && jr.email) {
+        // Try to find existing user by email
+        const [existingUser] = await fastify.db
+          .select()
+          .from(users)
+          .where(eq(users.email, jr.email))
+          .limit(1);
+
+        if (existingUser) {
+          targetUserId = existingUser.id;
+        } else {
+          // Create a new user (no password — they'll use OAuth or password reset)
+          const [newUser] = await fastify.db
+            .insert(users)
+            .values({
+              email: jr.email,
+              name: jr.name || null,
+              role: "member",
+            })
+            .returning();
+          targetUserId = newUser!.id;
+        }
+
+        // Link the join request to the resolved user
+        await fastify.db
+          .update(joinRequests)
+          .set({ userId: targetUserId })
+          .where(eq(joinRequests.id, id));
+      }
+
+      if (!targetUserId) {
+        return reply.badRequest("Join request has no email or user");
+      }
+
       // Update status
       await fastify.db
         .update(joinRequests)
         .set({ status: "approved", resolvedAt: new Date() })
         .where(eq(joinRequests.id, id));
 
-      // Check if companion access already exists (might have been created manually)
+      // Check if companion access already exists
       const [existingAccess] = await fastify.db
         .select()
         .from(companionAccess)
         .where(
           and(
-            eq(companionAccess.ownerId, user.id),
-            eq(companionAccess.userId, jr.userId)
+            eq(companionAccess.ownerId, owner.id),
+            eq(companionAccess.userId, targetUserId)
           )
         )
         .limit(1);
 
       if (!existingAccess) {
-        // Create companion access with default view permissions
         await fastify.db.insert(companionAccess).values({
-          ownerId: user.id,
-          userId: jr.userId,
+          ownerId: owner.id,
+          userId: targetUserId,
           accessCalendar: "view",
           accessTasks: "view",
           accessKiosks: true,
@@ -266,8 +331,8 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const user = await getCurrentUser(request);
-      if (!user) return reply.unauthorized("Not authenticated");
+      const owner = await getCurrentUser(request);
+      if (!owner) return reply.unauthorized("Not authenticated");
 
       const { id } = request.params as { id: string };
 
@@ -277,7 +342,7 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
         .where(
           and(
             eq(joinRequests.id, id),
-            eq(joinRequests.ownerId, user.id),
+            eq(joinRequests.ownerId, owner.id),
             eq(joinRequests.status, "pending")
           )
         )
@@ -294,26 +359,29 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // GET /check/:kioskToken — Check user's status for a kiosk
+  // GET /check/:kioskToken — Check email's status for a kiosk (public)
   fastify.get(
     "/check/:kioskToken",
     {
-      onRequest: [fastify.authenticateAny],
       schema: {
-        description: "Check user's join status for a kiosk",
+        description: "Check join status for an email + kiosk",
         tags: ["Join Requests"],
         params: {
           type: "object",
           properties: { kioskToken: { type: "string", format: "uuid" } },
           required: ["kioskToken"],
         },
+        querystring: {
+          type: "object",
+          properties: { email: { type: "string" } },
+        },
       },
     },
     async (request, reply) => {
-      const user = await getCurrentUser(request);
-      if (!user) return reply.unauthorized("Not authenticated");
-
       const { kioskToken } = request.params as { kioskToken: string };
+      const { email } = request.query as { email?: string };
+
+      if (!email) return reply.badRequest("Email is required");
 
       const [kiosk] = await fastify.db
         .select()
@@ -323,35 +391,51 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!kiosk) return reply.notFound("Kiosk not found");
 
-      // Check if user is the owner
-      if (kiosk.userId === user.id) {
+      const normalizedEmail = email.toLowerCase().trim();
+
+      // Check if this email belongs to the owner
+      const [ownerUser] = await fastify.db
+        .select()
+        .from(users)
+        .where(eq(users.id, kiosk.userId))
+        .limit(1);
+
+      if (ownerUser && ownerUser.email === normalizedEmail) {
         return { success: true, data: { status: "is_owner" } };
       }
 
-      // Check if user already has companion access
-      const [access] = await fastify.db
+      // Check if email has companion access
+      const [emailUser] = await fastify.db
         .select()
-        .from(companionAccess)
-        .where(
-          and(
-            eq(companionAccess.ownerId, kiosk.userId),
-            eq(companionAccess.userId, user.id),
-            eq(companionAccess.isActive, true)
-          )
-        )
+        .from(users)
+        .where(eq(users.email, normalizedEmail))
         .limit(1);
 
-      if (access) {
-        return { success: true, data: { status: "has_access" } };
+      if (emailUser) {
+        const [access] = await fastify.db
+          .select()
+          .from(companionAccess)
+          .where(
+            and(
+              eq(companionAccess.ownerId, kiosk.userId),
+              eq(companionAccess.userId, emailUser.id),
+              eq(companionAccess.isActive, true)
+            )
+          )
+          .limit(1);
+
+        if (access) {
+          return { success: true, data: { status: "has_access" } };
+        }
       }
 
-      // Check for existing join request
+      // Check for existing join request by email
       const [jr] = await fastify.db
         .select()
         .from(joinRequests)
         .where(
           and(
-            eq(joinRequests.userId, user.id),
+            eq(joinRequests.email, normalizedEmail),
             eq(joinRequests.kioskId, kiosk.id)
           )
         )

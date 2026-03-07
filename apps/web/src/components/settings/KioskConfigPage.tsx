@@ -411,6 +411,24 @@ export function KioskConfigPage({ kioskId }: KioskConfigPageProps) {
                 </SettingRow>
               </div>
             </div>
+            <div className="border-t border-border/50 pt-3 mt-1">
+              <SettingRow label="External URL" description="Base URL for QR codes (phones must reach this)">
+                <input
+                  type="url"
+                  defaultValue={kiosk.settings?.externalUrl || ""}
+                  onBlur={(e) => {
+                    const val = e.target.value.replace(/\/+$/, "");
+                    if (val !== (kiosk.settings?.externalUrl || "")) {
+                      updateKiosk.mutate({
+                        settings: { ...kiosk.settings, externalUrl: val || undefined },
+                      });
+                    }
+                  }}
+                  placeholder={window.location.origin}
+                  className="w-64 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+              </SettingRow>
+            </div>
           </CardContent>
         )}
       </Card>

@@ -4,8 +4,9 @@ import { useKiosk } from "../contexts/KioskContext";
 import { Card, CardContent } from "../components/ui/Card";
 
 export function KioskJoinPage() {
-  const { token } = useKiosk();
-  const joinUrl = `${window.location.origin}/join/${token}`;
+  const { token, settings } = useKiosk();
+  const baseUrl = settings.externalUrl?.replace(/\/+$/, "") || window.location.origin;
+  const joinUrl = `${baseUrl}/join/${token}`;
 
   return (
     <div className="flex h-full items-center justify-center p-8">
