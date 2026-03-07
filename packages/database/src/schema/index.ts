@@ -584,6 +584,13 @@ export interface KioskSettings {
   spotify?: {
     oauthTokenId?: string;
   };
+  controls?: {
+    fullscreen?: boolean;
+    screensaver?: boolean;
+    settings?: boolean;
+    reload?: boolean;
+    join?: boolean;
+  };
 }
 
 // Kiosk configuration
@@ -2898,3 +2905,54 @@ export const customScreensRelations = relations(customScreens, ({ one }) => ({
 }));
 
 export type CustomScreen = typeof customScreens.$inferSelect;
+
+// Join request status enum
+export const joinRequestStatusEnum = pgEnum("join_request_status", [
+  "pending",
+  "approved",
+  "rejected",
+]);
+
+// Join requests — users request companion access by scanning a kiosk QR code
+export const joinRequests = pgTable(
+  "join_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kioskId: uuid("kiosk_id")
+      .notNull()
+      .references(() => kiosks.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: joinRequestStatusEnum("status").notNull().default("pending"),
+    message: text("message"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("join_requests_owner_status_idx").on(table.ownerId, table.status),
+    index("join_requests_user_kiosk_idx").on(table.userId, table.kioskId),
+  ]
+);
+
+export const joinRequestsRelations = relations(joinRequests, ({ one }) => ({
+  kiosk: one(kiosks, {
+    fields: [joinRequests.kioskId],
+    references: [kiosks.id],
+  }),
+  user: one(users, {
+    fields: [joinRequests.userId],
+    references: [users.id],
+    relationName: "joinRequestUser",
+  }),
+  owner: one(users, {
+    fields: [joinRequests.ownerId],
+    references: [users.id],
+    relationName: "joinRequestOwner",
+  }),
+}));

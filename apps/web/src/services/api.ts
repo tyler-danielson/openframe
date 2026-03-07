@@ -3766,6 +3766,40 @@ class ApiClient {
   async deleteFileShare(shareId: string): Promise<void> {
     await this.fetch(`/fileshare/${shareId}`, { method: "DELETE" });
   }
+
+  // ============ Join Requests ============
+
+  async submitJoinRequest(kioskToken: string, message?: string): Promise<JoinRequest> {
+    const res = await this.fetch<{ data: JoinRequest }>("/join-requests", {
+      method: "POST",
+      body: JSON.stringify({ kioskToken, message }),
+    });
+    return res.data;
+  }
+
+  async getJoinRequests(status?: string): Promise<JoinRequest[]> {
+    const params = status ? `?status=${status}` : "";
+    const res = await this.fetch<{ data: JoinRequest[] }>(`/join-requests${params}`);
+    return res.data;
+  }
+
+  async getJoinRequestCount(): Promise<{ pending: number }> {
+    const res = await this.fetch<{ data: { pending: number } }>("/join-requests/count");
+    return res.data;
+  }
+
+  async approveJoinRequest(id: string): Promise<void> {
+    await this.fetch(`/join-requests/${id}/approve`, { method: "POST" });
+  }
+
+  async rejectJoinRequest(id: string): Promise<void> {
+    await this.fetch(`/join-requests/${id}/reject`, { method: "POST" });
+  }
+
+  async checkJoinStatus(kioskToken: string): Promise<{ status: "none" | "pending" | "approved" | "rejected" | "has_access" | "is_owner" }> {
+    const res = await this.fetch<{ data: { status: "none" | "pending" | "approved" | "rejected" | "has_access" | "is_owner" } }>(`/join-requests/check/${kioskToken}`);
+    return res.data;
+  }
 }
 
 // Family Profile types
@@ -3894,6 +3928,27 @@ export interface KioskSettings {
   spotify?: {
     oauthTokenId?: string;
   };
+  controls?: {
+    fullscreen?: boolean;
+    screensaver?: boolean;
+    settings?: boolean;
+    reload?: boolean;
+    join?: boolean;
+  };
+}
+
+export interface JoinRequest {
+  id: string;
+  kioskId: string;
+  kioskName: string | null;
+  userId: string;
+  userName: string | null;
+  userEmail: string | null;
+  userAvatar: string | null;
+  status: "pending" | "approved" | "rejected";
+  message: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
 }
 
 export interface KioskEnabledFeatures {

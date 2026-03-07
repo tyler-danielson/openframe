@@ -41,6 +41,7 @@ interface SettingsSidebarProps {
   filteredTabs: TabDef[];
   activeTab: SettingsTab;
   onNavigate?: () => void;
+  badges?: Partial<Record<SettingsTab, number>>;
 }
 
 export function SettingsSidebar({
@@ -48,6 +49,7 @@ export function SettingsSidebar({
   filteredTabs,
   activeTab,
   onNavigate,
+  badges,
 }: SettingsSidebarProps) {
   const filteredTabIds = new Set(filteredTabs.map((t) => t.id));
 
@@ -86,6 +88,11 @@ export function SettingsSidebar({
                       >
                         <span className="shrink-0 [&>svg]:h-4 [&>svg]:w-4">{tab.icon}</span>
                         <span className="flex-1 text-left">{tab.label}</span>
+                        {badges?.[tabId] && badges[tabId]! > 0 && (
+                          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                            {badges[tabId]}
+                          </span>
+                        )}
                       </Link>
                     </li>
                   );

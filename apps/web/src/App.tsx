@@ -30,6 +30,8 @@ import { SetupPage } from "./pages/SetupPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { TvSetupPage } from "./pages/TvSetupPage";
 import { InviteAcceptPage } from "./pages/InviteAcceptPage";
+import { JoinPage } from "./pages/JoinPage";
+import { CompanionJoinRequestsPage } from "./pages/companion/CompanionJoinRequestsPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { PlannerBuilderPage } from "./pages/PlannerBuilderPage";
 import { CustomScreenPage } from "./pages/CustomScreenPage";
@@ -148,7 +150,8 @@ export default function App() {
         path.startsWith("/tv-setup") ||
         path.startsWith("/companion") ||
         path.startsWith("/demo") ||
-        path.startsWith("/onboarding")
+        path.startsWith("/onboarding") ||
+        path.startsWith("/join")
       ) {
         setNeedsSetup(false);
         return;
@@ -181,6 +184,7 @@ export default function App() {
         path.startsWith("/admin") ||
         path.startsWith("/login") ||
         path.startsWith("/invite") ||
+        path.startsWith("/join") ||
         path.startsWith("/device-login")
       ) {
         return;
@@ -292,6 +296,8 @@ export default function App() {
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         {/* Public invite acceptance page */}
         <Route path="/invite/:token" element={<InviteAcceptPage />} />
+        {/* Public join request page (QR code from kiosk) */}
+        <Route path="/join/:kioskToken" element={<JoinPage />} />
         {/* Public mobile upload page (accessed via QR code) */}
         <Route path="/upload/:token" element={<MobileUploadPage />} />
         {/* Public mobile recipe upload page (accessed via QR code) */}
@@ -423,6 +429,7 @@ export default function App() {
           <Route path="more/weather" element={<ModuleGate moduleId="weather"><CompanionWeatherPage /></ModuleGate>} />
           <Route path="more/recipes" element={<ModuleGate moduleId="recipes"><CompanionRecipesPage /></ModuleGate>} />
           <Route path="more/settings" element={<CompanionSettingsPage />} />
+          <Route path="more/join-requests" element={<CompanionJoinRequestsPage />} />
         </Route>
 
         {/* Admin dashboard - cloud mode, admin role only */}

@@ -10,8 +10,11 @@ import {
   LogOut,
   ChevronRight,
   User,
+  UserPlus,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "../../stores/auth";
+import { api } from "../../services/api";
 import { Card } from "../../components/ui/Card";
 import { useCompanion } from "./CompanionContext";
 
@@ -21,6 +24,8 @@ interface MenuItem {
   path: string;
   /** Permission key that must be truthy to show this item */
   requirePermission?: "canViewPhotos" | "canViewIptv" | "canViewHomeAssistant" | "canViewNews" | "canViewWeather" | "canViewRecipes";
+  /** Only visible to the owner (admin) */
+  requireOwner?: boolean;
 }
 
 interface MenuGroup {
@@ -58,6 +63,7 @@ const allMenuGroups: MenuGroup[] = [
   {
     label: "System",
     items: [
+      { label: "Join Requests", icon: UserPlus, path: "/companion/more/join-requests", requireOwner: true },
       { label: "Settings", icon: Settings, path: "/companion/more/settings" },
     ],
   },
@@ -69,11 +75,20 @@ export function CompanionMorePage() {
   const logout = useAuthStore((state) => state.logout);
   const companion = useCompanion();
 
+  // Join request count (only for owners)
+  const { data: joinRequestCount } = useQuery({
+    queryKey: ["join-request-count"],
+    queryFn: () => api.getJoinRequestCount(),
+    enabled: companion.isOwner,
+    staleTime: 30_000,
+  });
+
   // Filter menu groups based on permissions
   const menuGroups = allMenuGroups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
+        if (item.requireOwner && !companion.isOwner) return false;
         if (!item.requirePermission) return true;
         return companion[item.requirePermission];
       }),
@@ -123,6 +138,11 @@ export function CompanionMorePage() {
                     <Icon className="h-4.5 w-4.5 text-primary" />
                   </div>
                   <span className="flex-1 text-sm font-medium text-foreground">{item.label}</span>
+                  {item.path === "/companion/more/join-requests" && joinRequestCount?.pending ? (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground mr-1">
+                      {joinRequestCount.pending}
+                    </span>
+                  ) : null}
                   <ChevronRight className="h-4 w-4 text-muted-foreground" />
                 </button>
               );

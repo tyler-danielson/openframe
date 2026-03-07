@@ -30,6 +30,7 @@ import {
   Shield,
   Cpu,
   Kanban,
+  UserPlus,
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { resolveLucideIcon as sharedResolveLucideIcon, isCustomIcon } from "../../lib/icon-utils";
@@ -51,6 +52,7 @@ interface LayoutProps {
   kioskEnabledFeatures?: KioskEnabledFeatures | null;
   kioskDisplayType?: KioskDisplayType | null;
   kioskDashboards?: KioskDashboard[] | null;
+  kioskControls?: { fullscreen?: boolean; screensaver?: boolean; settings?: boolean; reload?: boolean; join?: boolean } | null;
   className?: string;
   basePath?: string;
 }
@@ -84,7 +86,7 @@ const mediaItemsBase = [
   { path: "iptv", icon: Tv, label: "Live TV" },
 ];
 
-export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards, className, basePath: baseProp }: LayoutProps = {}) {
+export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards, kioskControls, className, basePath: baseProp }: LayoutProps = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -707,7 +709,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
             </div>
           )}
           {/* Custom screen toggle */}
-          {screensaverEnabled && (
+          {screensaverEnabled && kioskControls?.screensaver !== false && (
             <button
               onClick={activateScreensaver}
               className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
@@ -717,24 +719,38 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
             </button>
           )}
           {/* Fullscreen toggle */}
-          <button
-            onClick={toggleFullscreen}
-            className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-          >
-            {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
-          </button>
-          <button
-            onClick={handleReconnectAll}
-            disabled={isReconnecting}
-            className={cn(
-              "flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
-              isReconnecting && "opacity-50 cursor-not-allowed"
-            )}
-            title="Reconnect all services"
-          >
-            <RefreshCw className={cn("h-5 w-5", isReconnecting && "animate-spin")} />
-          </button>
+          {kioskControls?.fullscreen !== false && (
+            <button
+              onClick={toggleFullscreen}
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            >
+              {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
+            </button>
+          )}
+          {kioskControls?.reload !== false && (
+            <button
+              onClick={handleReconnectAll}
+              disabled={isReconnecting}
+              className={cn(
+                "flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+                isReconnecting && "opacity-50 cursor-not-allowed"
+              )}
+              title="Reconnect all services"
+            >
+              <RefreshCw className={cn("h-5 w-5", isReconnecting && "animate-spin")} />
+            </button>
+          )}
+          {/* Join button — kiosk QR code page */}
+          {kioskControls?.join === true && (
+            <button
+              onClick={() => navigate(buildPath("join"))}
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              title="Join — show QR code"
+            >
+              <UserPlus className="h-5 w-5" />
+            </button>
+          )}
           {/* More button - show overflow items */}
           {(moreItems.length > 0 || moreMediaItems.length > 0) && (
             <button
@@ -753,7 +769,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
             </button>
           )}
           {/* Settings at the bottom */}
-          {isAuthenticated && !isKioskPath && (
+          {isAuthenticated && !isKioskPath && kioskControls?.settings !== false && (
             <NavLink
               to="/settings"
               className={({ isActive }) =>

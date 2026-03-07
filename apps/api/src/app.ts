@@ -66,6 +66,7 @@ import { usageRoutes } from "./routes/usage/index.js";
 import { aiRelayRoutes } from "./routes/ai-relay/index.js";
 import { fileshareRoutes } from "./routes/fileshare/index.js";
 import { iconRoutes } from "./routes/icons/index.js";
+import { joinRequestRoutes } from "./routes/join-requests/index.js";
 import { cloudPlugin } from "./plugins/cloud.js";
 import { matterPlugin } from "./plugins/matter.js";
 import { planLimitsPlugin } from "./plugins/plan-limits.js";
@@ -257,6 +258,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(aiRelayRoutes, { prefix: "/api/v1/ai-relay" });
   await app.register(fileshareRoutes, { prefix: "/api/v1/fileshare" });
   await app.register(iconRoutes, { prefix: "/api/v1/icons" });
+  await app.register(joinRequestRoutes, { prefix: "/api/v1/join-requests" });
 
   // --- Static file serving (combined container mode) ---
   const publicDir = path.join(process.cwd(), "public");

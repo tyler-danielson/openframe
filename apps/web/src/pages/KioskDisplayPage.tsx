@@ -28,6 +28,7 @@ import { ScreensaverDisplayPage } from "./ScreensaverDisplayPage";
 import { MultiViewPage } from "./MultiViewPage";
 import { CardViewPage } from "./CardViewPage";
 import { CustomScreenPage } from "./CustomScreenPage";
+import { KioskJoinPage } from "./KioskJoinPage";
 
 // Feature to route mapping (used for backward compat + dashboard type -> component lookup)
 const FEATURE_ROUTES: Record<string, { path: string; element: JSX.Element; wildcard?: boolean }> = {
@@ -85,7 +86,7 @@ function useSilkKeepAlive() {
 
 // Kiosk app content - uses the same Layout and pages as the main app
 function KioskApp() {
-  const { isAuthReady, displayMode, displayType, homePage, enabledFeatures, dashboards, connectionStatus, lastOnlineAt, startFullscreen, fullscreenDelayMinutes } = useKiosk();
+  const { isAuthReady, displayMode, displayType, homePage, enabledFeatures, dashboards, settings, connectionStatus, lastOnlineAt, startFullscreen, fullscreenDelayMinutes } = useKiosk();
   const location = useLocation();
   const navigate = useNavigate();
   const hasAttemptedFullscreen = useRef(false);
@@ -556,11 +557,13 @@ function KioskApp() {
   return (
     <>
       <Routes>
-        <Route element={<Layout kioskEnabledFeatures={enabledFeatures} kioskDisplayType={displayType} kioskDashboards={dashboards.length > 0 ? dashboards : undefined} />}>
+        <Route element={<Layout kioskEnabledFeatures={enabledFeatures} kioskDisplayType={displayType} kioskDashboards={dashboards.length > 0 ? dashboards : undefined} kioskControls={settings?.controls} />}>
           <Route index element={<Navigate to={effectiveHomePage} replace />} />
           {enabledRoutes.map(({ feature, path, element, dashboardId }) => (
             <Route key={dashboardId ?? feature} path={path} element={element} />
           ))}
+          {/* Join QR code page */}
+          <Route path="join" element={<KioskJoinPage />} />
           {/* Custom screens */}
           <Route path="screen/:slug" element={<CustomScreenPage />} />
           {/* Redirect disabled routes to home page */}

@@ -6,7 +6,7 @@ import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as I
 import { Users, UserPlus } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { Camera, Invitation, Calendar as CalendarType } from "@openframe/shared";
-import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type CompanionUser, type CompanionPermissions, type CloudInstance, type CloudBillingInfo, type PlanLimits, type SupportTicketSummary, type MyTicketDetail } from "../services/api";
+import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type CompanionUser, type CompanionPermissions, type CloudInstance, type CloudBillingInfo, type PlanLimits, type SupportTicketSummary, type MyTicketDetail, type JoinRequest } from "../services/api";
 import { useAuthStore } from "../stores/auth";
 import { isCloudMode, appPath, appUrl } from "../lib/cloud";
 import { useCalendarStore, type WeekCellWidget } from "../stores/calendar";
@@ -5541,6 +5541,28 @@ function UsersSettings() {
     queryFn: () => api.getPendingInvitations(),
   });
 
+  const { data: joinRequests = [] } = useQuery({
+    queryKey: ["join-requests", "pending"],
+    queryFn: () => api.getJoinRequests("pending"),
+  });
+
+  const approveJoin = useMutation({
+    mutationFn: (id: string) => api.approveJoinRequest(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["join-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["join-request-count"] });
+      queryClient.invalidateQueries({ queryKey: ["companion-users"] });
+    },
+  });
+
+  const rejectJoin = useMutation({
+    mutationFn: (id: string) => api.rejectJoinRequest(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["join-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["join-request-count"] });
+    },
+  });
+
   const inviteMut = useMutation({
     mutationFn: () =>
       api.inviteUser({ email: inviteEmail, name: inviteName || undefined, role: inviteRole }),
@@ -5679,6 +5701,75 @@ function UsersSettings() {
           ))}
         </CardContent>
       </Card>
+
+      {/* Join Requests */}
+      {joinRequests.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Join Requests</CardTitle>
+              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                {joinRequests.length}
+              </span>
+            </div>
+            <CardDescription>People requesting companion access via kiosk QR code</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {joinRequests.map((jr: JoinRequest) => (
+              <div
+                key={jr.id}
+                className="flex items-center justify-between rounded-lg border border-border p-3"
+              >
+                <div className="flex items-center gap-3">
+                  {jr.userAvatar ? (
+                    <img src={jr.userAvatar} alt="" className="h-8 w-8 rounded-full" />
+                  ) : (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary">
+                      {(jr.userName || jr.userEmail || "?")[0]?.toUpperCase()}
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-sm font-medium">{jr.userName || jr.userEmail}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {jr.kioskName && <>{jr.kioskName} &middot; </>}
+                      {new Date(jr.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    onClick={() => approveJoin.mutate(jr.id)}
+                    disabled={approveJoin.isPending || rejectJoin.isPending}
+                    className="gap-1"
+                  >
+                    {approveJoin.isPending ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Check className="h-3 w-3" />
+                    )}
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => rejectJoin.mutate(jr.id)}
+                    disabled={approveJoin.isPending || rejectJoin.isPending}
+                    className="gap-1"
+                  >
+                    {rejectJoin.isPending ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <X className="h-3 w-3" />
+                    )}
+                    Decline
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Pending Invitations */}
       {pendingInvites && pendingInvites.length > 0 && (
@@ -9802,6 +9893,18 @@ export function SettingsPage() {
     staleTime: 0, // Always refetch when query is accessed
   });
 
+  // Join request count for sidebar badge
+  const { data: joinRequestCount } = useQuery({
+    queryKey: ["join-request-count"],
+    queryFn: () => api.getJoinRequestCount(),
+    staleTime: 30_000,
+  });
+  const settingsBadges = useMemo(() => {
+    const badges: Partial<Record<SettingsTab, number>> = {};
+    if (joinRequestCount?.pending) badges.users = joinRequestCount.pending;
+    return badges;
+  }, [joinRequestCount]);
+
   // Redirect /settings to /settings/{firstTab}
   useEffect(() => {
     if (!tabFromPath || !isValidTab(tabFromPath)) {
@@ -10168,6 +10271,7 @@ export function SettingsPage() {
             groups={SIDEBAR_GROUPS}
             filteredTabs={filteredTabs}
             activeTab={activeTab}
+            badges={settingsBadges}
           />
         </div>
 
@@ -10196,6 +10300,7 @@ export function SettingsPage() {
             filteredTabs={filteredTabs}
             activeTab={activeTab}
             onNavigate={() => setIsMobileSidebarOpen(false)}
+            badges={settingsBadges}
           />
         </div>
 

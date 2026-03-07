@@ -376,6 +376,41 @@ export function KioskConfigPage({ kioskId }: KioskConfigPageProps) {
                 />
               </SettingRow>
             </div>
+            <div className="border-t border-border/50 pt-3 mt-1">
+              <p className="text-xs font-medium text-muted-foreground mb-2">Toolbar Controls</p>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                <SettingRow label="Fullscreen toggle">
+                  <ToggleSwitch
+                    checked={kiosk.settings?.controls?.fullscreen !== false}
+                    onChange={(v) => updateSettings("controls", { fullscreen: v })}
+                  />
+                </SettingRow>
+                <SettingRow label="Screensaver button">
+                  <ToggleSwitch
+                    checked={kiosk.settings?.controls?.screensaver !== false}
+                    onChange={(v) => updateSettings("controls", { screensaver: v })}
+                  />
+                </SettingRow>
+                <SettingRow label="Settings access">
+                  <ToggleSwitch
+                    checked={kiosk.settings?.controls?.settings !== false}
+                    onChange={(v) => updateSettings("controls", { settings: v })}
+                  />
+                </SettingRow>
+                <SettingRow label="Reload button">
+                  <ToggleSwitch
+                    checked={kiosk.settings?.controls?.reload !== false}
+                    onChange={(v) => updateSettings("controls", { reload: v })}
+                  />
+                </SettingRow>
+                <SettingRow label="Join link (QR)">
+                  <ToggleSwitch
+                    checked={kiosk.settings?.controls?.join === true}
+                    onChange={(v) => updateSettings("controls", { join: v })}
+                  />
+                </SettingRow>
+              </div>
+            </div>
           </CardContent>
         )}
       </Card>
