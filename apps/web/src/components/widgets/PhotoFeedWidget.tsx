@@ -11,6 +11,7 @@ import {
 } from "./PhotoAlbumWidget";
 import { useBlockControls } from "../../hooks/useBlockControls";
 import { useWidgetStateReporter } from "../../hooks/useWidgetStateReporter";
+import { useSwipe } from "../../hooks/useSwipe";
 
 interface PhotoFeedWidgetProps {
   config: Record<string, unknown>;
@@ -135,6 +136,12 @@ export function PhotoFeedWidget({ config, style, isBuilder, widgetId }: PhotoFee
   }, [isBuilder, widgetId, advance, goBack]);
   useBlockControls(widgetId, blockControls);
 
+  const swipeHandlers = useSwipe({
+    onSwipeLeft: advance,
+    onSwipeRight: goBack,
+    enabled: !isBuilder && photos.length > 1,
+  });
+
   // Report state for companion app
   useWidgetStateReporter(
     isBuilder ? undefined : widgetId,
@@ -229,7 +236,7 @@ export function PhotoFeedWidget({ config, style, isBuilder, widgetId }: PhotoFee
     if (!photo) return null;
 
     return (
-      <div className={cn("h-full w-full overflow-hidden bg-black/40", roundedCorners && "rounded-lg")}>
+      <div className={cn("h-full w-full overflow-hidden bg-black/40", roundedCorners && "rounded-lg")} {...swipeHandlers}>
         <img
           src={photo.url}
           alt={photo.title || "Photo"}
@@ -252,6 +259,7 @@ export function PhotoFeedWidget({ config, style, isBuilder, widgetId }: PhotoFee
   return (
     <div
       className={cn("h-full w-full overflow-hidden bg-black/40", roundedCorners && "rounded-lg")}
+      {...swipeHandlers}
       style={{
         display: "grid",
         gridTemplateColumns: `repeat(${gridCols}, 1fr)`,

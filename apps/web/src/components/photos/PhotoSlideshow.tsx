@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, getPhotoUrl } from "../../services/api";
 import { cn } from "../../lib/utils";
+import { useSwipe } from "../../hooks/useSwipe";
 
 interface PhotoSlideshowProps {
   className?: string;
@@ -30,6 +31,22 @@ export function PhotoSlideshow({ className }: PhotoSlideshowProps) {
     }, 500);
   }, [photos.length]);
 
+  const goToPrev = useCallback(() => {
+    if (photos.length === 0) return;
+
+    setIsTransitioning(true);
+    setTimeout(() => {
+      setCurrentIndex((prev) => (prev - 1 + photos.length) % photos.length);
+      setIsTransitioning(false);
+    }, 500);
+  }, [photos.length]);
+
+  const swipeHandlers = useSwipe({
+    onSwipeLeft: goToNext,
+    onSwipeRight: goToPrev,
+    enabled: photos.length > 1,
+  });
+
   useEffect(() => {
     if (photos.length <= 1) return;
 
@@ -57,7 +74,7 @@ export function PhotoSlideshow({ className }: PhotoSlideshowProps) {
   const currentPhoto = photos[currentIndex];
 
   return (
-    <div className={cn("relative overflow-hidden bg-black", className)}>
+    <div className={cn("relative overflow-hidden bg-black", className)} {...swipeHandlers}>
       <img
         src={getPhotoUrl(currentPhoto?.url)}
         alt=""

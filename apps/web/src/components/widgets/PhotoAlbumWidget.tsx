@@ -7,6 +7,7 @@ import type { WidgetStyle } from "../../stores/screensaver";
 import { cn } from "../../lib/utils";
 import { useBlockControls } from "../../hooks/useBlockControls";
 import { useWidgetStateReporter } from "../../hooks/useWidgetStateReporter";
+import { useSwipe } from "../../hooks/useSwipe";
 
 interface PhotoAlbumWidgetProps {
   config: Record<string, unknown>;
@@ -218,6 +219,12 @@ export function PhotoAlbumWidget({ config, style, isBuilder, widgetId }: PhotoAl
   }, [isBuilder, widgetId, advancePhoto, prevPhoto]);
   useBlockControls(widgetId, blockControls);
 
+  const swipeHandlers = useSwipe({
+    onSwipeLeft: advancePhoto,
+    onSwipeRight: prevPhoto,
+    enabled: !isBuilder && photos.length > 1,
+  });
+
   // Report state for companion app
   useWidgetStateReporter(
     isBuilder ? undefined : widgetId,
@@ -413,7 +420,7 @@ export function PhotoAlbumWidget({ config, style, isBuilder, widgetId }: PhotoAl
   }
 
   return (
-    <div className="h-full w-full rounded-lg overflow-hidden bg-black/40">
+    <div className="h-full w-full rounded-lg overflow-hidden bg-black/40" {...swipeHandlers}>
       <img
         src={currentPhoto?.url}
         alt={currentPhoto?.title || "Photo"}
