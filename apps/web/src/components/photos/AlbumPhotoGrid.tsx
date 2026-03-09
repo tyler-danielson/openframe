@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Trash2, RefreshCw, Image, Check, Plus, Cloud } from "lucide-react";
+import { ArrowLeft, Trash2, RefreshCw, Image, Check, Plus, Cloud, ArrowUpDown } from "lucide-react";
 import { api, getPhotoUrl } from "../../services/api";
 import { Button } from "../ui/Button";
 import { AddPhotosModal } from "./AddPhotosModal";
@@ -18,11 +18,20 @@ export function AlbumPhotoGrid({ albumId, albumName, onBack }: AlbumPhotoGridPro
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [isSelecting, setIsSelecting] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [sortNewest, setSortNewest] = useState(true);
 
   const { data: photos = [], isLoading } = useQuery({
     queryKey: ["album-photos", albumId],
     queryFn: () => api.getAlbumPhotos(albumId),
   });
+
+  const sortedPhotos = useMemo(() => {
+    const arr = [...photos];
+    if (sortNewest) {
+      arr.reverse();
+    }
+    return arr;
+  }, [photos, sortNewest]);
 
   const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
 
@@ -99,6 +108,14 @@ export function AlbumPhotoGrid({ albumId, albumName, onBack }: AlbumPhotoGridPro
           <Button
             variant="outline"
             size="sm"
+            onClick={() => setSortNewest((v) => !v)}
+          >
+            <ArrowUpDown className="mr-2 h-4 w-4" />
+            {sortNewest ? "Newest" : "Oldest"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setIsAddModalOpen(true)}
           >
             <Plus className="mr-2 h-4 w-4" />
@@ -171,7 +188,7 @@ export function AlbumPhotoGrid({ albumId, albumName, onBack }: AlbumPhotoGridPro
         </div>
       ) : (
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-          {photos.map((photo) => (
+          {sortedPhotos.map((photo) => (
             <PhotoGridItem
               key={photo.id}
               photo={photo}

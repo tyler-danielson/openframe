@@ -9,7 +9,7 @@ interface NewsHeadlinesWidgetProps {
 
 export function NewsHeadlinesWidget({ widget, viewMode = "local" }: NewsHeadlinesWidgetProps) {
   const { config } = widget;
-  const maxItems = (config.maxItems as number) || 5;
+  const maxItems = (config.maxItems as number) ?? 5;
   const title = (config.title as string) || "Headlines";
   const classes = getViewModeClasses(viewMode);
 
@@ -21,7 +21,7 @@ export function NewsHeadlinesWidget({ widget, viewMode = "local" }: NewsHeadline
     "Science: New discovery announced",
   ];
 
-  const previewCount = Math.min(3, maxItems);
+  const previewCount = maxItems === 0 ? 3 : Math.min(3, maxItems);
 
   return (
     <div className={`h-full flex flex-col p-2 ${classes.containerBg}`}>

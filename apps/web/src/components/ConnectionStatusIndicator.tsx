@@ -28,7 +28,7 @@ export function ConnectionStatusIndicator({
   if (status === "online") return null;
 
   return (
-    <div className="fixed bottom-4 right-4 bg-card/95 backdrop-blur-sm border border-border rounded-lg px-4 py-3 shadow-lg z-50 flex items-center gap-3">
+    <div className="fixed top-4 right-4 bg-card/95 backdrop-blur-sm border border-border rounded-lg px-4 py-3 shadow-lg z-50 flex items-center gap-3">
       {status === "offline" && (
         <>
           <WifiOff className="h-5 w-5 text-destructive" />

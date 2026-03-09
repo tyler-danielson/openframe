@@ -4,7 +4,7 @@ import { SectionTitle, type EditableWidgetProps } from "./types";
 export function EditableHeadlines({ widget, onSelect, colors }: EditableWidgetProps) {
   const config = widget.config;
   const title = (config.title as string) || "Headlines";
-  const maxItems = (config.maxItems as number) || 5;
+  const maxItems = (config.maxItems as number) ?? 5;
   const showSource = (config.showSource as boolean) !== false;
   const showTime = (config.showTime as boolean) !== false;
   const categories = (config.categories as string[]) || [];
@@ -133,7 +133,7 @@ export function EditableHeadlines({ widget, onSelect, colors }: EditableWidgetPr
       {/* Placeholder mode when no feeds configured */}
       {!isLoading && !error && !hasHeadlines && categories.length === 0 && (
         <>
-          {sampleUpdates.slice(0, maxItems).map((update, i) => (
+          {(maxItems > 0 ? sampleUpdates.slice(0, maxItems) : sampleUpdates).map((update, i) => (
             <div
               key={i}
               style={{

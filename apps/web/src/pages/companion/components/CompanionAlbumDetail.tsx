@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
@@ -8,6 +8,7 @@ import {
   Trash2,
   X,
   ArrowLeft,
+  ArrowUpDown,
 } from "lucide-react";
 import { api, getPhotoUrl } from "../../../services/api";
 import { CompanionPhotoUploadSheet } from "./CompanionPhotoUploadSheet";
@@ -30,12 +31,22 @@ export function CompanionAlbumDetail({
   const [viewPhoto, setViewPhoto] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [sortNewest, setSortNewest] = useState(true);
 
   const { data: photos, isLoading } = useQuery({
     queryKey: ["companion-album-photos", albumId],
-    queryFn: () => api.getAlbumPhotos(albumId),
+    queryFn: () => api.getCompanionAlbumPhotos(albumId),
     staleTime: 60_000,
   });
+
+  const sortedPhotos = useMemo(() => {
+    if (!photos) return [];
+    const arr = [...photos];
+    if (sortNewest) {
+      arr.reverse();
+    }
+    return arr;
+  }, [photos, sortNewest]);
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.deletePhoto(id),
@@ -94,6 +105,13 @@ export function CompanionAlbumDetail({
         <h1 className="text-lg font-semibold truncate flex-1">{albumName}</h1>
         <div className="shrink-0 flex items-center gap-1">
           <button
+            onClick={() => setSortNewest((v) => !v)}
+            className="px-2.5 py-1.5 rounded-lg text-xs font-medium hover:bg-primary/10 text-muted-foreground transition-colors flex items-center gap-1"
+          >
+            <ArrowUpDown className="h-3.5 w-3.5" />
+            {sortNewest ? "Newest" : "Oldest"}
+          </button>
+          <button
             onClick={() => {
               if (selecting) {
                 setSelecting(false);
@@ -124,7 +142,7 @@ export function CompanionAlbumDetail({
           <div className="flex items-center justify-center h-32">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
-        ) : !photos || photos.length === 0 ? (
+        ) : sortedPhotos.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <Image className="h-12 w-12 mx-auto mb-3 opacity-50" />
             <p className="text-sm">No photos in this album</p>
@@ -137,7 +155,7 @@ export function CompanionAlbumDetail({
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-1">
-            {photos.map((photo: any) => (
+            {sortedPhotos.map((photo: any) => (
               <div key={photo.id} className="aspect-square relative overflow-hidden rounded">
                 <button
                   className="w-full h-full"

@@ -2209,7 +2209,7 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
 };
 
 // Helper function to sync events from a Home Assistant calendar
-async function syncHACalendar(
+export async function syncHACalendar(
   db: import("@openframe/database").Database,
   haUrl: string,
   haToken: string,
@@ -2259,10 +2259,6 @@ async function syncHACalendar(
   const processedIds = new Set<string>();
 
   for (const haEvent of haEvents) {
-    // Generate a unique ID for the event
-    const externalId = haEvent.uid || `${haEvent.summary}-${haEvent.start.dateTime || haEvent.start.date}`;
-    processedIds.add(externalId);
-
     const isAllDay = !haEvent.start.dateTime;
     const startTime = haEvent.start.dateTime
       ? new Date(haEvent.start.dateTime)
@@ -2270,6 +2266,16 @@ async function syncHACalendar(
     const endTime = haEvent.end.dateTime
       ? new Date(haEvent.end.dateTime)
       : new Date(haEvent.end.date + "T00:00:00");
+
+    // HA returns expanded instances of recurring events, each with the correct
+    // DST-adjusted time. Use a unique externalId per occurrence so each instance
+    // is stored separately. Don't store the rrule — HA already handles expansion
+    // and our RRule expansion uses fixed UTC offsets that break across DST boundaries.
+    const dateKey = haEvent.start.dateTime || haEvent.start.date || "";
+    const externalId = haEvent.uid
+      ? (haEvent.rrule ? `${haEvent.uid}|${dateKey}` : haEvent.uid)
+      : `${haEvent.summary}-${dateKey}`;
+    processedIds.add(externalId);
 
     const eventData = {
       calendarId,
@@ -2281,7 +2287,7 @@ async function syncHACalendar(
       endTime,
       isAllDay,
       status: "confirmed" as const,
-      recurrenceRule: haEvent.rrule || null,
+      recurrenceRule: null,
       updatedAt: new Date(),
     };
 

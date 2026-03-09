@@ -210,17 +210,17 @@ export function WidgetConfigPopover({
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium">Max Items</label>
+                <label className="text-xs font-medium">Max Items <span className="text-muted-foreground">(0 = all)</span></label>
                 <input
                   type="number"
-                  value={(widget.config.maxItems as number) || 10}
-                  onChange={(e) => updateConfig("maxItems", parseInt(e.target.value) || 10)}
-                  min={1}
+                  value={(widget.config.maxItems as number) ?? 10}
+                  onChange={(e) => { const v = parseInt(e.target.value); updateConfig("maxItems", Number.isNaN(v) ? 10 : v); }}
+                  min={0}
                   max={50}
                   className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Number of task lines to display
+                  Number of task lines to display (0 = all)
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -366,12 +366,12 @@ export function WidgetConfigPopover({
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium">Max Items</label>
+                <label className="text-xs font-medium">Max Items <span className="text-muted-foreground">(0 = all)</span></label>
                 <input
                   type="number"
-                  value={(widget.config.maxItems as number) || 5}
-                  onChange={(e) => updateConfig("maxItems", parseInt(e.target.value) || 5)}
-                  min={1}
+                  value={(widget.config.maxItems as number) ?? 5}
+                  onChange={(e) => { const v = parseInt(e.target.value); updateConfig("maxItems", Number.isNaN(v) ? 5 : v); }}
+                  min={0}
                   max={20}
                   className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm"
                 />

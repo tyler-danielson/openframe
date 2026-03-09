@@ -206,6 +206,7 @@ export const companionAccess = pgTable(
     // Scoped access (null = all)
     allowedCalendarIds: jsonb("allowed_calendar_ids").$type<string[] | null>().default(null),
     allowedTaskListIds: jsonb("allowed_task_list_ids").$type<string[] | null>().default(null),
+    allowedAlbumIds: jsonb("allowed_album_ids").$type<string[] | null>().default(null),
 
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -269,6 +270,7 @@ export const calendars = pgTable(
     showOnDashboard: boolean("show_on_dashboard").default(true).notNull(),
     kioskEnabled: boolean("kiosk_enabled").default(true).notNull(),
     visibility: jsonb("visibility").$type<{ week: boolean; month: boolean; day: boolean; popup: boolean; screensaver: boolean }>().default({ week: false, month: false, day: false, popup: true, screensaver: false }).notNull(),
+    syncInterval: integer("sync_interval"), // sync interval in minutes (null = system default)
     syncToken: text("sync_token"), // for incremental sync
     sourceUrl: text("source_url"), // for ICS subscriptions - the URL to fetch from
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
@@ -592,6 +594,7 @@ export interface KioskSettings {
     join?: boolean;
   };
   externalUrl?: string;
+  uploadPin?: string;
 }
 
 // Kiosk configuration
@@ -2840,6 +2843,47 @@ export const invitationsRelations = relations(invitations, ({ one }) => ({
 }));
 
 export type Invitation = typeof invitations.$inferSelect;
+
+// Companion Invites - direct invite links for companion access (no approval needed)
+export const companionInvites = pgTable(
+  "companion_invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    token: uuid("token").notNull().unique().defaultRandom(),
+    label: text("label"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptedBy: uuid("accepted_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("companion_invites_token_idx").on(table.token),
+    index("companion_invites_owner_idx").on(table.ownerId),
+  ]
+);
+
+export const companionInvitesRelations = relations(
+  companionInvites,
+  ({ one }) => ({
+    owner: one(users, {
+      fields: [companionInvites.ownerId],
+      references: [users.id],
+      relationName: "companionInviteOwner",
+    }),
+    acceptedByUser: one(users, {
+      fields: [companionInvites.acceptedBy],
+      references: [users.id],
+      relationName: "companionInviteAcceptor",
+    }),
+  })
+);
+
+export type CompanionInvite = typeof companionInvites.$inferSelect;
 
 // Shopping Items - Amazon shopping list
 export const shoppingItems = pgTable(

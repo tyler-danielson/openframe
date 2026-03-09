@@ -15,7 +15,7 @@ export function EditableTasks({ widget, isSelected, onSelect, onConfigChange, co
   const queryClient = useQueryClient();
   const config = widget.config;
   const title = (config.title as string) || "Tasks";
-  const maxItems = (config.maxItems as number) || 5;
+  const maxItems = (config.maxItems as number) ?? 5;
   const showCheckboxes = config.showCheckboxes !== false;
   const showDueDate = config.showDueDate !== false;
   const taskListIds = (config.taskListIds as string[]) || [];
@@ -36,13 +36,15 @@ export function EditableTasks({ widget, isSelected, onSelect, onConfigChange, co
   }));
 
   // Ensure we have the right number of items for manual mode
-  const items = taskItems.length >= maxItems
-    ? taskItems.slice(0, maxItems)
-    : [...taskItems, ...Array.from({ length: maxItems - taskItems.length }, (_, i) => ({
-        id: `task-${taskItems.length + i}`,
-        text: "",
-        completed: false,
-      }))];
+  const items = maxItems === 0
+    ? taskItems
+    : taskItems.length >= maxItems
+      ? taskItems.slice(0, maxItems)
+      : [...taskItems, ...Array.from({ length: maxItems - taskItems.length }, (_, i) => ({
+          id: `task-${taskItems.length + i}`,
+          text: "",
+          completed: false,
+        }))];
 
   const handleTaskChange = (index: number, updates: Partial<TaskItem>) => {
     const newItems = items.map((item, i) =>
@@ -70,9 +72,8 @@ export function EditableTasks({ widget, isSelected, onSelect, onConfigChange, co
 
   // Connected mode rendering
   if (isConnectedMode) {
-    const displayTasks = (tasks || [])
-      .filter((t) => !completingIds.has(t.id))
-      .slice(0, maxItems);
+    const filteredTasks = (tasks || []).filter((t) => !completingIds.has(t.id));
+    const displayTasks = maxItems > 0 ? filteredTasks.slice(0, maxItems) : filteredTasks;
 
     return (
       <div

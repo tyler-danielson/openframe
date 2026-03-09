@@ -70,7 +70,9 @@ export function LocationMap({
   const fitBounds = useCallback(() => {
     if (!mapRef.current || locations.length === 0) return;
 
-    const points = locations.map((loc) => [loc.longitude, loc.latitude] as [number, number]);
+    const points = locations
+      .filter((loc) => Number.isFinite(loc.longitude) && Number.isFinite(loc.latitude))
+      .map((loc) => [loc.longitude, loc.latitude] as [number, number]);
 
     if (points.length === 0) return;
 
@@ -177,11 +179,14 @@ export function LocationMap({
   // Calculate center from first location or home zone
   const homeZone = zones.find((z) => z.entityId === "zone.home");
   const firstLocation = locations[0];
-  const defaultCenter: [number, number] = homeZone
-    ? [homeZone.longitude, homeZone.latitude]
-    : firstLocation
-      ? [firstLocation.longitude, firstLocation.latitude]
-      : [0, 0];
+  const isValidCoord = (lng: number, lat: number) =>
+    Number.isFinite(lng) && Number.isFinite(lat);
+  const defaultCenter: [number, number] =
+    homeZone && isValidCoord(homeZone.longitude, homeZone.latitude)
+      ? [homeZone.longitude, homeZone.latitude]
+      : firstLocation && isValidCoord(firstLocation.longitude, firstLocation.latitude)
+        ? [firstLocation.longitude, firstLocation.latitude]
+        : [0, 0];
 
   // Color palette for different people (darker/muted tones)
   const colors = ["#1E40AF", "#047857", "#B45309", "#B91C1C", "#5B21B6", "#9D174D"];
@@ -259,7 +264,7 @@ export function LocationMap({
         <NavigationControl position="top-right" />
 
         {/* Location markers */}
-        {locations.map((location, index) => {
+        {locations.filter((loc) => Number.isFinite(loc.longitude) && Number.isFinite(loc.latitude)).map((location, index) => {
           const isHome = location.state === "home";
           const color = colors[index % colors.length] ?? "#3B82F6";
 

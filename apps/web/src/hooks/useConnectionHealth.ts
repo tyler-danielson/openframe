@@ -65,8 +65,9 @@ export function useConnectionHealth(
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const response = await fetch(`${API_BASE}/health`, {
+      const response = await fetch(`${API_BASE}/health?_t=${Date.now()}`, {
         signal: controller.signal,
+        cache: "no-store",
       });
 
       clearTimeout(timeoutId);

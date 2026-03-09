@@ -91,9 +91,11 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/current",
     {
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Get current weather data",
         tags: ["Weather"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
         response: {
           200: {
             type: "object",
@@ -181,9 +183,11 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/forecast",
     {
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Get 5-day weather forecast",
         tags: ["Weather"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
         response: {
           200: {
             type: "object",
@@ -283,9 +287,11 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/hourly",
     {
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Get hourly weather forecast for today",
         tags: ["Weather"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
         response: {
           200: {
             type: "object",
@@ -451,9 +457,11 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/status",
     {
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Check if weather API is configured",
         tags: ["Weather"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
       },
     },
     async () => {

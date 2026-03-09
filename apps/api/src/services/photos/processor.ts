@@ -33,19 +33,23 @@ export async function processImage(
   buffer: Buffer,
   options: ProcessOptions
 ): Promise<ProcessResult> {
-  const image = sharp(buffer);
-  const metadata = await image.metadata();
+  const rawImage = sharp(buffer);
+  const metadata = await rawImage.metadata();
 
-  const width = metadata.width ?? 0;
-  const height = metadata.height ?? 0;
-
-  // Extract EXIF data
+  // Extract EXIF data before rotation
   const exif = metadata.exif ? parseExif(metadata) : {};
 
-  // Save original (ensure directory exists)
+  // Auto-rotate based on EXIF orientation, then get corrected dimensions
+  const rotatedBuffer = await sharp(buffer).rotate().toBuffer();
+  const image = sharp(rotatedBuffer);
+  const rotatedMeta = await image.metadata();
+  const width = rotatedMeta.width ?? 0;
+  const height = rotatedMeta.height ?? 0;
+
+  // Save the auto-rotated original (orientation baked into pixels)
   await mkdir(join(options.userDir, "original"), { recursive: true });
   const originalPath = join(options.userDir, "original", options.filename);
-  await writeFile(originalPath, buffer);
+  await writeFile(originalPath, rotatedBuffer);
 
   const result: ProcessResult = {
     width,
@@ -114,7 +118,7 @@ export async function generateImageVariants(
   sizes: Array<{ name: string; width: number; height?: number }>
 ): Promise<Map<string, Buffer>> {
   const results = new Map<string, Buffer>();
-  const image = sharp(buffer);
+  const image = sharp(buffer).rotate();
 
   for (const size of sizes) {
     const resized = await image

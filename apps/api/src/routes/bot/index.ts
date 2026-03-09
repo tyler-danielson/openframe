@@ -245,9 +245,22 @@ export const botRoutes: FastifyPluginAsync = async (fastify) => {
         calendarId?: string;
       };
 
-      // Get calendar
+      // Get calendar (always verify ownership)
       let calendarId = body.calendarId;
-      if (!calendarId) {
+      if (calendarId) {
+        // Verify the specified calendar belongs to this user
+        const [ownedCalendar] = await fastify.db
+          .select()
+          .from(calendars)
+          .where(
+            and(eq(calendars.id, calendarId), eq(calendars.userId, user.id))
+          )
+          .limit(1);
+
+        if (!ownedCalendar) {
+          return reply.forbidden("Calendar not found or not owned by you");
+        }
+      } else {
         const [primaryCalendar] = await fastify.db
           .select()
           .from(calendars)

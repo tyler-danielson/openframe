@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { audiobookshelfServers } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { AudiobookshelfClient } from "../../services/audiobookshelf-client.js";
@@ -131,7 +131,7 @@ export const audiobookshelfRoutes: FastifyPluginAsync = async (fastify) => {
 
       await fastify.db
         .delete(audiobookshelfServers)
-        .where(eq(audiobookshelfServers.id, id));
+        .where(and(eq(audiobookshelfServers.id, id), eq(audiobookshelfServers.userId, user.id)));
 
       return reply.status(204).send();
     }

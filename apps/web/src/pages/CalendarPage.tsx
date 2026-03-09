@@ -844,10 +844,10 @@ export function CalendarPage() {
   }, [currentDate, view, weekStartsOn, weekMode, monthMode]);
 
   return (
-    <div className="flex h-full">
-      <div className="flex-1 flex flex-col">
+    <div className="flex h-full overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* Navigation header - 2-row grid layout */}
-        <div className="grid grid-cols-[auto_1fr] grid-rows-[auto_auto] gap-x-4 gap-y-0 border-b border-border px-4 pt-0.5 pb-2">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] grid-rows-[auto_auto] gap-x-4 gap-y-0 border-b border-border px-4 pt-0.5 pb-2 overflow-hidden max-w-full">
           {/* Row 1, Left: Weather */}
           <div className="flex items-center gap-[clamp(0.5rem,1vw,1rem)]">
             {/* Offline indicator */}
@@ -995,7 +995,7 @@ export function CalendarPage() {
         </div>
 
         {/* Calendar view */}
-        <div className="flex-1 relative overflow-hidden">
+        <div className="flex-1 min-h-0 relative overflow-hidden">
           <CalendarView
             events={events}
             onSelectEvent={handleSelectEvent}

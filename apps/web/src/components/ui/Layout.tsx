@@ -31,6 +31,7 @@ import {
   Cpu,
   Kanban,
   UserPlus,
+  HelpCircle,
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { resolveLucideIcon as sharedResolveLucideIcon, isCustomIcon } from "../../lib/icon-utils";
@@ -46,6 +47,7 @@ import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import { useScreensaverStore } from "../../stores/screensaver";
 import { useBlockNavStore, type NavigableBlock } from "../../stores/block-nav";
 import { cn } from "../../lib/utils";
+import { SidebarHelpOverlay, type HelpItem } from "../SidebarHelpOverlay";
 import { useDemoMode } from "../../contexts/DemoContext";
 
 interface LayoutProps {
@@ -95,11 +97,13 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
   const isKioskPath = window.location.pathname.startsWith("/kiosk/");
   const setScreensaverActive = useScreensaverStore((state) => state.setActive);
   const screensaverEnabled = useScreensaverStore((state) => state.enabled);
+  const setScreensaverEnabled = useScreensaverStore((state) => state.setEnabled);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isMediaMenuOpen, setIsMediaMenuOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarFeatures = useSidebarStore((s) => s.features);
@@ -435,6 +439,61 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
     });
   }, [mediaItems, kioskEnabledFeatures, spotifyEnabled, spotifyPinned, iptvEnabled, iptvPinned]);
 
+  // Build help overlay items dynamically based on what's currently visible
+  const helpNavItems = useMemo((): HelpItem[] => {
+    const descriptions: Record<string, string> = {
+      "Calendar": "Events and schedules",
+      "Tasks": "To-do items",
+      "Routines": "Daily routines",
+      "Dashboard": "HA dashboard",
+      "Card View": "Card-based layout",
+      "Photos": "Photo albums",
+      "Cameras": "Live camera feeds",
+      "Multi-View": "Multi-camera layout",
+      "Home Assistant": "Smart home controls",
+      "Matter": "Matter devices",
+      "Map": "Location map",
+      "Kitchen": "Recipes and cooking",
+      "Chat": "AI assistant",
+      "Family": "Family profiles",
+      "reMarkable": "reMarkable tablet",
+      "Admin": "Administration",
+    };
+    const items: HelpItem[] = pinnedItems.map((item) => ({
+      icon: item.icon,
+      label: item.label,
+      description: descriptions[item.label] || "Custom screen",
+    }));
+    if (showMedia) {
+      items.push({ icon: Play, label: "Media", description: "Spotify and Live TV" });
+    }
+    return items;
+  }, [pinnedItems, showMedia]);
+
+  const helpControlItems = useMemo((): HelpItem[] => {
+    const items: HelpItem[] = [];
+    if (screensaverEnabled && kioskControls?.screensaver !== false) {
+      items.push({ icon: Moon, label: "Screensaver", description: "Start screensaver" });
+    }
+    if (kioskControls?.screensaver !== false) {
+      items.push({ icon: Moon, label: "Disable Screensaver", description: "Toggle auto-screensaver" });
+    }
+    if (kioskControls?.fullscreen !== false) {
+      items.push({ icon: Maximize, label: "Fullscreen", description: "Toggle fullscreen" });
+    }
+    if (kioskControls?.reload !== false) {
+      items.push({ icon: RefreshCw, label: "Reconnect", description: "Reconnect services" });
+    }
+    if (kioskControls?.join === true) {
+      items.push({ icon: UserPlus, label: "Join", description: "Show QR code" });
+    }
+    if (isAuthenticated && !isKioskPath && kioskControls?.settings !== false) {
+      items.push({ icon: Settings, label: "Settings", description: "App settings" });
+    }
+    items.push({ icon: HelpCircle, label: "Help", description: "This guide" });
+    return items;
+  }, [screensaverEnabled, kioskControls, isAuthenticated, isKioskPath]);
+
   // Click outside handler for More menu
   useEffect(() => {
     if (!isMoreMenuOpen) return;
@@ -542,7 +601,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
   }, []);
 
   return (
-    <div className={cn("flex h-screen bg-background", isDemo ? "pt-10" : "", className)}>
+    <div className={cn("flex h-screen max-w-full overflow-hidden bg-background", isDemo ? "pt-10" : "", className)}>
       {/* Demo Banner */}
       {isDemo && (
         <div className="fixed top-0 inset-x-0 z-[60] flex items-center justify-center gap-4 bg-primary px-4 py-2 text-primary-foreground text-sm">
@@ -577,7 +636,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
       {/* Sidebar */}
       {!hideNav && <aside
         className={cn(
-          "fixed lg:relative z-50 lg:z-auto h-full flex w-16 flex-col items-center border-r border-border bg-card py-4 transform transition-transform duration-500 ease-in-out",
+          "fixed lg:relative z-50 lg:z-auto h-full flex w-16 shrink-0 flex-col items-center border-r border-border bg-card py-4 transform transition-transform duration-500 ease-in-out",
           hideToolbarForBurnIn
             ? "-translate-x-full"
             : isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
@@ -718,6 +777,27 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
               <Moon className="h-5 w-5" />
             </button>
           )}
+          {/* Disable/enable screensaver toggle — always shows moon with slash;
+              highlighted when screensaver is disabled (i.e. "disable screensaver" is active) */}
+          {kioskControls?.screensaver !== false && (
+            <button
+              onClick={() => {
+                const next = !screensaverEnabled;
+                setScreensaverEnabled(next);
+                if (!next) setScreensaverActive(false);
+              }}
+              className={cn(
+                "relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+                !screensaverEnabled
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              )}
+              title={screensaverEnabled ? "Disable screensaver" : "Screensaver disabled — click to enable"}
+            >
+              <Moon className="h-5 w-5" />
+              <div className="absolute h-6 w-0.5 bg-current rotate-45 rounded-full" />
+            </button>
+          )}
           {/* Fullscreen toggle */}
           {kioskControls?.fullscreen !== false && (
             <button
@@ -785,12 +865,27 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
               <Settings className="h-5 w-5" />
             </NavLink>
           )}
+          {/* Help button — always at the very bottom */}
+          <button
+            onClick={() => setIsHelpOpen(true)}
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            title="Help — what do these icons mean?"
+          >
+            <HelpCircle className="h-5 w-5" />
+          </button>
         </div>
       </aside>}
 
+      <SidebarHelpOverlay
+        visible={isHelpOpen}
+        onDismiss={() => setIsHelpOpen(false)}
+        navItems={helpNavItems}
+        controlItems={helpControlItems}
+      />
+
       {/* Media Submenu - appears to the right of sidebar */}
       {!hideNav && !hideToolbarForBurnIn && isMediaMenuOpen && showMedia && (
-        <aside className="fixed lg:relative z-40 lg:z-auto h-full flex w-16 flex-col items-center border-r border-border bg-card/95 backdrop-blur-sm py-4 left-16 lg:left-auto">
+        <aside className="fixed lg:relative z-40 lg:z-auto h-full flex w-16 shrink-0 flex-col items-center border-r border-border bg-card/95 backdrop-blur-sm py-4 left-16 lg:left-auto">
           <div className="flex flex-col items-center gap-2 mt-[72px]">
             {filteredMediaItems.map((item) => (
               <NavLink
@@ -863,7 +958,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
       )}
 
       {/* Main content */}
-      <main className="relative flex-1 overflow-auto pt-16 lg:pt-0">
+      <main className="relative flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden pt-16 lg:pt-0">
         <Suspense fallback={null}>
           <Outlet />
         </Suspense>

@@ -39,6 +39,7 @@ interface CalendarState {
   setWeekStartsOn: (day: WeekStartDay) => void;
   setFamilyName: (name: string) => void;
   setHomeAddress: (address: string) => void;
+  setTimeFormat: (format: TimeFormat) => void;
   cycleTimeFormat: () => void;
   setDayStartHour: (hour: number) => void;
   setDayEndHour: (hour: number) => void;
@@ -100,6 +101,8 @@ export const useCalendarStore = create<CalendarState>()(
   setFamilyName: (name) => set({ familyName: name }),
 
   setHomeAddress: (address) => set({ homeAddress: address }),
+
+  setTimeFormat: (format) => set({ timeFormat: format }),
 
   cycleTimeFormat: () => {
     const { timeFormat } = get();

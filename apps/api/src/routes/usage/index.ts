@@ -5,6 +5,7 @@ import {
   systemSettings,
 } from "@openframe/database/schema";
 import { eq, and, gt, sql, isNull } from "drizzle-orm";
+import { timingSafeEqual } from "crypto";
 
 export const usageRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/v1/usage/ai-tokens?since=<ISO timestamp>
@@ -25,12 +26,17 @@ export const usageRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      // Verify provisioning secret
+      // Verify provisioning secret (timing-safe)
       const secret = request.headers["x-provisioning-secret"];
       if (
         !fastify.provisioningSecret ||
         !secret ||
-        secret !== fastify.provisioningSecret
+        typeof secret !== "string" ||
+        secret.length !== fastify.provisioningSecret.length ||
+        !timingSafeEqual(
+          Buffer.from(secret),
+          Buffer.from(fastify.provisioningSecret)
+        )
       ) {
         return reply.forbidden("Invalid provisioning secret");
       }
@@ -104,12 +110,17 @@ export const usageRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      // Verify provisioning secret
+      // Verify provisioning secret (timing-safe)
       const secret = request.headers["x-provisioning-secret"];
       if (
         !fastify.provisioningSecret ||
         !secret ||
-        secret !== fastify.provisioningSecret
+        typeof secret !== "string" ||
+        secret.length !== fastify.provisioningSecret.length ||
+        !timingSafeEqual(
+          Buffer.from(secret),
+          Buffer.from(fastify.provisioningSecret)
+        )
       ) {
         return reply.forbidden("Invalid provisioning secret");
       }

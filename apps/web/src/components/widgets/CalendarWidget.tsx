@@ -131,7 +131,7 @@ export function CalendarWidget({ config, style, isBuilder }: CalendarWidgetProps
       });
     }
 
-    return filtered.slice(0, maxItems);
+    return maxItems > 0 ? filtered.slice(0, maxItems) : filtered;
   }, [events, maxItems, showUpcomingOnly, hideBlankEvents, hideDuplicates]);
 
   const { preset, isCustom, customValue } = getFontSizeConfig(style);

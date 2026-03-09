@@ -34,10 +34,12 @@ export function HACameraFeed({
   const imgRef = useRef<HTMLImageElement>(null);
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval>>();
   const forceReconnectRef = useRef<ReturnType<typeof setInterval>>();
+  const streamTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const { accessToken, apiKey } = useAuthStore();
   const authToken = accessToken || apiKey;
 
   const FORCE_RECONNECT_MS = 15 * 60 * 1000;
+  const STREAM_LOAD_TIMEOUT_MS = 10_000; // Fall back to snapshots if stream doesn't load
 
   // Get the appropriate URL based on mode
   const getImageUrl = () => {
@@ -66,6 +68,29 @@ export function HACameraFeed({
       }
     };
   }, [camera.entityId, useStream, authToken, refreshInterval]);
+
+  // Stream load timeout — if MJPEG stream doesn't produce an image frame
+  // within the timeout (e.g. Nanit cameras return 0 bytes), fall back to snapshots
+  useEffect(() => {
+    if (streamTimeoutRef.current) {
+      clearTimeout(streamTimeoutRef.current);
+    }
+
+    if (useStream && isLoading) {
+      streamTimeoutRef.current = setTimeout(() => {
+        console.log(`[HACameraFeed] Stream load timeout for ${camera.entityId}, falling back to snapshots`);
+        setUseStream(false);
+        setIsLoading(true);
+        setHasError(false);
+      }, STREAM_LOAD_TIMEOUT_MS);
+    }
+
+    return () => {
+      if (streamTimeoutRef.current) {
+        clearTimeout(streamTimeoutRef.current);
+      }
+    };
+  }, [useStream, isLoading, camera.entityId]);
 
   // 15-minute force reconnect
   useEffect(() => {

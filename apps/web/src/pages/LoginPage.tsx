@@ -27,7 +27,21 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (!isAuthenticated) return;
+
+    // On mobile, redirect to companion mode if available
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && window.innerWidth < 768;
+    if (isMobile && returnTo === "/dashboard") {
+      api.getCompanionAccessMe().then((ctx) => {
+        if (ctx.isOwner || ctx.permissions) {
+          navigate("/companion", { replace: true });
+        } else {
+          navigate(returnTo);
+        }
+      }).catch(() => {
+        navigate(returnTo);
+      });
+    } else {
       navigate(returnTo);
     }
   }, [isAuthenticated, navigate, returnTo]);

@@ -353,7 +353,7 @@ class ApiClient {
 
   async updateCalendar(
     id: string,
-    data: Partial<Pick<Calendar, "color" | "isVisible" | "syncEnabled" | "isPrimary" | "isFavorite" | "showOnDashboard" | "kioskEnabled" | "name" | "displayName">> & { visibility?: Partial<Calendar["visibility"]> }
+    data: Partial<Pick<Calendar, "color" | "isVisible" | "syncEnabled" | "syncInterval" | "isPrimary" | "isFavorite" | "showOnDashboard" | "kioskEnabled" | "name" | "displayName">> & { visibility?: Partial<Calendar["visibility"]> }
   ): Promise<Calendar> {
     return this.fetch<Calendar>(`/calendars/${id}`, {
       method: "PATCH",
@@ -3432,6 +3432,37 @@ class ApiClient {
     await this.fetch(`/companion/data/tasks/${id}`, { method: "DELETE" });
   }
 
+  async getCompanionAlbums(): Promise<PhotoAlbum[]> {
+    return this.fetch<PhotoAlbum[]>("/companion/data/albums");
+  }
+
+  async getCompanionAlbumPhotos(albumId: string): Promise<Photo[]> {
+    return this.fetch<Photo[]>(`/companion/data/albums/${albumId}/photos`);
+  }
+
+  async uploadCompanionPhoto(albumId: string, file: File): Promise<{ id: string }> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const { accessToken, apiKey } = useAuthStore.getState();
+    const headers: HeadersInit = {};
+    if (apiKey) {
+      headers["x-api-key"] = apiKey;
+    } else if (accessToken) {
+      headers["Authorization"] = `Bearer ${accessToken}`;
+    }
+    const response = await fetch(`${API_BASE}/companion/data/albums/${albumId}/photos`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || "Upload failed");
+    }
+    const result = await response.json();
+    return result.data ?? result;
+  }
+
   // Cloud
   async getCloudStatus(): Promise<CloudStatus> {
     return this.fetch<CloudStatus>("/cloud/status");
@@ -3800,6 +3831,48 @@ class ApiClient {
     const res = await this.fetch<{ data: { status: "none" | "pending" | "approved" | "rejected" | "has_access" | "is_owner" } }>(`/join-requests/check/${kioskToken}?email=${encodeURIComponent(email)}`);
     return res.data;
   }
+
+  // ============ Companion Invites ============
+
+  async createCompanionInvite(label?: string): Promise<CompanionInvite> {
+    const res = await this.fetch<{ data: CompanionInvite }>("/companion-invites", {
+      method: "POST",
+      body: JSON.stringify({ label }),
+    });
+    return res.data;
+  }
+
+  async getCompanionInvites(): Promise<CompanionInvite[]> {
+    const res = await this.fetch<{ data: CompanionInvite[] }>("/companion-invites");
+    return res.data;
+  }
+
+  async deleteCompanionInvite(id: string): Promise<void> {
+    await this.fetch(`/companion-invites/${id}`, { method: "DELETE" });
+  }
+
+  async getCompanionInviteByToken(token: string): Promise<{ ownerName: string | null; label: string | null; expiresAt: string }> {
+    const res = await this.fetch<{ data: { ownerName: string | null; label: string | null; expiresAt: string } }>(`/companion-invites/token/${token}`);
+    return res.data;
+  }
+
+  async acceptCompanionInvite(token: string, data: { email: string; name?: string; password: string }): Promise<{
+    user: { id: string; email: string; name: string | null; role: string };
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+  }> {
+    const res = await this.fetch<{ data: {
+      user: { id: string; email: string; name: string | null; role: string };
+      accessToken: string;
+      refreshToken: string;
+      expiresIn: number;
+    } }>(`/companion-invites/token/${token}/accept`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return res.data;
+  }
 }
 
 // Family Profile types
@@ -3936,6 +4009,7 @@ export interface KioskSettings {
     join?: boolean;
   };
   externalUrl?: string; // Base URL for QR codes (e.g. https://openframe.danielson.cloud)
+  uploadPin?: string;
 }
 
 export interface JoinRequest {
@@ -3949,6 +4023,17 @@ export interface JoinRequest {
   status: "pending" | "approved" | "rejected";
   message: string | null;
   resolvedAt: string | null;
+  createdAt: string;
+}
+
+export interface CompanionInvite {
+  id: string;
+  ownerId: string;
+  token: string;
+  label: string | null;
+  expiresAt: string;
+  acceptedAt: string | null;
+  acceptedBy: string | null;
   createdAt: string;
 }
 
@@ -4430,6 +4515,7 @@ export interface CompanionPermissions {
   accessRecipes: boolean;
   allowedCalendarIds: string[] | null;
   allowedTaskListIds: string[] | null;
+  allowedAlbumIds: string[] | null;
 }
 
 export interface CompanionContext {

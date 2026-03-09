@@ -142,7 +142,7 @@ export function JoinPage() {
     },
   };
 
-  const config = configs[status] || configs.error;
+  const config = (configs[status] ?? configs.error)!;
   const Icon = config.icon;
 
   return (

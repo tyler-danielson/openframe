@@ -23,7 +23,7 @@ export function CompanionPhotosPage() {
 
   const { data: albums, isLoading: albumsLoading } = useQuery({
     queryKey: ["companion-albums"],
-    queryFn: () => api.getAlbums(),
+    queryFn: () => api.getCompanionAlbums(),
     staleTime: 120_000,
   });
 

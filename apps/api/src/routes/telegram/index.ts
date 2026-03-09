@@ -11,6 +11,7 @@
 
 import type { FastifyPluginAsync } from "fastify";
 import { eq } from "drizzle-orm";
+import { timingSafeEqual } from "crypto";
 import { telegramConfig, telegramChats } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { TelegramService, type TelegramUpdate } from "../../services/telegram.js";
@@ -358,9 +359,19 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(404).send({ error: "Not found" });
       }
 
-      // Verify secret token if configured
-      if (config.webhookSecret && secretToken !== config.webhookSecret) {
-        return reply.code(401).send({ error: "Unauthorized" });
+      // Verify secret token if configured (timing-safe)
+      if (config.webhookSecret) {
+        if (
+          !secretToken ||
+          typeof secretToken !== "string" ||
+          secretToken.length !== config.webhookSecret.length ||
+          !timingSafeEqual(
+            Buffer.from(secretToken),
+            Buffer.from(config.webhookSecret)
+          )
+        ) {
+          return reply.code(401).send({ error: "Unauthorized" });
+        }
       }
 
       // Process update asynchronously

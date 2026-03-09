@@ -70,6 +70,7 @@ export const companionAccessRoutes: FastifyPluginAsync = async (fastify) => {
             accessRecipes: access.accessRecipes,
             allowedCalendarIds: access.allowedCalendarIds,
             allowedTaskListIds: access.allowedTaskListIds,
+            allowedAlbumIds: access.allowedAlbumIds,
           },
         },
       };
@@ -112,6 +113,7 @@ export const companionAccessRoutes: FastifyPluginAsync = async (fastify) => {
           accessRecipes: companionAccess.accessRecipes,
           allowedCalendarIds: companionAccess.allowedCalendarIds,
           allowedTaskListIds: companionAccess.allowedTaskListIds,
+          allowedAlbumIds: companionAccess.allowedAlbumIds,
           createdAt: companionAccess.createdAt,
         })
         .from(companionAccess)
@@ -138,6 +140,7 @@ export const companionAccessRoutes: FastifyPluginAsync = async (fastify) => {
           accessRecipes: row.accessRecipes,
           allowedCalendarIds: row.allowedCalendarIds,
           allowedTaskListIds: row.allowedTaskListIds,
+          allowedAlbumIds: row.allowedAlbumIds,
         },
       }));
 
@@ -360,6 +363,7 @@ export const companionAccessRoutes: FastifyPluginAsync = async (fastify) => {
       if (body.accessRecipes !== undefined) updates.accessRecipes = body.accessRecipes;
       if (body.allowedCalendarIds !== undefined) updates.allowedCalendarIds = body.allowedCalendarIds;
       if (body.allowedTaskListIds !== undefined) updates.allowedTaskListIds = body.allowedTaskListIds;
+      if (body.allowedAlbumIds !== undefined) updates.allowedAlbumIds = body.allowedAlbumIds;
 
       const [updated] = await fastify.db
         .update(companionAccess)

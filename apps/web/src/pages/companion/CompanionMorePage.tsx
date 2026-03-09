@@ -113,8 +113,8 @@ export function CompanionMorePage() {
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="font-medium text-foreground truncate">{user?.name || "User"}</div>
-            <div className="text-xs text-muted-foreground truncate">{user?.email || ""}</div>
+            <div className="text-base font-medium text-foreground truncate">{user?.name || "User"}</div>
+            <div className="text-sm text-muted-foreground truncate">{user?.email || ""}</div>
           </div>
         </div>
       </Card>
@@ -122,7 +122,7 @@ export function CompanionMorePage() {
       {/* Menu groups */}
       {menuGroups.map((group) => (
         <div key={group.label}>
-          <h3 className="text-xs font-semibold text-primary uppercase tracking-wide px-1 mb-2">
+          <h3 className="text-sm font-semibold text-primary uppercase tracking-wide px-1 mb-2">
             {group.label}
           </h3>
           <Card className="divide-y divide-border">
@@ -132,18 +132,18 @@ export function CompanionMorePage() {
                 <button
                   key={item.path}
                   onClick={() => navigate(item.path)}
-                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-primary/5 transition-colors text-left first:rounded-t-xl last:rounded-b-xl min-h-[44px]"
+                  className="w-full flex items-center gap-3 px-4 py-4 hover:bg-primary/5 transition-colors text-left first:rounded-t-xl last:rounded-b-xl min-h-[52px]"
                 >
-                  <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                    <Icon className="h-4.5 w-4.5 text-primary" />
+                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <Icon className="h-5 w-5 text-primary" />
                   </div>
-                  <span className="flex-1 text-sm font-medium text-foreground">{item.label}</span>
+                  <span className="flex-1 text-base font-medium text-foreground">{item.label}</span>
                   {item.path === "/companion/more/join-requests" && joinRequestCount?.pending ? (
-                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground mr-1">
+                    <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground mr-1">
                       {joinRequestCount.pending}
                     </span>
                   ) : null}
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
                 </button>
               );
             })}
@@ -154,9 +154,9 @@ export function CompanionMorePage() {
       {/* Logout */}
       <button
         onClick={handleLogout}
-        className="w-full flex items-center justify-center gap-2 h-12 rounded-xl border border-destructive/30 text-destructive font-medium text-sm hover:bg-destructive/5 transition-colors"
+        className="w-full flex items-center justify-center gap-2 h-14 rounded-xl border border-destructive/30 text-destructive font-medium text-base hover:bg-destructive/5 transition-colors"
       >
-        <LogOut className="h-4 w-4" />
+        <LogOut className="h-5 w-5" />
         Sign Out
       </button>
     </div>

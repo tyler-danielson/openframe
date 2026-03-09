@@ -44,7 +44,7 @@ function CompanionLayoutInner() {
       </main>
 
       {/* Bottom Tab Bar */}
-      <nav className="shrink-0 bg-card border-t border-border h-16 flex items-stretch safe-area-bottom">
+      <nav className="shrink-0 bg-card border-t border-border h-20 flex items-stretch safe-area-bottom">
         {tabs.map((tab) => {
           const active = isTabActive(tab);
           const Icon = tab.icon;
@@ -52,14 +52,14 @@ function CompanionLayoutInner() {
             <button
               key={tab.path}
               onClick={() => navigate(tab.path)}
-              className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors min-h-[44px] ${
+              className={`flex-1 flex flex-col items-center justify-center gap-1 transition-colors min-h-[48px] ${
                 active
                   ? "text-primary"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <Icon className="h-5 w-5" />
-              <span className="text-[10px] font-medium">{tab.label}</span>
+              <Icon className="h-6 w-6" />
+              <span className="text-xs font-medium">{tab.label}</span>
             </button>
           );
         })}

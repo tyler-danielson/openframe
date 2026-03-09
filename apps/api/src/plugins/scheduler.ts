@@ -85,11 +85,13 @@ const PROFILE_PLANNER_CHECK_INTERVAL_MS = 60 * 1000;
 // Matter device reachability check interval (2 minutes)
 const MATTER_REACHABILITY_INTERVAL_MS = 2 * 60 * 1000;
 
-// Calendar sync interval (2 minutes)
-const CALENDAR_SYNC_INTERVAL_MS = 2 * 60 * 1000;
+// Calendar sync check interval (runs every 60s, respects per-calendar intervals)
+const CALENDAR_SYNC_CHECK_INTERVAL_MS = 60 * 1000;
 
-// ICS feed sync interval (15 minutes - full re-fetch each time)
-const ICS_SYNC_INTERVAL_MS = 15 * 60 * 1000;
+// Default sync intervals (used when calendar.syncInterval is null)
+const DEFAULT_CALENDAR_SYNC_MINUTES = 2; // Google/Microsoft
+const DEFAULT_ICS_SYNC_MINUTES = 15; // ICS feeds
+const DEFAULT_HA_SYNC_MINUTES = 15; // Home Assistant calendars
 
 // Determine the appropriate polling interval based on game states
 function determineSportsPollingInterval(games: SportsGame[]): number {
@@ -145,7 +147,6 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
   let remarkableAgendaInterval: NodeJS.Timeout | null = null;
   let profilePlannerInterval: NodeJS.Timeout | null = null;
   let calendarSyncInterval: NodeJS.Timeout | null = null;
-  let icsSyncInterval: NodeJS.Timeout | null = null;
   let matterReachabilityInterval: NodeJS.Timeout | null = null;
   let currentSportsPollingInterval = SPORTS_POLL_IDLE;
   // Track which users have already pushed agenda today
@@ -448,11 +449,21 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     );
   };
 
-  // Start calendar sync scheduler
+  // Unified calendar sync scheduler — checks per-calendar intervals
   const startCalendarSyncScheduler = () => {
-    const syncAllCalendars = async () => {
+    const isDueForSync = (calendar: { syncInterval: number | null; lastSyncAt: Date | null; provider: string }): boolean => {
+      if (!calendar.lastSyncAt) return true; // Never synced
+      const defaultMinutes =
+        calendar.provider === "ics" ? DEFAULT_ICS_SYNC_MINUTES :
+        calendar.provider === "homeassistant" ? DEFAULT_HA_SYNC_MINUTES :
+        DEFAULT_CALENDAR_SYNC_MINUTES;
+      const intervalMs = (calendar.syncInterval ?? defaultMinutes) * 60 * 1000;
+      return Date.now() - new Date(calendar.lastSyncAt).getTime() >= intervalMs;
+    };
+
+    const syncDueCalendars = async () => {
       try {
-        // Get all users with Google OAuth tokens
+        // --- Google calendars ---
         const googleTokens = await fastify.db
           .select()
           .from(oauthTokens)
@@ -461,17 +472,20 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
         const googleCalScopes = getScopesForFeature("google", "calendar");
         for (const token of googleTokens) {
           if (!hasRequiredScopes(token.scope, googleCalScopes)) continue;
+          // Check if any calendar for this token is due
+          const tokenCalendars = await fastify.db
+            .select({ syncInterval: calendars.syncInterval, lastSyncAt: calendars.lastSyncAt, provider: calendars.provider })
+            .from(calendars)
+            .where(and(eq(calendars.userId, token.userId), eq(calendars.provider, "google"), eq(calendars.syncEnabled, true)));
+          if (!tokenCalendars.some(isDueForSync)) continue;
           try {
             await syncGoogleCalendars(fastify.db, token.userId, token);
           } catch (err) {
-            fastify.log.error(
-              { err, userId: token.userId },
-              "Failed to sync Google calendars"
-            );
+            fastify.log.error({ err, userId: token.userId }, "Failed to sync Google calendars");
           }
         }
 
-        // Get all users with Microsoft OAuth tokens
+        // --- Microsoft calendars ---
         const microsoftTokens = await fastify.db
           .select()
           .from(oauthTokens)
@@ -480,13 +494,61 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
         const msCalScopes = getScopesForFeature("microsoft", "calendar");
         for (const token of microsoftTokens) {
           if (!hasRequiredScopes(token.scope, msCalScopes)) continue;
+          const tokenCalendars = await fastify.db
+            .select({ syncInterval: calendars.syncInterval, lastSyncAt: calendars.lastSyncAt, provider: calendars.provider })
+            .from(calendars)
+            .where(and(eq(calendars.userId, token.userId), eq(calendars.provider, "microsoft"), eq(calendars.syncEnabled, true)));
+          if (!tokenCalendars.some(isDueForSync)) continue;
           try {
             await syncMicrosoftCalendars(fastify.db, token.userId, token);
           } catch (err) {
-            fastify.log.error(
-              { err, userId: token.userId },
-              "Failed to sync Microsoft calendars"
-            );
+            fastify.log.error({ err, userId: token.userId }, "Failed to sync Microsoft calendars");
+          }
+        }
+
+        // --- ICS calendars (synced individually) ---
+        const icsCalendars = await fastify.db
+          .select()
+          .from(calendars)
+          .where(and(eq(calendars.provider, "ics"), eq(calendars.syncEnabled, true), isNotNull(calendars.sourceUrl)));
+
+        for (const calendar of icsCalendars) {
+          if (!isDueForSync(calendar)) continue;
+          try {
+            await syncICSCalendar(fastify.db, calendar.id, calendar.sourceUrl!);
+            await fastify.db.update(calendars).set({ lastSyncAt: new Date() }).where(eq(calendars.id, calendar.id));
+          } catch (err) {
+            fastify.log.error({ err, calendarId: calendar.id }, "Failed to sync ICS feed");
+          }
+        }
+
+        // --- Home Assistant calendars (synced individually) ---
+        const haCalendars = await fastify.db
+          .select({ id: calendars.id, userId: calendars.userId, externalId: calendars.externalId, syncInterval: calendars.syncInterval, lastSyncAt: calendars.lastSyncAt, provider: calendars.provider })
+          .from(calendars)
+          .where(and(eq(calendars.provider, "homeassistant"), eq(calendars.syncEnabled, true)));
+
+        // Group by user to reuse HA config
+        const haByUser = new Map<string, typeof haCalendars>();
+        for (const cal of haCalendars) {
+          if (!isDueForSync(cal)) continue;
+          const group = haByUser.get(cal.userId) ?? [];
+          group.push(cal);
+          haByUser.set(cal.userId, group);
+        }
+
+        for (const [userId, cals] of haByUser) {
+          const [config] = await fastify.db.select().from(homeAssistantConfig).where(eq(homeAssistantConfig.userId, userId)).limit(1);
+          if (!config) continue;
+          for (const cal of cals) {
+            try {
+              // Dynamic import to avoid circular deps
+              const { syncHACalendar } = await import("../routes/homeassistant/index.js");
+              await syncHACalendar(fastify.db, config.url, config.accessToken, cal.id, cal.externalId);
+              await fastify.db.update(calendars).set({ lastSyncAt: new Date() }).where(eq(calendars.id, cal.id));
+            } catch (err) {
+              fastify.log.error({ err, calendarId: cal.id }, "Failed to sync HA calendar");
+            }
           }
         }
       } catch (error) {
@@ -497,66 +559,13 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     // Initial sync after startup delay
     setTimeout(async () => {
       fastify.log.info("Running initial calendar sync...");
-      await syncAllCalendars();
+      await syncDueCalendars();
 
-      // Schedule periodic sync
-      calendarSyncInterval = setInterval(async () => {
-        fastify.log.info("Running scheduled calendar sync...");
-        await syncAllCalendars();
-      }, CALENDAR_SYNC_INTERVAL_MS);
+      // Check every 60s which calendars need syncing
+      calendarSyncInterval = setInterval(syncDueCalendars, CALENDAR_SYNC_CHECK_INTERVAL_MS);
 
-      fastify.log.info(
-        `Calendar sync scheduler started (refresh every ${CALENDAR_SYNC_INTERVAL_MS / 1000 / 60} minutes)`
-      );
-    }, STARTUP_DELAY_MS + 10000); // Start 10 seconds after other services
-  };
-
-  // Start ICS feed sync scheduler
-  const startIcsSyncScheduler = () => {
-    const syncAllIcsFeeds = async () => {
-      try {
-        // Get all ICS calendars with sync enabled and a source URL
-        const icsCalendars = await fastify.db
-          .select()
-          .from(calendars)
-          .where(
-            and(
-              eq(calendars.provider, "ics"),
-              eq(calendars.syncEnabled, true),
-              isNotNull(calendars.sourceUrl)
-            )
-          );
-
-        for (const calendar of icsCalendars) {
-          try {
-            await syncICSCalendar(fastify.db, calendar.id, calendar.sourceUrl!);
-          } catch (err) {
-            fastify.log.error(
-              { err, calendarId: calendar.id },
-              "Failed to sync ICS feed"
-            );
-          }
-        }
-      } catch (error) {
-        fastify.log.error({ err: error }, "ICS feed sync scheduler failed");
-      }
-    };
-
-    // Initial sync after startup delay
-    setTimeout(async () => {
-      fastify.log.info("Running initial ICS feed sync...");
-      await syncAllIcsFeeds();
-
-      // Schedule periodic sync
-      icsSyncInterval = setInterval(async () => {
-        fastify.log.info("Running scheduled ICS feed sync...");
-        await syncAllIcsFeeds();
-      }, ICS_SYNC_INTERVAL_MS);
-
-      fastify.log.info(
-        `ICS feed sync scheduler started (refresh every ${ICS_SYNC_INTERVAL_MS / 1000 / 60} minutes)`
-      );
-    }, STARTUP_DELAY_MS + 12000); // Start 12 seconds after other services
+      fastify.log.info("Calendar sync scheduler started (checking every 60s, per-calendar intervals)");
+    }, STARTUP_DELAY_MS + 10000);
   };
 
   // Start reMarkable note polling scheduler
@@ -1270,7 +1279,6 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     startAutomationScheduler();
     startNewsScheduler();
     startCalendarSyncScheduler();
-    startIcsSyncScheduler();
     startRemarkableNoteScheduler();
     startRemarkableAgendaScheduler();
     startProfilePlannerScheduler();
@@ -1308,11 +1316,6 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
       clearInterval(calendarSyncInterval);
       calendarSyncInterval = null;
       fastify.log.info("Calendar sync scheduler stopped");
-    }
-    if (icsSyncInterval) {
-      clearInterval(icsSyncInterval);
-      icsSyncInterval = null;
-      fastify.log.info("ICS feed sync scheduler stopped");
     }
     if (remarkableNoteInterval) {
       clearInterval(remarkableNoteInterval);

@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq } from "drizzle-orm";
-import { calendars, events, tasks, newsArticles, newsFeeds } from "@openframe/database/schema";
+import { eq, and, inArray, gte, lte } from "drizzle-orm";
+import { calendars, events, tasks, taskLists, newsArticles, newsFeeds } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { getSystemSetting } from "../settings/index.js";
 import { generateDailyBriefing, checkBriefingStatus } from "../../services/ai-briefing.js";
@@ -137,20 +137,19 @@ export const briefingRoutes: FastifyPluginAsync = async (fastify) => {
 
       let todayEvents: CalendarEvent[] = [];
       if (calendarIds.length > 0) {
-        const allEvents = await fastify.db
+        const filteredEvents = await fastify.db
           .select()
           .from(events)
-          .where(eq(events.status, "confirmed"));
+          .where(
+            and(
+              inArray(events.calendarId, calendarIds),
+              eq(events.status, "confirmed"),
+              gte(events.startTime, startOfDay),
+              lte(events.startTime, endOfDay)
+            )
+          );
 
-        todayEvents = allEvents
-          .filter((e) => {
-            const startTime = new Date(e.startTime);
-            return (
-              calendarIds.includes(e.calendarId) &&
-              startTime >= startOfDay &&
-              startTime < endOfDay
-            );
-          })
+        todayEvents = filteredEvents
           .map((e) => ({
             ...e,
             attendees: (e.attendees as any) || [],
@@ -158,11 +157,24 @@ export const briefingRoutes: FastifyPluginAsync = async (fastify) => {
           })) as CalendarEvent[];
       }
 
-      // Fetch incomplete tasks
-      const userTasks = (await fastify.db
-        .select()
-        .from(tasks)
-        .where(eq(tasks.status, "needsAction"))) as Task[];
+      // Fetch incomplete tasks (scoped to user's task lists)
+      const userTaskListIds = (await fastify.db
+        .select({ id: taskLists.id })
+        .from(taskLists)
+        .where(eq(taskLists.userId, user.id))
+      ).map(tl => tl.id);
+
+      const userTasks = userTaskListIds.length > 0
+        ? (await fastify.db
+            .select()
+            .from(tasks)
+            .where(
+              and(
+                eq(tasks.status, "needsAction"),
+                inArray(tasks.taskListId, userTaskListIds)
+              )
+            )) as Task[]
+        : [] as Task[];
 
       // Fetch recent headlines
       const userFeeds = await fastify.db

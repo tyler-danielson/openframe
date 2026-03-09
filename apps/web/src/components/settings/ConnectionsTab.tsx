@@ -16,7 +16,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
 import { appUrl } from "../../lib/cloud";
-import { buildOAuthUrl } from "../../utils/oauth-scopes";
+import { buildOAuthUrl, hasFeatureScope } from "../../utils/oauth-scopes";
 import { Button } from "../ui/Button";
 import type { SettingsTab } from "./SettingsSidebar";
 
@@ -507,10 +507,10 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
     const token = useAuthStore.getState().accessToken;
     switch (service.id) {
       case "google":
-        window.location.href = buildOAuthUrl("google", "base", token, appUrl("/settings/connections"));
+        window.location.href = buildOAuthUrl("google", "calendar", token, appUrl("/settings/connections?connected=1"));
         return;
       case "microsoft":
-        window.location.href = buildOAuthUrl("microsoft", "base", token, appUrl("/settings/connections"));
+        window.location.href = buildOAuthUrl("microsoft", "calendar", token, appUrl("/settings/connections?connected=1"));
         return;
       case "spotify":
         window.location.href = api.getSpotifyAuthUrl();
@@ -594,10 +594,13 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
         !Array.from(map.values()).some((r) => r.provider === provider)
       ) {
         const serviceDef = SERVICES.find((s) => s.id === provider)!;
+        const hasCalScopes = hasFeatureScope(user?.grantedScopes, provider, "calendar");
         map.set(`${provider}-pending`, {
           key: `${provider}-pending`,
           provider,
-          label: `${serviceDef.name} (syncing...)`,
+          label: hasCalScopes
+            ? `${serviceDef.name} (syncing...)`
+            : `${serviceDef.name} — calendar access needed`,
           count: 0,
           enabledCount: 0,
           icon: serviceDef.icon,
@@ -611,7 +614,10 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
 
   // Split services into connected vs unconnected (exclude calendar category from static list)
   const connectedServices = SERVICES.filter((s) => s.category !== "calendar" && getServiceStatus(s).connected);
-  const unconnectedServices = SERVICES.filter((s) => !getServiceStatus(s).connected);
+  // Always include Google & Microsoft in the add modal (for reconnect / add account)
+  const unconnectedServices = SERVICES.filter(
+    (s) => !getServiceStatus(s).connected || s.id === "google" || s.id === "microsoft"
+  );
 
   // Group connected non-calendar services by category
   const nonCalendarGroups = CATEGORY_ORDER
@@ -753,6 +759,18 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
                           </div>
                         ) : (
                           <>
+                            {isPending && isOAuth && (
+                              <Button
+                                variant="default"
+                                size="sm"
+                                onClick={() => {
+                                  const service = SERVICES.find((s) => s.id === account.provider);
+                                  if (service) handleConnect(service);
+                                }}
+                              >
+                                Grant Calendar Access
+                              </Button>
+                            )}
                             {!isPending && (
                               <Button
                                 variant="outline"

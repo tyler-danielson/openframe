@@ -9,12 +9,12 @@ interface TasksWidgetProps {
 
 export function TasksWidget({ widget, viewMode = "local" }: TasksWidgetProps) {
   const { config } = widget;
-  const maxItems = (config.maxItems as number) || 10;
+  const maxItems = (config.maxItems as number) ?? 10;
   const title = (config.title as string) || "Tasks";
   const classes = getViewModeClasses(viewMode);
 
   const sampleTasks = ["Review documents", "Send email", "Meeting prep", "Call client", "Update report"];
-  const previewCount = Math.min(4, maxItems);
+  const previewCount = maxItems === 0 ? 4 : Math.min(4, maxItems);
 
   return (
     <div className={`h-full flex flex-col p-2 ${classes.containerBg}`}>

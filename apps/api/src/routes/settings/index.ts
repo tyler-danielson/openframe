@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, or, isNull, inArray } from "drizzle-orm";
 import {
   systemSettings,
   kiosks,
@@ -472,10 +472,20 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Settings"],
       },
     },
-    async () => {
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) return reply.unauthorized("User not found");
+
+      // Only show user's own settings + global defaults (userId IS NULL)
       const settings = await fastify.db
         .select()
         .from(systemSettings)
+        .where(
+          or(
+            eq(systemSettings.userId, user.id),
+            isNull(systemSettings.userId)
+          )
+        )
         .orderBy(systemSettings.category, systemSettings.key);
 
       // Filter out platform-managed settings in hosted mode
@@ -515,13 +525,24 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) return reply.unauthorized("User not found");
       const { category } = request.params;
 
+      // Only show user's own settings + global defaults for this category
       const settings = await fastify.db
         .select()
         .from(systemSettings)
-        .where(eq(systemSettings.category, category));
+        .where(
+          and(
+            eq(systemSettings.category, category),
+            or(
+              eq(systemSettings.userId, user.id),
+              isNull(systemSettings.userId)
+            )
+          )
+        );
 
       // Mask secret values
       const maskedSettings = settings.map((setting) => ({
@@ -564,6 +585,8 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) return reply.unauthorized("User not found");
       const { category, key } = request.params;
       const { value } = request.body;
 
@@ -580,20 +603,21 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
       // Encrypt if it's a secret and has a value
       const storedValue = isSecret && value ? encrypt(value) : value;
 
-      // Check if setting exists
+      // Check if user already has this setting (scoped to their userId)
       const [existing] = await fastify.db
         .select()
         .from(systemSettings)
         .where(
           and(
             eq(systemSettings.category, category),
-            eq(systemSettings.key, key)
+            eq(systemSettings.key, key),
+            eq(systemSettings.userId, user.id)
           )
         )
         .limit(1);
 
       if (existing) {
-        // Update
+        // Update user's own setting
         await fastify.db
           .update(systemSettings)
           .set({
@@ -603,12 +627,13 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
           })
           .where(eq(systemSettings.id, existing.id));
       } else {
-        // Insert
+        // Insert as user-scoped setting
         await fastify.db.insert(systemSettings).values({
           category,
           key,
           value: storedValue,
           isSecret,
+          userId: user.id,
           description: settingDef?.description,
         });
       }
@@ -648,6 +673,8 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) return reply.unauthorized("User not found");
       const { category } = request.params;
       const { settings } = request.body;
 
@@ -672,13 +699,15 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
 
         const storedValue = isSecret && value ? encrypt(value) : value;
 
+        // Check for user's own existing setting
         const [existing] = await fastify.db
           .select()
           .from(systemSettings)
           .where(
             and(
               eq(systemSettings.category, category),
-              eq(systemSettings.key, key)
+              eq(systemSettings.key, key),
+              eq(systemSettings.userId, user.id)
             )
           )
           .limit(1);
@@ -698,6 +727,7 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
             key,
             value: storedValue,
             isSecret,
+            userId: user.id,
             description: settingDef?.description,
           });
         }
@@ -728,15 +758,19 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) return reply.unauthorized("User not found");
       const { category, key } = request.params;
 
+      // Only delete user's own settings, never global defaults
       await fastify.db
         .delete(systemSettings)
         .where(
           and(
             eq(systemSettings.category, category),
-            eq(systemSettings.key, key)
+            eq(systemSettings.key, key),
+            eq(systemSettings.userId, user.id)
           )
         );
 
@@ -834,7 +868,7 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
       const user = await getCurrentUser(request);
       if (!user) return reply.unauthorized("User not found");
 
-      // Get system settings (non-secrets only)
+      // Get system settings (non-secrets only, scoped to user + global)
       const systemSettingsData = await fastify.db
         .select({
           category: systemSettings.category,
@@ -842,7 +876,15 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
           value: systemSettings.value,
         })
         .from(systemSettings)
-        .where(eq(systemSettings.isSecret, false));
+        .where(
+          and(
+            eq(systemSettings.isSecret, false),
+            or(
+              eq(systemSettings.userId, user.id),
+              isNull(systemSettings.userId)
+            )
+          )
+        );
 
       // Get kiosks (exclude token)
       const kiosksData = await fastify.db
@@ -1024,13 +1066,15 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
               continue;
             }
 
+            // Scope to user's own settings
             const [existing] = await fastify.db
               .select()
               .from(systemSettings)
               .where(
                 and(
                   eq(systemSettings.category, setting.category),
-                  eq(systemSettings.key, setting.key)
+                  eq(systemSettings.key, setting.key),
+                  eq(systemSettings.userId, user.id)
                 )
               )
               .limit(1);
@@ -1049,6 +1093,7 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
                 key: setting.key,
                 value: setting.value,
                 isSecret: false,
+                userId: user.id,
                 description: settingDef?.description,
               });
             }

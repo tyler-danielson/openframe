@@ -1,19 +1,24 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Image, Upload, QrCode } from "lucide-react";
 import { api } from "../services/api";
 import { Button } from "../components/ui/Button";
 import { QRUploadModal } from "../components/photos/QRUploadModal";
+import { PinEntryModal } from "../components/photos/PinEntryModal";
 import { PhotoViewerModal } from "../components/photos/PhotoViewerModal";
 import { PhotoLayouts, LayoutSelector, type LayoutType } from "../components/photos/PhotoLayouts";
+import { useKiosk } from "../contexts/KioskContext";
 import { cn } from "../lib/utils";
 import type { PhotoAlbum, Photo } from "@openframe/shared";
 
 export function PhotosPage() {
   const queryClient = useQueryClient();
+  const { settings: kioskSettings, token: kioskToken } = useKiosk();
   const [selectedAlbum, setSelectedAlbum] = useState<PhotoAlbum | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinVerified, setPinVerified] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [layout, setLayout] = useState<LayoutType>(() => {
     const saved = localStorage.getItem("photoLayout");
@@ -30,6 +35,13 @@ export function PhotosPage() {
     queryKey: ["albums"],
     queryFn: () => api.getAlbums(),
   });
+
+  // Auto-select first album if none selected (e.g. kiosk mode)
+  useEffect(() => {
+    if (!selectedAlbum && albums.length > 0) {
+      setSelectedAlbum(albums[0] ?? null);
+    }
+  }, [albums, selectedAlbum]);
 
   // Fetch photos for selected album
   const { data: photos = [] } = useQuery({
@@ -56,6 +68,22 @@ export function PhotosPage() {
     if (name) {
       createAlbum.mutate(name);
     }
+  };
+
+  const uploadPin = kioskToken ? kioskSettings?.uploadPin : undefined;
+
+  const handleMobileUpload = () => {
+    if (uploadPin && !pinVerified) {
+      setShowPinModal(true);
+    } else {
+      setShowQRModal(true);
+    }
+  };
+
+  const handlePinSuccess = () => {
+    setPinVerified(true);
+    setShowPinModal(false);
+    setShowQRModal(true);
   };
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -129,7 +157,7 @@ export function PhotosPage() {
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
-                    onClick={() => setShowQRModal(true)}
+                    onClick={handleMobileUpload}
                     title="Upload from mobile device"
                   >
                     <QrCode className="mr-2 h-4 w-4" />
@@ -190,6 +218,16 @@ export function PhotosPage() {
           </div>
         )}
       </div>
+
+      {/* PIN Entry Modal */}
+      {uploadPin && (
+        <PinEntryModal
+          isOpen={showPinModal}
+          onClose={() => setShowPinModal(false)}
+          onSuccess={handlePinSuccess}
+          correctPin={uploadPin}
+        />
+      )}
 
       {/* QR Code Upload Modal */}
       {selectedAlbum && (

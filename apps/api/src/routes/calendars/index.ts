@@ -163,6 +163,7 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
             color: { type: "string" },
             isVisible: { type: "boolean" },
             syncEnabled: { type: "boolean" },
+            syncInterval: { type: ["integer", "null"], minimum: 1, maximum: 1440 },
             isPrimary: { type: "boolean" },
             isFavorite: { type: "boolean" },
             showOnDashboard: { type: "boolean" },
@@ -193,6 +194,7 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
         color: string;
         isVisible: boolean;
         syncEnabled: boolean;
+        syncInterval: number | null;
         isPrimary: boolean;
         isFavorite: boolean;
         showOnDashboard: boolean;

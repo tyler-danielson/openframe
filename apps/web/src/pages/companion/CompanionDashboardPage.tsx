@@ -121,7 +121,7 @@ export function CompanionDashboardPage() {
         <h1 className="text-2xl font-bold text-foreground">
           {getGreeting()}, {firstName}
         </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">{formatDate(now)}</p>
+        <p className="text-base text-muted-foreground mt-0.5">{formatDate(now)}</p>
       </div>
 
       {/* Weather Card */}
@@ -135,12 +135,12 @@ export function CompanionDashboardPage() {
               <div className="text-2xl font-bold text-foreground">
                 {Math.round(weather.temp || 0)}&deg;
               </div>
-              <div className="text-sm text-muted-foreground capitalize">
+              <div className="text-base text-muted-foreground capitalize">
                 {weather.description || "Unknown"}
               </div>
             </div>
             {weather.temp_max != null && weather.temp_min != null && (
-              <div className="text-right text-sm text-muted-foreground">
+              <div className="text-right text-base text-muted-foreground">
                 <div>H: {Math.round(weather.temp_max)}&deg;</div>
                 <div>L: {Math.round(weather.temp_min)}&deg;</div>
               </div>
@@ -160,7 +160,7 @@ export function CompanionDashboardPage() {
               <Sparkles className="h-5 w-5 text-primary" />
             </div>
             <div className="flex-1 text-left">
-              <div className="text-sm font-medium text-primary">Daily Briefing</div>
+              <div className="text-base font-medium text-primary">Daily Briefing</div>
             </div>
             {briefingExpanded ? (
               <ChevronUp className="h-4 w-4 text-muted-foreground" />
@@ -180,20 +180,20 @@ export function CompanionDashboardPage() {
       {companion.canViewCalendar && <Card className="p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Calendar className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-primary">Today's Events</h2>
+            <Calendar className="h-5 w-5 text-primary" />
+            <h2 className="text-base font-semibold text-primary">Today's Events</h2>
           </div>
           <button
             onClick={() => navigate("/companion/calendar")}
-            className="text-xs text-primary flex items-center gap-0.5"
+            className="text-sm text-primary flex items-center gap-0.5"
           >
-            View all <ChevronRight className="h-3 w-3" />
+            View all <ChevronRight className="h-4 w-4" />
           </button>
         </div>
         {eventsLoading ? (
           <Loader2 className="h-5 w-5 animate-spin text-primary mx-auto" />
         ) : todayEvents.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No events today</p>
+          <p className="text-base text-muted-foreground">No events today</p>
         ) : (
           <div className="space-y-2">
             {todayEvents.map((event: any) => (
@@ -206,11 +206,11 @@ export function CompanionDashboardPage() {
                   style={{ backgroundColor: event.calendarColor || "hsl(var(--primary))" }}
                 />
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-foreground truncate">
+                  <div className="text-base font-medium text-foreground truncate">
                     {event.title}
                   </div>
-                  <div className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
+                  <div className="text-sm text-muted-foreground flex items-center gap-1">
+                    <Clock className="h-3.5 w-3.5" />
                     {formatEventTime(event)}
                   </div>
                 </div>
@@ -224,24 +224,24 @@ export function CompanionDashboardPage() {
       {companion.canViewTasks && <Card className="p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <CheckSquare className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-primary">Tasks</h2>
+            <CheckSquare className="h-5 w-5 text-primary" />
+            <h2 className="text-base font-semibold text-primary">Tasks</h2>
           </div>
           <button
             onClick={() => navigate("/companion/tasks")}
-            className="text-xs text-primary flex items-center gap-0.5"
+            className="text-sm text-primary flex items-center gap-0.5"
           >
-            View all <ChevronRight className="h-3 w-3" />
+            View all <ChevronRight className="h-4 w-4" />
           </button>
         </div>
         {dueTasks.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No tasks due today</p>
+          <p className="text-base text-muted-foreground">No tasks due today</p>
         ) : (
           <div className="space-y-2">
             {dueTasks.map((task: any) => (
-              <div key={task.id} className="flex items-center gap-2 py-1">
-                <div className="h-4 w-4 rounded border border-primary/40 shrink-0" />
-                <span className="text-sm text-foreground truncate">{task.title}</span>
+              <div key={task.id} className="flex items-center gap-3 py-1.5">
+                <div className="h-5 w-5 rounded border border-primary/40 shrink-0" />
+                <span className="text-base text-foreground truncate">{task.title}</span>
               </div>
             ))}
           </div>
@@ -254,18 +254,18 @@ export function CompanionDashboardPage() {
           {companion.canEditCalendar && (
             <button
               onClick={() => navigate("/companion/calendar/event/new")}
-              className="flex-1 flex items-center justify-center gap-2 h-12 rounded-xl bg-primary text-primary-foreground font-medium text-sm"
+              className="flex-1 flex items-center justify-center gap-2 h-14 rounded-xl bg-primary text-primary-foreground font-medium text-base"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="h-5 w-5" />
               New Event
             </button>
           )}
           {companion.canEditTasks && (
             <button
               onClick={() => navigate("/companion/tasks")}
-              className="flex-1 flex items-center justify-center gap-2 h-12 rounded-xl border border-primary/30 text-primary font-medium text-sm"
+              className="flex-1 flex items-center justify-center gap-2 h-14 rounded-xl border border-primary/30 text-primary font-medium text-base"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="h-5 w-5" />
               New Task
             </button>
           )}
@@ -276,8 +276,8 @@ export function CompanionDashboardPage() {
       {companion.canViewNews && headlines && (headlines as any[]).length > 0 && (
         <Card className="p-4">
           <div className="flex items-center gap-2 mb-3">
-            <Newspaper className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-primary">Headlines</h2>
+            <Newspaper className="h-5 w-5 text-primary" />
+            <h2 className="text-base font-semibold text-primary">Headlines</h2>
           </div>
           <div className="space-y-3">
             {(headlines as any[]).slice(0, 5).map((item: any, i: number) => (
@@ -286,7 +286,7 @@ export function CompanionDashboardPage() {
                 href={item.link || item.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block text-sm text-foreground hover:text-primary transition-colors leading-snug"
+                className="block text-base text-foreground hover:text-primary transition-colors leading-snug"
               >
                 {item.title}
               </a>

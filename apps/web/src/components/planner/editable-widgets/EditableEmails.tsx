@@ -5,7 +5,7 @@ import { Mail, Circle } from "lucide-react";
 export function EditableEmails({ widget, onSelect, colors }: EditableWidgetProps) {
   const config = widget.config;
   const title = (config.title as string) || "Email";
-  const maxItems = (config.maxItems as number) || 5;
+  const maxItems = (config.maxItems as number) ?? 5;
   const showSnippet = (config.showSnippet as boolean) || false;
   const showTime = (config.showTime as boolean) !== false;
 
@@ -71,7 +71,7 @@ export function EditableEmails({ widget, onSelect, colors }: EditableWidgetProps
       {/* Show real emails when available */}
       {!isLoading && !error && hasEmails && (
         <>
-          {emails.slice(0, maxItems).map((email) => {
+          {(maxItems > 0 ? emails.slice(0, maxItems) : emails).map((email) => {
             const timeAgo = formatEmailTime(email.receivedAt);
             return (
               <div
@@ -169,7 +169,7 @@ export function EditableEmails({ widget, onSelect, colors }: EditableWidgetProps
       {/* Placeholder mode when not connected */}
       {!isLoading && !error && !hasEmails && (
         <>
-          {sampleEmails.slice(0, maxItems).map((email, i) => (
+          {(maxItems > 0 ? sampleEmails.slice(0, maxItems) : sampleEmails).map((email, i) => (
             <div
               key={i}
               style={{

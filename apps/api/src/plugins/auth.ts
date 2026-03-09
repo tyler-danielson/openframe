@@ -133,7 +133,14 @@ export const authPlugin = fp(
 
         // Relay secret auth (used by cloud proxy)
         if (relaySecret && typeof relaySecret === "string") {
-          if (fastify.relaySecret && relaySecret === fastify.relaySecret) {
+          if (
+          fastify.relaySecret &&
+          relaySecret.length === fastify.relaySecret.length &&
+          timingSafeEqual(
+            Buffer.from(relaySecret),
+            Buffer.from(fastify.relaySecret)
+          )
+        ) {
             // In hosted mode, require x-relay-user-id header to identify the user
             const relayUserId = request.headers["x-relay-user-id"];
             if (fastify.hostedMode) {

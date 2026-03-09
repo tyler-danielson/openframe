@@ -62,7 +62,7 @@ const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; descript
   { id: "ai", label: "AI", icon: <Sparkles className="h-4 w-4" />, description: "Assistant & models", moduleId: "__ai__" },
   { id: "assumptions", label: "Assumptions", icon: <Lightbulb className="h-4 w-4" />, description: "AI behavior rules" },
   { id: "automations", label: "Automations", icon: <Zap className="h-4 w-4" />, description: "Triggers & actions", moduleId: "automations" },
-  { id: "companion", label: "Companion", icon: <Smartphone className="h-4 w-4" />, description: "Mobile app access", moduleId: "companion" },
+  { id: "companion", label: "Companion", icon: <Smartphone className="h-4 w-4" />, description: "Mobile app access" },
   { id: "users", label: "Users", icon: <Users className="h-4 w-4" />, description: "Members & invites", selfHostedOnly: true },
   { id: "cloud", label: "Cloud", icon: <Cloud className="h-4 w-4" />, description: "Remote management", selfHostedOnly: true },
   { id: "system", label: "System", icon: <Settings className="h-4 w-4" />, description: "Backup & advanced", selfHostedOnly: true },
@@ -1142,6 +1142,11 @@ function CompanionSettings() {
     queryFn: () => api.getTaskLists(),
   });
 
+  const { data: albums = [] } = useQuery({
+    queryKey: ["photo-albums"],
+    queryFn: () => api.getAlbums(),
+  });
+
   const createUser = useMutation({
     mutationFn: (data: Parameters<typeof api.createCompanionUser>[0]) =>
       api.createCompanionUser(data),
@@ -1482,6 +1487,54 @@ function CompanionSettings() {
                           ))}
                         </div>
                       </div>
+
+                      {/* Album scoping */}
+                      {user.permissions.accessPhotos && (
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Allowed Albums</label>
+                          <div className="mt-1.5 space-y-1">
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={user.permissions.allowedAlbumIds === null}
+                                onChange={() =>
+                                  togglePermission(
+                                    user,
+                                    "allowedAlbumIds",
+                                    user.permissions.allowedAlbumIds === null
+                                      ? (albums as any[]).map((a) => a.id)
+                                      : null
+                                  )
+                                }
+                                className="rounded border-border"
+                              />
+                              All Albums
+                            </label>
+                            {user.permissions.allowedAlbumIds !== null && (
+                              <div className="pl-4 space-y-1">
+                                {(albums as any[]).map((album) => (
+                                  <label key={album.id} className="flex items-center gap-2 text-sm">
+                                    <input
+                                      type="checkbox"
+                                      checked={(user.permissions.allowedAlbumIds || []).includes(album.id)}
+                                      onChange={() => {
+                                        const current = user.permissions.allowedAlbumIds || [];
+                                        const next = current.includes(album.id)
+                                          ? current.filter((id: string) => id !== album.id)
+                                          : [...current, album.id];
+                                        togglePermission(user, "allowedAlbumIds", next);
+                                      }}
+                                      className="rounded border-border"
+                                    />
+                                    {album.name}
+                                    <span className="text-xs text-muted-foreground">({album.photoCount ?? 0})</span>
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Remove button */}
                       <div className="pt-2">
@@ -10123,7 +10176,7 @@ export function SettingsPage() {
       data,
     }: {
       id: string;
-      data: { isVisible?: boolean; syncEnabled?: boolean; isPrimary?: boolean; isFavorite?: boolean; showOnDashboard?: boolean; kioskEnabled?: boolean; visibility?: { week?: boolean; month?: boolean; day?: boolean; popup?: boolean; screensaver?: boolean } };
+      data: { isVisible?: boolean; syncEnabled?: boolean; syncInterval?: number | null; isPrimary?: boolean; isFavorite?: boolean; showOnDashboard?: boolean; kioskEnabled?: boolean; visibility?: { week?: boolean; month?: boolean; day?: boolean; popup?: boolean; screensaver?: boolean } };
     }) => api.updateCalendar(id, data),
     onMutate: async ({ id, data }) => {
       // If favoriting/unfavoriting, track it and save scroll position
@@ -10385,12 +10438,16 @@ export function SettingsPage() {
                         : undefined;
                       const isResyncable = accountCals.some(c => c.syncEnabled);
 
+                      const syncAgeMs = lastSync > 0 ? Date.now() - lastSync : 0;
+                      const isSyncStale = isOAuth && syncAgeMs > 24 * 60 * 60 * 1000;
+
                       return (
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
                           {lastSync > 0 && (
-                            <span className="text-muted-foreground">
+                            <span className={isSyncStale ? "text-amber-500" : "text-muted-foreground"}>
                               <Clock className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
                               Last synced {new Date(lastSync).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                              {isSyncStale && " — may need re-authentication"}
                             </span>
                           )}
                           {isResyncable && (
@@ -10459,11 +10516,11 @@ export function SettingsPage() {
                       initialView={addAccountModalView ?? "select"}
                       onConnectGoogle={() => {
                         const authToken = useAuthStore.getState().accessToken;
-                        window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings/connections"));
+                        window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings/connections?connected=1"));
                       }}
                       onConnectMicrosoft={() => {
                         const authToken = useAuthStore.getState().accessToken;
-                        window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings/connections"));
+                        window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings/connections?connected=1"));
                       }}
                       onConnectCalDAV={async (url, username, password) => {
                         console.log("CalDAV connection:", { url, username });

@@ -315,7 +315,7 @@ export const recipeRoutes: FastifyPluginAsync = async (fastify) => {
           ...body,
           updatedAt: new Date(),
         })
-        .where(eq(recipes.id, id))
+        .where(and(eq(recipes.id, id), eq(recipes.userId, user.id)))
         .returning();
 
       return { success: true, data: updated };
@@ -645,6 +645,15 @@ export const recipeRoutes: FastifyPluginAsync = async (fastify) => {
       // Security check - ensure path is within data directory
       if (!fullPath.startsWith(dataDir)) {
         throw fastify.httpErrors.forbidden("Invalid path");
+      }
+
+      // Ensure the image belongs to the requesting user
+      const user = (request as any).user;
+      if (user?.userId) {
+        const expectedPrefix = `recipes/${user.userId}/`;
+        if (!imagePath.startsWith(expectedPrefix)) {
+          throw fastify.httpErrors.forbidden("Access denied");
+        }
       }
 
       if (!existsSync(fullPath)) {

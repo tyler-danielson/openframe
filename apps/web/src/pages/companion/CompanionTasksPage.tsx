@@ -79,7 +79,7 @@ export function CompanionTasksPage() {
       <div className="px-4 pb-2 flex gap-2 overflow-x-auto scrollbar-none">
         <button
           onClick={() => setSelectedListId(null)}
-          className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+          className={`shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
             selectedListId === null
               ? "bg-primary text-primary-foreground"
               : "bg-card border border-border text-foreground hover:bg-primary/5"
@@ -91,7 +91,7 @@ export function CompanionTasksPage() {
           <button
             key={list.id}
             onClick={() => setSelectedListId(list.id)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+            className={`shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
               selectedListId === list.id
                 ? "bg-primary text-primary-foreground"
                 : "bg-card border border-border text-foreground hover:bg-primary/5"
@@ -106,7 +106,7 @@ export function CompanionTasksPage() {
       <div className="px-4 pb-3 flex gap-2">
         <button
           onClick={() => setShowCompleted(false)}
-          className={`text-xs font-medium px-2 py-1 rounded transition-colors ${
+          className={`text-sm font-medium px-3 py-1.5 rounded transition-colors ${
             !showCompleted ? "text-primary border-b-2 border-primary" : "text-muted-foreground"
           }`}
         >
@@ -114,7 +114,7 @@ export function CompanionTasksPage() {
         </button>
         <button
           onClick={() => setShowCompleted(true)}
-          className={`text-xs font-medium px-2 py-1 rounded transition-colors ${
+          className={`text-sm font-medium px-3 py-1.5 rounded transition-colors ${
             showCompleted ? "text-primary border-b-2 border-primary" : "text-muted-foreground"
           }`}
         >
@@ -130,7 +130,7 @@ export function CompanionTasksPage() {
           </div>
         ) : !tasks || tasks.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
-            <p className="text-sm">
+            <p className="text-base">
               {showCompleted ? "No completed tasks" : "No active tasks"}
             </p>
           </div>
@@ -160,14 +160,14 @@ export function CompanionTasksPage() {
               </button>
               <div className="flex-1 min-w-0">
                 <div
-                  className={`text-sm ${
+                  className={`text-base ${
                     showCompleted ? "line-through text-muted-foreground" : "text-foreground"
                   }`}
                 >
                   {task.title}
                 </div>
                 {task.dueDate && (
-                  <div className="text-xs text-muted-foreground mt-0.5">
+                  <div className="text-sm text-muted-foreground mt-0.5">
                     Due {new Date(task.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                   </div>
                 )}
@@ -188,17 +188,17 @@ export function CompanionTasksPage() {
             value={newTaskTitle}
             onChange={(e) => setNewTaskTitle(e.target.value)}
             placeholder="Add a task..."
-            className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+            className="flex-1 rounded-xl border border-border bg-background px-4 py-3 text-base focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
           />
           <button
             type="submit"
             disabled={!newTaskTitle.trim() || createMutation.isPending}
-            className="h-10 w-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-50 transition-colors"
+            className="h-12 w-12 rounded-xl bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-50 transition-colors"
           >
             {createMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-5 w-5 animate-spin" />
             ) : (
-              <Send className="h-4 w-4" />
+              <Send className="h-5 w-5" />
             )}
           </button>
         </form>

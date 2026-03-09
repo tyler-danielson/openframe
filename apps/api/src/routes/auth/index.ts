@@ -14,7 +14,7 @@ import {
   refreshTokenSchema,
   createApiKeySchema,
 } from "@openframe/shared/validators";
-import { createHash, randomBytes, randomUUID } from "crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { nanoid } from "nanoid";
 import bcrypt from "bcryptjs";
 import { getCurrentUser } from "../../plugins/auth.js";
@@ -161,12 +161,17 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      // Verify provisioning secret
+      // Verify provisioning secret (timing-safe)
       const secret = request.headers["x-provisioning-secret"];
       if (
         !fastify.provisioningSecret ||
         !secret ||
-        secret !== fastify.provisioningSecret
+        typeof secret !== "string" ||
+        secret.length !== fastify.provisioningSecret.length ||
+        !timingSafeEqual(
+          Buffer.from(secret),
+          Buffer.from(fastify.provisioningSecret)
+        )
       ) {
         return reply.forbidden("Invalid provisioning secret");
       }
@@ -234,12 +239,17 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      // Verify provisioning secret
+      // Verify provisioning secret (timing-safe)
       const secret = request.headers["x-provisioning-secret"];
       if (
         !fastify.provisioningSecret ||
         !secret ||
-        secret !== fastify.provisioningSecret
+        typeof secret !== "string" ||
+        secret.length !== fastify.provisioningSecret.length ||
+        !timingSafeEqual(
+          Buffer.from(secret),
+          Buffer.from(fastify.provisioningSecret)
+        )
       ) {
         return reply.forbidden("Invalid provisioning secret");
       }

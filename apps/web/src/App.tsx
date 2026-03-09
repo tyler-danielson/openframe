@@ -31,6 +31,7 @@ import { OnboardingPage } from "./pages/OnboardingPage";
 import { TvSetupPage } from "./pages/TvSetupPage";
 import { InviteAcceptPage } from "./pages/InviteAcceptPage";
 import { JoinPage } from "./pages/JoinPage";
+import { CompanionInviteAcceptPage } from "./pages/CompanionInviteAcceptPage";
 import { CompanionJoinRequestsPage } from "./pages/companion/CompanionJoinRequestsPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { PlannerBuilderPage } from "./pages/PlannerBuilderPage";
@@ -93,6 +94,32 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/** Redirects mobile users to companion mode if they have access, otherwise falls back to /calendar. */
+function MobileAwareIndex() {
+  const navigate = useNavigate();
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && window.innerWidth < 768;
+    if (!isMobile) {
+      setChecked(true);
+      return;
+    }
+    api.getCompanionAccessMe().then((ctx) => {
+      if (ctx.isOwner || ctx.permissions) {
+        navigate("/companion", { replace: true });
+      } else {
+        setChecked(true);
+      }
+    }).catch(() => {
+      setChecked(true);
+    });
+  }, [navigate]);
+
+  if (!checked) return null;
+  return <Navigate to="/calendar" replace />;
+}
+
 function SettingsProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
@@ -151,7 +178,8 @@ export default function App() {
         path.startsWith("/companion") ||
         path.startsWith("/demo") ||
         path.startsWith("/onboarding") ||
-        path.startsWith("/join")
+        path.startsWith("/join") ||
+        path.startsWith("/companion-invite")
       ) {
         setNeedsSetup(false);
         return;
@@ -185,6 +213,7 @@ export default function App() {
         path.startsWith("/login") ||
         path.startsWith("/invite") ||
         path.startsWith("/join") ||
+        path.startsWith("/companion-invite") ||
         path.startsWith("/device-login")
       ) {
         return;
@@ -298,6 +327,8 @@ export default function App() {
         <Route path="/invite/:token" element={<InviteAcceptPage />} />
         {/* Public join request page (QR code from kiosk) */}
         <Route path="/join/:kioskToken" element={<JoinPage />} />
+        {/* Public companion invite acceptance page */}
+        <Route path="/companion-invite/:token" element={<CompanionInviteAcceptPage />} />
         {/* Public mobile upload page (accessed via QR code) */}
         <Route path="/upload/:token" element={<MobileUploadPage />} />
         {/* Public mobile recipe upload page (accessed via QR code) */}
@@ -326,7 +357,7 @@ export default function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Navigate to="/calendar" replace />} />
+          <Route index element={<MobileAwareIndex />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="tasks" element={<TasksPage />} />

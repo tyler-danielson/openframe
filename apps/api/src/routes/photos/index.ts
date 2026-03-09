@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { eq, and } from "drizzle-orm";
-import { photoAlbums, photos, oauthTokens } from "@openframe/database/schema";
+import { photoAlbums, photos, oauthTokens, companionAccess } from "@openframe/database/schema";
 
 // Upload token type
 export interface UploadTokenData {
@@ -1132,9 +1132,29 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.forbidden("Invalid file path");
       }
 
-      // Verify file belongs to user
+      // Verify file belongs to user or their companion owner
       if (!normalizedPath.startsWith(user.id)) {
-        return reply.forbidden("Access denied");
+        // Check if the user is a companion with photo access to the file's owner
+        let allowed = false;
+        if (user.role !== "admin") {
+          const [access] = await fastify.db
+            .select()
+            .from(companionAccess)
+            .where(
+              and(
+                eq(companionAccess.userId, user.id),
+                eq(companionAccess.isActive, true),
+                eq(companionAccess.accessPhotos, true)
+              )
+            )
+            .limit(1);
+          if (access && normalizedPath.startsWith(access.ownerId)) {
+            allowed = true;
+          }
+        }
+        if (!allowed) {
+          return reply.forbidden("Access denied");
+        }
       }
 
       const fullPath = join(uploadDir, normalizedPath);

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
+import { api } from "../services/api";
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();
@@ -24,7 +25,23 @@ export function AuthCallbackPage() {
       }
 
       const isSafeRedirect = (u: string) => u.startsWith("/") && !u.startsWith("//");
-      navigate(returnUrl && isSafeRedirect(returnUrl) ? returnUrl : "/dashboard", { replace: true });
+      const finalUrl = returnUrl && isSafeRedirect(returnUrl) ? returnUrl : "/dashboard";
+
+      // On mobile, check for companion access and redirect there instead
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && window.innerWidth < 768;
+      if (isMobile && (finalUrl === "/dashboard" || finalUrl === "/calendar")) {
+        api.getCompanionAccessMe().then((ctx) => {
+          if (ctx.isOwner || ctx.permissions) {
+            navigate("/companion", { replace: true });
+          } else {
+            navigate(finalUrl, { replace: true });
+          }
+        }).catch(() => {
+          navigate(finalUrl, { replace: true });
+        });
+      } else {
+        navigate(finalUrl, { replace: true });
+      }
     } else {
       navigate("/login", { replace: true });
     }

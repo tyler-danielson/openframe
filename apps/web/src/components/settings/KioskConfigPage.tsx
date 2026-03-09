@@ -5,7 +5,7 @@ import {
   Trash2, Copy, RefreshCw, ExternalLink, Monitor, Calendar, ListTodo,
   Music, Tv, Newspaper, Home, Image as ImageIcon, Trophy, PanelLeft,
   Puzzle, Settings, QrCode, Power, Maximize, Clock, ChevronDown, ChevronUp,
-  GripVertical, LayoutDashboard, Plus, X, Settings2,
+  GripVertical, LayoutDashboard, Plus, X, Settings2, Link2, UserPlus, Loader2,
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { resolveLucideIcon } from "../../lib/icon-utils";
@@ -18,7 +18,7 @@ import {
   SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy, arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { api, type Kiosk, type KioskSettings, type KioskEnabledFeatures, type KioskDashboard, type ColorScheme, COLOR_SCHEMES } from "../../services/api";
+import { api, type Kiosk, type KioskSettings, type KioskEnabledFeatures, type KioskDashboard, type CompanionInvite, type ColorScheme, COLOR_SCHEMES } from "../../services/api";
 import { useModuleStore } from "../../stores/modules";
 import { SIDEBAR_FEATURES, type SidebarFeature } from "../../stores/sidebar";
 import { cn } from "../../lib/utils";
@@ -121,6 +121,80 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
       <span className={cn(
         "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
         checked ? "translate-x-6" : "translate-x-1"
+      )} />
+    </button>
+  );
+}
+
+// --- Compact setting controls for dashboard config ---
+
+function CRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 min-h-[28px]">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function CSel<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value as T)}
+      className="rounded border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
+function CMiniCheckbox({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "h-4 w-4 rounded border flex items-center justify-center transition-colors",
+        checked
+          ? "bg-primary border-primary text-primary-foreground"
+          : "border-border bg-background hover:border-primary/50"
+      )}
+    >
+      {checked && (
+        <svg className="h-2.5 w-2.5" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+function CToggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+        checked ? "bg-primary" : "bg-muted"
+      )}
+    >
+      <span className={cn(
+        "inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform",
+        checked ? "translate-x-[18px]" : "translate-x-0.5"
       )} />
     </button>
   );
@@ -412,6 +486,26 @@ export function KioskConfigPage({ kioskId }: KioskConfigPageProps) {
               </div>
             </div>
             <div className="border-t border-border/50 pt-3 mt-1">
+              <SettingRow label="Photo Upload PIN" description="4-digit PIN to protect mobile upload on kiosk (empty = no PIN)">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={4}
+                  pattern="[0-9]*"
+                  defaultValue={kiosk.settings?.uploadPin || ""}
+                  onBlur={(e) => {
+                    const val = e.target.value.replace(/\D/g, "").slice(0, 4);
+                    e.target.value = val;
+                    if (val !== (kiosk.settings?.uploadPin || "")) {
+                      updateKiosk.mutate({
+                        settings: { ...kiosk.settings, uploadPin: val || undefined },
+                      });
+                    }
+                  }}
+                  placeholder="e.g. 1234"
+                  className="w-32 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-center tracking-widest focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+              </SettingRow>
               <SettingRow label="External URL" description="Base URL for QR codes (phones must reach this)">
                 <input
                   type="url"
@@ -429,6 +523,16 @@ export function KioskConfigPage({ kioskId }: KioskConfigPageProps) {
                 />
               </SettingRow>
             </div>
+          </CardContent>
+        )}
+      </Card>
+
+      {/* Companion Invite Links Section */}
+      <Card className="border-2 border-primary/40 overflow-hidden">
+        <SectionHeader id="invite-links" icon={<UserPlus />} title="Invite Links" description="Share a link to grant companion access" isCollapsed={!!collapsedSections["invite-links"]} onToggle={toggleSection} />
+        {!collapsedSections["invite-links"] && (
+          <CardContent className="border-t border-border/50 py-4">
+            <CompanionInviteLinks externalUrl={kiosk.settings?.externalUrl} />
           </CardContent>
         )}
       </Card>
@@ -451,167 +555,29 @@ function DashboardSettingsContent({ dashboard, onConfigChange, kiosk, onKioskCha
 
   switch (dashboard.type) {
     case "calendar":
-      return (
-        <div className="space-y-4">
-          <SettingRow label="Calendar name" description="Display name shown at the top">
-            <input
-              type="text"
-              value={(config.familyName as string) ?? ""}
-              onChange={(e) => onConfigChange("familyName", e.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-48"
-              placeholder="Family Calendar"
-            />
-          </SettingRow>
-          <SettingRow label="Home address" description="Used for travel time calculations">
-            <input
-              type="text"
-              value={(config.homeAddress as string) ?? ""}
-              onChange={(e) => onConfigChange("homeAddress", e.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-64"
-              placeholder="123 Main St, City, State"
-            />
-          </SettingRow>
-          <SettingRow label="Default view">
-            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-              value={(config.view as string) ?? "month"}
-              onChange={(e) => onConfigChange("view", e.target.value)}>
-              <option value="month">Month</option>
-              <option value="week">Week</option>
-              <option value="day">Day</option>
-              <option value="agenda">Agenda</option>
-              <option value="schedule">Schedule</option>
-            </select>
-          </SettingRow>
-          <SettingRow label="Week starts on">
-            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-              value={(config.weekStartsOn as number) ?? 1}
-              onChange={(e) => onConfigChange("weekStartsOn", Number(e.target.value))}>
-              <option value={1}>Monday</option>
-              <option value={0}>Sunday</option>
-              <option value={6}>Saturday</option>
-            </select>
-          </SettingRow>
-          <SettingRow label="Day view hours">
-            <div className="flex items-center gap-2">
-              <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px]"
-                value={(config.dayStartHour as number) ?? 7}
-                onChange={(e) => onConfigChange("dayStartHour", Number(e.target.value))}>
-                {Array.from({ length: 24 }, (_, i) => (
-                  <option key={i} value={i}>
-                    {i === 0 ? "12 AM" : i < 12 ? `${i} AM` : i === 12 ? "12 PM" : `${i - 12} PM`}
-                  </option>
-                ))}
-              </select>
-              <span className="text-muted-foreground">to</span>
-              <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px]"
-                value={(config.dayEndHour as number) ?? 22}
-                onChange={(e) => onConfigChange("dayEndHour", Number(e.target.value))}>
-                {Array.from({ length: 24 }, (_, i) => (
-                  <option key={i} value={i}>
-                    {i === 0 ? "12 AM" : i < 12 ? `${i} AM` : i === 12 ? "12 PM" : `${i - 12} PM`}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </SettingRow>
-          <SettingRow label="Time format">
-            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-              value={(config.timeFormat as string) ?? "12h"}
-              onChange={(e) => onConfigChange("timeFormat", e.target.value)}>
-              <option value="12h">12-hour</option>
-              <option value="12h-seconds">12-hour with seconds</option>
-              <option value="24h">24-hour</option>
-              <option value="24h-seconds">24-hour with seconds</option>
-            </select>
-          </SettingRow>
-          <SettingRow label="Default event duration">
-            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-              value={(config.defaultEventDuration as number) ?? 60}
-              onChange={(e) => onConfigChange("defaultEventDuration", Number(e.target.value))}>
-              <option value={15}>15 minutes</option>
-              <option value={30}>30 minutes</option>
-              <option value={60}>1 hour</option>
-              <option value={90}>1.5 hours</option>
-              <option value={120}>2 hours</option>
-            </select>
-          </SettingRow>
-          <SettingRow label="Ticker speed">
-            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-              value={(config.tickerSpeed as string) ?? "normal"}
-              onChange={(e) => onConfigChange("tickerSpeed", e.target.value)}>
-              <option value="slow">Slow</option>
-              <option value="normal">Normal</option>
-              <option value="fast">Fast</option>
-            </select>
-          </SettingRow>
-          <SettingRow label="Week mode">
-            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-              value={(config.weekMode as string) ?? "current"}
-              onChange={(e) => onConfigChange("weekMode", e.target.value)}>
-              <option value="current">Current week</option>
-              <option value="rolling">Rolling 7 days</option>
-            </select>
-          </SettingRow>
-          <SettingRow label="Month mode">
-            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-              value={(config.monthMode as string) ?? "current"}
-              onChange={(e) => onConfigChange("monthMode", e.target.value)}>
-              <option value="current">Current month</option>
-              <option value="rolling">Rolling 4 weeks</option>
-            </select>
-          </SettingRow>
-          <SettingRow label="Week view widget">
-            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-              value={(config.weekCellWidget as string) ?? "next-week"}
-              onChange={(e) => onConfigChange("weekCellWidget", e.target.value)}>
-              <option value="next-week">Next Week</option>
-              <option value="camera">Camera</option>
-              <option value="map">Map</option>
-              <option value="spotify">Spotify</option>
-              <option value="home-control">Home Control</option>
-            </select>
-          </SettingRow>
-          <SettingRow label="Auto refresh interval">
-            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
-              value={(config.autoRefreshInterval as number) ?? 0}
-              onChange={(e) => onConfigChange("autoRefreshInterval", Number(e.target.value))}>
-              <option value={0}>Off</option>
-              <option value={1}>1 minute</option>
-              <option value={5}>5 minutes</option>
-              <option value={15}>15 minutes</option>
-              <option value={30}>30 minutes</option>
-              <option value={60}>1 hour</option>
-            </select>
-          </SettingRow>
-          <SettingRow label="Show drive time">
-            <ToggleSwitch checked={!!config.showDriveTimeOnNext} onChange={(v) => onConfigChange("showDriveTimeOnNext", v)} />
-          </SettingRow>
-          <SettingRow label="Show week numbers">
-            <ToggleSwitch checked={!!config.showWeekNumbers} onChange={(v) => onConfigChange("showWeekNumbers", v)} />
-          </SettingRow>
-          <ViewCalendarSettings config={config} onConfigChange={onConfigChange} />
-        </div>
-      );
+      return <CalendarDashboardSettings config={config} onConfigChange={onConfigChange} />;
 
     case "tasks":
       return (
-        <div className="space-y-4">
-          <SettingRow label="Layout" description="How tasks are displayed">
-            <select className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-auto"
+        <div className="space-y-2.5">
+          <CRow label="Layout">
+            <CSel
               value={(config.layout as string) ?? "lists"}
-              onChange={(e) => onConfigChange("layout", e.target.value)}>
-              <option value="lists">Collapsible Lists</option>
-              <option value="grid">Grid</option>
-              <option value="columns">Columns (Side-by-Side)</option>
-              <option value="kanban">Kanban (By Status)</option>
-            </select>
-          </SettingRow>
-          <SettingRow label="Show completed tasks">
-            <ToggleSwitch checked={!!config.showCompleted} onChange={(v) => onConfigChange("showCompleted", v)} />
-          </SettingRow>
-          <SettingRow label="Expand all lists">
-            <ToggleSwitch checked={!!config.expandAllLists} onChange={(v) => onConfigChange("expandAllLists", v)} />
-          </SettingRow>
+              onChange={(v) => onConfigChange("layout", v)}
+              options={[
+                { value: "lists", label: "Lists" },
+                { value: "grid", label: "Grid" },
+                { value: "columns", label: "Columns" },
+                { value: "kanban", label: "Kanban" },
+              ]}
+            />
+          </CRow>
+          <CRow label="Show completed">
+            <CToggle checked={!!config.showCompleted} onChange={(v) => onConfigChange("showCompleted", v)} />
+          </CRow>
+          <CRow label="Expand all lists">
+            <CToggle checked={!!config.expandAllLists} onChange={(v) => onConfigChange("expandAllLists", v)} />
+          </CRow>
         </div>
       );
 
@@ -955,23 +921,25 @@ function DashboardsSection({ kiosk, updateKiosk, isModuleEnabled }: {
             </div>
             <div className="p-4 space-y-4">
               {/* Common fields */}
-              <SettingRow label="Name">
-                <input
-                  type="text"
-                  value={editingDb.name}
-                  onChange={(e) => updateDashboard(editingDb.id, { name: e.target.value })}
-                  className="rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[44px] w-full sm:w-48"
-                />
-              </SettingRow>
-              <SettingRow label="Icon">
-                <IconPicker
-                  value={editingDb.icon}
-                  onChange={(icon) => updateDashboard(editingDb.id, { icon })}
-                />
-              </SettingRow>
-              <SettingRow label="Pinned to taskbar">
-                <ToggleSwitch checked={editingDb.pinned} onChange={(v) => updateDashboard(editingDb.id, { pinned: v })} />
-              </SettingRow>
+              <div className="space-y-2.5">
+                <CRow label="Name">
+                  <input
+                    type="text"
+                    value={editingDb.name}
+                    onChange={(e) => updateDashboard(editingDb.id, { name: e.target.value })}
+                    className="rounded border border-border bg-background px-2 py-1 text-xs w-40 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </CRow>
+                <CRow label="Icon">
+                  <IconPicker
+                    value={editingDb.icon}
+                    onChange={(icon) => updateDashboard(editingDb.id, { icon })}
+                  />
+                </CRow>
+                <CRow label="Pinned">
+                  <CToggle checked={editingDb.pinned} onChange={(v) => updateDashboard(editingDb.id, { pinned: v })} />
+                </CRow>
+              </div>
 
               {/* Type-specific settings */}
               <div className="border-t border-border/50 pt-4">
@@ -990,85 +958,15 @@ function DashboardsSection({ kiosk, updateKiosk, isModuleEnabled }: {
   );
 }
 
-// Per-view calendar selection component
-const VIEW_NAMES = ["week", "month", "day", "popup"] as const;
-type ViewName = typeof VIEW_NAMES[number];
+// Calendar dashboard settings — compact two-column layout matching ScreensTab style
+const KIOSK_VIEW_COLS = [
+  { key: "week", label: "Wk" },
+  { key: "month", label: "Mo" },
+  { key: "day", label: "Day" },
+  { key: "popup", label: "Pop" },
+] as const;
 
-function ViewCalendarPickerModal({ view, groups, selected, allItems, onToggle, onSelectAll, onSelectNone, onClose }: {
-  view: ViewName;
-  groups: { label: string; items: { id: string; name: string; color: string }[] }[];
-  selected: string[] | null;
-  allItems: { id: string; name: string; color: string; group: string }[];
-  onToggle: (id: string, checked: boolean) => void;
-  onSelectAll: () => void;
-  onSelectNone: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-[60] bg-black/50 flex items-start justify-center pt-[15vh]" onClick={onClose}>
-      <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <h3 className="font-semibold text-foreground capitalize">{view} View — Calendars</h3>
-          <button onClick={onClose} className="p-1 text-muted-foreground hover:text-foreground">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="p-4 space-y-3">
-          <div className="flex gap-2">
-            <button
-              onClick={onSelectAll}
-              className={cn(
-                "text-xs px-2.5 py-1 rounded border transition-colors",
-                selected === null
-                  ? "bg-primary/10 border-primary/40 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              )}
-            >
-              All
-            </button>
-            <button
-              onClick={onSelectNone}
-              className={cn(
-                "text-xs px-2.5 py-1 rounded border transition-colors",
-                selected !== null && selected.length === 0
-                  ? "bg-primary/10 border-primary/40 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              )}
-            >
-              None
-            </button>
-          </div>
-          <div className="max-h-[60vh] overflow-y-auto space-y-4">
-            {groups.map(group => (
-              <div key={group.label}>
-                <p className="text-xs font-semibold text-primary/80 uppercase tracking-wide mb-1.5">{group.label}</p>
-                <div className="space-y-1">
-                  {group.items.map(item => {
-                    const isChecked = selected === null || selected.includes(item.id);
-                    return (
-                      <div key={item.id} className="flex items-center justify-between py-1">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
-                          <span className="text-sm truncate">{item.name}</span>
-                        </div>
-                        <ToggleSwitch checked={isChecked} onChange={(v) => onToggle(item.id, v)} />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-            {allItems.length === 0 && (
-              <p className="text-sm text-muted-foreground py-2">No calendars or teams found</p>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ViewCalendarSettings({ config, onConfigChange }: {
+function CalendarDashboardSettings({ config, onConfigChange }: {
   config: Record<string, unknown>;
   onConfigChange: (key: string, value: unknown) => void;
 }) {
@@ -1081,117 +979,271 @@ function ViewCalendarSettings({ config, onConfigChange }: {
     queryFn: () => api.getFavoriteTeams(),
   });
 
-  const [editingView, setEditingView] = useState<ViewName | null>(null);
-
   const calendars = calendarsData ?? [];
   const viewCalendars = (config.viewCalendars ?? {}) as Record<string, string[] | null>;
 
-  // Build combined list of all selectable items with group labels
   const allItems = useMemo(() => {
-    const items: { id: string; name: string; color: string; group: string }[] = [];
+    const items: { id: string; name: string; color: string }[] = [];
     calendars.filter(cal => cal.isVisible && cal.kioskEnabled !== false).forEach(cal => {
-      const groupLabel = cal.accountLabel
-        ? `${cal.provider.charAt(0).toUpperCase() + cal.provider.slice(1)} (${cal.accountLabel})`
-        : cal.provider.charAt(0).toUpperCase() + cal.provider.slice(1);
-      items.push({ id: cal.id, name: cal.name, color: cal.color ?? "#666", group: groupLabel });
+      items.push({ id: cal.id, name: cal.name, color: cal.color ?? "#666" });
     });
     favoriteTeams.forEach(team => {
       items.push({
         id: `sports-${team.id}`,
         name: team.teamName,
         color: team.teamColor ?? "#6366f1",
-        group: `${team.league.toUpperCase()} (${team.sport})`,
       });
     });
     return items;
   }, [calendars, favoriteTeams]);
 
-  // Group items by their group label
-  const groups = useMemo(() => {
-    const map = new Map<string, typeof allItems>();
-    allItems.forEach(item => {
-      const list = map.get(item.group) ?? [];
-      list.push(item);
-      map.set(item.group, list);
-    });
-    return Array.from(map.entries()).map(([label, items]) => ({ label, items }));
-  }, [allItems]);
-
-  const getSelectedForView = (view: ViewName): string[] | null => {
-    return viewCalendars[view] ?? null;
+  const isChecked = (view: string, itemId: string): boolean => {
+    const selected = viewCalendars[view];
+    return selected === null || selected === undefined || selected.includes(itemId);
   };
 
-  const setSelectedForView = (view: ViewName, ids: string[] | null) => {
-    const updated = { ...viewCalendars, [view]: ids };
-    onConfigChange("viewCalendars", updated);
-  };
-
-  const getCountLabel = (view: ViewName): string => {
-    const selected = getSelectedForView(view);
-    if (selected === null) return `All (${allItems.length})`;
-    return `${selected.length}/${allItems.length}`;
-  };
-
-  const handleToggle = (view: ViewName, id: string, checked: boolean) => {
-    const selected = getSelectedForView(view);
-    if (selected === null) {
-      // Switching from "all" to specific: include everything except unchecked
-      if (!checked) {
-        setSelectedForView(view, allItems.map(i => i.id).filter(iid => iid !== id));
-      }
+  const toggleItem = (view: string, itemId: string) => {
+    const selected = viewCalendars[view];
+    if (selected === null || selected === undefined) {
+      onConfigChange("viewCalendars", {
+        ...viewCalendars,
+        [view]: allItems.map(i => i.id).filter(id => id !== itemId),
+      });
+    } else if (selected.includes(itemId)) {
+      onConfigChange("viewCalendars", {
+        ...viewCalendars,
+        [view]: selected.filter(id => id !== itemId),
+      });
     } else {
-      if (checked) {
-        const newIds = [...selected, id];
-        if (newIds.length === allItems.length) {
-          setSelectedForView(view, null);
-        } else {
-          setSelectedForView(view, newIds);
-        }
-      } else {
-        setSelectedForView(view, selected.filter(iid => iid !== id));
-      }
+      const newIds = [...selected, itemId];
+      onConfigChange("viewCalendars", {
+        ...viewCalendars,
+        [view]: newIds.length === allItems.length ? null : newIds,
+      });
     }
   };
 
+  const hourLabel = (h: number) =>
+    h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`;
+  const hourOptions = Array.from({ length: 24 }, (_, i) => ({ value: String(i), label: hourLabel(i) }));
+
   return (
-    <div className="space-y-2">
-      <div>
-        <p className="font-medium">Visible calendars per view</p>
-        <p className="text-sm text-muted-foreground">
-          Choose which calendars and sports teams appear in each view
-        </p>
-      </div>
-      <div className="border border-border/50 rounded-lg overflow-hidden">
-        {VIEW_NAMES.map(view => (
-          <div key={view} className={view !== "week" ? "border-t border-border/50" : ""}>
-            <div className="flex items-center justify-between px-3 py-2.5">
-              <span className="text-sm font-medium capitalize">{view}</span>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground">{getCountLabel(view)}</span>
-                <button
-                  onClick={() => setEditingView(view)}
-                  className="text-xs px-2.5 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
-                >
-                  Configure
-                </button>
-              </div>
-            </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Left: General settings */}
+      <div className="space-y-2.5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary mb-2">Display</p>
+
+        <CRow label="Calendar name">
+          <input
+            type="text"
+            value={(config.familyName as string) ?? ""}
+            onChange={(e) => onConfigChange("familyName", e.target.value)}
+            className="rounded border border-border bg-background px-2 py-1 text-xs w-36 focus:outline-none focus:ring-1 focus:ring-primary/30"
+            placeholder="Family Calendar"
+          />
+        </CRow>
+
+        <CRow label="Home address">
+          <input
+            type="text"
+            value={(config.homeAddress as string) ?? ""}
+            onChange={(e) => onConfigChange("homeAddress", e.target.value)}
+            className="rounded border border-border bg-background px-2 py-1 text-xs w-44 focus:outline-none focus:ring-1 focus:ring-primary/30"
+            placeholder="123 Main St"
+          />
+        </CRow>
+
+        <CRow label="Default view">
+          <CSel
+            value={(config.view as string) ?? "month"}
+            onChange={(v) => onConfigChange("view", v)}
+            options={[
+              { value: "month", label: "Month" },
+              { value: "week", label: "Week" },
+              { value: "day", label: "Day" },
+              { value: "agenda", label: "Agenda" },
+              { value: "schedule", label: "Schedule" },
+            ]}
+          />
+        </CRow>
+
+        <CRow label="Week starts">
+          <CSel
+            value={String((config.weekStartsOn as number) ?? 1)}
+            onChange={(v) => onConfigChange("weekStartsOn", Number(v))}
+            options={[
+              { value: "0", label: "Sunday" },
+              { value: "1", label: "Monday" },
+              { value: "6", label: "Saturday" },
+            ]}
+          />
+        </CRow>
+
+        <CRow label="Time format">
+          <CSel
+            value={(config.timeFormat as string) ?? "12h"}
+            onChange={(v) => onConfigChange("timeFormat", v)}
+            options={[
+              { value: "12h", label: "12h" },
+              { value: "12h-seconds", label: "12h :ss" },
+              { value: "24h", label: "24h" },
+              { value: "24h-seconds", label: "24h :ss" },
+            ]}
+          />
+        </CRow>
+
+        <CRow label="Hours shown">
+          <div className="flex items-center gap-1.5">
+            <CSel
+              value={String((config.dayStartHour as number) ?? 7)}
+              onChange={(v) => onConfigChange("dayStartHour", Number(v))}
+              options={hourOptions}
+            />
+            <span className="text-xs text-muted-foreground">to</span>
+            <CSel
+              value={String((config.dayEndHour as number) ?? 22)}
+              onChange={(v) => onConfigChange("dayEndHour", Number(v))}
+              options={hourOptions}
+            />
           </div>
-        ))}
+        </CRow>
+
+        <CRow label="Event duration">
+          <CSel
+            value={String((config.defaultEventDuration as number) ?? 60)}
+            onChange={(v) => onConfigChange("defaultEventDuration", Number(v))}
+            options={[
+              { value: "15", label: "15 min" },
+              { value: "30", label: "30 min" },
+              { value: "60", label: "1 hr" },
+              { value: "90", label: "1.5 hr" },
+              { value: "120", label: "2 hr" },
+            ]}
+          />
+        </CRow>
+
+        <CRow label="Ticker speed">
+          <CSel
+            value={(config.tickerSpeed as string) ?? "normal"}
+            onChange={(v) => onConfigChange("tickerSpeed", v)}
+            options={[
+              { value: "slow", label: "Slow" },
+              { value: "normal", label: "Normal" },
+              { value: "fast", label: "Fast" },
+            ]}
+          />
+        </CRow>
+
+        <CRow label="Week mode">
+          <CSel
+            value={(config.weekMode as string) ?? "current"}
+            onChange={(v) => onConfigChange("weekMode", v)}
+            options={[
+              { value: "current", label: "Current" },
+              { value: "rolling", label: "Rolling" },
+            ]}
+          />
+        </CRow>
+
+        <CRow label="Month mode">
+          <CSel
+            value={(config.monthMode as string) ?? "current"}
+            onChange={(v) => onConfigChange("monthMode", v)}
+            options={[
+              { value: "current", label: "Current" },
+              { value: "rolling", label: "Rolling" },
+            ]}
+          />
+        </CRow>
+
+        <CRow label="Week widget">
+          <CSel
+            value={(config.weekCellWidget as string) ?? "next-week"}
+            onChange={(v) => onConfigChange("weekCellWidget", v)}
+            options={[
+              { value: "next-week", label: "Next week" },
+              { value: "camera", label: "Camera" },
+              { value: "map", label: "Map" },
+              { value: "spotify", label: "Spotify" },
+              { value: "home-control", label: "Home ctrl" },
+            ]}
+          />
+        </CRow>
+
+        <CRow label="Auto refresh">
+          <CSel
+            value={String((config.autoRefreshInterval as number) ?? 0)}
+            onChange={(v) => onConfigChange("autoRefreshInterval", Number(v))}
+            options={[
+              { value: "0", label: "Off" },
+              { value: "1", label: "1 min" },
+              { value: "5", label: "5 min" },
+              { value: "15", label: "15 min" },
+              { value: "30", label: "30 min" },
+              { value: "60", label: "1 hr" },
+            ]}
+          />
+        </CRow>
+
+        <CRow label="Drive time">
+          <CToggle checked={!!config.showDriveTimeOnNext} onChange={(v) => onConfigChange("showDriveTimeOnNext", v)} />
+        </CRow>
+
+        <CRow label="Week numbers">
+          <CToggle checked={!!config.showWeekNumbers} onChange={(v) => onConfigChange("showWeekNumbers", v)} />
+        </CRow>
       </div>
 
-      {editingView && (
-        <ViewCalendarPickerModal
-          view={editingView}
-          groups={groups}
-          selected={getSelectedForView(editingView)}
-          allItems={allItems}
-          onToggle={(id, checked) => handleToggle(editingView, id, checked)}
-          onSelectAll={() => setSelectedForView(editingView, null)}
-          onSelectNone={() => setSelectedForView(editingView, [])}
-          onClose={() => setEditingView(null)}
-        />
-      )}
+      {/* Right: Calendar visibility matrix */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary mb-2">
+          Calendar Visibility by View
+        </p>
+
+        {allItems.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-4">No calendars found.</p>
+        ) : (
+          <div className="border border-border rounded-lg overflow-hidden">
+            {/* Header row */}
+            <div className="grid items-center bg-muted/40 border-b border-border" style={{ gridTemplateColumns: "1fr repeat(4, 36px)" }}>
+              <div className="px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground">Calendar</div>
+              {KIOSK_VIEW_COLS.map((v) => (
+                <div key={v.key} className="text-center text-[10px] font-medium text-muted-foreground py-1.5">{v.label}</div>
+              ))}
+            </div>
+
+            {/* Calendar rows */}
+            <div className="max-h-64 overflow-y-auto">
+              {allItems.map((item, i) => (
+                <div
+                  key={item.id}
+                  className={cn(
+                    "grid items-center",
+                    i < allItems.length - 1 && "border-b border-border/50"
+                  )}
+                  style={{ gridTemplateColumns: "1fr repeat(4, 36px)" }}
+                >
+                  <div className="px-2.5 py-1.5 flex items-center gap-1.5 min-w-0">
+                    <span
+                      className="h-2.5 w-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <span className="text-xs truncate">{item.name}</span>
+                  </div>
+                  {KIOSK_VIEW_COLS.map((v) => (
+                    <div key={v.key} className="flex justify-center py-1.5">
+                      <CMiniCheckbox
+                        checked={isChecked(v.key, item.id)}
+                        onChange={() => toggleItem(v.key, item.id)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1372,6 +1424,110 @@ function SpotifyAccountPicker({ selectedTokenId, onSelect }: { selectedTokenId?:
           </option>
         ))}
       </select>
+    </div>
+  );
+}
+
+/** Companion invite links management within kiosk display settings */
+function CompanionInviteLinks({ externalUrl }: { externalUrl?: string }) {
+  const queryClient = useQueryClient();
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const { data: invites } = useQuery({
+    queryKey: ["companion-invites"],
+    queryFn: () => api.getCompanionInvites(),
+  });
+
+  const createInvite = useMutation({
+    mutationFn: () => api.createCompanionInvite(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["companion-invites"] }),
+  });
+
+  const deleteInvite = useMutation({
+    mutationFn: (id: string) => api.deleteCompanionInvite(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["companion-invites"] }),
+  });
+
+  const baseUrl = externalUrl || window.location.origin;
+
+  function buildLink(token: string) {
+    return `${baseUrl}/companion-invite/${token}`;
+  }
+
+  function copyLink(token: string) {
+    navigator.clipboard.writeText(buildLink(token));
+    setCopied(token);
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  // Only show active (unexpired, unaccepted) invites
+  const activeInvites = (invites ?? []).filter(
+    (inv) => !inv.acceptedAt && new Date(inv.expiresAt) > new Date()
+  );
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm text-muted-foreground">
+          Generate a link to text or email someone. They'll create an account and get companion access instantly.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5 shrink-0 ml-4"
+          onClick={() => createInvite.mutate()}
+          disabled={createInvite.isPending}
+        >
+          {createInvite.isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Link2 className="h-3.5 w-3.5" />
+          )}
+          Create Invite Link
+        </Button>
+      </div>
+
+      {activeInvites.length > 0 && (
+        <div className="space-y-2">
+          {activeInvites.map((inv) => {
+            const daysLeft = Math.ceil(
+              (new Date(inv.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+            );
+            return (
+              <div
+                key={inv.id}
+                className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2"
+              >
+                <Link2 className="h-4 w-4 shrink-0 text-primary" />
+                <span className="flex-1 truncate text-xs font-mono text-muted-foreground">
+                  {buildLink(inv.token)}
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {daysLeft}d left
+                </span>
+                <button
+                  onClick={() => copyLink(inv.token)}
+                  className="shrink-0 rounded p-1 text-muted-foreground hover:bg-primary/10 hover:text-primary"
+                  title="Copy link"
+                >
+                  {copied === inv.token ? (
+                    <span className="text-xs text-primary font-medium px-1">Copied</span>
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </button>
+                <button
+                  onClick={() => deleteInvite.mutate(inv.id)}
+                  className="shrink-0 rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  title="Revoke invite"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

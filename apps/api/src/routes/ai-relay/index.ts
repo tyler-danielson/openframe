@@ -4,6 +4,7 @@ import {
   chatConversations,
 } from "@openframe/database/schema";
 import { eq, and } from "drizzle-orm";
+import { timingSafeEqual } from "crypto";
 import { getSystemSetting } from "../settings/index.js";
 import { streamChat } from "../../services/ai-chat.js";
 import type { AIChatProvider } from "@openframe/shared";
@@ -45,12 +46,17 @@ export const aiRelayRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      // Verify provisioning secret
+      // Verify provisioning secret (timing-safe)
       const secret = request.headers["x-provisioning-secret"];
       if (
         !fastify.provisioningSecret ||
         !secret ||
-        secret !== fastify.provisioningSecret
+        typeof secret !== "string" ||
+        secret.length !== fastify.provisioningSecret.length ||
+        !timingSafeEqual(
+          Buffer.from(secret),
+          Buffer.from(fastify.provisioningSecret)
+        )
       ) {
         return reply.forbidden("Invalid provisioning secret");
       }

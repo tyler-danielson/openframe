@@ -65,6 +65,7 @@ export interface Calendar {
   isFavorite: boolean;
   isReadOnly: boolean;
   syncEnabled: boolean;
+  syncInterval: number | null;
   showOnDashboard: boolean;
   kioskEnabled: boolean;
   lastSyncAt: Date | null;

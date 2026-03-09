@@ -84,21 +84,21 @@ export function CompanionCalendarPage() {
     <div className="flex flex-col h-full">
       {/* Month header */}
       <div className="flex items-center justify-between px-4 py-3">
-        <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-primary/10 min-h-[44px] min-w-[44px] flex items-center justify-center">
-          <ChevronLeft className="h-5 w-5 text-primary" />
+        <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-primary/10 min-h-[48px] min-w-[48px] flex items-center justify-center">
+          <ChevronLeft className="h-6 w-6 text-primary" />
         </button>
-        <h2 className="text-lg font-semibold text-foreground">
+        <h2 className="text-xl font-semibold text-foreground">
           {viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
         </h2>
-        <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-primary/10 min-h-[44px] min-w-[44px] flex items-center justify-center">
-          <ChevronRight className="h-5 w-5 text-primary" />
+        <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-primary/10 min-h-[48px] min-w-[48px] flex items-center justify-center">
+          <ChevronRight className="h-6 w-6 text-primary" />
         </button>
       </div>
 
       {/* Day headers */}
       <div className="grid grid-cols-7 px-2">
         {DAYS.map((d) => (
-          <div key={d} className="text-center text-xs font-medium text-muted-foreground py-1">
+          <div key={d} className="text-center text-sm font-medium text-muted-foreground py-1">
             {d}
           </div>
         ))}
@@ -108,7 +108,7 @@ export function CompanionCalendarPage() {
       <div className="grid grid-cols-7 px-2 gap-y-0.5">
         {/* Empty cells before first day */}
         {Array.from({ length: firstDay }).map((_, i) => (
-          <div key={`empty-${i}`} className="h-11" />
+          <div key={`empty-${i}`} className="h-12" />
         ))}
         {/* Day cells */}
         {Array.from({ length: daysInMonth }).map((_, i) => {
@@ -125,7 +125,7 @@ export function CompanionCalendarPage() {
             <button
               key={day}
               onClick={() => setSelectedDate(date)}
-              className={`h-11 flex flex-col items-center justify-center rounded-lg transition-colors ${
+              className={`h-12 flex flex-col items-center justify-center rounded-lg transition-colors ${
                 isSelected
                   ? "bg-primary text-primary-foreground"
                   : isToday
@@ -133,7 +133,7 @@ export function CompanionCalendarPage() {
                   : "text-foreground hover:bg-primary/5"
               }`}
             >
-              <span className="text-sm">{day}</span>
+              <span className="text-base">{day}</span>
               {dotColors.length > 0 && (
                 <div className="flex gap-0.5 mt-0.5">
                   {dotColors.map((color, idx) => (
@@ -153,7 +153,7 @@ export function CompanionCalendarPage() {
       {/* Selected day events */}
       <div className="flex-1 overflow-y-auto mt-2 border-t border-border">
         <div className="px-4 py-3">
-          <h3 className="text-sm font-semibold text-primary mb-2">
+          <h3 className="text-base font-semibold text-primary mb-2">
             {isSameDay(selectedDate, today)
               ? "Today"
               : selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
@@ -161,7 +161,7 @@ export function CompanionCalendarPage() {
           {isLoading ? (
             <Loader2 className="h-5 w-5 animate-spin text-primary" />
           ) : selectedEvents.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No events</p>
+            <p className="text-base text-muted-foreground">No events</p>
           ) : (
             <div className="space-y-2">
               {selectedEvents
@@ -181,9 +181,9 @@ export function CompanionCalendarPage() {
                       style={{ backgroundColor: calendarColors.get(event.calendarId) || "hsl(var(--primary))" }}
                     />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-foreground truncate">{event.title}</div>
-                      <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                        <Clock className="h-3 w-3" />
+                      <div className="text-base font-medium text-foreground truncate">{event.title}</div>
+                      <div className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <Clock className="h-3.5 w-3.5" />
                         {formatEventTime(event)}
                         {event.location && <span className="truncate ml-1">- {event.location}</span>}
                       </div>
@@ -199,7 +199,7 @@ export function CompanionCalendarPage() {
       {companion.canEditCalendar && (
         <button
           onClick={() => navigate(`/companion/calendar/event/new?date=${selectedDate.toISOString().split("T")[0]}`)}
-          className="fixed bottom-20 right-4 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors z-10"
+          className="fixed bottom-24 right-4 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors z-10"
         >
           <Plus className="h-6 w-6" />
         </button>

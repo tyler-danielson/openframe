@@ -67,6 +67,7 @@ import { aiRelayRoutes } from "./routes/ai-relay/index.js";
 import { fileshareRoutes } from "./routes/fileshare/index.js";
 import { iconRoutes } from "./routes/icons/index.js";
 import { joinRequestRoutes } from "./routes/join-requests/index.js";
+import { companionInviteRoutes } from "./routes/companion-invites/index.js";
 import { cloudPlugin } from "./plugins/cloud.js";
 import { matterPlugin } from "./plugins/matter.js";
 import { planLimitsPlugin } from "./plugins/plan-limits.js";
@@ -180,6 +181,18 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
 
   await app.register(swaggerUi, {
     routePrefix: "/docs",
+    uiHooks: {
+      onRequest: config.hostedMode
+        ? async (request: any, reply: any) => {
+            // In hosted mode, protect swagger docs behind auth
+            try {
+              await request.jwtVerify();
+            } catch {
+              reply.status(401).send({ error: "Authentication required" });
+            }
+          }
+        : undefined,
+    },
   });
 
   // Custom plugins
@@ -259,6 +272,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(fileshareRoutes, { prefix: "/api/v1/fileshare" });
   await app.register(iconRoutes, { prefix: "/api/v1/icons" });
   await app.register(joinRequestRoutes, { prefix: "/api/v1/join-requests" });
+  await app.register(companionInviteRoutes, { prefix: "/api/v1/companion-invites" });
 
   // --- Static file serving (combined container mode) ---
   const publicDir = path.join(process.cwd(), "public");

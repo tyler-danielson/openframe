@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Eye, EyeOff, Trash2, Check, X, Plus, Pencil, ChevronDown, ChevronUp, Monitor, MonitorOff, RotateCcw } from "lucide-react";
+import { Eye, EyeOff, Trash2, Check, X, Plus, Pencil, ChevronDown, ChevronUp, Monitor, MonitorOff, RotateCcw, Timer } from "lucide-react";
 import type { Calendar, CalendarProvider, CalendarEvent, FavoriteSportsTeam } from "@openframe/shared";
 import type { Kiosk } from "../../services/api";
 import { Button } from "../ui/Button";
@@ -208,6 +208,7 @@ function CalendarRow({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showEvents, setShowEvents] = useState(false);
   const [showKiosks, setShowKiosks] = useState(false);
+  const [showSyncInterval, setShowSyncInterval] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
   const todayMarkerRef = useRef<HTMLDivElement>(null);
   const isLocal = calendar.provider === "local";
@@ -361,6 +362,23 @@ function CalendarRow({
           {showEvents ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
         </button>
 
+        {/* Sync interval toggle */}
+        {calendar.provider !== "local" && (
+          <button
+            onClick={() => setShowSyncInterval(!showSyncInterval)}
+            className={`p-0.5 rounded transition-colors shrink-0 ${
+              showSyncInterval
+                ? "text-primary bg-primary/10"
+                : calendar.syncInterval
+                ? "text-primary/60 hover:text-primary hover:bg-primary/10"
+                : "text-muted-foreground/0 hover:text-foreground hover:bg-muted/50 group-hover:text-muted-foreground/30"
+            }`}
+            title={`Sync interval: ${calendar.syncInterval ? `${calendar.syncInterval}m` : "default"}`}
+          >
+            <Timer className="h-3 w-3" />
+          </button>
+        )}
+
         {/* Delete */}
         {canDelete && onDelete && (
           showDeleteConfirm ? (
@@ -430,6 +448,44 @@ function CalendarRow({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Sync interval panel */}
+      {showSyncInterval && (
+        <div className="ml-5 mr-2 mb-1 border-l-2 border-primary/30 pl-3 py-1.5">
+          <p className="text-xs font-medium text-primary mb-1.5">Sync Interval</p>
+          <div className="flex flex-wrap gap-1">
+            {[
+              { value: null, label: "Default" },
+              { value: 1, label: "1m" },
+              { value: 2, label: "2m" },
+              { value: 5, label: "5m" },
+              { value: 15, label: "15m" },
+              { value: 30, label: "30m" },
+              { value: 60, label: "1h" },
+              { value: 360, label: "6h" },
+              { value: 1440, label: "24h" },
+            ].map((opt) => (
+              <button
+                key={opt.label}
+                onClick={() => onUpdate({ syncInterval: opt.value } as CalendarUpdate)}
+                className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                  calendar.syncInterval === opt.value
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Default: {calendar.provider === "ics" || calendar.provider === "homeassistant" ? "15 min" : "2 min"}
+            {calendar.lastSyncAt && (
+              <> · Last synced {new Date(calendar.lastSyncAt).toLocaleString()}</>
+            )}
+          </p>
         </div>
       )}
 

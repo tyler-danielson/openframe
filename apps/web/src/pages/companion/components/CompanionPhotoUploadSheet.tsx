@@ -27,7 +27,7 @@ export function CompanionPhotoUploadSheet({
     let errors = 0;
     for (let i = 0; i < fileArray.length; i++) {
       try {
-        await api.uploadPhoto(albumId, fileArray[i]!);
+        await api.uploadCompanionPhoto(albumId, fileArray[i]!);
       } catch {
         errors++;
       }

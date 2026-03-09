@@ -9,9 +9,11 @@ export async function mapsRoutes(fastify: FastifyInstance) {
   fastify.get(
     "/distance",
     {
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Get driving distance and duration between two locations",
         tags: ["Maps"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
         querystring: {
           type: "object",
           required: ["origin", "destination"],
@@ -118,9 +120,11 @@ export async function mapsRoutes(fastify: FastifyInstance) {
   fastify.get(
     "/places/autocomplete",
     {
+      onRequest: [fastify.authenticateKioskOrAny],
       schema: {
         description: "Search for places using Google Places Autocomplete",
         tags: ["Maps"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
         querystring: {
           type: "object",
           required: ["input"],

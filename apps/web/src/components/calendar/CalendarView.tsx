@@ -562,7 +562,7 @@ export function CalendarView({
   return (
     <div
       ref={containerRef}
-      className="h-full"
+      className="h-full w-full overflow-hidden"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

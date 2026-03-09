@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { plexServers } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { PlexClient } from "../../services/plex-client.js";
@@ -135,7 +135,7 @@ export const plexRoutes: FastifyPluginAsync = async (fastify) => {
 
       await fastify.db
         .delete(plexServers)
-        .where(eq(plexServers.id, id));
+        .where(and(eq(plexServers.id, id), eq(plexServers.userId, user.id)));
 
       return reply.status(204).send();
     }

@@ -1076,7 +1076,7 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
     const sections: JSX.Element[] = [];
 
     if (hasEvents) {
-      const eventsToShow = upcomingEvents.slice(0, eventsMaxItems);
+      const eventsToShow = eventsMaxItems > 0 ? upcomingEvents.slice(0, eventsMaxItems) : upcomingEvents;
       const showCalendarName = config.size === "large";
       sections.push(
         <div key="events" className="space-y-2">
@@ -1108,7 +1108,7 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
     }
 
     if (hasSports) {
-      const gamesToShow = todaysGames.slice(0, sportsMaxItems);
+      const gamesToShow = sportsMaxItems > 0 ? todaysGames.slice(0, sportsMaxItems) : todaysGames;
       const showFullName = config.size === "large";
       const showGameTime = config.size !== "small";
       sections.push(
@@ -1149,7 +1149,7 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
     }
 
     if (hasTasks) {
-      const tasksToShow = upcomingTasks.slice(0, tasksMaxItems);
+      const tasksToShow = tasksMaxItems > 0 ? upcomingTasks.slice(0, tasksMaxItems) : upcomingTasks;
       sections.push(
         <div key="tasks" className={`space-y-2 ${sections.length > 0 ? "mt-3 pt-2 border-t border-white/10" : ""}`}>
           <div className={`${sizeClasses.sectionLabel} text-white/50 uppercase tracking-wide`}>Tasks Due Today</div>

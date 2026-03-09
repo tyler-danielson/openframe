@@ -7,6 +7,8 @@ import {
   events,
   taskLists,
   tasks,
+  photoAlbums,
+  photos,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 
@@ -15,8 +17,10 @@ interface CompanionContext {
   permissions: {
     accessCalendar: string;
     accessTasks: string;
+    accessPhotos: boolean;
     allowedCalendarIds: string[] | null;
     allowedTaskListIds: string[] | null;
+    allowedAlbumIds: string[] | null;
   } | null; // null = full access (owner)
 }
 
@@ -51,8 +55,10 @@ async function resolveCompanionContext(
     permissions: {
       accessCalendar: access.accessCalendar,
       accessTasks: access.accessTasks,
+      accessPhotos: access.accessPhotos,
       allowedCalendarIds: access.allowedCalendarIds,
       allowedTaskListIds: access.allowedTaskListIds,
+      allowedAlbumIds: access.allowedAlbumIds,
     },
   };
 }
@@ -520,6 +526,204 @@ export const companionDataRoutes: FastifyPluginAsync = async (fastify) => {
       await fastify.db.delete(tasks).where(eq(tasks.id, id));
 
       return { success: true };
+    }
+  );
+
+  // GET /albums — Owner's photo albums
+  fastify.get(
+    "/albums",
+    { onRequest: [fastify.authenticateAny] },
+    async (request, reply) => {
+      const ctx = await resolveCompanionContext(request, fastify.db);
+      if (!ctx) return reply.forbidden("No companion access");
+
+      if (ctx.permissions && !ctx.permissions.accessPhotos) {
+        return { success: true, data: [] };
+      }
+
+      let albums = await fastify.db
+        .select()
+        .from(photoAlbums)
+        .where(eq(photoAlbums.userId, ctx.ownerId));
+
+      // Filter by allowed albums if scoped
+      if (ctx.permissions?.allowedAlbumIds) {
+        const allowed = new Set(ctx.permissions.allowedAlbumIds);
+        albums = albums.filter((a) => allowed.has(a.id));
+      }
+
+      const albumsWithCounts = await Promise.all(
+        albums.map(async (album) => {
+          const albumPhotos = await fastify.db
+            .select()
+            .from(photos)
+            .where(eq(photos.albumId, album.id));
+          return {
+            ...album,
+            photoCount: albumPhotos.length,
+          };
+        })
+      );
+
+      return { success: true, data: albumsWithCounts };
+    }
+  );
+
+  // GET /albums/:id/photos — Photos in an owner's album
+  fastify.get(
+    "/albums/:id/photos",
+    { onRequest: [fastify.authenticateAny] },
+    async (request, reply) => {
+      const ctx = await resolveCompanionContext(request, fastify.db);
+      if (!ctx) return reply.forbidden("No companion access");
+
+      if (ctx.permissions && !ctx.permissions.accessPhotos) {
+        return reply.forbidden("No photo access");
+      }
+
+      const { id } = request.params as { id: string };
+
+      // Check allowed albums
+      if (ctx.permissions?.allowedAlbumIds && !ctx.permissions.allowedAlbumIds.includes(id)) {
+        return reply.forbidden("Access to this album is not allowed");
+      }
+
+      // Verify album belongs to owner
+      const [album] = await fastify.db
+        .select()
+        .from(photoAlbums)
+        .where(and(eq(photoAlbums.id, id), eq(photoAlbums.userId, ctx.ownerId)))
+        .limit(1);
+
+      if (!album) return reply.notFound("Album not found");
+
+      const albumPhotos = await fastify.db
+        .select()
+        .from(photos)
+        .where(eq(photos.albumId, id))
+        .orderBy(photos.sortOrder);
+
+      // Convert paths to URLs (same format as regular photo routes)
+      const photosWithUrls = albumPhotos.map((photo) => ({
+        id: photo.id,
+        filename: photo.filename,
+        originalFilename: photo.originalFilename,
+        mimeType: photo.mimeType,
+        width: photo.width,
+        height: photo.height,
+        thumbnailUrl: photo.thumbnailPath
+          ? `/api/v1/photos/files/${photo.thumbnailPath.replace(/\\/g, "/")}`
+          : null,
+        mediumUrl: photo.mediumPath
+          ? `/api/v1/photos/files/${photo.mediumPath.replace(/\\/g, "/")}`
+          : null,
+        originalUrl: `/api/v1/photos/files/${photo.originalPath.replace(/\\/g, "/")}`,
+        takenAt: photo.takenAt,
+        sortOrder: photo.sortOrder,
+        sourceType: photo.sourceType,
+        externalId: photo.externalId,
+      }));
+
+      return { success: true, data: photosWithUrls };
+    }
+  );
+
+  // POST /albums/:id/photos — Upload a photo to an owner's album
+  fastify.post(
+    "/albums/:id/photos",
+    { onRequest: [fastify.authenticateAny] },
+    async (request, reply) => {
+      const ctx = await resolveCompanionContext(request, fastify.db);
+      if (!ctx) return reply.forbidden("No companion access");
+
+      if (ctx.permissions && !ctx.permissions.accessPhotos) {
+        return reply.forbidden("No photo access");
+      }
+
+      const { id: albumId } = request.params as { id: string };
+
+      // Check allowed albums
+      if (ctx.permissions?.allowedAlbumIds && !ctx.permissions.allowedAlbumIds.includes(albumId)) {
+        return reply.forbidden("Access to this album is not allowed");
+      }
+
+      // Verify album belongs to owner
+      const [album] = await fastify.db
+        .select()
+        .from(photoAlbums)
+        .where(and(eq(photoAlbums.id, albumId), eq(photoAlbums.userId, ctx.ownerId)))
+        .limit(1);
+
+      if (!album) return reply.notFound("Album not found");
+
+      const data = await request.file();
+      if (!data) return reply.badRequest("No file uploaded");
+
+      const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+      if (!allowedTypes.includes(data.mimetype)) {
+        return reply.badRequest("Invalid file type. Allowed: JPEG, PNG, WebP, GIF");
+      }
+
+      // Import processor dynamically
+      const { processImage } = await import("../../services/photos/processor.js");
+      const { mkdir } = await import("fs/promises");
+      const { join } = await import("path");
+      const { randomUUID } = await import("crypto");
+
+      const uploadDir = process.env.UPLOAD_DIR ?? "./uploads";
+      const ownerDir = join(uploadDir, ctx.ownerId);
+      await mkdir(ownerDir, { recursive: true });
+      await mkdir(join(ownerDir, "thumbnails"), { recursive: true });
+      await mkdir(join(ownerDir, "medium"), { recursive: true });
+      await mkdir(join(ownerDir, "original"), { recursive: true });
+
+      const fileId = randomUUID();
+      const ext = data.filename.split(".").pop() ?? "jpg";
+      const filename = `${fileId}.${ext}`;
+
+      const buffer = await data.toBuffer();
+      const result = await processImage(buffer, {
+        userDir: ownerDir,
+        filename,
+        generateThumbnail: true,
+        generateMedium: true,
+      });
+
+      const existingPhotos = await fastify.db
+        .select()
+        .from(photos)
+        .where(eq(photos.albumId, albumId));
+      const maxOrder = Math.max(0, ...existingPhotos.map((p) => p.sortOrder));
+
+      const [photo] = await fastify.db
+        .insert(photos)
+        .values({
+          albumId,
+          filename,
+          originalFilename: data.filename,
+          mimeType: data.mimetype,
+          width: result.width,
+          height: result.height,
+          size: buffer.length,
+          thumbnailPath: result.thumbnailPath ? join(ctx.ownerId, result.thumbnailPath) : null,
+          mediumPath: result.mediumPath ? join(ctx.ownerId, result.mediumPath) : null,
+          originalPath: join(ctx.ownerId, result.originalPath),
+          metadata: result.metadata,
+          sortOrder: maxOrder + 1,
+          sourceType: "local",
+        })
+        .returning();
+
+      return reply.status(201).send({
+        success: true,
+        data: {
+          id: photo!.id,
+          filename: photo!.filename,
+          originalFilename: photo!.originalFilename,
+          width: photo!.width,
+          height: photo!.height,
+        },
+      });
     }
   );
 };
