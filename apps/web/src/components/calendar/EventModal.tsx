@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import * as Popover from "@radix-ui/react-popover";
-import { X, MapPin, Calendar, Clock, Users, Repeat, CircleDot, Car, Pencil, Home, Timer, Trash2 } from "lucide-react";
+import { X, MapPin, Calendar, Clock, Users, Repeat, CircleDot, Car, Pencil, Home, Timer, Trash2, Hourglass } from "lucide-react";
 import { format } from "date-fns";
 import type { CalendarEvent, Calendar as CalendarType } from "@openframe/shared";
 import { Button } from "../ui/Button";
@@ -114,6 +114,7 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
   const [showCountdownPicker, setShowCountdownPicker] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showCountdown, setShowCountdown] = useState(false);
 
   // Reset edit state when modal opens/closes or event changes
   useEffect(() => {
@@ -122,6 +123,7 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
       setEditLocation(event.location ?? "");
       setEditDescription(event.description ?? "");
       setEditIsAllDay(event.isAllDay ?? false);
+      setShowCountdown(!!(event.metadata as Record<string, unknown>)?.showCountdown);
 
       const start = new Date(event.startTime);
       const end = new Date(event.endTime);
@@ -137,9 +139,7 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
       // Detect if event spans multiple days
       setEditIsMultiDay(startDateStr !== endDateStr);
     }
-    if (open && event) {
-      setIsEditing(true);
-    } else if (!open) {
+    if (!open) {
       setIsEditing(false);
       setShowRoutes(false);
       setShowStartDatePicker(false);
@@ -680,6 +680,41 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
               </div>
             )}
           </div>
+
+          {/* Show Countdown toggle (view mode only) */}
+          {!isEditing && (
+            <div className="border-t border-border pt-3 mt-1">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm">
+                  <Hourglass className="h-4 w-4 text-primary" />
+                  <span className="font-medium">Show Countdown</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const newValue = !showCountdown;
+                    setShowCountdown(newValue);
+                    try {
+                      await api.updateEvent(event.id, { metadata: { showCountdown: newValue } } as Partial<CalendarEvent>);
+                      onUpdate?.(event);
+                    } catch (error) {
+                      console.error("Failed to update countdown:", error);
+                      setShowCountdown(!newValue);
+                    }
+                  }}
+                  className={`relative w-10 h-6 rounded-full transition-colors touch-manipulation ${
+                    showCountdown ? "bg-primary" : "bg-muted"
+                  }`}
+                >
+                  <div
+                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                      showCountdown ? "translate-x-4" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Actions */}
           <div className="mt-4 flex gap-2">

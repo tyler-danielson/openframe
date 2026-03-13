@@ -4,6 +4,7 @@ import { api } from "../../services/api";
 import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import { cn } from "../../lib/utils";
+import { calculateTimeRemaining, type TimeRemaining } from "../../lib/countdown";
 
 interface CountdownWidgetProps {
   config: Record<string, unknown>;
@@ -27,30 +28,6 @@ const CUSTOM_SCALE = {
   label: 0.3,
 };
 
-interface TimeRemaining {
-  days: number;
-  hours: number;
-  minutes: number;
-  seconds: number;
-  isExpired: boolean;
-}
-
-function calculateTimeRemaining(targetDate: Date): TimeRemaining {
-  const now = new Date();
-  const diff = targetDate.getTime() - now.getTime();
-
-  if (diff <= 0) {
-    return { days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: true };
-  }
-
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-  const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-
-  return { days, hours, minutes, seconds, isExpired: false };
-}
-
 export function CountdownWidget({ config, style, isBuilder }: CountdownWidgetProps) {
   const targetDateStr = config.targetDate as string ?? "";
   const label = config.label as string ?? "Countdown";
@@ -60,13 +37,13 @@ export function CountdownWidget({ config, style, isBuilder }: CountdownWidgetPro
   const showSeconds = config.showSeconds as boolean ?? false;
   const eventId = config.eventId as string ?? "";
   const displayMode = config.displayMode as "full" | "days" ?? "full";
+  const autoDiscover = config.autoDiscover as boolean ?? false;
 
   // Fetch event if eventId is set
   const { data: event } = useQuery({
     queryKey: ["event", eventId],
     queryFn: async () => {
       if (!eventId) return null;
-      // Get events around now and find the one with matching ID
       const start = new Date();
       const end = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // 1 year
       const events = await api.getEvents(start, end);
@@ -76,9 +53,27 @@ export function CountdownWidget({ config, style, isBuilder }: CountdownWidgetPro
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
+  // Auto-discover: find the nearest future event with showCountdown enabled
+  const { data: autoDiscoverEvent } = useQuery({
+    queryKey: ["countdown-auto-discover"],
+    queryFn: async () => {
+      const start = new Date();
+      const end = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+      const allEvents = await api.getEvents(start, end);
+      const now = new Date();
+      const countdownEvents = allEvents
+        .filter(e => (e.metadata as Record<string, unknown>)?.showCountdown === true && new Date(e.startTime) > now)
+        .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+      return countdownEvents[0] || null;
+    },
+    enabled: autoDiscover && !eventId,
+    staleTime: 5 * 60 * 1000,
+  });
+
   // Determine effective target date and label
-  const effectiveTargetDate = event ? new Date(event.startTime).toISOString() : targetDateStr;
-  const effectiveLabel = event ? event.title : label;
+  const resolvedEvent = event || (autoDiscover && !eventId ? autoDiscoverEvent : null);
+  const effectiveTargetDate = resolvedEvent ? new Date(resolvedEvent.startTime).toISOString() : targetDateStr;
+  const effectiveLabel = resolvedEvent ? resolvedEvent.title : label;
 
   const [timeRemaining, setTimeRemaining] = useState<TimeRemaining>({
     days: 0,

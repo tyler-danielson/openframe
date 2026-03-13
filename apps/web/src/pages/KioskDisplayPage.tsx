@@ -10,6 +10,7 @@ import { ConnectionStatusIndicator } from "../components/ConnectionStatusIndicat
 import { Layout } from "../components/ui/Layout";
 import { useScreensaverStore } from "../stores/screensaver";
 import { useRemoteControlStore } from "../stores/remote-control";
+import { useSplitScreenStore } from "../stores/split-screen";
 import { useBlockNavStore } from "../stores/block-nav";
 import { FileShareOverlay } from "../components/FileShareOverlay";
 
@@ -82,6 +83,24 @@ function useSilkKeepAlive() {
       }
     };
   }, []);
+}
+
+// Redirect helper that uses absolute paths to avoid React Router's relative-from-splat behavior
+function KioskRedirect({ to }: { to: string }) {
+  const location = useLocation();
+  // Extract token from pathname — more reliable than useParams in descendant Routes (RR v7)
+  const tokenMatch = location.pathname.match(/^\/kiosk\/([^/]+)/);
+  const token = tokenMatch?.[1];
+  const targetPath = `/kiosk/${token}/${to}`;
+
+  // Guard: don't redirect if we're already at the target (prevents loops)
+  const currentNormalized = location.pathname.replace(/\/+$/, "");
+  const targetNormalized = targetPath.replace(/\/+$/, "");
+  if (currentNormalized === targetNormalized) {
+    return null;
+  }
+
+  return <Navigate to={targetPath} replace />;
 }
 
 // Kiosk app content - uses the same Layout and pages as the main app
@@ -426,6 +445,20 @@ function KioskApp() {
       for (const db of dashboards) {
         const count = typeCount[db.type] ?? 0;
         typeCount[db.type] = count + 1;
+
+        if (db.type === "custom") {
+          // Custom dashboards always use d/{id} path for routing stability
+          // (avoids route flickering when customScreensMap loads async)
+          const screenId = db.config?.screenId as string | undefined;
+          routes.push({
+            feature: "custom",
+            path: `d/${db.id}`,
+            element: <CustomScreenPage screenId={screenId} />,
+            dashboardId: db.id,
+          });
+          continue;
+        }
+
         const featureRoute = FEATURE_ROUTES[db.type];
         if (!featureRoute) continue;
         const path = count === 0
@@ -558,16 +591,18 @@ function KioskApp() {
     <>
       <Routes>
         <Route element={<Layout kioskEnabledFeatures={enabledFeatures} kioskDisplayType={displayType} kioskDashboards={dashboards.length > 0 ? dashboards : undefined} kioskControls={settings?.controls} />}>
-          <Route index element={<Navigate to={effectiveHomePage} replace />} />
+          <Route index element={<KioskRedirect to={effectiveHomePage} />} />
           {enabledRoutes.map(({ feature, path, element, dashboardId }) => (
-            <Route key={dashboardId ?? feature} path={path} element={element} />
-          ))}
+              <Route key={dashboardId ?? feature} path={path} element={element} />
+            ))}
           {/* Join QR code page */}
           <Route path="join" element={<KioskJoinPage />} />
-          {/* Custom screens */}
+          {/* Custom screens by slug (direct URL access) */}
           <Route path="screen/:slug" element={<CustomScreenPage />} />
+          {/* Custom screens by dashboard ID (fallback while slug resolves) */}
+          <Route path="d/:dashboardId" element={<CustomScreenPage />} />
           {/* Redirect disabled routes to home page */}
-          <Route path="*" element={<Navigate to={effectiveHomePage} replace />} />
+          <Route path="*" element={<KioskRedirect to={effectiveHomePage} />} />
         </Route>
       </Routes>
       {showScreensaverOverlay && <Screensaver displayType={displayType} />}
@@ -660,8 +695,11 @@ function KioskCommandPoller({ token }: { token: string }) {
 
         case "navigate":
           if (cmd.payload?.path && typeof cmd.payload.path === "string") {
-            console.log(`[Kiosk] Navigating to: ${cmd.payload.path}`);
-            navigate(cmd.payload.path);
+            const path = cmd.payload.path.startsWith("/")
+              ? cmd.payload.path
+              : `/kiosk/${token}/${cmd.payload.path}`;
+            console.log(`[Kiosk] Navigating to: ${path}`);
+            navigate(path);
           }
           break;
 
@@ -709,6 +747,38 @@ function KioskCommandPoller({ token }: { token: string }) {
         case "file-share-page":
           console.log(`[Kiosk] Forwarding file share command: ${cmd.type}`);
           addRemoteCommand(cmd);
+          break;
+
+        case "split-screen": {
+          const splitConfig = cmd.payload as {
+            position?: "left" | "right";
+            ratio?: "half" | "third";
+            sourceType?: "dashboard" | "url" | "text" | "widget";
+            dashboardPath?: string;
+            url?: string;
+            text?: string;
+            widgetType?: string;
+            widgetConfig?: Record<string, unknown>;
+          } | undefined;
+          if (splitConfig?.sourceType) {
+            console.log("[Kiosk] Activating split screen:", splitConfig);
+            useSplitScreenStore.getState().activate({
+              position: splitConfig.position || "right",
+              ratio: splitConfig.ratio || "half",
+              sourceType: splitConfig.sourceType,
+              dashboardPath: splitConfig.dashboardPath,
+              url: splitConfig.url,
+              text: splitConfig.text,
+              widgetType: splitConfig.widgetType,
+              widgetConfig: splitConfig.widgetConfig,
+            });
+          }
+          break;
+        }
+
+        case "exit-split-screen":
+          console.log("[Kiosk] Deactivating split screen");
+          useSplitScreenStore.getState().deactivate();
           break;
 
         case "widget-control": {

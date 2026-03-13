@@ -5,3 +5,4 @@ export { HandwritingOverlay } from "./HandwritingOverlay";
 export { DaySummaryModal } from "./DaySummaryModal";
 export { RollingMonthView } from "./RollingMonthView";
 export { ScheduleView } from "./ScheduleView";
+export { CountdownBar } from "./CountdownBar";

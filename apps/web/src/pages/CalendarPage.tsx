@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, addWeeks, addDays, format, isSameDay } from "date-fns";
-import { ChevronLeft, ChevronRight, Plus, X, Droplets, Wind, Thermometer, PenTool, WifiOff } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, X, Droplets, Wind, Thermometer, PenTool, WifiOff, PanelRight } from "lucide-react";
 import { api, type WeatherData, type WeatherForecast, type HourlyForecast } from "../services/api";
 import { useCalendarStore } from "../stores/calendar";
-import { CalendarView, EventModal, CreateEventModal, HandwritingOverlay, DaySummaryModal } from "../components/calendar";
+import { CalendarView, EventModal, CreateEventModal, HandwritingOverlay, DaySummaryModal, CountdownBar } from "../components/calendar";
+import { CalendarSidebar } from "../components/calendar/CalendarSidebar";
 import { SportsScoreBadge } from "../components/sports";
 import { Button } from "../components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/Select";
@@ -377,6 +378,8 @@ export function CalendarPage() {
     monthMode,
     setMonthMode,
     autoRefreshInterval,
+    showUpNext,
+    setShowUpNext,
   } = useCalendarStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -570,6 +573,20 @@ export function CalendarPage() {
     staleTime: autoRefreshInterval > 0 ? Math.min(autoRefreshInterval * 60 * 1000 / 2, 60 * 1000) : 60 * 1000,
   });
 
+  // Fetch countdown events (future events up to 1 year, filtered client-side for showCountdown)
+  const { data: countdownEvents = [] } = useQuery({
+    queryKey: ["countdown-events"],
+    queryFn: async () => {
+      const start = new Date();
+      const end = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+      const allEvents = await api.getEvents(start, end);
+      return allEvents.filter(
+        (e) => (e.metadata as Record<string, unknown>)?.showCountdown === true
+      );
+    },
+    staleTime: 60 * 1000,
+  });
+
   // Fetch favorite teams for visibility settings
   const { data: favoriteTeams = [] } = useQuery({
     queryKey: ["favorite-teams"],
@@ -728,6 +745,7 @@ export function CalendarPage() {
     mutationFn: (id: string) => api.deleteEvent(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["events"] });
+      queryClient.invalidateQueries({ queryKey: ["countdown-events"] });
     },
   });
 
@@ -748,6 +766,7 @@ export function CalendarPage() {
 
   const handleUpdateEvent = () => {
     queryClient.invalidateQueries({ queryKey: ["events"] });
+    queryClient.invalidateQueries({ queryKey: ["countdown-events"] });
   };
 
   // Handle clicking on a day/slot
@@ -990,9 +1009,28 @@ export function CalendarPage() {
                   <ChevronRight className="h-5 w-5" />
                 </Button>
               </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowUpNext(!showUpNext)}
+                title={showUpNext ? "Hide sidebar" : "Show sidebar"}
+                className={`p-1.5 border-2 ${
+                  showUpNext
+                    ? "border-primary/50 bg-primary/15 text-primary hover:border-primary/70 hover:bg-primary/20"
+                    : "border-primary/30 bg-primary/5 hover:border-primary/50 hover:bg-primary/10"
+                }`}
+              >
+                <PanelRight className="h-5 w-5" />
+              </Button>
             </div>
           </div>
         </div>
+
+        {/* Countdown bar */}
+        <CountdownBar
+          events={countdownEvents}
+          onSelectEvent={handleSelectEvent}
+        />
 
         {/* Calendar view */}
         <div className="flex-1 min-h-0 relative overflow-hidden">
@@ -1065,6 +1103,19 @@ export function CalendarPage() {
         </div>
       </div>
 
+      {/* Quick overview sidebar */}
+      {showUpNext && (
+        <CalendarSidebar
+          events={events}
+          calendars={calendars}
+          onSelectEvent={handleSelectEvent}
+          timeFormat={timeFormat}
+          weather={weather}
+          forecast={forecast}
+          onWeatherClick={handleWeatherClick}
+        />
+      )}
+
       <EventModal
         event={selectedEvent}
         open={isModalOpen}
@@ -1100,6 +1151,7 @@ export function CalendarPage() {
         open={daySummaryDate !== null}
         onClose={() => setDaySummaryDate(null)}
         onSelectEvent={handleSelectEvent}
+        onAddEvent={() => { if (!guard("Create event")) setIsCreateModalOpen(true); }}
       />
 
       {selectedGame && (

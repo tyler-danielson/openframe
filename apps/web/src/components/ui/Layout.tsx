@@ -49,6 +49,8 @@ import { useBlockNavStore, type NavigableBlock } from "../../stores/block-nav";
 import { cn } from "../../lib/utils";
 import { SidebarHelpOverlay, type HelpItem } from "../SidebarHelpOverlay";
 import { useDemoMode } from "../../contexts/DemoContext";
+import { useSplitScreenStore } from "../../stores/split-screen";
+import { SplitScreenContainer } from "../SplitScreenContainer";
 
 interface LayoutProps {
   kioskEnabledFeatures?: KioskEnabledFeatures | null;
@@ -110,6 +112,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
   const sidebarOrder = useSidebarStore((s) => s.order);
   const sidebarCustomScreens = useSidebarStore((s) => s.customScreens);
   const isModuleEnabled = useModuleStore((s) => s.isEnabled);
+  const splitActive = useSplitScreenStore((s) => s.isActive);
 
   // Detect kiosk mode base path from URL (e.g., /kiosk/abc123), or use explicit basePath prop (e.g., /demo)
   const basePath = useMemo(() => {
@@ -957,10 +960,12 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
         </div>
       )}
 
-      {/* Main content */}
-      <main className="relative flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden pt-16 lg:pt-0">
-        <Suspense fallback={null}>
-          <Outlet />
+      {/* Main content — key forces Suspense reset on navigation (React 19 + RR v7 startTransition) */}
+      <main className={cn("relative flex-1 min-w-0 min-h-0 pt-16 lg:pt-0", splitActive ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden")}>
+        <Suspense key={location.pathname} fallback={null}>
+          <SplitScreenContainer>
+            <Outlet />
+          </SplitScreenContainer>
         </Suspense>
       </main>
 

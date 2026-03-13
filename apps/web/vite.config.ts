@@ -56,13 +56,14 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          "pdf-viewer": ["react-pdf"],
-        },
+        // Let Vite handle code splitting automatically via lazy imports
+        // manualChunks for react-pdf was causing React hook dispatcher
+        // to be split across chunks, triggering error #310
       },
     },
   },
   resolve: {
+    dedupe: ["react", "react-dom"],
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },

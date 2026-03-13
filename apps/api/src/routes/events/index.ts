@@ -7,6 +7,7 @@ import { getCurrentUser } from "../../plugins/auth.js";
 import { expandRecurringEvents } from "../../services/calendar-sync/recurrence.js";
 import { pushEventToGoogle, updateEventInGoogle, deleteEventFromGoogle } from "../../services/calendar-sync/google.js";
 import { pushEventToMicrosoft, updateEventInMicrosoft, deleteEventFromMicrosoft } from "../../services/calendar-sync/microsoft.js";
+import { encryptField, encryptEventFields, decryptEventFields } from "../../lib/encryption.js";
 
 export const eventRoutes: FastifyPluginAsync = async (fastify) => {
   // Get events
@@ -81,9 +82,12 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
           )
         );
 
+      // Decrypt event fields before expanding
+      const decryptedResults = eventResults.map(decryptEventFields);
+
       // Expand recurring events
       const expandedEvents = expandRecurringEvents(
-        eventResults,
+        decryptedResults,
         query.start,
         query.end
       );
@@ -160,7 +164,7 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         success: true,
         data: {
-          ...event,
+          ...decryptEventFields(event),
           calendar: {
             id: calendar.id,
             name: calendar.displayName || calendar.name,
@@ -223,10 +227,10 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("Calendar is read-only");
       }
 
-      // Create event in database
+      // Create event in database (encrypt sensitive fields)
       const [event] = await fastify.db
         .insert(events)
-        .values({
+        .values(encryptEventFields({
           calendarId: input.calendarId,
           externalId: `local_${randomUUID()}`,
           title: input.title,
@@ -238,7 +242,7 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
           recurrenceRule: input.recurrenceRule,
           attendees: input.attendees,
           reminders: input.reminders,
-        })
+        }))
         .returning();
 
       // Sync to external calendar provider
@@ -255,8 +259,10 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
           .limit(1);
 
         if (token) {
+          let syncWarning: string | undefined;
           if (calendar.provider === "google") {
-            await pushEventToGoogle(fastify.db, user.id, calendar, event, token);
+            const result = await pushEventToGoogle(fastify.db, user.id, calendar, event, token);
+            if (!result.success) syncWarning = result.error;
           } else {
             await pushEventToMicrosoft(fastify.db, user.id, calendar, event, token);
           }
@@ -267,14 +273,14 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
             .where(eq(events.id, event.id))
             .limit(1);
           if (updated) {
-            return reply.status(201).send({ success: true, data: updated });
+            return reply.status(201).send({ success: true, data: decryptEventFields(updated), ...(syncWarning ? { syncWarning } : {}) });
           }
         }
       }
 
       return reply.status(201).send({
         success: true,
-        data: event,
+        data: event ? decryptEventFields(event) : event,
       });
     }
   );
@@ -333,14 +339,14 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
 
       const [event] = await fastify.db
         .insert(events)
-        .values({
+        .values(encryptEventFields({
           calendarId,
           externalId: `local_${randomUUID()}`,
           title: parsed.title,
           startTime: parsed.startTime,
           endTime: parsed.endTime,
           isAllDay: parsed.isAllDay,
-        })
+        }))
         .returning();
 
       // Sync to external calendar provider
@@ -375,7 +381,7 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
               .where(eq(events.id, event.id))
               .limit(1);
             if (updated) {
-              return reply.status(201).send({ success: true, data: updated });
+              return reply.status(201).send({ success: true, data: decryptEventFields(updated) });
             }
           }
         }
@@ -383,7 +389,7 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
 
       return reply.status(201).send({
         success: true,
-        data: event,
+        data: event ? decryptEventFields(event) : event,
       });
     }
   );
@@ -419,9 +425,10 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
         startTime: string | Date;
         endTime: string | Date;
         isAllDay: boolean;
+        metadata: Record<string, unknown>;
       }>;
 
-      // Parse date strings into Date objects
+      // Parse date strings into Date objects and encrypt sensitive fields
       const updates: Partial<{
         title: string;
         description: string;
@@ -429,8 +436,12 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
         startTime: Date;
         endTime: Date;
         isAllDay: boolean;
+        metadata: Record<string, unknown>;
       }> = {
         ...body,
+        ...(body.title !== undefined ? { title: encryptField(body.title) ?? body.title } : {}),
+        ...(body.description !== undefined ? { description: encryptField(body.description) ?? body.description } : {}),
+        ...(body.location !== undefined ? { location: encryptField(body.location) ?? body.location } : {}),
         startTime: body.startTime ? new Date(body.startTime) : undefined,
         endTime: body.endTime ? new Date(body.endTime) : undefined,
       };
@@ -465,6 +476,12 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("Calendar is read-only");
       }
 
+      // Merge metadata (shallow merge new keys into existing)
+      if (body.metadata !== undefined) {
+        const existingMetadata = (existingEvent.metadata as Record<string, unknown>) ?? {};
+        updates.metadata = { ...existingMetadata, ...body.metadata };
+      }
+
       const [event] = await fastify.db
         .update(events)
         .set({ ...updates, updatedAt: new Date() })
@@ -495,7 +512,7 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
 
       return {
         success: true,
-        data: event,
+        data: event ? decryptEventFields(event) : event,
       };
     }
   );

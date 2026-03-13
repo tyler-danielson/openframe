@@ -72,6 +72,14 @@ function getEventEndDate(event: CalendarEvent): Date {
   return new Date(event.endTime);
 }
 
+// Multi-day timed events should be treated like all-day events (banner at top)
+function isBannerEvent(event: CalendarEvent): boolean {
+  if (event.isAllDay) return true;
+  const start = new Date(event.startTime);
+  const end = new Date(event.endTime);
+  return !isSameDay(start, end);
+}
+
 export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWidgetProps) {
   const configCalendarIds = (config.calendarIds as string[]) ?? [];
   const numberOfDays = (config.numberOfDays as number) ?? 5;
@@ -213,21 +221,21 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
   });
   const { isStale, ageLabel } = useDataFreshness(dataUpdatedAt, STALE_THRESHOLDS.weekSchedule);
 
-  // Group all-day events by day
+  // Group all-day and multi-day events by day (rendered as banners at top)
   const allDayEventsByDay = useMemo(() => {
     if (!showAllDayEvents) return new Map<string, CalendarEvent[]>();
 
     const map = new Map<string, CalendarEvent[]>();
-    const allDayEvents = events.filter((e: CalendarEvent) => e.isAllDay);
+    const bannerEvents = events.filter((e: CalendarEvent) => isBannerEvent(e));
 
     for (const day of days) {
       const key = format(day, "yyyy-MM-dd");
       const dayStart = startOfDay(day);
       const dayEnd = endOfDay(day);
 
-      const dayEvents = allDayEvents.filter((event: CalendarEvent) => {
-        const eStart = getEventStartDate(event);
-        const eEnd = getEventEndDate(event);
+      const dayEvents = bannerEvents.filter((event: CalendarEvent) => {
+        const eStart = event.isAllDay ? getEventStartDate(event) : new Date(event.startTime);
+        const eEnd = event.isAllDay ? getEventEndDate(event) : new Date(event.endTime);
         return eStart < dayEnd && eEnd > dayStart;
       });
 
@@ -258,7 +266,7 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
       totalColumns: number;
     }>>();
 
-    const timedEvents = events.filter((e: CalendarEvent) => !e.isAllDay);
+    const timedEvents = events.filter((e: CalendarEvent) => !isBannerEvent(e));
 
     for (const day of days) {
       const key = format(day, "yyyy-MM-dd");
@@ -385,6 +393,19 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
     });
   }
 
+  // hasAllDayEvents check (must be before any early returns to keep hook count stable)
+  const hasAllDayEvents = showAllDayEvents && Array.from(allDayEventsByDay.values()).some((arr) => arr.length > 0);
+
+  // Max all-day event count across days (for uniform column height)
+  const maxAllDayCount = useMemo(() => {
+    if (!hasAllDayEvents) return 0;
+    let max = 0;
+    for (const events of allDayEventsByDay.values()) {
+      max = Math.max(max, events.length);
+    }
+    return max;
+  }, [hasAllDayEvents, allDayEventsByDay]);
+
   const displayDays = isBuilder ? mockDays : days;
   const displayEventsByDay = isBuilder ? mockEventsByDay : processedEventsByDay;
 
@@ -496,9 +517,6 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
     );
   }
 
-  // hasAllDayEvents check for live display
-  const hasAllDayEvents = showAllDayEvents && Array.from(allDayEventsByDay.values()).some((arr) => arr.length > 0);
-
   return (
     <div
       className={cn(
@@ -541,61 +559,33 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
         </div>
       )}
 
-      {/* All-day events row */}
-      {hasAllDayEvents && (
-        <div className="flex flex-shrink-0 border-b border-white/10 pb-1 mb-1">
-          {showHourLabels && <div className="flex-shrink-0" style={{ width: "2rem" }} />}
-          {displayDays.map((day) => {
-            const key = format(day, "yyyy-MM-dd");
-            const dayAllDay = allDayEventsByDay.get(key) ?? [];
-            return (
-              <div key={key} className="flex-1 min-w-0 px-0.5 space-y-0.5 overflow-hidden">
-                {dayAllDay.map((event: CalendarEvent) => {
-                  const calendar = calendars.find((c: Calendar) => c.id === event.calendarId);
-                  const color = calendar?.color ?? "#3B82F6";
-                  return (
-                    <div
-                      key={event.id}
-                      className="rounded px-1 py-0.5 overflow-hidden"
-                      style={{
-                        backgroundColor: `${color}30`,
-                        borderLeft: `2px solid ${color}`,
-                      }}
-                    >
-                      <span
-                        className={cn(sizeClasses?.event || "text-[10px]", "block truncate font-medium leading-tight")}
-                        style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.event) } : undefined}
-                      >
-                        {event.title}
-                      </span>
-                    </div>
-                  );
-                })}
-
-              </div>
-            );
-          })}
-        </div>
-      )}
-
       {/* Time grid area */}
       <div className="flex flex-1 min-h-0">
         {/* Hour labels gutter */}
         {showHourLabels && (
-          <div className="relative flex-shrink-0" style={{ width: "2rem" }}>
-            {hourLabels.map(({ hour, position }) => (
+          <div className="flex flex-col flex-shrink-0" style={{ width: "2rem" }}>
+            {/* All-day spacer to align with day columns */}
+            {hasAllDayEvents && (
               <div
-                key={`label-${hour}-${position}`}
-                className={cn(sizeClasses?.hour || "text-[9px]", "absolute opacity-50 tabular-nums whitespace-nowrap")}
-                style={{
-                  top: `${position}%`,
-                  transform: "translateY(-50%)",
-                  ...(isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.hour) } : {}),
-                }}
-              >
-                {format(new Date().setHours(hour, 0), "ha")}
-              </div>
-            ))}
+                className="flex-shrink-0 border-b border-white/10"
+                style={{ height: `${maxAllDayCount * 20}px` }}
+              />
+            )}
+            <div className="relative flex-1">
+              {hourLabels.map(({ hour, position }) => (
+                <div
+                  key={`label-${hour}-${position}`}
+                  className={cn(sizeClasses?.hour || "text-[9px]", "absolute opacity-50 tabular-nums whitespace-nowrap")}
+                  style={{
+                    top: `${position}%`,
+                    transform: "translateY(-50%)",
+                    ...(isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.hour) } : {}),
+                  }}
+                >
+                  {format(new Date().setHours(hour, 0), "ha")}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -603,6 +593,7 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
         {displayDays.map((day, dayIdx) => {
           const key = format(day, "yyyy-MM-dd");
           const dayEvents = displayEventsByDay.get(key) ?? [];
+          const dayAllDay = hasAllDayEvents ? (allDayEventsByDay.get(key) ?? []) : [];
           const isToday = isSameDay(day, now);
           const timePos = getCurrentTimePosition(day);
           const showMarker = showCurrentTime && isToday && timePos >= 0 && timePos <= 100;
@@ -611,57 +602,90 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
             <div
               key={key}
               className={cn(
-                "flex-1 relative",
+                "flex-1 flex flex-col min-w-0",
                 dayIdx > 0 && "border-l border-white/10"
               )}
             >
-              {/* Hour grid lines */}
-              {hourLabels.map(({ hour, position }) => (
+              {/* All-day events at top of day */}
+              {hasAllDayEvents && (
                 <div
-                  key={`line-${hour}-${position}`}
-                  className="absolute w-full border-t border-white/5"
-                  style={{ top: `${position}%` }}
-                />
-              ))}
-
-              {/* Events */}
-              {dayEvents.map((event) => {
-                const columnWidth = 100 / event.totalColumns;
-                const leftPosition = event.column * columnWidth;
-
-                return (
-                  <div
-                    key={event.id}
-                    className="absolute rounded px-0.5 py-0.5 overflow-hidden border-l-2"
-                    style={{
-                      top: `${event.top}%`,
-                      height: `${event.height}%`,
-                      left: `calc(${leftPosition}% + 2px)`,
-                      width: `calc(${columnWidth}% - 4px)`,
-                      backgroundColor: `${event.color}30`,
-                      borderColor: event.color,
-                    }}
-                  >
-                    <span
-                      className={cn(sizeClasses?.event || "text-[10px]", "line-clamp-2 font-medium leading-tight")}
-                      style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.event) } : undefined}
-                    >
-                      {event.title}
-                    </span>
-                  </div>
-                );
-              })}
-
-              {/* Current time marker - today only */}
-              {showMarker && (
-                <div
-                  className="absolute left-0 right-0 flex items-center z-10"
-                  style={{ top: `${timePos}%` }}
+                  className="flex-shrink-0 px-0.5 space-y-0.5 overflow-hidden border-b border-white/10"
+                  style={{ height: `${maxAllDayCount * 20}px` }}
                 >
-                  <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                  <div className="flex-1 h-0.5 bg-red-500" />
+                  {dayAllDay.map((event: CalendarEvent) => {
+                    const calendar = calendars.find((c: Calendar) => c.id === event.calendarId);
+                    const color = calendar?.color ?? "#3B82F6";
+                    return (
+                      <div
+                        key={event.id}
+                        className="rounded px-1 py-0.5 overflow-hidden"
+                        style={{
+                          backgroundColor: `${color}30`,
+                          borderLeft: `2px solid ${color}`,
+                        }}
+                      >
+                        <span
+                          className={cn(sizeClasses?.event || "text-[10px]", "block truncate font-medium leading-tight")}
+                          style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.event) } : undefined}
+                        >
+                          {event.title}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
+
+              {/* Time grid */}
+              <div className="flex-1 relative">
+                {/* Hour grid lines */}
+                {hourLabels.map(({ hour, position }) => (
+                  <div
+                    key={`line-${hour}-${position}`}
+                    className="absolute w-full border-t border-white/5"
+                    style={{ top: `${position}%` }}
+                  />
+                ))}
+
+                {/* Events */}
+                {dayEvents.map((event) => {
+                  const columnWidth = 100 / event.totalColumns;
+                  const leftPosition = event.column * columnWidth;
+
+                  return (
+                    <div
+                      key={event.id}
+                      className="absolute rounded px-0.5 py-0.5 overflow-hidden border-l-2"
+                      style={{
+                        top: `${event.top}%`,
+                        height: `${event.height}%`,
+                        left: `calc(${leftPosition}% + 2px)`,
+                        width: `calc(${columnWidth}% - 4px)`,
+                        backgroundColor: `${event.color}30`,
+                        borderColor: event.color,
+                      }}
+                    >
+                      <span
+                        className={cn(sizeClasses?.event || "text-[10px]", "line-clamp-2 font-medium leading-tight")}
+                        style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.event) } : undefined}
+                      >
+                        {event.title}
+                      </span>
+                    </div>
+                  );
+                })}
+
+                {/* Current time marker - today only */}
+                {showMarker && (
+                  <div
+                    className="absolute left-0 right-0 flex items-center z-10"
+                    style={{ top: `${timePos}%` }}
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                    <div className="flex-1 h-0.5 bg-red-500" />
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}

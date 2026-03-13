@@ -18,6 +18,7 @@ export interface UserPreferences {
   weekStartsOn?: 0 | 1 | 6;
   showWeekNumbers?: boolean;
   theme?: "light" | "dark" | "auto";
+  shareContentWithAdmin?: boolean; // default: false
 }
 
 // Auth types
@@ -90,6 +91,7 @@ export interface CalendarEvent {
   recurringEventId: string | null;
   attendees: EventAttendee[];
   reminders: EventReminder[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface EventAttendee {
@@ -1057,7 +1059,7 @@ export interface YouTubeWatchHistoryEntry {
 
 // ============ AI Chat Types ============
 
-export type AIChatProvider = "claude" | "openai" | "gemini";
+export type AIChatProvider = "claude" | "openai" | "gemini" | "azure_openai" | "grok" | "openrouter" | "local_llm" | "openframe";
 
 export interface ChatConversation {
   id: string;
@@ -1105,6 +1107,11 @@ export interface ChatProviderStatus {
   claude: boolean;
   openai: boolean;
   gemini: boolean;
+  azure_openai: boolean;
+  grok: boolean;
+  openrouter: boolean;
+  local_llm: boolean;
+  openframe: boolean;
   defaultProvider: AIChatProvider;
 }
 

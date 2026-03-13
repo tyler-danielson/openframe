@@ -42,6 +42,7 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
       showSeconds: false,
       eventId: "",           // Selected event ID (takes precedence over targetDate)
       displayMode: "full",   // "full" | "days"
+      autoDiscover: false,   // Auto-discover nearest countdown-enabled event
     },
     moduleId: null,
   },
