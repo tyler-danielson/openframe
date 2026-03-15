@@ -73,7 +73,10 @@ export function CountdownWidget({ config, style, isBuilder }: CountdownWidgetPro
   // Determine effective target date and label
   const resolvedEvent = event || (autoDiscover && !eventId ? autoDiscoverEvent : null);
   const effectiveTargetDate = resolvedEvent ? new Date(resolvedEvent.startTime).toISOString() : targetDateStr;
-  const effectiveLabel = resolvedEvent ? resolvedEvent.title : label;
+  const eventMeta = resolvedEvent?.metadata as Record<string, unknown> | undefined;
+  const effectiveLabel = (eventMeta?.countdownLabel as string) || (resolvedEvent ? resolvedEvent.title : label);
+  // Use event's countdownFormat if available, otherwise fall back to widget config displayMode
+  const eventCountdownFormat = eventMeta?.countdownFormat as string | undefined;
 
   const [timeRemaining, setTimeRemaining] = useState<TimeRemaining>({
     days: 0,
@@ -110,9 +113,9 @@ export function CountdownWidget({ config, style, isBuilder }: CountdownWidgetPro
     return `${value * scale}${unit}`;
   };
 
+  // No target date: show placeholder or "no upcoming events" for auto-discover
   if (!effectiveTargetDate) {
     if (isBuilder) {
-      // Show helpful placeholder UI in builder mode
       return (
         <div
           className="flex h-full flex-col items-center justify-center p-4 rounded-lg bg-black/40 backdrop-blur-sm"
@@ -129,16 +132,39 @@ export function CountdownWidget({ config, style, isBuilder }: CountdownWidgetPro
     }
     return (
       <div
-        className="flex h-full items-center justify-center p-4 rounded-lg bg-black/40 backdrop-blur-sm"
+        className="flex h-full flex-col items-center justify-center p-4 rounded-lg bg-black/40 backdrop-blur-sm"
         style={{ color: style?.textColor || "#ffffff" }}
       >
-        <span className="text-sm opacity-50">No target date set</span>
+        <span className={cn(sizeClasses?.label, "opacity-50")}>
+          {autoDiscover ? "No Upcoming Events" : "No target date set"}
+        </span>
       </div>
     );
   }
 
+  // Event has passed (expired): for auto-discover show "No Upcoming Events"
+  if (timeRemaining.isExpired && autoDiscover) {
+    return (
+      <div
+        className="flex h-full flex-col items-center justify-center p-4 rounded-lg bg-black/40 backdrop-blur-sm"
+        style={{ color: style?.textColor || "#ffffff" }}
+      >
+        <span className={cn(sizeClasses?.label, "opacity-50")}>No Upcoming Events</span>
+      </div>
+    );
+  }
+
+  // Resolve effective display mode: event metadata format takes priority over widget config
+  const effectiveMode = eventCountdownFormat
+    ? (eventCountdownFormat === "sleeps" ? "days" : "full")
+    : displayMode;
+  const effectiveShowDays = eventCountdownFormat ? true : showDays;
+  const effectiveShowHours = eventCountdownFormat ? (eventCountdownFormat === "dhm" || eventCountdownFormat === "dh") : showHours;
+  const effectiveShowMinutes = eventCountdownFormat ? (eventCountdownFormat === "dhm") : showMinutes;
+  const effectiveShowSeconds = eventCountdownFormat ? false : showSeconds;
+
   // Render "days (sleeps)" mode
-  if (displayMode === "days") {
+  if (effectiveMode === "days") {
     // Calculate sleeps as number of midnights between today and the event date
     // A "sleep" = one night. Friday → Sunday = 2 sleeps (Fri night, Sat night)
     const now = new Date();
@@ -163,7 +189,14 @@ export function CountdownWidget({ config, style, isBuilder }: CountdownWidgetPro
             {effectiveLabel}
           </div>
         )}
-        {sleeps === 0 ? (
+        {sleeps === 0 && timeRemaining.isExpired ? (
+          <div
+            className={cn(sizeClasses?.label, "font-light opacity-50")}
+            style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.label) } : undefined}
+          >
+            {autoDiscover ? "No Upcoming Events" : "Expired"}
+          </div>
+        ) : sleeps === 0 ? (
           <div
             className={cn(sizeClasses?.value, "font-light")}
             style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.value) } : undefined}
@@ -192,10 +225,10 @@ export function CountdownWidget({ config, style, isBuilder }: CountdownWidgetPro
 
   // Render full timer mode (existing logic)
   const parts: { value: number; unit: string }[] = [];
-  if (showDays) parts.push({ value: timeRemaining.days, unit: "d" });
-  if (showHours) parts.push({ value: timeRemaining.hours, unit: "h" });
-  if (showMinutes) parts.push({ value: timeRemaining.minutes, unit: "m" });
-  if (showSeconds) parts.push({ value: timeRemaining.seconds, unit: "s" });
+  if (effectiveShowDays) parts.push({ value: timeRemaining.days, unit: "d" });
+  if (effectiveShowHours) parts.push({ value: timeRemaining.hours, unit: "h" });
+  if (effectiveShowMinutes) parts.push({ value: timeRemaining.minutes, unit: "m" });
+  if (effectiveShowSeconds) parts.push({ value: timeRemaining.seconds, unit: "s" });
 
   return (
     <div

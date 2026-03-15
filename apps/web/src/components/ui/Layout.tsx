@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { NavLink, Outlet, useNavigate, useLocation, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -960,13 +960,11 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
         </div>
       )}
 
-      {/* Main content — key forces Suspense reset on navigation (React 19 + RR v7 startTransition) */}
+      {/* Main content */}
       <main className={cn("relative flex-1 min-w-0 min-h-0 pt-16 lg:pt-0", splitActive ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden")}>
-        <Suspense key={location.pathname} fallback={null}>
-          <SplitScreenContainer>
-            <Outlet />
-          </SplitScreenContainer>
-        </Suspense>
+        <SplitScreenContainer>
+          <Outlet />
+        </SplitScreenContainer>
       </main>
 
       {/* TV Popup Navigation Overlay */}

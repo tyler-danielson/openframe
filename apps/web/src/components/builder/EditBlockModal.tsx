@@ -257,7 +257,12 @@ function CalendarConfigFields({
                   className="w-3 h-3 rounded-full flex-shrink-0"
                   style={{ backgroundColor: cal.color }}
                 />
-                <span className="text-sm truncate flex-1">{cal.name}</span>
+                <span className="text-sm truncate flex-1">
+                  {cal.name}
+                  {(cal.accountLabel || cal.provider) && (
+                    <span className="text-muted-foreground ml-1">({cal.accountLabel || cal.provider})</span>
+                  )}
+                </span>
                 {cal.isFavorite && (
                   <span className="text-yellow-500 text-xs">★</span>
                 )}
@@ -439,7 +444,12 @@ function UpNextConfigFields({
                   className="w-3 h-3 rounded-full flex-shrink-0"
                   style={{ backgroundColor: cal.color }}
                 />
-                <span className="text-sm truncate flex-1">{cal.name}</span>
+                <span className="text-sm truncate flex-1">
+                  {cal.name}
+                  {(cal.accountLabel || cal.provider) && (
+                    <span className="text-muted-foreground ml-1">({cal.accountLabel || cal.provider})</span>
+                  )}
+                </span>
                 {cal.isFavorite && (
                   <span className="text-yellow-500 text-xs">★</span>
                 )}
@@ -2364,6 +2374,39 @@ export function EditBlockModal({ isOpen, onClose, widgetId }: EditBlockModalProp
       case "ha-map":
         return (
           <HAMapConfig config={config} onConfigChange={handleConfigChange} />
+        );
+
+      case "countdown-holder":
+        return (
+          <>
+            <label className="block">
+              <span className="text-sm font-medium">Expand Direction</span>
+              <p className="text-xs text-muted-foreground mb-2">
+                How the widget grows as countdown events are added
+              </p>
+              <div className="flex flex-col gap-2">
+                {([
+                  { value: "fill", label: "Fill", desc: "Events fill the entire widget, text auto-sizes" },
+                  { value: "expand-down", label: "Expand Down", desc: "Events stack from the top down" },
+                  { value: "expand-up", label: "Expand Up", desc: "Events stack from the bottom up" },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => handleConfigChange("expandDirection", opt.value)}
+                    className={`flex flex-col items-start px-3 py-2 rounded-lg border text-left transition-colors ${
+                      (config.expandDirection ?? "fill") === opt.value
+                        ? "border-primary bg-primary/10"
+                        : "border-border hover:bg-accent"
+                    }`}
+                  >
+                    <span className="text-sm font-medium">{opt.label}</span>
+                    <span className="text-xs text-muted-foreground">{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </label>
+          </>
         );
 
       default:

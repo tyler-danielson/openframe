@@ -28,6 +28,7 @@ import { PlexAmpWidget } from "./PlexAmpWidget";
 import { AudiobookshelfWidget } from "./AudiobookshelfWidget";
 import { PhotoFeedWidget } from "./PhotoFeedWidget";
 import { SupportWidget } from "./SupportWidget";
+import { CountdownHolderWidget } from "./CountdownHolderWidget";
 
 // Per-widget ErrorBoundary to isolate crashes and identify the broken widget
 class WidgetErrorBoundary extends Component<
@@ -174,6 +175,9 @@ export function WidgetRenderer({ widget, isBuilder = false, widgetId }: WidgetRe
       break;
     case "support":
       content = <SupportWidget {...commonProps} />;
+      break;
+    case "countdown-holder":
+      content = <CountdownHolderWidget {...commonProps} />;
       break;
     default:
       content = (

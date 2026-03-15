@@ -471,6 +471,18 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
     },
     moduleId: null,
   },
+  "countdown-holder": {
+    name: "Countdown Holder",
+    icon: "ListOrdered",
+    category: "time",
+    defaultSize: { width: 4, height: 3 },
+    minSize: { width: 2, height: 2 },
+    maxSize: { width: 99, height: 99 },
+    defaultConfig: {
+      expandDirection: "fill",  // "expand-up" | "expand-down" | "fill"
+    },
+    moduleId: null,
+  },
 };
 
 export const WIDGET_CATEGORIES = [

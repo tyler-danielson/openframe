@@ -40,7 +40,8 @@ export type BuilderWidgetType =
   | "plex"
   | "plexamp"
   | "audiobookshelf"
-  | "support";
+  | "support"
+  | "countdown-holder";
 
 export type FontSizePreset = "xs" | "sm" | "md" | "lg" | "xl" | "custom";
 

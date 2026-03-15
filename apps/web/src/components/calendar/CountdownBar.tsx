@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Timer } from "lucide-react";
 import type { CalendarEvent } from "@openframe/shared";
-import { calculateTimeRemaining, formatCountdown } from "../../lib/countdown";
+import { calculateTimeRemaining, formatCountdownWithOptions } from "../../lib/countdown";
 
 interface CountdownBarProps {
   events: CalendarEvent[];
@@ -43,6 +43,9 @@ export function CountdownBar({ events, onSelectEvent }: CountdownBarProps) {
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 overflow-x-auto scrollbar-none">
       {sorted.map((event) => {
+        const meta = event.metadata as Record<string, unknown> | undefined;
+        const fmt = (meta?.countdownFormat as string) ?? "dhm";
+        const displayName = (meta?.countdownLabel as string) || event.title;
         const tr = calculateTimeRemaining(new Date(event.startTime));
         return (
           <button
@@ -52,10 +55,10 @@ export function CountdownBar({ events, onSelectEvent }: CountdownBarProps) {
           >
             <Timer className="h-3.5 w-3.5 text-primary" />
             <span className="text-xs font-medium text-primary truncate max-w-[120px]">
-              {event.title}
+              {displayName}
             </span>
             <span className="text-xs font-mono text-primary/80 tabular-nums">
-              {formatCountdown(tr)}
+              {formatCountdownWithOptions(tr, fmt, new Date(event.startTime))}
             </span>
           </button>
         );

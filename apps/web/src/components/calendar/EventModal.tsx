@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import * as Popover from "@radix-ui/react-popover";
-import { X, MapPin, Calendar, Clock, Users, Repeat, CircleDot, Car, Pencil, Home, Timer, Trash2, Hourglass } from "lucide-react";
+import { X, MapPin, Calendar, Clock, Users, Repeat, CircleDot, Car, Pencil, Home, Timer, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import type { CalendarEvent, Calendar as CalendarType } from "@openframe/shared";
 import { Button } from "../ui/Button";
@@ -11,7 +11,6 @@ import { TouchDatePicker } from "../ui/TouchDatePicker";
 import { TouchTimePicker } from "../ui/TouchTimePicker";
 import { useCalendarStore } from "../../stores/calendar";
 import { api } from "../../services/api";
-import { CountdownPlaceholderPicker } from "./CountdownPlaceholderPicker";
 
 interface EventModalProps {
   event: CalendarEvent | null;
@@ -111,10 +110,11 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
   } | null>(null);
   const [drivingTimeLoading, setDrivingTimeLoading] = useState(false);
   const [showRoutes, setShowRoutes] = useState(false);
-  const [showCountdownPicker, setShowCountdownPicker] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showCountdown, setShowCountdown] = useState(false);
+  const [countdownFormat, setCountdownFormat] = useState<"dhm" | "dh" | "d" | "sleeps">("dhm");
+  const [countdownLabel, setCountdownLabel] = useState("");
 
   // Reset edit state when modal opens/closes or event changes
   useEffect(() => {
@@ -123,7 +123,10 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
       setEditLocation(event.location ?? "");
       setEditDescription(event.description ?? "");
       setEditIsAllDay(event.isAllDay ?? false);
-      setShowCountdown(!!(event.metadata as Record<string, unknown>)?.showCountdown);
+      const meta = event.metadata as Record<string, unknown> | undefined;
+      setShowCountdown(!!meta?.showCountdown);
+      setCountdownFormat((meta?.countdownFormat as "dhm" | "dh" | "d" | "sleeps") ?? "dhm");
+      setCountdownLabel((meta?.countdownLabel as string) ?? "");
 
       const start = new Date(event.startTime);
       const end = new Date(event.endTime);
@@ -146,7 +149,6 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
       setShowStartTimePicker(false);
       setShowEndDatePicker(false);
       setShowEndTimePicker(false);
-      setShowCountdownPicker(false);
     }
   }, [event, open]);
 
@@ -234,7 +236,12 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
         location: editLocation || undefined,
         description: editDescription || undefined,
         isAllDay: editIsAllDay,
-      });
+        metadata: {
+          showCountdown,
+          countdownFormat,
+          countdownLabel: countdownLabel || undefined,
+        },
+      } as Partial<CalendarEvent>);
 
       onUpdate?.(updatedEvent);
       onClose(); // Close modal after successful save
@@ -252,6 +259,10 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
     setEditLocation(event.location ?? "");
     setEditDescription(event.description ?? "");
     setEditIsAllDay(event.isAllDay ?? false);
+    const meta = event.metadata as Record<string, unknown> | undefined;
+    setShowCountdown(!!meta?.showCountdown);
+    setCountdownFormat((meta?.countdownFormat as "dhm" | "dh" | "d" | "sleeps") ?? "dhm");
+    setCountdownLabel((meta?.countdownLabel as string) ?? "");
 
     const start = new Date(event.startTime);
     const end = new Date(event.endTime);
@@ -651,6 +662,71 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
               </div>
             ) : null}
 
+            {/* Countdown settings (edit mode) */}
+            {isEditing && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowCountdown(!showCountdown)}
+                    className={`relative w-10 h-6 rounded-full transition-colors touch-manipulation ${
+                      showCountdown ? "bg-primary" : "bg-muted"
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                        showCountdown ? "translate-x-4" : "translate-x-0.5"
+                      }`}
+                    />
+                  </button>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Timer className="h-4 w-4 text-primary" />
+                    <span className="font-medium">Show Countdown</span>
+                  </div>
+                </div>
+
+                {showCountdown && (
+                  <div className="space-y-3 pl-1 border-l-2 border-primary/20 ml-5">
+                    <div className="pl-3">
+                      <label className="block text-sm font-medium mb-1">Display Name</label>
+                      <input
+                        type="text"
+                        value={countdownLabel}
+                        onChange={(e) => setCountdownLabel(e.target.value)}
+                        placeholder={event.title}
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary touch-manipulation"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Leave blank to use the event title</p>
+                    </div>
+                    <div className="pl-3">
+                      <label className="block text-sm font-medium mb-1">Format</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {([
+                          { value: "dhm", label: "Days, Hours, Minutes" },
+                          { value: "dh", label: "Days, Hours" },
+                          { value: "d", label: "Days Only" },
+                          { value: "sleeps", label: "Sleeps" },
+                        ] as const).map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setCountdownFormat(opt.value)}
+                            className={`px-3 py-2 rounded-lg border text-sm transition-colors touch-manipulation ${
+                              countdownFormat === opt.value
+                                ? "border-primary bg-primary/10 text-primary font-medium"
+                                : "border-border hover:bg-accent text-muted-foreground"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Attendees */}
             {event.attendees && event.attendees.length > 0 && !isEditing && (
               <div>
@@ -680,41 +756,6 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
               </div>
             )}
           </div>
-
-          {/* Show Countdown toggle (view mode only) */}
-          {!isEditing && (
-            <div className="border-t border-border pt-3 mt-1">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm">
-                  <Hourglass className="h-4 w-4 text-primary" />
-                  <span className="font-medium">Show Countdown</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const newValue = !showCountdown;
-                    setShowCountdown(newValue);
-                    try {
-                      await api.updateEvent(event.id, { metadata: { showCountdown: newValue } } as Partial<CalendarEvent>);
-                      onUpdate?.(event);
-                    } catch (error) {
-                      console.error("Failed to update countdown:", error);
-                      setShowCountdown(!newValue);
-                    }
-                  }}
-                  className={`relative w-10 h-6 rounded-full transition-colors touch-manipulation ${
-                    showCountdown ? "bg-primary" : "bg-muted"
-                  }`}
-                >
-                  <div
-                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                      showCountdown ? "translate-x-4" : "translate-x-0.5"
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Actions */}
           <div className="mt-4 flex gap-2">
@@ -758,14 +799,6 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
                 <Button
                   variant="outline"
                   className="flex-1 py-2 text-sm touch-manipulation"
-                  onClick={() => setShowCountdownPicker(true)}
-                >
-                  <Timer className="h-4 w-4 mr-2" />
-                  Countdown
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1 py-2 text-sm touch-manipulation"
                   onClick={onClose}
                 >
                   Close
@@ -775,15 +808,6 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
           </div>
         </Dialog.Content>
       </Dialog.Portal>
-
-      {/* Countdown Placeholder Picker */}
-      {showCountdownPicker && (
-        <CountdownPlaceholderPicker
-          event={event}
-          open={showCountdownPicker}
-          onClose={() => setShowCountdownPicker(false)}
-        />
-      )}
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog.Root open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
