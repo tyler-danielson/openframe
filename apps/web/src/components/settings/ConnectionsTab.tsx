@@ -29,6 +29,7 @@ interface ConnectionsTabProps {
 
 type ServiceCategory =
   | "calendar"
+  | "ai"
   | "media"
   | "smarthome"
   | "productivity"
@@ -49,6 +50,7 @@ interface ServiceDef {
 
 const CATEGORY_LABELS: Record<ServiceCategory, string> = {
   calendar: "Calendar & Email",
+  ai: "AI & Language Models",
   media: "Music & Media",
   smarthome: "Smart Home",
   productivity: "Productivity",
@@ -58,6 +60,7 @@ const CATEGORY_LABELS: Record<ServiceCategory, string> = {
 
 const CATEGORY_ORDER: ServiceCategory[] = [
   "calendar",
+  "ai",
   "media",
   "smarthome",
   "productivity",
@@ -122,6 +125,79 @@ const SERVICES: ServiceDef[] = [
     bgColor: "bg-primary/10",
     category: "calendar",
     configService: "calendars",
+  },
+  // AI & Language Models
+  {
+    id: "ai-openframeai",
+    name: "OpenFrameAI",
+    description: "Pay-per-token AI, no keys needed",
+    icon: <span className="text-lg">✨</span>,
+    bgColor: "bg-primary/10",
+    category: "ai",
+    configService: "ai-openframeai",
+  },
+  {
+    id: "ai-claude",
+    name: "Claude (Anthropic)",
+    description: "Anthropic Claude models",
+    icon: <span className="text-lg">🤖</span>,
+    bgColor: "bg-primary/10",
+    category: "ai",
+    configService: "ai-claude",
+  },
+  {
+    id: "ai-openai",
+    name: "OpenAI",
+    description: "GPT-4o and other models",
+    icon: <span className="text-lg">🧠</span>,
+    bgColor: "bg-primary/10",
+    category: "ai",
+    configService: "ai-openai",
+  },
+  {
+    id: "ai-azure",
+    name: "Azure OpenAI",
+    description: "Azure-hosted OpenAI models",
+    icon: <span className="text-lg">☁️</span>,
+    bgColor: "bg-primary/10",
+    category: "ai",
+    configService: "ai-azure",
+  },
+  {
+    id: "ai-gemini",
+    name: "Gemini",
+    description: "Google Gemini models",
+    icon: <span className="text-lg">💎</span>,
+    bgColor: "bg-primary/10",
+    category: "ai",
+    configService: "ai-gemini",
+  },
+  {
+    id: "ai-grok",
+    name: "Grok",
+    description: "xAI Grok models",
+    icon: <span className="text-lg">⚡</span>,
+    bgColor: "bg-primary/10",
+    category: "ai",
+    configService: "ai-grok",
+  },
+  {
+    id: "ai-openrouter",
+    name: "OpenRouter",
+    description: "400+ models, one API key",
+    icon: <span className="text-lg">🔀</span>,
+    bgColor: "bg-primary/10",
+    category: "ai",
+    configService: "ai-openrouter",
+  },
+  {
+    id: "ai-local",
+    name: "Local LLM",
+    description: "Ollama, LM Studio, vLLM",
+    icon: <span className="text-lg">💻</span>,
+    bgColor: "bg-primary/10",
+    category: "ai",
+    configService: "ai-local",
   },
   // Music & Media
   {
@@ -266,10 +342,11 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
     queryFn: () => api.getCalendars(),
   });
 
-  const { data: spotifyAccounts = [] } = useQuery({
-    queryKey: ["spotify-accounts"],
-    queryFn: () => api.getSpotifyAccounts(),
+  const { data: spotifyStatus } = useQuery({
+    queryKey: ["spotify-status"],
+    queryFn: () => api.getSpotifyStatus(),
   });
+  const spotifyAccounts = spotifyStatus?.accounts ?? [];
 
   const { data: haConfig } = useQuery({
     queryKey: ["ha-config"],
@@ -326,6 +403,41 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
     queryFn: () => api.getCategorySettings("google"),
   });
 
+  const { data: anthropicSettings = [] } = useQuery({
+    queryKey: ["settings", "anthropic"],
+    queryFn: () => api.getCategorySettings("anthropic"),
+  });
+
+  const { data: openaiSettings = [] } = useQuery({
+    queryKey: ["settings", "openai"],
+    queryFn: () => api.getCategorySettings("openai"),
+  });
+
+  const { data: azureOpenaiSettings = [] } = useQuery({
+    queryKey: ["settings", "azure_openai"],
+    queryFn: () => api.getCategorySettings("azure_openai"),
+  });
+
+  const { data: grokSettings = [] } = useQuery({
+    queryKey: ["settings", "grok"],
+    queryFn: () => api.getCategorySettings("grok"),
+  });
+
+  const { data: openrouterSettings = [] } = useQuery({
+    queryKey: ["settings", "openrouter"],
+    queryFn: () => api.getCategorySettings("openrouter"),
+  });
+
+  const { data: localLlmSettings = [] } = useQuery({
+    queryKey: ["settings", "local_llm"],
+    queryFn: () => api.getCategorySettings("local_llm"),
+  });
+
+  const { data: chatStatus } = useQuery({
+    queryKey: ["chat-status"],
+    queryFn: () => api.getChatStatus(),
+  });
+
   const { data: favoriteTeams = [] } = useQuery({
     queryKey: ["favorite-teams"],
     queryFn: () => api.getFavoriteTeams(),
@@ -368,12 +480,37 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
     },
   });
 
+  const disconnectAIProvider = useMutation({
+    mutationFn: async (serviceId: string) => {
+      const categoryMap: Record<string, { category: string; keys: string[] }> = {
+        "ai-claude": { category: "anthropic", keys: ["api_key"] },
+        "ai-openai": { category: "openai", keys: ["api_key"] },
+        "ai-gemini": { category: "google", keys: ["gemini_api_key"] },
+        "ai-grok": { category: "grok", keys: ["api_key"] },
+        "ai-azure": { category: "azure_openai", keys: ["api_key", "base_url", "deployment_name", "api_version"] },
+        "ai-openrouter": { category: "openrouter", keys: ["api_key", "model"] },
+        "ai-local": { category: "local_llm", keys: ["base_url", "api_key", "model"] },
+      };
+      const mapping = categoryMap[serviceId];
+      if (!mapping) return;
+      const nullSettings: Record<string, string | null> = {};
+      for (const key of mapping.keys) nullSettings[key] = null as any;
+      await api.updateCategorySettings(mapping.category, nullSettings);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+      queryClient.invalidateQueries({ queryKey: ["chat-status"] });
+      setConfirmDisconnect(null);
+      setDisconnecting(null);
+    },
+  });
+
   const disconnectOAuthMutation = useMutation({
     mutationFn: (provider: string) => api.disconnectOAuth(provider),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["me"] });
       queryClient.invalidateQueries({ queryKey: ["calendars"] });
-      queryClient.invalidateQueries({ queryKey: ["spotify-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["spotify-status"] });
       setConfirmDisconnect(null);
       setDisconnecting(null);
     },
@@ -497,6 +634,60 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
           detail: `${favoriteTeams.length} team${favoriteTeams.length !== 1 ? "s" : ""}`,
           count: favoriteTeams.length,
         };
+      case "ai-openframeai":
+        return {
+          connected: !!chatStatus?.hostedAiEnabled,
+          detail: chatStatus?.hostedAiEnabled ? "Active" : "Not enabled",
+        };
+      case "ai-claude": {
+        const hasAnthropicKey = !!anthropicSettings.find((s) => s.key === "api_key")?.value;
+        return {
+          connected: hasAnthropicKey,
+          detail: hasAnthropicKey ? "API key configured" : "Not connected",
+        };
+      }
+      case "ai-openai": {
+        const hasOpenaiKey = !!openaiSettings.find((s) => s.key === "api_key")?.value;
+        return {
+          connected: hasOpenaiKey,
+          detail: hasOpenaiKey ? "API key configured" : "Not connected",
+        };
+      }
+      case "ai-azure": {
+        const hasAzureKey = !!azureOpenaiSettings.find((s) => s.key === "api_key")?.value;
+        return {
+          connected: hasAzureKey,
+          detail: hasAzureKey ? "API key configured" : "Not connected",
+        };
+      }
+      case "ai-gemini": {
+        const hasGeminiAiKey = !!googleSettings.find((s) => s.key === "gemini_api_key")?.value;
+        return {
+          connected: hasGeminiAiKey,
+          detail: hasGeminiAiKey ? "API key configured" : "Not connected",
+        };
+      }
+      case "ai-grok": {
+        const hasGrokKey = !!grokSettings.find((s) => s.key === "api_key")?.value;
+        return {
+          connected: hasGrokKey,
+          detail: hasGrokKey ? "API key configured" : "Not connected",
+        };
+      }
+      case "ai-openrouter": {
+        const hasOpenrouterKey = !!openrouterSettings.find((s) => s.key === "api_key")?.value;
+        return {
+          connected: hasOpenrouterKey,
+          detail: hasOpenrouterKey ? "API key configured" : "Not connected",
+        };
+      }
+      case "ai-local": {
+        const hasLocalUrl = !!localLlmSettings.find((s) => s.key === "base_url")?.value;
+        return {
+          connected: hasLocalUrl,
+          detail: hasLocalUrl ? "Server configured" : "Not connected",
+        };
+      }
       default:
         return { connected: false, detail: "Not connected" };
     }
@@ -546,6 +737,15 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
       case "microsoft":
       case "spotify":
         disconnectOAuthMutation.mutate(serviceId);
+        break;
+      case "ai-claude":
+      case "ai-openai":
+      case "ai-gemini":
+      case "ai-grok":
+      case "ai-azure":
+      case "ai-openrouter":
+      case "ai-local":
+        disconnectAIProvider.mutate(serviceId);
         break;
       default: {
         // For multi-resource services, navigate to config
@@ -900,7 +1100,7 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
                                 Configure
                               </Button>
                             )}
-                            {["telegram", "remarkable", "capacities", "homeassistant", "spotify"].includes(service.id) && (
+                            {["telegram", "remarkable", "capacities", "homeassistant", "spotify", "ai-claude", "ai-openai", "ai-gemini", "ai-grok", "ai-azure", "ai-openrouter", "ai-local"].includes(service.id) && (
                               <Button
                                 variant="outline"
                                 size="sm"

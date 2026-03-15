@@ -389,7 +389,7 @@ export function ScheduleView({
                       e.stopPropagation();
                       onSelectEvent?.(event);
                     }}
-                    className={`w-full text-left text-xs px-2 py-1 rounded-md hover:opacity-80 transition-opacity ${isPast ? "opacity-40" : ""}`}
+                    className={`w-full text-left text-xs px-2 py-1 rounded-md hover:opacity-80 transition-opacity ${isPast ? "opacity-50" : ""}`}
                     style={{ backgroundColor: bgColor }}
                   >
                     <span className={`font-medium truncate block ${isHoliday ? "text-purple-600 dark:text-purple-400" : "text-foreground"}`}>
@@ -490,7 +490,7 @@ export function ScheduleView({
                       backgroundColor: bgColor,
                       left: `calc(${leftOffset}% + 2px)`,
                       width: `calc(${columnWidth}% - 4px)`,
-                      opacity: isPast ? 0.4 : undefined,
+                      opacity: isPast ? 0.5 : undefined,
                     }}
                   >
                     <div className="h-full flex flex-col">

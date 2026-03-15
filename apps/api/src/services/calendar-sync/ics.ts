@@ -1,6 +1,7 @@
 import { eq, and } from "drizzle-orm";
 import { events } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
+import { encryptEventFields } from "../../lib/encryption.js";
 
 interface ICSEvent {
   uid: string;
@@ -192,15 +193,17 @@ export async function syncICSCalendar(
       updatedAt: new Date(),
     };
 
+    const encryptedEventData = encryptEventFields(eventData);
+
     if (existing) {
       // Update existing event
       await db
         .update(events)
-        .set(eventData)
+        .set(encryptedEventData)
         .where(eq(events.id, existing.id));
     } else {
       // Insert new event
-      await db.insert(events).values(eventData);
+      await db.insert(events).values(encryptedEventData);
     }
   }
 

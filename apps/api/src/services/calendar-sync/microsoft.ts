@@ -1,6 +1,7 @@
 import { eq, and, notInArray, isNotNull, inArray } from "drizzle-orm";
 import { calendars, events, oauthTokens } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
+import { encryptField, decryptField, encryptEventFields, decryptEventFields } from "../../lib/encryption.js";
 
 // --- Interfaces ---
 
@@ -223,12 +224,15 @@ async function refreshMicrosoftToken(
   db: Database,
   token: OAuthToken
 ): Promise<string> {
-  if (!token.refreshToken) {
+  const plainAccessToken = decryptField(token.accessToken) ?? token.accessToken;
+  const plainRefreshToken = decryptField(token.refreshToken) ?? token.refreshToken;
+
+  if (!plainRefreshToken) {
     throw new Error("No refresh token available");
   }
 
   if (token.expiresAt && token.expiresAt > new Date()) {
-    return token.accessToken;
+    return plainAccessToken;
   }
 
   const clientId =
@@ -248,7 +252,7 @@ async function refreshMicrosoftToken(
       body: new URLSearchParams({
         client_id: clientId,
         client_secret: clientSecret,
-        refresh_token: token.refreshToken,
+        refresh_token: plainRefreshToken,
         grant_type: "refresh_token",
         scope: "offline_access Calendars.ReadWrite",
       }),
@@ -273,7 +277,7 @@ async function refreshMicrosoftToken(
 
   // Persist the refreshed token back to the database
   const updates: Record<string, unknown> = {
-    accessToken: data.access_token,
+    accessToken: encryptField(data.access_token) ?? data.access_token,
     updatedAt: new Date(),
   };
   if (data.expires_in) {
@@ -281,7 +285,7 @@ async function refreshMicrosoftToken(
   }
   // Microsoft rotates refresh tokens — always save the new one
   if (data.refresh_token) {
-    updates.refreshToken = data.refresh_token;
+    updates.refreshToken = encryptField(data.refresh_token) ?? data.refresh_token;
   }
 
   await db
@@ -635,21 +639,23 @@ async function upsertEvent(
 
   // Delta sync may omit unchanged fields — preserve existing values when
   // the delta response doesn't include them (field is undefined).
+  // Decrypt existing fields since they're encrypted in DB.
+  const existingDecrypted = existing ? decryptEventFields(existing) : null;
   const title =
     mevent.subject !== undefined
       ? (mevent.subject || "(No title)")
-      : (existing?.title ?? "(No title)");
+      : (existingDecrypted?.title ?? "(No title)");
 
   const eventData = {
     calendarId,
     externalId: mevent.id,
     title,
     description:
-      mevent.body !== undefined ? description : (existing?.description ?? null),
+      mevent.body !== undefined ? description : (existingDecrypted?.description ?? null),
     location:
       mevent.location !== undefined
         ? (mevent.location?.displayName ?? null)
-        : (existing?.location ?? null),
+        : (existingDecrypted?.location ?? null),
     startTime,
     endTime,
     isAllDay: mevent.isAllDay ?? existing?.isAllDay ?? false,
@@ -662,10 +668,12 @@ async function upsertEvent(
     updatedAt: new Date(),
   };
 
+  const encryptedEventData = encryptEventFields(eventData);
+
   if (existing) {
-    await db.update(events).set(eventData).where(eq(events.id, existing.id));
+    await db.update(events).set(encryptedEventData).where(eq(events.id, existing.id));
   } else {
-    await db.insert(events).values(eventData);
+    await db.insert(events).values(encryptedEventData);
   }
 }
 
@@ -675,13 +683,15 @@ type CalendarRecord = typeof calendars.$inferSelect;
 type EventRecord = typeof events.$inferSelect;
 
 function buildMSEventBody(event: EventRecord): Record<string, unknown> {
+  // Decrypt event fields since they're encrypted in DB
+  const decrypted = decryptEventFields(event);
   const body: Record<string, unknown> = {
-    subject: event.title,
-    body: event.description ? { contentType: "text", content: event.description } : undefined,
+    subject: decrypted.title,
+    body: decrypted.description ? { contentType: "text", content: decrypted.description } : undefined,
   };
 
-  if (event.location) {
-    body.location = { displayName: event.location };
+  if (decrypted.location) {
+    body.location = { displayName: decrypted.location };
   }
 
   if (event.isAllDay) {

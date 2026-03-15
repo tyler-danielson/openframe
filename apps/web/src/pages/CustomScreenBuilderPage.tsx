@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Eye, Grid3X3, Save, Check } from "lucide-react";
+import { ArrowLeft, Eye, Grid3X3, Save, Check, Plus, Undo2, Redo2, Send } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { BuilderCanvas } from "../components/builder/BuilderCanvas";
 import { AddBlockModal } from "../components/builder/AddBlockModal";
@@ -11,6 +11,30 @@ import { BuilderProvider, useBuilderContext } from "../contexts/BuilderContext";
 import { WIDGET_REGISTRY } from "../lib/widgets/registry";
 import { type ScreensaverLayoutConfig, type BuilderWidgetType, DEFAULT_LAYOUT_CONFIG } from "../stores/screensaver";
 import { api } from "../services/api";
+
+/** Undo/Redo + Add Block toolbar buttons (must be inside BuilderProvider) */
+function BuilderToolbarActions({
+  onAddBlock,
+}: {
+  onAddBlock: () => void;
+}) {
+  const { canUndo, canRedo, undo, redo } = useBuilderContext();
+  return (
+    <div className="flex items-center gap-1">
+      <Button variant="ghost" size="sm" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">
+        <Undo2 className="h-4 w-4" />
+      </Button>
+      <Button variant="ghost" size="sm" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)">
+        <Redo2 className="h-4 w-4" />
+      </Button>
+      <div className="w-px h-5 bg-border mx-1" />
+      <Button variant="ghost" size="sm" onClick={onAddBlock}>
+        <Plus className="h-4 w-4 mr-1" />
+        Add Block
+      </Button>
+    </div>
+  );
+}
 
 /** Inner component that can use useBuilderContext (inside BuilderProvider) */
 function BuilderInner({
@@ -95,6 +119,7 @@ export function CustomScreenBuilderPage() {
   const [showAddBlockModal, setShowAddBlockModal] = useState(false);
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [pushStatus, setPushStatus] = useState<"idle" | "pushing" | "success">("idle");
 
   const [localLayoutConfig, setLocalLayoutConfig] = useState<ScreensaverLayoutConfig>(DEFAULT_LAYOUT_CONFIG);
   const localLayoutConfigRef = useRef<ScreensaverLayoutConfig>(DEFAULT_LAYOUT_CONFIG);
@@ -161,6 +186,27 @@ export function CustomScreenBuilderPage() {
     localLayoutConfigRef.current = newConfig;
   }, []);
 
+  const handlePushToKiosk = useCallback(async () => {
+    if (!screenIdRef.current) return;
+    setPushStatus("pushing");
+    try {
+      // Save any pending changes first
+      if (dirtyRef.current) {
+        await api.updateCustomScreen(screenIdRef.current, {
+          layoutConfig: localLayoutConfigRef.current as unknown as Record<string, unknown>,
+        });
+        dirtyRef.current = false;
+      }
+      // Refresh all kiosks
+      await api.refreshKiosk();
+      setPushStatus("success");
+      setTimeout(() => setPushStatus("idle"), 2000);
+    } catch (error) {
+      console.error("Failed to push to kiosk:", error);
+      setPushStatus("idle");
+    }
+  }, []);
+
   // Escape to exit preview
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -206,55 +252,82 @@ export function CustomScreenBuilderPage() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-border bg-card px-4 py-2">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate(screenId ? "/settings/custom-screens" : `/screen/${slug}`)}
-          >
-            <ArrowLeft className="h-4 w-4 mr-1" />
-            Back
-          </Button>
-          <span className="text-sm font-medium">{screen.name}</span>
-          {saveStatus === "saving" && (
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <Save className="h-3 w-3 animate-pulse" /> Saving...
-            </span>
-          )}
-          {saveStatus === "saved" && (
-            <span className="text-xs text-primary flex items-center gap-1">
-              <Check className="h-3 w-3" /> Saved
-            </span>
-          )}
+      <BuilderProvider
+        initialConfig={localLayoutConfig}
+        onConfigChange={handleConfigChange}
+      >
+        {/* Toolbar */}
+        <div className="flex items-center justify-between border-b border-border bg-card px-4 py-2">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate(screenId ? "/settings/custom-screens" : `/screen/${slug}`)}
+            >
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              Back
+            </Button>
+            <span className="text-sm font-medium">{screen.name}</span>
+            {saveStatus === "saving" && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <Save className="h-3 w-3 animate-pulse" /> Saving...
+              </span>
+            )}
+            {saveStatus === "saved" && (
+              <span className="text-xs text-primary flex items-center gap-1">
+                <Check className="h-3 w-3" /> Saved
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <BuilderToolbarActions onAddBlock={() => setShowAddBlockModal(true)} />
+            <div className="w-px h-5 bg-border" />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowGrid(!showGrid)}
+              title="Toggle grid"
+            >
+              <Grid3X3 className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setPreviewMode(true)}
+              title="Preview"
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+            <div className="w-px h-5 bg-border" />
+            <Button
+              variant={pushStatus === "success" ? "default" : "outline"}
+              size="sm"
+              onClick={handlePushToKiosk}
+              disabled={pushStatus === "pushing"}
+              className={`h-7 px-2.5 text-xs ${pushStatus === "success" ? "bg-green-600 hover:bg-green-700" : ""}`}
+            >
+              {pushStatus === "pushing" ? (
+                <>
+                  <Send className="mr-1.5 h-3.5 w-3.5 animate-pulse" />
+                  Pushing...
+                </>
+              ) : pushStatus === "success" ? (
+                <>
+                  <Check className="mr-1.5 h-3.5 w-3.5" />
+                  Pushed!
+                </>
+              ) : (
+                <>
+                  <Send className="mr-1.5 h-3.5 w-3.5" />
+                  Push
+                </>
+              )}
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowGrid(!showGrid)}
-            title="Toggle grid"
-          >
-            <Grid3X3 className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setPreviewMode(true)}
-            title="Preview"
-          >
-            <Eye className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
 
-      {/* Canvas + Panels */}
-      <div className="flex-1 overflow-hidden">
-        <BuilderProvider
-          initialConfig={localLayoutConfig}
-          onConfigChange={handleConfigChange}
-        >
+        {/* Canvas + Panels */}
+        <div className="flex-1 overflow-hidden">
           <BuilderInner
             showGrid={showGrid}
             liveMode={liveMode}
@@ -264,8 +337,8 @@ export function CustomScreenBuilderPage() {
             setEditingWidgetId={setEditingWidgetId}
             layoutConfig={localLayoutConfig}
           />
-        </BuilderProvider>
-      </div>
+        </div>
+      </BuilderProvider>
     </div>
   );
 }

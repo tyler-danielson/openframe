@@ -4,6 +4,7 @@ import { taskLists, tasks, oauthTokens } from "@openframe/database/schema";
 import { taskQuerySchema, createTaskSchema, updateTaskSchema } from "@openframe/shared/validators";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { GoogleTasksService } from "../../services/google-tasks.js";
+import { decryptOAuthToken } from "../../lib/encryption.js";
 import { hasRequiredScopes, getScopesForFeature } from "../../utils/oauth-scopes.js";
 
 export const taskRoutes: FastifyPluginAsync = async (fastify) => {
@@ -25,7 +26,7 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Get Google OAuth token
-      const [token] = await fastify.db
+      const [rawToken] = await fastify.db
         .select()
         .from(oauthTokens)
         .where(
@@ -35,6 +36,7 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
           )
         )
         .limit(1);
+      const token = rawToken ? decryptOAuthToken(rawToken) : null;
 
       if (!token?.accessToken) {
         return { success: false, error: "Google account not connected" };

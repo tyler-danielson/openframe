@@ -14,6 +14,7 @@ import {
   assumptions,
 } from "@openframe/database/schema";
 import { getSystemSetting, getCategorySettings } from "../routes/settings/index.js";
+import { decryptEventFields } from "../lib/encryption.js";
 
 interface ChatContext {
   systemPrompt: string;
@@ -170,10 +171,10 @@ async function fetchUpcomingEvents(db: any, userId: string, start: Date, end: Da
   const calendarMap = new Map(userCalendars.map((c: any) => [c.id, c.name]));
   const calendarIds = userCalendars.map((c: any) => c.id);
 
-  const allEvents = await db
+  const allEvents = (await db
     .select()
     .from(events)
-    .where(eq(events.status, "confirmed"));
+    .where(eq(events.status, "confirmed"))).map(decryptEventFields);
 
   return allEvents
     .filter((e: any) => {
@@ -355,6 +356,128 @@ async function fetchAssumptions(db: any, userId: string) {
     .from(assumptions)
     .where(and(eq(assumptions.userId, userId), eq(assumptions.enabled, true)))
     .orderBy(assumptions.sortOrder);
+}
+
+// ---- Provider connectivity test ----
+
+/**
+ * Send a minimal request to verify an API key works.
+ * Returns { ok: true, model?: string } on success or { ok: false, error: string } on failure.
+ */
+export async function testProviderConnection(
+  provider: string,
+  apiKey: string,
+  providerConfig?: { baseUrl?: string; deploymentName?: string; apiVersion?: string; model?: string }
+): Promise<{ ok: boolean; model?: string; error?: string }> {
+  try {
+    switch (provider) {
+      case "claude": {
+        const client = new Anthropic({ apiKey });
+        const msg = await client.messages.create({
+          model: "claude-sonnet-4-5-20250929",
+          max_tokens: 4,
+          messages: [{ role: "user", content: "Hi" }],
+        });
+        return { ok: true, model: msg.model };
+      }
+
+      case "openai":
+        return await testOpenAICompatible("https://api.openai.com/v1", apiKey, "gpt-4o-mini");
+
+      case "gemini": {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: "Hi" }] }],
+              generationConfig: { maxOutputTokens: 4 },
+            }),
+          }
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({})) as any;
+          return { ok: false, error: err.error?.message || `Gemini API error: ${res.status}` };
+        }
+        return { ok: true, model: "gemini-2.0-flash" };
+      }
+
+      case "grok":
+        return await testOpenAICompatible("https://api.x.ai/v1", apiKey, "grok-3-mini");
+
+      case "openrouter":
+        return await testOpenAICompatible(
+          "https://openrouter.ai/api/v1",
+          apiKey,
+          providerConfig?.model || "anthropic/claude-3.5-sonnet",
+          { "HTTP-Referer": "https://openframe.us", "X-Title": "OpenFrame" }
+        );
+
+      case "azure_openai": {
+        const baseUrl = providerConfig?.baseUrl;
+        const deployment = providerConfig?.deploymentName || "gpt-4o";
+        const apiVersion = providerConfig?.apiVersion || "2024-02-01";
+        if (!baseUrl) return { ok: false, error: "Endpoint URL not configured" };
+
+        const url = `${baseUrl.replace(/\/+$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "api-key": apiKey },
+          body: JSON.stringify({
+            messages: [{ role: "user", content: "Hi" }],
+            max_tokens: 4,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({})) as any;
+          return { ok: false, error: err.error?.message || `Azure error: ${res.status}` };
+        }
+        const data = await res.json() as any;
+        return { ok: true, model: data.model || deployment };
+      }
+
+      case "local_llm": {
+        const baseUrl = providerConfig?.baseUrl || "http://localhost:11434/v1";
+        const model = providerConfig?.model || "llama3";
+        return await testOpenAICompatible(baseUrl, apiKey, model);
+      }
+
+      default:
+        return { ok: false, error: `Unknown provider: ${provider}` };
+    }
+  } catch (error: any) {
+    return { ok: false, error: error.message || "Connection failed" };
+  }
+}
+
+async function testOpenAICompatible(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  extraHeaders?: Record<string, string>
+): Promise<{ ok: boolean; model?: string; error?: string }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...extraHeaders };
+  if (apiKey && apiKey !== "no-key") {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
+
+  const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content: "Hi" }],
+      max_tokens: 4,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as any;
+    return { ok: false, error: err.error?.message || `API error: ${res.status}` };
+  }
+  const data = await res.json() as any;
+  return { ok: true, model: data.model || model };
 }
 
 // ---- Multi-provider streaming ----
@@ -557,14 +680,233 @@ export async function* streamGemini(
 }
 
 /**
- * Dispatch to the correct provider's streaming function.
+ * Generic OpenAI-compatible streaming helper.
+ * Works with any API that follows the OpenAI chat completions format.
  */
-export async function* streamChat(
-  provider: "claude" | "openai" | "gemini",
+export async function* streamOpenAICompatible(
+  baseUrl: string,
+  apiKey: string,
+  systemPrompt: string,
+  messages: { role: string; content: string }[],
+  model?: string,
+  headers?: Record<string, string>
+): AsyncGenerator<{ type: "token" | "done" | "error"; data: string; usage?: any }> {
+  const apiMessages = [
+    { role: "system", content: systemPrompt },
+    ...messages.filter((m) => m.role !== "system"),
+  ];
+
+  try {
+    const defaultHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (apiKey && apiKey !== "no-key") {
+      defaultHeaders["Authorization"] = `Bearer ${apiKey}`;
+    }
+
+    const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: { ...defaultHeaders, ...headers },
+      body: JSON.stringify({
+        model: model || "gpt-4o",
+        messages: apiMessages,
+        stream: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({})) as any;
+      yield { type: "error", data: err.error?.message || `API error: ${response.status}` };
+      return;
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      yield { type: "error", data: "No response body" };
+      return;
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        if (data === "[DONE]") {
+          yield { type: "done", data: "" };
+          return;
+        }
+        try {
+          const parsed = JSON.parse(data);
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) {
+            yield { type: "token", data: content };
+          }
+        } catch { /* skip malformed */ }
+      }
+    }
+
+    yield { type: "done", data: "" };
+  } catch (error: any) {
+    yield { type: "error", data: error.message || "API error" };
+  }
+}
+
+export async function* streamGrok(
   apiKey: string,
   systemPrompt: string,
   messages: { role: string; content: string }[],
   model?: string
+): AsyncGenerator<{ type: "token" | "done" | "error"; data: string; usage?: any }> {
+  yield* streamOpenAICompatible(
+    "https://api.x.ai/v1",
+    apiKey,
+    systemPrompt,
+    messages,
+    model || "grok-3-mini"
+  );
+}
+
+export async function* streamAzureOpenAI(
+  apiKey: string,
+  systemPrompt: string,
+  messages: { role: string; content: string }[],
+  model?: string,
+  config?: { baseUrl?: string; deploymentName?: string; apiVersion?: string }
+): AsyncGenerator<{ type: "token" | "done" | "error"; data: string; usage?: any }> {
+  const baseUrl = config?.baseUrl;
+  const deployment = config?.deploymentName || model || "gpt-4o";
+  const apiVersion = config?.apiVersion || "2024-02-01";
+
+  if (!baseUrl) {
+    yield { type: "error", data: "Azure OpenAI endpoint URL not configured" };
+    return;
+  }
+
+  const url = `${baseUrl.replace(/\/+$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
+
+  const apiMessages = [
+    { role: "system", content: systemPrompt },
+    ...messages.filter((m) => m.role !== "system"),
+  ];
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": apiKey,
+      },
+      body: JSON.stringify({
+        messages: apiMessages,
+        stream: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({})) as any;
+      yield { type: "error", data: err.error?.message || `Azure OpenAI error: ${response.status}` };
+      return;
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      yield { type: "error", data: "No response body" };
+      return;
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        if (data === "[DONE]") {
+          yield { type: "done", data: "" };
+          return;
+        }
+        try {
+          const parsed = JSON.parse(data);
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) {
+            yield { type: "token", data: content };
+          }
+        } catch { /* skip malformed */ }
+      }
+    }
+
+    yield { type: "done", data: "" };
+  } catch (error: any) {
+    yield { type: "error", data: error.message || "Azure OpenAI error" };
+  }
+}
+
+export async function* streamOpenRouter(
+  apiKey: string,
+  systemPrompt: string,
+  messages: { role: string; content: string }[],
+  model?: string
+): AsyncGenerator<{ type: "token" | "done" | "error"; data: string; usage?: any }> {
+  yield* streamOpenAICompatible(
+    "https://openrouter.ai/api/v1",
+    apiKey,
+    systemPrompt,
+    messages,
+    model || "anthropic/claude-3.5-sonnet",
+    {
+      "HTTP-Referer": "https://openframe.us",
+      "X-Title": "OpenFrame",
+    }
+  );
+}
+
+export async function* streamLocalLLM(
+  apiKey: string,
+  systemPrompt: string,
+  messages: { role: string; content: string }[],
+  model?: string,
+  config?: { baseUrl?: string; model?: string }
+): AsyncGenerator<{ type: "token" | "done" | "error"; data: string; usage?: any }> {
+  const baseUrl = config?.baseUrl || "http://localhost:11434/v1";
+  const modelName = model || config?.model || "llama3";
+
+  yield* streamOpenAICompatible(
+    baseUrl,
+    apiKey,
+    systemPrompt,
+    messages,
+    modelName
+  );
+}
+
+/**
+ * Dispatch to the correct provider's streaming function.
+ */
+export async function* streamChat(
+  provider: string,
+  apiKey: string,
+  systemPrompt: string,
+  messages: { role: string; content: string }[],
+  model?: string,
+  providerConfig?: { baseUrl?: string; deploymentName?: string; apiVersion?: string; model?: string }
 ): AsyncGenerator<{ type: "token" | "done" | "error"; data: string; usage?: any }> {
   switch (provider) {
     case "claude":
@@ -575,6 +917,18 @@ export async function* streamChat(
       break;
     case "gemini":
       yield* streamGemini(apiKey, systemPrompt, messages, model);
+      break;
+    case "grok":
+      yield* streamGrok(apiKey, systemPrompt, messages, model);
+      break;
+    case "azure_openai":
+      yield* streamAzureOpenAI(apiKey, systemPrompt, messages, model, providerConfig);
+      break;
+    case "openrouter":
+      yield* streamOpenRouter(apiKey, systemPrompt, messages, model || providerConfig?.model);
+      break;
+    case "local_llm":
+      yield* streamLocalLLM(apiKey, systemPrompt, messages, model, providerConfig);
       break;
     default:
       yield { type: "error", data: `Unknown provider: ${provider}` };

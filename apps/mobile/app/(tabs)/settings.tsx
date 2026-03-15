@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "../../stores/auth";
@@ -19,19 +20,15 @@ import { api } from "../../services/api";
 
 export default function SettingsScreen() {
   const colors = useThemeColors();
+  const router = useRouter();
   const { user, serverUrl, logout } = useAuthStore();
   const { data: calendars, isLoading, refetch } = useCalendars();
   const updateCalendar = useUpdateCalendar();
   const syncCalendars = useSyncCalendars();
 
-  const refreshKiosk = useMutation({
-    mutationFn: () => api.refreshKiosk(),
-    onSuccess: () => {
-      Alert.alert("Success", "Kiosk refresh command sent");
-    },
-    onError: (error: Error) => {
-      Alert.alert("Error", error.message);
-    },
+  const { data: kiosks } = useQuery({
+    queryKey: ["kiosks"],
+    queryFn: () => api.getKiosks(),
   });
 
   const handleLogout = () => {
@@ -168,26 +165,41 @@ export default function SettingsScreen() {
         "calendar-outline"
       )}
 
-      {/* Quick Actions Section */}
-      {renderSection(
-        "Quick Actions",
-        <>
-          <TouchableOpacity
-            className="flex-row items-center px-4 py-3 border-b border-border"
-            onPress={() => refreshKiosk.mutate()}
-            disabled={refreshKiosk.isPending}
-          >
-            <Ionicons name="tv-outline" size={20} color={colors.foreground} />
-            <Text className="text-foreground ml-3 flex-1">Refresh Kiosk Display</Text>
-            {refreshKiosk.isPending ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <Ionicons name="chevron-forward" size={20} color={colors.mutedForeground} />
-            )}
-          </TouchableOpacity>
-        </>,
-        "flash-outline"
-      )}
+      {/* Kiosks Section */}
+      {kiosks && kiosks.length > 0 &&
+        renderSection(
+          "Kiosks",
+          <>
+            {kiosks.map((kiosk, index) => (
+              <TouchableOpacity
+                key={kiosk.id}
+                className={`flex-row items-center px-4 py-3 ${
+                  index < kiosks.length - 1 ? "border-b border-border" : ""
+                }`}
+                onPress={() => router.push(`/kiosk/${kiosk.id}`)}
+              >
+                <Ionicons name="tv-outline" size={20} color={colors.primary} />
+                <View className="ml-3 flex-1">
+                  <Text className="text-foreground">{kiosk.name}</Text>
+                  <Text className="text-muted-foreground text-xs">
+                    {kiosk.isActive ? "Active" : "Inactive"} · {kiosk.displayType}
+                  </Text>
+                </View>
+                <View
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor: kiosk.isActive ? "#22C55E" : colors.mutedForeground,
+                    marginRight: 8,
+                  }}
+                />
+                <Ionicons name="chevron-forward" size={20} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            ))}
+          </>,
+          "tv-outline"
+        )}
 
       {/* Danger Zone */}
       {renderSection(

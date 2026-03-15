@@ -9,6 +9,7 @@ import {
   DEMO_TASKS,
   DEMO_HEADLINES,
   DEMO_USER,
+  DEMO_SHOPPING_ITEMS,
   generateDemoEvents,
 } from "../data/demoData";
 
@@ -47,6 +48,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     client.setQueryData(["me"], DEMO_USER);
     client.setQueryData(["todays-sports"], []);
     client.setQueryData(["favorite-teams"], []);
+    client.setQueryData(["shopping-items"], DEMO_SHOPPING_ITEMS);
+    client.setQueryData(["settings", "amazon"], []);
 
     // Set queryDefaults for prefix-matched keys (dynamic suffixes)
     client.setQueryDefaults(["events"], {

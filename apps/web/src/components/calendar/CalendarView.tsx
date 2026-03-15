@@ -266,22 +266,13 @@ export function CalendarView({
   // Custom event component for month view
   const MonthEvent = useCallback(({ event }: { event: CalendarDisplayEvent }) => {
     const isHoliday = event.resource.calendarId === "federal-holidays";
-    const calendar = calendars.find(c => c.id === event.resource.calendarId);
-    const calendarColor = isHoliday ? "#9333EA" : (calendar?.color ?? "#3B82F6");
-    const calendarIcon = isHoliday ? "🇺🇸" : (calendar?.icon ?? "📅");
 
     return (
-      <div className={`flex items-center gap-1 w-full overflow-hidden ${isHoliday ? "font-medium" : ""}`}>
-        <span className="truncate flex-1 text-xs">{event.title}</span>
-        <div
-          className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[8px] flex-shrink-0"
-          style={{ backgroundColor: calendarColor }}
-        >
-          {calendarIcon}
-        </div>
+      <div className={`truncate text-xs w-full ${isHoliday ? "font-medium" : "font-medium"}`}>
+        {event.title}
       </div>
     );
-  }, [calendars]);
+  }, []);
 
   // Create custom date header with weather
   const customComponents = useMemo(() => {
@@ -463,17 +454,17 @@ export function CalendarView({
         : ((event.resource as CalendarEvent & { calendar?: { color: string } }).calendar?.color ?? "#3B82F6");
       const isPast = new Date(event.resource.endTime) < new Date();
 
-      // Use subtle styling for month view
+      // Use colored backgrounds for month view (matching demo style)
       if (view === "month") {
         return {
           style: {
-            backgroundColor: isHoliday ? "rgba(147, 51, 234, 0.15)" : "hsl(var(--muted) / 0.5)",
-            border: isHoliday ? "1px solid rgba(147, 51, 234, 0.4)" : "1px solid hsl(var(--border) / 0.5)",
+            backgroundColor: `${calendarColor}20`,
+            border: "none",
             borderLeft: `3px solid ${calendarColor}`,
-            color: isHoliday ? "#9333EA" : "hsl(var(--foreground))",
+            color: "hsl(var(--foreground))",
             borderRadius: "4px",
-            fontWeight: isHoliday ? 500 : undefined,
-            opacity: isPast ? 0.4 : undefined,
+            fontWeight: 500,
+            opacity: isPast ? 0.5 : undefined,
           },
         };
       }
@@ -483,7 +474,7 @@ export function CalendarView({
           backgroundColor: calendarColor,
           borderColor: calendarColor,
           color: "#fff",
-          opacity: isPast ? 0.4 : undefined,
+          opacity: isPast ? 0.5 : undefined,
         },
       };
     },

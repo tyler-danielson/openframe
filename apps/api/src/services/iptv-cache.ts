@@ -4,7 +4,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, ne } from "drizzle-orm";
 import {
   iptvServers,
   iptvChannels,
@@ -108,7 +108,7 @@ export class IptvCacheService {
         .from(iptvCategories)
         .where(inArray(iptvCategories.serverId, serverIds));
 
-      // Get channels with category names
+      // Get channels with category names (exclude hidden)
       const channelsWithCategories = await this.fastify.db
         .select({
           channel: iptvChannels,
@@ -116,13 +116,18 @@ export class IptvCacheService {
         })
         .from(iptvChannels)
         .leftJoin(iptvCategories, eq(iptvChannels.categoryId, iptvCategories.id))
-        .where(inArray(iptvChannels.serverId, serverIds));
+        .where(
+          inArray(iptvChannels.serverId, serverIds)
+        );
 
-      if (channelsWithCategories.length === 0) return false;
+      // Filter out hidden channels
+      const visibleChannels = channelsWithCategories.filter((c) => !c.channel.isHidden);
 
-      // Count channels per category
+      if (visibleChannels.length === 0) return false;
+
+      // Count visible channels per category
       const categoryChannelCounts = new Map<string, number>();
-      for (const { channel } of channelsWithCategories) {
+      for (const { channel } of visibleChannels) {
         if (channel.categoryId) {
           categoryChannelCounts.set(
             channel.categoryId,
@@ -131,14 +136,16 @@ export class IptvCacheService {
         }
       }
 
-      // Get channel IDs for EPG query
-      const channelIds = channelsWithCategories.map((c) => c.channel.id);
+      // Get channel IDs for EPG query (only visible)
+      const channelIds = visibleChannels.map((c) => c.channel.id);
 
       // Load EPG data from database
-      const epgRows = await this.fastify.db
-        .select()
-        .from(iptvEpg)
-        .where(inArray(iptvEpg.channelId, channelIds));
+      const epgRows = channelIds.length > 0
+        ? await this.fastify.db
+            .select()
+            .from(iptvEpg)
+            .where(inArray(iptvEpg.channelId, channelIds))
+        : [];
 
       // Build EPG map (may be empty — that's OK, we still have channels)
       const epgMap = new Map<string, CachedEpgEntry[]>();
@@ -148,7 +155,7 @@ export class IptvCacheService {
         const entry: CachedEpgEntry = {
           id: row.id,
           channelId: row.channelId,
-          channelExternalId: channelsWithCategories.find(
+          channelExternalId: visibleChannels.find(
             (c) => c.channel.id === row.channelId
           )?.channel.externalId || "",
           title: row.title,
@@ -168,7 +175,7 @@ export class IptvCacheService {
 
       // Build cache data
       const cacheData: CachedChannelData = {
-        channels: channelsWithCategories.map(({ channel, categoryName }) => ({
+        channels: visibleChannels.map(({ channel, categoryName }) => ({
           id: channel.id,
           serverId: channel.serverId,
           categoryId: channel.categoryId,
@@ -314,8 +321,8 @@ export class IptvCacheService {
         .from(iptvCategories)
         .where(inArray(iptvCategories.serverId, serverIds));
 
-      // Get all channels
-      const channelsWithCategories = await this.fastify.db
+      // Get all channels (exclude hidden to save EPG fetch time)
+      const allChannelsWithCategories = await this.fastify.db
         .select({
           channel: iptvChannels,
           categoryName: iptvCategories.name,
@@ -324,7 +331,10 @@ export class IptvCacheService {
         .leftJoin(iptvCategories, eq(iptvChannels.categoryId, iptvCategories.id))
         .where(inArray(iptvChannels.serverId, serverIds));
 
-      // Count channels per category
+      // Filter out hidden channels
+      const channelsWithCategories = allChannelsWithCategories.filter((c) => !c.channel.isHidden);
+
+      // Count visible channels per category
       const categoryChannelCounts = new Map<string, number>();
       for (const { channel } of channelsWithCategories) {
         if (channel.categoryId) {
@@ -335,7 +345,7 @@ export class IptvCacheService {
         }
       }
 
-      // Fetch EPG for all channels from each server
+      // Fetch EPG for visible channels only from each server
       const epgMap = new Map<string, CachedEpgEntry[]>();
 
       // Create a map of externalId -> channelId for EPG matching
@@ -353,7 +363,7 @@ export class IptvCacheService {
         });
 
         try {
-          // Get channels for this server
+          // Get visible channels for this server
           const serverChannels = channelsWithCategories
             .filter((c) => c.channel.serverId === server.id)
             .map((c) => c.channel);

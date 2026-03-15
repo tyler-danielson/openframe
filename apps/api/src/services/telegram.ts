@@ -25,6 +25,7 @@ import {
   tasks,
   taskLists,
 } from "@openframe/database/schema";
+import { decryptEventFields } from "../lib/encryption.js";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org/bot";
 
@@ -506,6 +507,7 @@ export class TelegramService {
 
     // Filter to user's calendars
     return allEvents
+      .map(decryptEventFields)
       .filter((e) => calendarIds.includes(e.calendarId))
       .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
   }

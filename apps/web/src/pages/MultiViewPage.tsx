@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutGrid, RefreshCw } from "lucide-react";
+import { LayoutGrid, RefreshCw, PanelTopClose, PanelTopOpen } from "lucide-react";
 import { api, type HACamera } from "../services/api";
 import { CastButton } from "../components/cast/CastButton";
 import { Button } from "../components/ui/Button";
@@ -50,6 +50,7 @@ export function MultiViewPage() {
   const [activeTab, setActiveTab] = useState<TabType>("camera");
   const [currentTime, setCurrentTime] = useState(new Date());
   const [timeFade, setTimeFade] = useState(true);
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const updateActivity = useScreensaverStore((state) => state.updateActivity);
   const { familyName, timeFormat, cycleTimeFormat } = useCalendarStore();
 
@@ -721,69 +722,93 @@ export function MultiViewPage() {
 
       {/* Controls Header */}
       <header className="flex-shrink-0 border-b border-border bg-card">
-        {/* View Type Tabs */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-border/50">
-          <div className="flex items-center gap-1">
-            {VIEW_TYPE_TABS.map((tab) => (
-              <button
-                key={tab.type}
-                onClick={() => setActiveTab(tab.type as TabType)}
-                className={cn(
-                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                  activeTab === tab.type
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        {headerCollapsed ? (
+          <div className="flex items-center justify-between px-4 py-1.5">
+            <span className="text-sm text-muted-foreground">
+              {selectedItems.length > 0 ? `${selectedItems.length} selected` : "Sources hidden"}
+            </span>
+            <button
+              onClick={() => setHeaderCollapsed(false)}
+              className="p-1.5 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+              title="Show sources"
+            >
+              <PanelTopOpen className="h-4 w-4" />
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* View Type Tabs */}
+            <div className="flex items-center justify-between px-4 py-2 border-b border-border/50">
+              <div className="flex items-center gap-1">
+                {VIEW_TYPE_TABS.map((tab) => (
+                  <button
+                    key={tab.type}
+                    onClick={() => setActiveTab(tab.type as TabType)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                      activeTab === tab.type
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    )}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-3">
+                {selectedItems.length > 0 && (
+                  <span className="text-sm text-muted-foreground">
+                    {selectedItems.length} selected
+                  </span>
                 )}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-3">
-            {selectedItems.length > 0 && (
-              <span className="text-sm text-muted-foreground">
-                {selectedItems.length} selected
-              </span>
-            )}
-            {selectedItems.length > 0 && (
-              <CastButton
-                contentType="multiview"
-                multiviewItems={selectedItems}
-                variant="toolbar"
-              />
-            )}
-            {selectedItems.length > 0 && (
-              <Button variant="outline" size="sm" onClick={clearAll}>
-                Clear All
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Available Items Thumbnail Strip */}
-        <div className="px-4 py-3 overflow-x-auto">
-          {availableItems.length === 0 ? (
-            <div className="text-center py-4 text-muted-foreground text-sm">
-              {activeTab === "home-assistant" && !haConfigured
-                ? "Connect Home Assistant in settings to use HA widgets"
-                : `No items available`}
+                {selectedItems.length > 0 && (
+                  <CastButton
+                    contentType="multiview"
+                    multiviewItems={selectedItems}
+                    variant="toolbar"
+                  />
+                )}
+                {selectedItems.length > 0 && (
+                  <Button variant="outline" size="sm" onClick={clearAll}>
+                    Clear All
+                  </Button>
+                )}
+                <button
+                  onClick={() => setHeaderCollapsed(true)}
+                  className="p-1.5 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                  title="Hide sources"
+                >
+                  <PanelTopClose className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-          ) : (
-            <div className="flex gap-2">
-              {availableItems.map((item) => (
-                <ViewThumbnail
-                  key={item.id}
-                  item={item}
-                  isSelected={isSelected(item.id)}
-                  onClick={() => toggleItem(item)}
-                  badge={item.id === "tv" && tvCount > 0 ? `${tvCount}/4` : undefined}
-                  disabled={item.id === "tv" && tvCount >= 4}
-                />
-              ))}
+
+            {/* Available Items Thumbnail Strip */}
+            <div className="px-4 py-3 overflow-x-auto">
+              {availableItems.length === 0 ? (
+                <div className="text-center py-4 text-muted-foreground text-sm">
+                  {activeTab === "home-assistant" && !haConfigured
+                    ? "Connect Home Assistant in settings to use HA widgets"
+                    : `No items available`}
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  {availableItems.map((item) => (
+                    <ViewThumbnail
+                      key={item.id}
+                      item={item}
+                      isSelected={isSelected(item.id)}
+                      onClick={() => toggleItem(item)}
+                      badge={item.id === "tv" && tvCount > 0 ? `${tvCount}/4` : undefined}
+                      disabled={item.id === "tv" && tvCount >= 4}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
       </header>
 
       {/* Main Viewing Area */}

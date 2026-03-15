@@ -43,10 +43,33 @@ export function useEvents(selectedDate: Date) {
 }
 
 export function useEvent(id: string) {
+  const queryClient = useQueryClient();
+
+  // Find the event from all cached event list queries
+  const findEventInCache = (): CalendarEvent | undefined => {
+    const allEventData = queryClient.getQueriesData<CalendarEvent[]>({
+      queryKey: ["events"],
+    });
+    for (const [, events] of allEventData) {
+      if (!events) continue;
+      const found = events.find((e) => e.id === id);
+      if (found) return found;
+    }
+    return undefined;
+  };
+
+  const cached = findEventInCache();
+
   return useQuery({
     queryKey: ["event", id],
-    queryFn: () => api.getEvent(id),
-    enabled: !!id,
+    queryFn: () => {
+      const found = findEventInCache();
+      if (found) return found;
+      throw new Error("Event not found");
+    },
+    enabled: !!id && !cached,
+    initialData: cached,
+    staleTime: 2 * 60 * 1000,
   });
 }
 

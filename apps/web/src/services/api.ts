@@ -238,6 +238,13 @@ class ApiClient {
     return this.fetch<User>("/auth/me");
   }
 
+  async updatePreferences(prefs: Partial<import("@openframe/shared").UserPreferences>): Promise<import("@openframe/shared").UserPreferences> {
+    return this.fetch("/auth/me/preferences", {
+      method: "PATCH",
+      body: JSON.stringify(prefs),
+    });
+  }
+
   async logout(): Promise<void> {
     const { refreshToken } = useAuthStore.getState();
     await this.fetch("/auth/logout", {
@@ -394,11 +401,29 @@ class ApiClient {
     description?: string;
     location?: string;
     isAllDay?: boolean;
-  }): Promise<CalendarEvent> {
-    return this.fetch<CalendarEvent>("/events", {
+  }): Promise<CalendarEvent & { syncWarning?: string }> {
+    const { accessToken, refreshToken, apiKey } = useAuthStore.getState();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (apiKey) {
+      headers["x-api-key"] = apiKey;
+    } else if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+    const response = await fetch(`${API_BASE}/events`, {
       method: "POST",
+      headers,
       body: JSON.stringify(data),
     });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message ?? "Request failed");
+    }
+    const result = await response.json();
+    const event = result.data ?? result;
+    if (result.syncWarning) {
+      event.syncWarning = result.syncWarning;
+    }
+    return event;
   }
 
   async createQuickEvent(text: string, calendarId?: string): Promise<CalendarEvent> {
@@ -977,12 +1002,32 @@ class ApiClient {
     serverId?: string;
     categoryId?: string;
     search?: string;
+    includeHidden?: boolean;
   }): Promise<IptvChannel[]> {
     const searchParams = new URLSearchParams();
     if (params?.serverId) searchParams.set("serverId", params.serverId);
     if (params?.categoryId) searchParams.set("categoryId", params.categoryId);
     if (params?.search) searchParams.set("search", params.search);
+    if (params?.includeHidden) searchParams.set("includeHidden", "true");
     return this.fetch<IptvChannel[]>(`/iptv/channels?${searchParams}`);
+  }
+
+  async bulkUpdateIptvChannelVisibility(data: {
+    channelIds?: string[];
+    categoryId?: string;
+    isHidden: boolean;
+  }): Promise<{ updatedCount: number }> {
+    return this.fetch("/iptv/channels/bulk-visibility", {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getIptvHiddenStats(): Promise<{
+    totalHidden: number;
+    totalChannels: number;
+  }> {
+    return this.fetch("/iptv/channels/hidden-stats");
   }
 
   async getIptvChannelStream(channelId: string): Promise<{
@@ -3104,6 +3149,13 @@ class ApiClient {
     return this.fetch<ChatProviderStatus>("/chat/status");
   }
 
+  async testAIProvider(provider: string, apiKey?: string, config?: { baseUrl?: string; deploymentName?: string; apiVersion?: string; model?: string }): Promise<{ ok: boolean; model?: string; error?: string }> {
+    return this.fetch<{ ok: boolean; model?: string; error?: string }>("/chat/test-provider", {
+      method: "POST",
+      body: JSON.stringify({ provider, apiKey, config }),
+    });
+  }
+
   async getChatConversations(page = 1, limit = 20): Promise<ChatConversationSummary[]> {
     return this.fetch<ChatConversationSummary[]>(`/chat/conversations?page=${page}&limit=${limit}`);
   }
@@ -3957,7 +4009,9 @@ export type KioskCommandType =
   | "camera-view"
   | "file-share"
   | "file-share-dismiss"
-  | "file-share-page";
+  | "file-share-page"
+  | "split-screen"
+  | "exit-split-screen";
 
 export interface FileShareResult {
   shareId: string;
@@ -4350,7 +4404,14 @@ export interface ChatProviderStatus {
   claude: boolean;
   openai: boolean;
   gemini: boolean;
+  azure_openai: boolean;
+  grok: boolean;
+  openrouter: boolean;
+  local_llm: boolean;
+  openframe: boolean;
   defaultProvider: AIChatProvider;
+  hostedAiAvailable?: boolean;
+  hostedAiEnabled?: boolean;
 }
 
 export interface ChatConversationSummary {

@@ -29,6 +29,7 @@ import {
   setGoogleOAuthCredentials,
 } from "../../services/google-photos.js";
 import { fetchSubredditPhotos } from "../../services/reddit-photos.js";
+import { decryptOAuthToken } from "../../lib/encryption.js";
 import { getCategorySettings } from "../settings/index.js";
 import { randomUUID } from "crypto";
 import { mkdir, unlink, stat } from "fs/promises";
@@ -640,13 +641,14 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
 
-      const [token] = await fastify.db
+      const [rawToken] = await fastify.db
         .select()
         .from(oauthTokens)
         .where(
           and(eq(oauthTokens.userId, user.id), eq(oauthTokens.provider, "google"))
         )
         .limit(1);
+      const token = rawToken ? decryptOAuthToken(rawToken) : null;
 
       if (!token) {
         return reply.badRequest("Google account not connected");
@@ -706,13 +708,14 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { sessionId } = request.params as { sessionId: string };
 
-      const [token] = await fastify.db
+      const [rawToken] = await fastify.db
         .select()
         .from(oauthTokens)
         .where(
           and(eq(oauthTokens.userId, user.id), eq(oauthTokens.provider, "google"))
         )
         .limit(1);
+      const token = rawToken ? decryptOAuthToken(rawToken) : null;
 
       if (!token) {
         return reply.badRequest("Google account not connected");
@@ -759,13 +762,14 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { sessionId } = request.params as { sessionId: string };
 
-      const [token] = await fastify.db
+      const [rawToken] = await fastify.db
         .select()
         .from(oauthTokens)
         .where(
           and(eq(oauthTokens.userId, user.id), eq(oauthTokens.provider, "google"))
         )
         .limit(1);
+      const token = rawToken ? decryptOAuthToken(rawToken) : null;
 
       if (!token) {
         return reply.badRequest("Google account not connected");
@@ -814,13 +818,14 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { sessionId } = request.params as { sessionId: string };
 
-      const [token] = await fastify.db
+      const [rawToken] = await fastify.db
         .select()
         .from(oauthTokens)
         .where(
           and(eq(oauthTokens.userId, user.id), eq(oauthTokens.provider, "google"))
         )
         .limit(1);
+      const token = rawToken ? decryptOAuthToken(rawToken) : null;
 
       if (!token) {
         return reply.badRequest("Google account not connected");
@@ -853,13 +858,14 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
 
-      const [token] = await fastify.db
+      const [rawToken] = await fastify.db
         .select()
         .from(oauthTokens)
         .where(
           and(eq(oauthTokens.userId, user.id), eq(oauthTokens.provider, "google"))
         )
         .limit(1);
+      const token = rawToken ? decryptOAuthToken(rawToken) : null;
 
       if (!token) {
         return {
@@ -926,13 +932,14 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Get Google token
-      const [token] = await fastify.db
+      const [rawToken] = await fastify.db
         .select()
         .from(oauthTokens)
         .where(
           and(eq(oauthTokens.userId, user.id), eq(oauthTokens.provider, "google"))
         )
         .limit(1);
+      const token = rawToken ? decryptOAuthToken(rawToken) : null;
 
       if (!token) {
         return reply.badRequest("Google account not connected");

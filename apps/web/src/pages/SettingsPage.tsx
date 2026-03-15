@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, useNavigate, useLocation, Link } from "react-router-dom";
-import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat, CreditCard, Server, Puzzle, LifeBuoy, Send, Lightbulb, Menu } from "lucide-react";
+import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat, CreditCard, Server, Puzzle, LifeBuoy, Send, Lightbulb, Menu, Shield } from "lucide-react";
 import { Users, UserPlus } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { Camera, Invitation, Calendar as CalendarType } from "@openframe/shared";
@@ -32,6 +32,7 @@ import { AddAccountModal } from "../components/settings/AddAccountModal";
 import { HACalendarModal } from "../components/settings/HACalendarModal";
 import { SupportButton } from "../components/settings/SupportButton";
 import { ConnectionsTab } from "../components/settings/ConnectionsTab";
+import { AIProviderConfig } from "../components/settings/AIProviderConfig";
 import { SettingsSidebar, type SidebarGroup, type SettingsTab } from "../components/settings/SettingsSidebar";
 import { KioskConfigPage } from "../components/settings/KioskConfigPage";
 import { ScreensTab } from "../components/settings/ScreensTab";
@@ -3094,7 +3095,10 @@ function IptvChannelManager() {
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [showHiddenOnly, setShowHiddenOnly] = useState(false);
   const [sortBy, setSortBy] = useState<"name" | "category">("name");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkMode, setBulkMode] = useState(false);
 
   const { data: categories = [] } = useQuery({
     queryKey: ["iptv-categories"],
@@ -3102,10 +3106,11 @@ function IptvChannelManager() {
   });
 
   const { data: channels = [], isLoading } = useQuery({
-    queryKey: ["iptv-channels", selectedCategory, search],
+    queryKey: ["iptv-channels-manage", selectedCategory, search, showHiddenOnly],
     queryFn: () => api.getIptvChannels({
       categoryId: selectedCategory || undefined,
       search: search || undefined,
+      includeHidden: true,
     }),
   });
 
@@ -3114,7 +3119,12 @@ function IptvChannelManager() {
     queryFn: () => api.getIptvFavorites(),
   });
 
-  const favoriteIds = new Set(favorites.map((f: { id: string }) => f.id));
+  const { data: hiddenStats } = useQuery({
+    queryKey: ["iptv-hidden-stats"],
+    queryFn: () => api.getIptvHiddenStats(),
+  });
+
+  const favoriteIds = new Set(favorites.map((f) => f.id));
 
   const toggleFavorite = useMutation({
     mutationFn: async ({ channelId, isFavorite }: { channelId: string; isFavorite: boolean }) => {
@@ -3130,32 +3140,114 @@ function IptvChannelManager() {
     },
   });
 
+  const bulkVisibility = useMutation({
+    mutationFn: (data: { channelIds?: string[]; categoryId?: string; isHidden: boolean }) =>
+      api.bulkUpdateIptvChannelVisibility(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["iptv-channels"] });
+      queryClient.invalidateQueries({ queryKey: ["iptv-channels-manage"] });
+      queryClient.invalidateQueries({ queryKey: ["iptv-hidden-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["iptv-categories"] });
+      setSelectedIds(new Set());
+    },
+  });
+
   // Filter and sort channels
   const displayedChannels = useMemo(() => {
     let result = [...channels];
 
+    if (showHiddenOnly) {
+      result = result.filter((ch) => ch.isHidden);
+    }
+
     if (showFavoritesOnly) {
-      result = result.filter((ch: { id: string }) => favoriteIds.has(ch.id));
+      result = result.filter((ch) => favoriteIds.has(ch.id));
     }
 
     if (sortBy === "name") {
-      result.sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name));
+      result.sort((a, b) => a.name.localeCompare(b.name));
     } else if (sortBy === "category") {
-      result.sort((a: { categoryName?: string }, b: { categoryName?: string }) =>
+      result.sort((a, b) =>
         (a.categoryName || "").localeCompare(b.categoryName || "")
       );
     }
 
-    return result.slice(0, 100); // Limit display to 100 channels for performance
-  }, [channels, showFavoritesOnly, favoriteIds, sortBy]);
+    return result.slice(0, 200);
+  }, [channels, showFavoritesOnly, showHiddenOnly, favoriteIds, sortBy]);
+
+  const allDisplayedSelected = displayedChannels.length > 0 && displayedChannels.every((ch) => selectedIds.has(ch.id));
+
+  const toggleSelectAll = () => {
+    if (allDisplayedSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(displayedChannels.map((ch) => ch.id)));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleHideSelected = () => {
+    if (selectedIds.size === 0) return;
+    bulkVisibility.mutate({ channelIds: Array.from(selectedIds), isHidden: true });
+  };
+
+  const handleUnhideSelected = () => {
+    if (selectedIds.size === 0) return;
+    bulkVisibility.mutate({ channelIds: Array.from(selectedIds), isHidden: false });
+  };
+
+  const handleHideCategory = () => {
+    if (!selectedCategory) return;
+    bulkVisibility.mutate({ categoryId: selectedCategory, isHidden: true });
+  };
+
+  const handleUnhideCategory = () => {
+    if (!selectedCategory) return;
+    bulkVisibility.mutate({ categoryId: selectedCategory, isHidden: false });
+  };
 
   return (
     <Card className="border-2 border-primary/40">
       <CardHeader>
-        <CardTitle>Channel Manager</CardTitle>
-        <CardDescription>
-          Search, filter, and manage your favorite channels ({favorites.length} favorites)
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Channel Manager</CardTitle>
+            <CardDescription>
+              {favorites.length} favorites
+              {hiddenStats && hiddenStats.totalHidden > 0 && (
+                <> · {hiddenStats.totalHidden} hidden of {hiddenStats.totalChannels} total</>
+              )}
+            </CardDescription>
+          </div>
+          <Button
+            variant={bulkMode ? "default" : "outline"}
+            size="sm"
+            onClick={() => {
+              setBulkMode(!bulkMode);
+              setSelectedIds(new Set());
+            }}
+          >
+            {bulkMode ? (
+              <>
+                <Check className="mr-2 h-4 w-4" />
+                Done
+              </>
+            ) : (
+              <>
+                <Pencil className="mr-2 h-4 w-4" />
+                Bulk Edit
+              </>
+            )}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Filters */}
@@ -3199,18 +3291,83 @@ function IptvChannelManager() {
           <Button
             variant={showFavoritesOnly ? "default" : "outline"}
             size="sm"
-            onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+            onClick={() => { setShowFavoritesOnly(!showFavoritesOnly); setShowHiddenOnly(false); }}
             className="whitespace-nowrap"
           >
             <Star className={`mr-2 h-4 w-4 ${showFavoritesOnly ? "fill-current" : ""}`} />
-            Favorites ({favorites.length})
+            Favorites
+          </Button>
+
+          {/* Hidden toggle */}
+          <Button
+            variant={showHiddenOnly ? "default" : "outline"}
+            size="sm"
+            onClick={() => { setShowHiddenOnly(!showHiddenOnly); setShowFavoritesOnly(false); }}
+            className="whitespace-nowrap"
+          >
+            <EyeOff className={`mr-2 h-4 w-4`} />
+            Hidden{hiddenStats?.totalHidden ? ` (${hiddenStats.totalHidden})` : ""}
           </Button>
         </div>
 
+        {/* Bulk actions bar */}
+        {bulkMode && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
+            <span className="text-sm font-medium text-primary">
+              {selectedIds.size} selected
+            </span>
+            <div className="flex-1" />
+            {selectedCategory && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleHideCategory}
+                  disabled={bulkVisibility.isPending}
+                >
+                  <EyeOff className="mr-1.5 h-3.5 w-3.5" />
+                  Hide Entire Category
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleUnhideCategory}
+                  disabled={bulkVisibility.isPending}
+                >
+                  <Eye className="mr-1.5 h-3.5 w-3.5" />
+                  Unhide Entire Category
+                </Button>
+                <div className="w-px h-6 bg-border" />
+              </>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleHideSelected}
+              disabled={selectedIds.size === 0 || bulkVisibility.isPending}
+            >
+              <EyeOff className="mr-1.5 h-3.5 w-3.5" />
+              Hide Selected
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleUnhideSelected}
+              disabled={selectedIds.size === 0 || bulkVisibility.isPending}
+            >
+              <Eye className="mr-1.5 h-3.5 w-3.5" />
+              Unhide Selected
+            </Button>
+            {bulkVisibility.isPending && (
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            )}
+          </div>
+        )}
+
         {/* Results info */}
         <p className="text-sm text-muted-foreground">
-          Showing {displayedChannels.length} of {showFavoritesOnly ? favorites.length : channels.length} channels
-          {displayedChannels.length === 100 && " (limited to 100)"}
+          Showing {displayedChannels.length} of {showFavoritesOnly ? favorites.length : showHiddenOnly ? (hiddenStats?.totalHidden ?? 0) : channels.length} channels
+          {displayedChannels.length === 200 && " (limited to 200)"}
         </p>
 
         {/* Channel list */}
@@ -3222,24 +3379,58 @@ function IptvChannelManager() {
           <div className="rounded-lg border border-dashed border-border p-6 text-center">
             <Tv className="mx-auto h-8 w-8 text-muted-foreground" />
             <p className="mt-2 text-sm text-muted-foreground">
-              {showFavoritesOnly ? "No favorite channels" : "No channels found"}
+              {showFavoritesOnly ? "No favorite channels" : showHiddenOnly ? "No hidden channels" : "No channels found"}
             </p>
           </div>
         ) : (
-          <div className="max-h-[400px] overflow-y-auto rounded-lg border border-border">
+          <div className="max-h-[500px] overflow-y-auto rounded-lg border border-border">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-muted">
+              <thead className="sticky top-0 bg-muted z-10">
                 <tr>
+                  {bulkMode && (
+                    <th className="px-3 py-2 w-10">
+                      <input
+                        type="checkbox"
+                        checked={allDisplayedSelected}
+                        onChange={toggleSelectAll}
+                        className="h-4 w-4 rounded border-border accent-primary"
+                      />
+                    </th>
+                  )}
                   <th className="px-3 py-2 text-left font-medium">Channel</th>
                   <th className="px-3 py-2 text-left font-medium">Category</th>
-                  <th className="px-3 py-2 text-center font-medium w-20">Favorite</th>
+                  <th className="px-3 py-2 text-center font-medium w-20">
+                    {bulkMode ? "Visible" : "Favorite"}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {displayedChannels.map((channel) => {
                   const isFav = favoriteIds.has(channel.id);
+                  const isHidden = !!channel.isHidden;
+                  const isSelected = selectedIds.has(channel.id);
                   return (
-                    <tr key={channel.id} className="hover:bg-muted/50">
+                    <tr
+                      key={channel.id}
+                      className={cn(
+                        "hover:bg-muted/50",
+                        isHidden && "opacity-50",
+                        isSelected && bulkMode && "bg-primary/5"
+                      )}
+                      onClick={bulkMode ? () => toggleSelect(channel.id) : undefined}
+                      style={bulkMode ? { cursor: "pointer" } : undefined}
+                    >
+                      {bulkMode && (
+                        <td className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelect(channel.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="h-4 w-4 rounded border-border accent-primary"
+                          />
+                        </td>
+                      )}
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2">
                           {channel.logoUrl && (
@@ -3251,19 +3442,40 @@ function IptvChannelManager() {
                             />
                           )}
                           <span className="truncate max-w-[250px]">{channel.name}</span>
+                          {isHidden && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
+                              hidden
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-3 py-2 text-muted-foreground">
                         <span className="truncate max-w-[150px] block">{channel.categoryName || "-"}</span>
                       </td>
                       <td className="px-3 py-2 text-center">
-                        <button
-                          onClick={() => toggleFavorite.mutate({ channelId: channel.id, isFavorite: isFav })}
-                          disabled={toggleFavorite.isPending}
-                          className={`p-1 rounded hover:bg-muted ${isFav ? "text-yellow-500" : "text-muted-foreground"}`}
-                        >
-                          <Star className={`h-4 w-4 ${isFav ? "fill-current" : ""}`} />
-                        </button>
+                        {bulkMode ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              bulkVisibility.mutate({
+                                channelIds: [channel.id],
+                                isHidden: !isHidden,
+                              });
+                            }}
+                            disabled={bulkVisibility.isPending}
+                            className={`p-1 rounded hover:bg-muted ${isHidden ? "text-muted-foreground" : "text-primary"}`}
+                          >
+                            {isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => toggleFavorite.mutate({ channelId: channel.id, isFavorite: isFav })}
+                            disabled={toggleFavorite.isPending}
+                            className={`p-1 rounded hover:bg-muted ${isFav ? "text-yellow-500" : "text-muted-foreground"}`}
+                          >
+                            <Star className={`h-4 w-4 ${isFav ? "fill-current" : ""}`} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -10439,7 +10651,7 @@ export function SettingsPage() {
                       const isResyncable = accountCals.some(c => c.syncEnabled);
 
                       const syncAgeMs = lastSync > 0 ? Date.now() - lastSync : 0;
-                      const isSyncStale = isOAuth && syncAgeMs > 24 * 60 * 60 * 1000;
+                      const isSyncStale = isOAuth && syncAgeMs > 72 * 60 * 60 * 1000;
 
                       return (
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
@@ -10447,7 +10659,7 @@ export function SettingsPage() {
                             <span className={isSyncStale ? "text-amber-500" : "text-muted-foreground"}>
                               <Clock className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
                               Last synced {new Date(lastSync).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                              {isSyncStale && " — may need re-authentication"}
+                              {isSyncStale && " — sync may be failing, try re-syncing"}
                             </span>
                           )}
                           {isResyncable && (
@@ -10667,6 +10879,9 @@ export function SettingsPage() {
                     <HomeAssistantSettings />
                   </div>
                 )}
+                {connectionService?.startsWith("ai-") && (
+                  <AIProviderConfig providerId={connectionService} />
+                )}
               </div>
             ) : (
               <ConnectionsTab onNavigateToTab={handleTabChange} onNavigateToService={handleNavigateToService} />
@@ -10863,6 +11078,48 @@ export function SettingsPage() {
                 <p className="text-xs text-muted-foreground mt-3">
                   Linking an account enables "Sign in with Google/Microsoft" on the login page. Calendar and task permissions are requested separately.
                 </p>
+              </div>
+
+              {/* Privacy */}
+              <div className="pt-6 border-t border-border">
+                <div className="flex items-center gap-2 mb-4">
+                  <Shield className="h-4 w-4 text-primary" />
+                  <p className="font-medium">Privacy</p>
+                </div>
+
+                <div className="flex items-center justify-between py-3">
+                  <div className="flex-1 mr-4">
+                    <p className="text-sm font-medium">Share my content with admin for troubleshooting</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      When enabled, the instance admin can view your event titles, descriptions, and locations for debugging. When disabled, this content remains encrypted.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={!!user?.preferences?.shareContentWithAdmin}
+                    onClick={async () => {
+                      const newValue = !user?.preferences?.shareContentWithAdmin;
+                      try {
+                        await api.updatePreferences({ shareContentWithAdmin: newValue });
+                        queryClient.invalidateQueries({ queryKey: ["me"] });
+                      } catch {
+                        // ignore
+                      }
+                    }}
+                    className={cn(
+                      "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
+                      user?.preferences?.shareContentWithAdmin ? "bg-primary" : "bg-muted"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "inline-block h-3.5 w-3.5 transform rounded-full bg-background transition-transform",
+                        user?.preferences?.shareContentWithAdmin ? "translate-x-[18px]" : "translate-x-[3px]"
+                      )}
+                    />
+                  </button>
+                </div>
               </div>
             </div>
           )}

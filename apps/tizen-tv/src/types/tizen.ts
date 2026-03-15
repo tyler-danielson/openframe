@@ -133,6 +133,12 @@ declare global {
       application: {
         getCurrentApplication(): TizenApplication;
       };
+      power: {
+        request(resource: string, state: string): void;
+        release(resource: string): void;
+        isScreenOn(): boolean;
+        turnScreenOn(): void;
+      };
     };
     webapis?: {
       appcommon: {

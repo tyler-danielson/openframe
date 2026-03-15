@@ -6,7 +6,7 @@ import {
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { getSystemSetting, getCategorySettings } from "../settings/index.js";
-import { buildChatContext, streamChat } from "../../services/ai-chat.js";
+import { buildChatContext, streamChat, testProviderConnection } from "../../services/ai-chat.js";
 import type { AIChatProvider } from "@openframe/shared";
 
 export const chatRoutes: FastifyPluginAsync = async (fastify) => {
@@ -25,20 +25,28 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
       if (!user) return reply.unauthorized("Not authenticated");
 
       // Check global keys (platform-level)
-      const [anthropicKey, openaiKey, geminiKey, defaultProvider] =
+      const [anthropicKey, openaiKey, geminiKey, azureKey, grokKey, openrouterKey, localLlmUrl, defaultProvider] =
         await Promise.all([
           getSystemSetting(fastify.db, "anthropic", "api_key"),
           getSystemSetting(fastify.db, "openai", "api_key"),
           getSystemSetting(fastify.db, "google", "gemini_api_key"),
+          getSystemSetting(fastify.db, "azure_openai", "api_key"),
+          getSystemSetting(fastify.db, "grok", "api_key"),
+          getSystemSetting(fastify.db, "openrouter", "api_key"),
+          getSystemSetting(fastify.db, "local_llm", "base_url"),
           getSystemSetting(fastify.db, "chat", "provider"),
         ]);
 
       // Check user-scoped keys (BYOK)
-      const [userAnthropicKey, userOpenaiKey, userGeminiKey, hostedAiSetting] =
+      const [userAnthropicKey, userOpenaiKey, userGeminiKey, userAzureKey, userGrokKey, userOpenrouterKey, userLocalLlmUrl, hostedAiSetting] =
         await Promise.all([
           getSystemSetting(fastify.db, "anthropic", "api_key", user.id),
           getSystemSetting(fastify.db, "openai", "api_key", user.id),
           getSystemSetting(fastify.db, "google", "gemini_api_key", user.id),
+          getSystemSetting(fastify.db, "azure_openai", "api_key", user.id),
+          getSystemSetting(fastify.db, "grok", "api_key", user.id),
+          getSystemSetting(fastify.db, "openrouter", "api_key", user.id),
+          getSystemSetting(fastify.db, "local_llm", "base_url", user.id),
           getSystemSetting(fastify.db, "chat", "hosted_ai_enabled", user.id),
         ]);
 
@@ -61,6 +69,11 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
           claude: !!anthropicKey || !!userAnthropicKey,
           openai: !!openaiKey || !!userOpenaiKey,
           gemini: !!geminiKey || !!userGeminiKey,
+          azure_openai: !!azureKey || !!userAzureKey,
+          grok: !!grokKey || !!userGrokKey,
+          openrouter: !!openrouterKey || !!userOpenrouterKey,
+          local_llm: !!localLlmUrl || !!userLocalLlmUrl,
+          openframe: hostedAiSetting === "true",
           defaultProvider: (defaultProvider as AIChatProvider) || "claude",
           // Hosted AI info (works for both hosted instances and self-hosted via cloud relay)
           hostedAiAvailable:
@@ -71,9 +84,108 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
             claude: !!userAnthropicKey,
             openai: !!userOpenaiKey,
             gemini: !!userGeminiKey,
+            azure_openai: !!userAzureKey,
+            grok: !!userGrokKey,
+            openrouter: !!userOpenrouterKey,
+            local_llm: !!userLocalLlmUrl,
           },
         },
       };
+    }
+  );
+
+  // POST /chat/test-provider - Test connectivity to an AI provider
+  fastify.post<{
+    Body: {
+      provider: string;
+      apiKey?: string;
+      config?: { baseUrl?: string; deploymentName?: string; apiVersion?: string; model?: string };
+    };
+  }>(
+    "/test-provider",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Test connectivity to an AI provider",
+        tags: ["Chat"],
+        body: {
+          type: "object",
+          properties: {
+            provider: { type: "string" },
+            apiKey: { type: "string" },
+            config: {
+              type: "object",
+              properties: {
+                baseUrl: { type: "string" },
+                deploymentName: { type: "string" },
+                apiVersion: { type: "string" },
+                model: { type: "string" },
+              },
+            },
+          },
+          required: ["provider"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) return reply.unauthorized("Not authenticated");
+
+      const { provider, apiKey: providedKey, config: providedConfig } = request.body;
+
+      // If no key provided, look up the stored key
+      let apiKey = providedKey || null;
+      let providerConfig = providedConfig || undefined;
+
+      if (!apiKey) {
+        const providerKeyMap: Record<string, { category: string; key: string }> = {
+          claude: { category: "anthropic", key: "api_key" },
+          openai: { category: "openai", key: "api_key" },
+          gemini: { category: "google", key: "gemini_api_key" },
+          azure_openai: { category: "azure_openai", key: "api_key" },
+          grok: { category: "grok", key: "api_key" },
+          openrouter: { category: "openrouter", key: "api_key" },
+          local_llm: { category: "local_llm", key: "api_key" },
+        };
+        const keyInfo = providerKeyMap[provider];
+        if (keyInfo) {
+          apiKey = await getSystemSetting(fastify.db, keyInfo.category, keyInfo.key, user.id)
+            || await getSystemSetting(fastify.db, keyInfo.category, keyInfo.key);
+        }
+      }
+
+      // For providers needing extra config, fetch from settings if not provided
+      if (!providerConfig) {
+        if (provider === "azure_openai") {
+          const [baseUrl, deploymentName, apiVersion] = await Promise.all([
+            getSystemSetting(fastify.db, "azure_openai", "base_url", user.id) || getSystemSetting(fastify.db, "azure_openai", "base_url"),
+            getSystemSetting(fastify.db, "azure_openai", "deployment_name", user.id) || getSystemSetting(fastify.db, "azure_openai", "deployment_name"),
+            getSystemSetting(fastify.db, "azure_openai", "api_version", user.id) || getSystemSetting(fastify.db, "azure_openai", "api_version"),
+          ]);
+          providerConfig = { baseUrl: baseUrl || undefined, deploymentName: deploymentName || undefined, apiVersion: apiVersion || "2024-02-01" };
+        } else if (provider === "local_llm") {
+          const [baseUrl, localModel] = await Promise.all([
+            getSystemSetting(fastify.db, "local_llm", "base_url", user.id) || getSystemSetting(fastify.db, "local_llm", "base_url"),
+            getSystemSetting(fastify.db, "local_llm", "model", user.id) || getSystemSetting(fastify.db, "local_llm", "model"),
+          ]);
+          providerConfig = { baseUrl: baseUrl || undefined, model: localModel || undefined };
+          // For local_llm, get the optional API key
+          if (!apiKey) {
+            apiKey = "no-key";
+          }
+        } else if (provider === "openrouter") {
+          const orModel = await getSystemSetting(fastify.db, "openrouter", "model", user.id)
+            || await getSystemSetting(fastify.db, "openrouter", "model");
+          if (orModel) providerConfig = { model: orModel };
+        }
+      }
+
+      if (!apiKey && provider !== "local_llm") {
+        return reply.badRequest(`No API key configured for ${provider}`);
+      }
+
+      const result = await testProviderConnection(provider, apiKey || "no-key", providerConfig);
+      return { success: true, data: result };
     }
   );
 
@@ -214,7 +326,7 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
           properties: {
             message: { type: "string" },
             conversationId: { type: "string" },
-            provider: { type: "string", enum: ["claude", "openai", "gemini"] },
+            provider: { type: "string", enum: ["claude", "openai", "gemini", "azure_openai", "grok", "openrouter", "local_llm", "openframe"] },
             model: { type: "string" },
           },
           required: ["message"],
@@ -231,9 +343,28 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
       const settingProvider = await getSystemSetting(fastify.db, "chat", "provider");
       const provider = (requestProvider || settingProvider || "claude") as AIChatProvider;
 
-      // Resolve model override
-      const settingModel = await getSystemSetting(fastify.db, "chat", "model");
-      const model = requestModel || settingModel || undefined;
+      // Resolve model: request > provider-specific user setting > provider-specific global > chat.model fallback
+      let model = requestModel || undefined;
+      if (!model) {
+        const providerModelMap: Record<string, { category: string; key: string }> = {
+          claude: { category: "anthropic", key: "model" },
+          openai: { category: "openai", key: "model" },
+          gemini: { category: "google", key: "gemini_model" },
+          grok: { category: "grok", key: "model" },
+          openrouter: { category: "openrouter", key: "model" },
+          local_llm: { category: "local_llm", key: "model" },
+        };
+        const modelInfo = providerModelMap[provider];
+        if (modelInfo) {
+          model = await getSystemSetting(fastify.db, modelInfo.category, modelInfo.key, user.id)
+            || await getSystemSetting(fastify.db, modelInfo.category, modelInfo.key)
+            || undefined;
+        }
+        if (!model) {
+          const settingModel = await getSystemSetting(fastify.db, "chat", "model");
+          model = settingModel || undefined;
+        }
+      }
 
       // Resolve API key: user-scoped BYOK first, then hosted AI fallback
       let apiKey: string | null = null;
@@ -244,6 +375,10 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
         claude: { category: "anthropic", key: "api_key" },
         openai: { category: "openai", key: "api_key" },
         gemini: { category: "google", key: "gemini_api_key" },
+        azure_openai: { category: "azure_openai", key: "api_key" },
+        grok: { category: "grok", key: "api_key" },
+        openrouter: { category: "openrouter", key: "api_key" },
+        local_llm: { category: "local_llm", key: "base_url" },
       };
       const keyInfo = providerKeyMap[provider];
 
@@ -318,6 +453,33 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest(
           `API key not configured for ${provider}. Add it in Settings or enable Cloud AI.`
         );
+      }
+
+      // Fetch extra provider config for providers that need more than just an API key
+      let providerConfig: { baseUrl?: string; deploymentName?: string; apiVersion?: string; model?: string } | undefined;
+      if (provider === "azure_openai") {
+        const [baseUrl, deploymentName, apiVersion] = await Promise.all([
+          getSystemSetting(fastify.db, "azure_openai", "base_url", user.id) || getSystemSetting(fastify.db, "azure_openai", "base_url"),
+          getSystemSetting(fastify.db, "azure_openai", "deployment_name", user.id) || getSystemSetting(fastify.db, "azure_openai", "deployment_name"),
+          getSystemSetting(fastify.db, "azure_openai", "api_version", user.id) || getSystemSetting(fastify.db, "azure_openai", "api_version"),
+        ]);
+        providerConfig = { baseUrl: baseUrl || undefined, deploymentName: deploymentName || undefined, apiVersion: apiVersion || "2024-02-01" };
+      } else if (provider === "openrouter") {
+        const orModel = await getSystemSetting(fastify.db, "openrouter", "model", user.id)
+          || await getSystemSetting(fastify.db, "openrouter", "model");
+        if (orModel) providerConfig = { model: orModel };
+      } else if (provider === "local_llm") {
+        const [baseUrl, localModel] = await Promise.all([
+          getSystemSetting(fastify.db, "local_llm", "base_url", user.id) || getSystemSetting(fastify.db, "local_llm", "base_url"),
+          getSystemSetting(fastify.db, "local_llm", "model", user.id) || getSystemSetting(fastify.db, "local_llm", "model"),
+        ]);
+        providerConfig = { baseUrl: baseUrl || undefined, model: localModel || undefined };
+        // For local_llm, the "apiKey" resolved above is actually the base_url — get the real optional key
+        if (provider === "local_llm") {
+          const localApiKey = await getSystemSetting(fastify.db, "local_llm", "api_key", user.id)
+            || await getSystemSetting(fastify.db, "local_llm", "api_key");
+          apiKey = localApiKey || "no-key";
+        }
       }
 
       // Create or load conversation
@@ -488,7 +650,8 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
             apiKey!,
             context.systemPrompt,
             historyMessages,
-            model
+            model,
+            providerConfig
           )) {
             if (chunk.type === "token") {
               fullResponse += chunk.data;

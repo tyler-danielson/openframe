@@ -35,6 +35,7 @@ import {
   systemSettings,
 } from "@openframe/database/schema";
 import crypto from "crypto";
+import { decryptEventFields } from "./lib/encryption.js";
 
 // ---- Database setup ----
 
@@ -137,6 +138,7 @@ server.tool(
       .where(eq(events.status, "confirmed"));
 
     const filtered = allEvents
+      .map(decryptEventFields)
       .filter((e) => {
         const st = new Date(e.startTime);
         return calIds.includes(e.calendarId) && st >= start && st <= end;
@@ -174,6 +176,7 @@ server.tool(
     const lowerQuery = query.toLowerCase();
 
     const matches = allEvents
+      .map(decryptEventFields)
       .filter((e) => calIds.includes(e.calendarId) && e.title.toLowerCase().includes(lowerQuery))
       .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
       .slice(0, 20)

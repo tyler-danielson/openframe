@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Camera, RefreshCw, Home, Video } from "lucide-react";
+import { Plus, Camera, RefreshCw, Home, Video, PanelTopClose, PanelTopOpen } from "lucide-react";
 import { api, type HACamera } from "../services/api";
 import { appPath } from "../lib/cloud";
 import { CastButton } from "../components/cast/CastButton";
@@ -45,6 +45,7 @@ export function CamerasPage() {
   const queryClient = useQueryClient();
   const [showAddModal, setShowAddModal] = useState(false);
   const [fullscreenCamera, setFullscreenCamera] = useState<SelectedCamera | null>(null);
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const updateActivity = useScreensaverStore((state) => state.updateActivity);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [timeFade, setTimeFade] = useState(true);
@@ -380,74 +381,99 @@ export function CamerasPage() {
 
       {/* Camera Controls Header with thumbnail strip */}
       <header className="flex-shrink-0 border-b border-border bg-card">
-        {/* Top bar with title and actions */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold">Cameras</h1>
-            {selectedCameras.length > 0 && (
-              <span className="text-sm text-muted-foreground">
-                {selectedCameras.length} viewing
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Clear selection */}
-            {selectedCameras.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSelectedCameras([])}
-              >
-                Clear Selection
-              </Button>
-            )}
-
-            {/* Refresh all */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                queryClient.invalidateQueries({ queryKey: ["cameras"] });
-                queryClient.invalidateQueries({ queryKey: ["ha-cameras"] });
-              }}
+        {headerCollapsed ? (
+          <div className="flex items-center justify-between px-4 py-1.5">
+            <span className="text-sm text-muted-foreground">
+              {selectedCameras.length > 0 ? `${selectedCameras.length} viewing` : "Sources hidden"}
+            </span>
+            <button
+              onClick={() => setHeaderCollapsed(false)}
+              className="p-1.5 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+              title="Show sources"
             >
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Refresh
-            </Button>
-
-            {/* Add camera */}
-            <Button size="sm" onClick={() => setShowAddModal(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Camera
-            </Button>
+              <PanelTopOpen className="h-4 w-4" />
+            </button>
           </div>
-        </div>
+        ) : (
+          <>
+            {/* Top bar with title and actions */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+              <div className="flex items-center gap-4">
+                <h1 className="text-xl font-semibold">Cameras</h1>
+                {selectedCameras.length > 0 && (
+                  <span className="text-sm text-muted-foreground">
+                    {selectedCameras.length} viewing
+                  </span>
+                )}
+              </div>
 
-        {/* Thumbnail strip */}
-        <div className="px-4 py-3 overflow-x-auto">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-4">
-              <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+              <div className="flex items-center gap-3">
+                {/* Clear selection */}
+                {selectedCameras.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedCameras([])}
+                  >
+                    Clear Selection
+                  </Button>
+                )}
+
+                {/* Refresh all */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    queryClient.invalidateQueries({ queryKey: ["cameras"] });
+                    queryClient.invalidateQueries({ queryKey: ["ha-cameras"] });
+                  }}
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Refresh
+                </Button>
+
+                {/* Add camera */}
+                <Button size="sm" onClick={() => setShowAddModal(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Camera
+                </Button>
+
+                <button
+                  onClick={() => setHeaderCollapsed(true)}
+                  className="p-1.5 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                  title="Hide sources"
+                >
+                  <PanelTopClose className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-          ) : allCameras.length === 0 ? (
-            <div className="text-center py-4 text-muted-foreground text-sm">
-              No cameras available
+
+            {/* Thumbnail strip */}
+            <div className="px-4 py-3 overflow-x-auto">
+              {isLoading ? (
+                <div className="flex items-center justify-center py-4">
+                  <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : allCameras.length === 0 ? (
+                <div className="text-center py-4 text-muted-foreground text-sm">
+                  No cameras available
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  {allCameras.map(({ camera, type, id }) => (
+                    <CameraThumbnail
+                      key={`${type}-${id}`}
+                      camera={camera}
+                      type={type}
+                      isSelected={isSelected(id, type)}
+                      onClick={() => toggleCamera(id, type)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="flex gap-2">
-              {allCameras.map(({ camera, type, id }) => (
-                <CameraThumbnail
-                  key={`${type}-${id}`}
-                  camera={camera}
-                  type={type}
-                  isSelected={isSelected(id, type)}
-                  onClick={() => toggleCamera(id, type)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+          </>
+        )}
       </header>
 
       {/* Main viewing area */}

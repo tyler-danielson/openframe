@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { format, startOfDay, endOfDay, parseISO } from "date-fns";
 import { useCalendars, useEvents } from "../../hooks/useCalendarData";
 import { useCalendarStore } from "../../stores/calendar";
+import { useSelectedEventStore } from "../../stores/selectedEvent";
 import { useThemeColors } from "../../hooks/useColorScheme";
 import { EventCard } from "../../components/EventCard";
 import type { CalendarEvent } from "@openframe/shared";
@@ -13,6 +14,7 @@ import type { CalendarEvent } from "@openframe/shared";
 export default function CalendarScreen() {
   const router = useRouter();
   const colors = useThemeColors();
+  const setSelectedEvent = useSelectedEventStore((s) => s.setEvent);
   const { selectedDate, setSelectedDate } = useCalendarStore();
   const { data: calendars, isLoading: calendarsLoading, refetch: refetchCalendars } = useCalendars();
   const { data: events, isLoading: eventsLoading, refetch: refetchEvents } = useEvents(selectedDate);
@@ -145,7 +147,7 @@ export default function CalendarScreen() {
                   key={event.id}
                   event={event}
                   color={getCalendarColor(event.calendarId)}
-                  onPress={() => router.push(`/event/${event.id}`)}
+                  onPress={() => { setSelectedEvent(event); router.push(`/event/${event.id}`); }}
                 />
               ))}
             </View>

@@ -10,6 +10,7 @@ import { TouchDatePicker } from "../ui/TouchDatePicker";
 import { TouchTimePicker } from "../ui/TouchTimePicker";
 import { api } from "../../services/api";
 import { useCalendarStore } from "../../stores/calendar";
+import { useToast } from "../ui/Toaster";
 
 // Round time up to the next 30-minute interval
 function getRoundedTime(durationMinutes: number = 60): { startTime: Date; endTime: Date } {
@@ -43,6 +44,7 @@ interface CreateEventModalProps {
 
 export function CreateEventModal({ open, onClose, calendars }: CreateEventModalProps) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const defaultEventDuration = useCalendarStore((state) => state.defaultEventDuration);
 
   // Filter to only editable calendars
@@ -105,9 +107,23 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
       location?: string;
       description?: string;
     }) => api.createEvent(data),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["events"] });
+      if (data.syncWarning) {
+        toast({
+          title: "Event created locally",
+          description: data.syncWarning,
+          type: "error",
+        });
+      }
       onClose();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to create event",
+        description: error.message,
+        type: "error",
+      });
     },
   });
 

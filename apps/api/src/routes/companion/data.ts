@@ -11,6 +11,7 @@ import {
   photos,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { decryptEventFields } from "../../lib/encryption.js";
 
 interface CompanionContext {
   ownerId: string;
@@ -129,7 +130,7 @@ export const companionDataRoutes: FastifyPluginAsync = async (fastify) => {
       const calendarIds = ownerCalendars.map((c) => c.id);
       const calendarMap = new Map(ownerCalendars.map((c) => [c.id, c]));
 
-      const result = await fastify.db
+      const rawEvents = await fastify.db
         .select()
         .from(events)
         .where(
@@ -139,6 +140,8 @@ export const companionDataRoutes: FastifyPluginAsync = async (fastify) => {
             gte(events.endTime, start)
           )
         );
+
+      const result = rawEvents.map(decryptEventFields);
 
       // Add calendar color/name to each event
       const enriched = result.map((e) => ({
@@ -225,13 +228,14 @@ export const companionDataRoutes: FastifyPluginAsync = async (fastify) => {
       const body = request.body as Record<string, unknown>;
 
       // Verify event belongs to owner's calendars
-      const [event] = await fastify.db
+      const [rawEvent] = await fastify.db
         .select()
         .from(events)
         .where(eq(events.id, id))
         .limit(1);
 
-      if (!event) return reply.notFound("Event not found");
+      if (!rawEvent) return reply.notFound("Event not found");
+      const event = decryptEventFields(rawEvent);
 
       const [cal] = await fastify.db
         .select()
@@ -276,13 +280,14 @@ export const companionDataRoutes: FastifyPluginAsync = async (fastify) => {
       const { id } = request.params as { id: string };
 
       // Verify event belongs to owner
-      const [event] = await fastify.db
+      const [rawEvent] = await fastify.db
         .select()
         .from(events)
         .where(eq(events.id, id))
         .limit(1);
 
-      if (!event) return reply.notFound("Event not found");
+      if (!rawEvent) return reply.notFound("Event not found");
+      const event = decryptEventFields(rawEvent);
 
       const [cal] = await fastify.db
         .select()

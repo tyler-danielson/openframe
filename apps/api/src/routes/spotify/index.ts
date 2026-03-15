@@ -4,6 +4,7 @@ import { oauthTokens } from "@openframe/database/schema";
 import { randomBytes } from "crypto";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { SpotifyService, setSpotifyCredentials, type SpotifyAccount } from "../../services/spotify.js";
+import { encryptField } from "../../lib/encryption.js";
 import { getCategorySettings } from "../settings/index.js";
 import { isPrivateIp, getRequestOrigin } from "../../utils/oauth-helpers.js";
 
@@ -450,8 +451,8 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         await fastify.db
           .update(oauthTokens)
           .set({
-            accessToken: tokens.access_token,
-            refreshToken: tokens.refresh_token,
+            accessToken: encryptField(tokens.access_token) ?? tokens.access_token,
+            refreshToken: encryptField(tokens.refresh_token) ?? tokens.refresh_token,
             expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
             scope: tokens.scope,
             updatedAt: new Date(),
@@ -462,8 +463,8 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         await fastify.db.insert(oauthTokens).values({
           userId,
           provider: "spotify",
-          accessToken: tokens.access_token,
-          refreshToken: tokens.refresh_token,
+          accessToken: encryptField(tokens.access_token) ?? tokens.access_token,
+          refreshToken: encryptField(tokens.refresh_token) ?? tokens.refresh_token,
           expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
           scope: tokens.scope,
           externalAccountId: spotifyUserId,

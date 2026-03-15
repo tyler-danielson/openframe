@@ -124,7 +124,7 @@ export function ViewThumbnail({
       </div>
 
       {/* Name */}
-      <span className="text-[10px] font-medium text-foreground truncate w-full text-center leading-tight px-1">
+      <span className="text-[10px] font-medium text-foreground w-full text-center leading-tight px-1 line-clamp-2 break-words">
         {item.name}
       </span>
 

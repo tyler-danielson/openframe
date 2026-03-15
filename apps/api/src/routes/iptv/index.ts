@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, desc, inArray, sql, ne } from "drizzle-orm";
 import {
   iptvServers,
   iptvCategories,
@@ -232,7 +232,19 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
           client.getLiveStreams(),
         ]);
 
-        // Delete existing categories and channels for this server
+        // Preserve hidden state from existing channels (keyed by externalId)
+        const existingChannels = await fastify.db
+          .select({ externalId: iptvChannels.externalId, isHidden: iptvChannels.isHidden })
+          .from(iptvChannels)
+          .where(eq(iptvChannels.serverId, server.id));
+        const hiddenExternalIds = new Set(
+          existingChannels.filter((c) => c.isHidden).map((c) => c.externalId)
+        );
+
+        // Delete existing channels and categories for this server
+        await fastify.db
+          .delete(iptvChannels)
+          .where(eq(iptvChannels.serverId, server.id));
         await fastify.db
           .delete(iptvCategories)
           .where(eq(iptvCategories.serverId, server.id));
@@ -261,7 +273,7 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
           }
         }
 
-        // Insert channels in batches to avoid stack overflow
+        // Insert channels in batches (preserving hidden state)
         if (streams.length > 0) {
           const BATCH_SIZE = 100;
           const channelValues = streams.map((stream) => ({
@@ -273,6 +285,7 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
             logoUrl: stream.stream_icon || null,
             epgChannelId: stream.epg_channel_id || null,
             streamIcon: stream.stream_icon || null,
+            isHidden: hiddenExternalIds.has(stream.stream_id.toString()),
           }));
 
           for (let i = 0; i < channelValues.length; i += BATCH_SIZE) {
@@ -386,6 +399,7 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
             serverId: { type: "string", format: "uuid" },
             categoryId: { type: "string", format: "uuid" },
             search: { type: "string" },
+            includeHidden: { type: "string" },
           },
         },
       },
@@ -395,10 +409,11 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
       if (!user) {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
-      const { serverId, categoryId, search } = request.query as {
+      const { serverId, categoryId, search, includeHidden } = request.query as {
         serverId?: string;
         categoryId?: string;
         search?: string;
+        includeHidden?: string;
       };
 
       // Get user's servers
@@ -432,6 +447,11 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
         .leftJoin(iptvCategories, eq(iptvChannels.categoryId, iptvCategories.id))
         .where(inArray(iptvChannels.serverId, serverIds));
 
+      // Filter hidden channels (unless explicitly requested)
+      if (includeHidden !== "true") {
+        channels = channels.filter((c) => !c.channel.isHidden);
+      }
+
       // Filter by category
       if (categoryId) {
         channels = channels.filter((c) => c.channel.categoryId === categoryId);
@@ -457,6 +477,7 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
           logoUrl: c.channel.logoUrl,
           epgChannelId: c.channel.epgChannelId,
           streamIcon: c.channel.streamIcon,
+          isHidden: c.channel.isHidden,
           isFavorite: favoriteIds.has(c.channel.id),
           categoryName: c.categoryName,
         })),
@@ -597,6 +618,160 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
         );
         return { success: true, data: [] };
       }
+    }
+  );
+
+  // Bulk update channel visibility
+  fastify.patch(
+    "/channels/bulk-visibility",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Bulk update channel hidden status",
+        tags: ["IPTV"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        body: {
+          type: "object",
+          properties: {
+            channelIds: { type: "array", items: { type: "string", format: "uuid" } },
+            categoryId: { type: "string", format: "uuid" },
+            isHidden: { type: "boolean" },
+          },
+          required: ["isHidden"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+      const { channelIds, categoryId, isHidden } = request.body as {
+        channelIds?: string[];
+        categoryId?: string;
+        isHidden: boolean;
+      };
+
+      // Get user's servers for ownership check
+      const userServers = await fastify.db
+        .select({ id: iptvServers.id })
+        .from(iptvServers)
+        .where(eq(iptvServers.userId, user.id));
+      const serverIds = userServers.map((s) => s.id);
+
+      if (serverIds.length === 0) {
+        return reply.notFound("No IPTV servers found");
+      }
+
+      let updatedCount = 0;
+
+      if (categoryId) {
+        // Hide/unhide all channels in a category
+        const categoryChannels = await fastify.db
+          .select({ id: iptvChannels.id })
+          .from(iptvChannels)
+          .where(
+            and(
+              eq(iptvChannels.categoryId, categoryId),
+              inArray(iptvChannels.serverId, serverIds)
+            )
+          );
+
+        const ids = categoryChannels.map((c) => c.id);
+        if (ids.length > 0) {
+          const BATCH_SIZE = 100;
+          for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+            const batch = ids.slice(i, i + BATCH_SIZE);
+            await fastify.db
+              .update(iptvChannels)
+              .set({ isHidden })
+              .where(inArray(iptvChannels.id, batch));
+          }
+          updatedCount = ids.length;
+        }
+      } else if (channelIds && channelIds.length > 0) {
+        // Verify ownership and update specific channels
+        const ownedChannels = await fastify.db
+          .select({ id: iptvChannels.id })
+          .from(iptvChannels)
+          .where(
+            and(
+              inArray(iptvChannels.id, channelIds),
+              inArray(iptvChannels.serverId, serverIds)
+            )
+          );
+
+        const ownedIds = ownedChannels.map((c) => c.id);
+        if (ownedIds.length > 0) {
+          const BATCH_SIZE = 100;
+          for (let i = 0; i < ownedIds.length; i += BATCH_SIZE) {
+            const batch = ownedIds.slice(i, i + BATCH_SIZE);
+            await fastify.db
+              .update(iptvChannels)
+              .set({ isHidden })
+              .where(inArray(iptvChannels.id, batch));
+          }
+          updatedCount = ownedIds.length;
+        }
+      }
+
+      // Clear the cache so it picks up the change
+      const cacheService = getIptvCacheService(fastify);
+      cacheService.clearUserCache(user.id);
+
+      return { success: true, data: { updatedCount } };
+    }
+  );
+
+  // Get hidden channel stats
+  fastify.get(
+    "/channels/hidden-stats",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Get hidden channel counts per category",
+        tags: ["IPTV"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+
+      const userServers = await fastify.db
+        .select({ id: iptvServers.id })
+        .from(iptvServers)
+        .where(eq(iptvServers.userId, user.id));
+      const serverIds = userServers.map((s) => s.id);
+
+      if (serverIds.length === 0) {
+        return { success: true, data: { totalHidden: 0, totalChannels: 0 } };
+      }
+
+      const [totalResult] = await fastify.db
+        .select({ count: sql<number>`count(*)` })
+        .from(iptvChannels)
+        .where(inArray(iptvChannels.serverId, serverIds));
+
+      const [hiddenResult] = await fastify.db
+        .select({ count: sql<number>`count(*)` })
+        .from(iptvChannels)
+        .where(
+          and(
+            inArray(iptvChannels.serverId, serverIds),
+            eq(iptvChannels.isHidden, true)
+          )
+        );
+
+      return {
+        success: true,
+        data: {
+          totalHidden: Number(hiddenResult?.count || 0),
+          totalChannels: Number(totalResult?.count || 0),
+        },
+      };
     }
   );
 

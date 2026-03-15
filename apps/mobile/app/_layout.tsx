@@ -72,9 +72,8 @@ export default function RootLayout() {
           <Stack.Screen
             name="event/[id]"
             options={{
-              headerShown: true,
+              headerShown: false,
               presentation: "modal",
-              title: "Event",
             }}
           />
           <Stack.Screen
@@ -83,6 +82,24 @@ export default function RootLayout() {
               headerShown: true,
               presentation: "modal",
               title: "New Event",
+            }}
+          />
+          <Stack.Screen
+            name="album/[id]"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="kiosk/[id]"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="kiosk/split-screen"
+            options={{
+              headerShown: false,
             }}
           />
         </Stack>

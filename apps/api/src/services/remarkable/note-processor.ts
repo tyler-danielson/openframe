@@ -15,6 +15,7 @@ import {
   calendars,
 } from "@openframe/database/schema";
 import { getRemarkableClient } from "./client.js";
+import { encryptEventFields } from "../../lib/encryption.js";
 import { getCategorySettings } from "../../routes/settings/index.js";
 
 export interface ProcessedNote {
@@ -579,7 +580,7 @@ export async function processRemarkableNote(
 
         const [newEvent] = await fastify.db
           .insert(events)
-          .values({
+          .values(encryptEventFields({
             calendarId: targetCalendarId,
             externalId: `remarkable_${crypto.randomUUID()}`,
             title: parsed.title,
@@ -591,7 +592,7 @@ export async function processRemarkableNote(
               documentId: docRecord.id,
               originalText: line,
             },
-          })
+          }))
           .returning();
 
         if (newEvent) {

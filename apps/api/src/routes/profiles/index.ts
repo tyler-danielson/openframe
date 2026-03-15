@@ -21,6 +21,7 @@ import {
   remarkableDocuments,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { decryptEventFields } from "../../lib/encryption.js";
 import type { PlannerLayoutConfig } from "@openframe/shared";
 import { generatePlannerPdf, type CalendarEvent, type TaskItem, type NewsItem, type WeatherData, type PlannerGeneratorOptions } from "../../services/planner-generator.js";
 import { getRemarkableClient } from "../../services/remarkable/client.js";
@@ -83,7 +84,7 @@ async function gatherPlannerData(
           )
         );
 
-      calendarEvents = allEvents.map(e => ({
+      calendarEvents = allEvents.map(decryptEventFields).map(e => ({
         id: e.id,
         title: e.title,
         startTime: e.startTime,

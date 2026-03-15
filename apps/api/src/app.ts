@@ -73,6 +73,7 @@ import { matterPlugin } from "./plugins/matter.js";
 import { planLimitsPlugin } from "./plugins/plan-limits.js";
 import { requireAdminPlugin } from "./plugins/require-admin.js";
 import { logBuffer, createLogBufferStream } from "./lib/logBuffer.js";
+import { reportErrorToCloud } from "./lib/errorReporter.js";
 import type { Config } from "./config.js";
 
 declare module "fastify" {
@@ -320,10 +321,26 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   }
 
   // Error handler
-  app.setErrorHandler((error: FastifyError, _request, reply) => {
+  app.setErrorHandler((error: FastifyError, request, reply) => {
     app.log.error(error);
 
     const statusCode = error.statusCode ?? 500;
+
+    // Report 5xx errors to cloud
+    if (statusCode >= 500) {
+      reportErrorToCloud(app, {
+        level: "error",
+        message: error.message,
+        stack: error.stack,
+        errorCode: error.code ?? "INTERNAL_ERROR",
+        httpMethod: request.method,
+        httpUrl: request.url,
+        httpStatus: statusCode,
+        userId: (request as any).userId ?? undefined,
+        reportedAt: new Date().toISOString(),
+      });
+    }
+
     const response = {
       success: false,
       error: {

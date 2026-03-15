@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { eq, and, desc } from "drizzle-orm";
 import { oauthTokens } from "@openframe/database/schema";
+import { encryptField, decryptField } from "../lib/encryption.js";
 
 export interface SpotifyCredentials {
   clientId?: string;
@@ -186,10 +187,11 @@ export class SpotifyService {
 
     // Check if token needs refresh
     if (token.expiresAt && token.expiresAt < new Date()) {
-      return this.refreshAccessToken(token.id, token.refreshToken!);
+      const plainRefresh = decryptField(token.refreshToken) ?? token.refreshToken!;
+      return this.refreshAccessToken(token.id, plainRefresh);
     }
 
-    return token.accessToken;
+    return decryptField(token.accessToken) ?? token.accessToken;
   }
 
   private async refreshAccessToken(tokenId: string, refreshToken: string): Promise<string> {
@@ -226,8 +228,8 @@ export class SpotifyService {
     await this.db
       .update(oauthTokens)
       .set({
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token || refreshToken,
+        accessToken: encryptField(data.access_token) ?? data.access_token,
+        refreshToken: encryptField(data.refresh_token || refreshToken) ?? (data.refresh_token || refreshToken),
         expiresAt: new Date(Date.now() + data.expires_in * 1000),
         updatedAt: new Date(),
       })

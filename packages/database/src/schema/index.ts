@@ -86,6 +86,7 @@ export interface UserPreferences {
   weekStartsOn?: 0 | 1 | 6; // Sunday, Monday, Saturday
   showWeekNumbers?: boolean;
   theme?: "light" | "dark" | "auto";
+  shareContentWithAdmin?: boolean; // default: false
 }
 
 // Plan limits for hosted/cloud mode (synced from cloud platform during provisioning)
@@ -894,6 +895,7 @@ export const iptvChannels = pgTable(
     logoUrl: text("logo_url"),
     epgChannelId: text("epg_channel_id"),
     streamIcon: text("stream_icon"),
+    isHidden: boolean("is_hidden").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

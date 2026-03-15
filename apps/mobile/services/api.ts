@@ -5,9 +5,42 @@ import type {
   User,
   Task,
   TaskList,
+  PhotoAlbum,
+  Photo,
 } from "@openframe/shared";
 
 // Types for API responses
+export interface Kiosk {
+  id: string;
+  name: string;
+  isActive: boolean;
+  displayMode: "full" | "screensaver-only" | "calendar-only" | "dashboard-only";
+  displayType: "touch" | "tv" | "display";
+  colorScheme: string;
+  homePage: string | null;
+  enabledFeatures: Record<string, boolean>;
+  dashboards: KioskDashboard[];
+  screensaverEnabled: boolean;
+  lastAccessedAt: string | null;
+  createdAt: string;
+}
+
+export interface KioskDashboard {
+  id: string;
+  type: string;
+  name: string;
+  icon: string;
+  pinned: boolean;
+  config: Record<string, unknown>;
+}
+
+export interface WidgetState {
+  widgetId: string;
+  widgetType: string;
+  state: Record<string, unknown>;
+  updatedAt: number;
+}
+
 export interface ApiKey {
   id: string;
   name: string;
@@ -375,9 +408,120 @@ class ApiClient {
     });
   }
 
-  // Kiosk
+  // Kiosks
+  async getKiosks(): Promise<Kiosk[]> {
+    return this.fetch<Kiosk[]>("/kiosks");
+  }
+
+  async getKiosk(id: string): Promise<Kiosk> {
+    return this.fetch<Kiosk>(`/kiosks/${id}`);
+  }
+
   async refreshKiosk(): Promise<void> {
     await this.fetch("/auth/kiosk/refresh", { method: "POST", body: JSON.stringify({}) });
+  }
+
+  async sendKioskCommand(
+    kioskId: string,
+    type: string,
+    payload?: Record<string, unknown>
+  ): Promise<void> {
+    await this.fetch(`/kiosks/${kioskId}/command`, {
+      method: "POST",
+      body: JSON.stringify({ type, payload }),
+    });
+  }
+
+  async sendKioskRefresh(kioskId: string): Promise<void> {
+    await this.fetch(`/kiosks/${kioskId}/refresh`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  async getKioskWidgetState(kioskId: string): Promise<WidgetState[]> {
+    return this.fetch<WidgetState[]>(`/kiosks/${kioskId}/widget-state`);
+  }
+
+  async companionPing(kioskId: string): Promise<void> {
+    await this.fetch(`/kiosks/${kioskId}/companion-ping`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  // Photo Albums
+  async getAlbums(): Promise<PhotoAlbum[]> {
+    return this.fetch<PhotoAlbum[]>("/photos/albums");
+  }
+
+  async createAlbum(data: { name: string; description?: string }): Promise<PhotoAlbum> {
+    return this.fetch<PhotoAlbum>("/photos/albums", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteAlbum(id: string): Promise<void> {
+    await this.fetch(`/photos/albums/${id}`, { method: "DELETE" });
+  }
+
+  async getAlbumPhotos(albumId: string): Promise<Photo[]> {
+    return this.fetch<Photo[]>(`/photos/albums/${albumId}/photos`);
+  }
+
+  async uploadPhoto(albumId: string, uri: string, filename: string, mimeType: string): Promise<Photo> {
+    const { accessToken, authMethod, apiKey } = useAuthStore.getState();
+    const apiBase = this.getApiBase();
+
+    const formData = new FormData();
+    formData.append("photo", {
+      uri,
+      name: filename,
+      type: mimeType,
+    } as any);
+
+    const headers: Record<string, string> = {};
+    if (authMethod === "token" && accessToken) {
+      headers["Authorization"] = `Bearer ${accessToken}`;
+    } else if (apiKey) {
+      headers["x-api-key"] = apiKey;
+    }
+
+    const response = await fetch(`${apiBase}/photos/albums/${albumId}/photos`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message ?? "Upload failed");
+    }
+
+    const result = await response.json();
+    return result.data ?? result;
+  }
+
+  async deletePhoto(id: string): Promise<void> {
+    await this.fetch(`/photos/${id}`, { method: "DELETE" });
+  }
+
+  getPhotoUrl(path: string | null | undefined): string | null {
+    if (!path) return null;
+    if (path.startsWith("http")) return path;
+    const { serverUrl, accessToken, apiKey, authMethod } = useAuthStore.getState();
+    const base = serverUrl?.replace(/\/$/, "") ?? "";
+    // Path from API already starts with /api/v1/photos/files/...
+    const fullPath = path.startsWith("/") ? path : `/api/v1/photos/files/${path}`;
+    const sep = fullPath.includes("?") ? "&" : "?";
+    if (authMethod === "token" && accessToken) {
+      return `${base}${fullPath}${sep}token=${encodeURIComponent(accessToken)}`;
+    }
+    if (apiKey) {
+      return `${base}${fullPath}${sep}apiKey=${encodeURIComponent(apiKey)}`;
+    }
+    return `${base}${fullPath}`;
   }
 }
 

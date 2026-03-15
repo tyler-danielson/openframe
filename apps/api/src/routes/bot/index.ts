@@ -3,6 +3,7 @@ import { eq, and, gte, lte } from "drizzle-orm";
 import { calendars, events } from "@openframe/database/schema";
 import { format, startOfDay, endOfDay, addDays } from "date-fns";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { decryptEventFields } from "../../lib/encryption.js";
 
 export const botRoutes: FastifyPluginAsync = async (fastify) => {
   // Get today's events summary
@@ -58,7 +59,7 @@ export const botRoutes: FastifyPluginAsync = async (fastify) => {
               gte(events.endTime, start)
             )
           );
-        todayEvents.push(...calEvents);
+        todayEvents.push(...calEvents.map(decryptEventFields));
       }
 
       // Sort by start time
@@ -158,7 +159,7 @@ export const botRoutes: FastifyPluginAsync = async (fastify) => {
               gte(events.endTime, start)
             )
           );
-        upcomingEvents.push(...calEvents);
+        upcomingEvents.push(...calEvents.map(decryptEventFields));
       }
 
       // Group by day

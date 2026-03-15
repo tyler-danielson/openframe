@@ -26,6 +26,7 @@ import {
   type ConfirmedEventSummary,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { decryptEventFields } from "../../lib/encryption.js";
 import { getRemarkableClient } from "../../services/remarkable/client.js";
 import {
   generateAgendaPdf,
@@ -342,7 +343,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
             )
           );
 
-        for (const event of calEvents) {
+        for (const event of calEvents.map(decryptEventFields)) {
           dayEvents.push({
             title: event.title,
             startTime: event.startTime,
@@ -460,7 +461,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
             )
           );
 
-        for (const event of calEvents) {
+        for (const event of calEvents.map(decryptEventFields)) {
           dayEvents.push({
             title: event.title,
             startTime: event.startTime,
@@ -1276,7 +1277,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
           .from(events)
           .where(eq(events.calendarId, calId));
 
-        for (const event of calEvents) {
+        for (const event of calEvents.map(decryptEventFields)) {
           if (event.startTime >= dateRange.start && event.startTime <= dateRange.end) {
             templateEvents.push({
               id: event.id,
@@ -1386,7 +1387,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
           .from(events)
           .where(eq(events.calendarId, calId));
 
-        for (const event of calEvents) {
+        for (const event of calEvents.map(decryptEventFields)) {
           if (event.startTime >= dateRange.start && event.startTime <= dateRange.end) {
             templateEvents.push({
               id: event.id,

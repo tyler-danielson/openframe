@@ -185,6 +185,13 @@ export class CloudRelay {
     }
   }
 
+  reportErrors(errors: Record<string, unknown>[]) {
+    this.send({
+      type: "error-report",
+      payload: { errors },
+    });
+  }
+
   // ─── Private Methods ──────────────────────────────────────────
 
   private handleMessage(msg: RelayMessage) {

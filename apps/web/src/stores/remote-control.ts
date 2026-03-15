@@ -16,7 +16,9 @@ export type KioskCommandType =
   | "camera-view"
   | "file-share"
   | "file-share-dismiss"
-  | "file-share-page";
+  | "file-share-page"
+  | "split-screen"
+  | "exit-split-screen";
 
 export interface KioskCommand {
   type: KioskCommandType;

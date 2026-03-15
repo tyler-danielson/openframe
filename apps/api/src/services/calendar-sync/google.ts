@@ -1,6 +1,7 @@
 import { eq, and } from "drizzle-orm";
 import { calendars, events, oauthTokens } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
+import { encryptField, decryptField, encryptEventFields, decryptEventFields } from "../../lib/encryption.js";
 
 interface GoogleCalendar {
   id: string;
@@ -79,12 +80,15 @@ async function refreshGoogleToken(
   db: Database,
   token: OAuthToken
 ): Promise<string> {
-  if (!token.refreshToken) {
+  const plainAccessToken = decryptField(token.accessToken) ?? token.accessToken;
+  const plainRefreshToken = decryptField(token.refreshToken) ?? token.refreshToken;
+
+  if (!plainRefreshToken) {
     throw new Error("No refresh token available");
   }
 
   if (token.expiresAt && token.expiresAt > new Date()) {
-    return token.accessToken;
+    return plainAccessToken;
   }
 
   const clientId =
@@ -98,7 +102,7 @@ async function refreshGoogleToken(
     body: new URLSearchParams({
       client_id: clientId,
       client_secret: clientSecret,
-      refresh_token: token.refreshToken,
+      refresh_token: plainRefreshToken,
       grant_type: "refresh_token",
     }),
   });
@@ -121,7 +125,7 @@ async function refreshGoogleToken(
 
   // Persist the refreshed token back to the database
   const updates: Record<string, unknown> = {
-    accessToken: data.access_token,
+    accessToken: encryptField(data.access_token) ?? data.access_token,
     updatedAt: new Date(),
   };
   if (data.expires_in) {
@@ -129,7 +133,7 @@ async function refreshGoogleToken(
   }
   // Google may issue a new refresh token (rare but possible)
   if (data.refresh_token) {
-    updates.refreshToken = data.refresh_token;
+    updates.refreshToken = encryptField(data.refresh_token) ?? data.refresh_token;
   }
 
   await db
@@ -399,10 +403,12 @@ async function upsertEvent(
     )
     .limit(1);
 
+  const encryptedEventData = encryptEventFields(eventData);
+
   if (existing) {
-    await db.update(events).set(eventData).where(eq(events.id, existing.id));
+    await db.update(events).set(encryptedEventData).where(eq(events.id, existing.id));
   } else {
-    await db.insert(events).values(eventData);
+    await db.insert(events).values(encryptedEventData);
   }
 }
 
@@ -411,23 +417,28 @@ async function upsertEvent(
 type CalendarRecord = typeof calendars.$inferSelect;
 type EventRecord = typeof events.$inferSelect;
 
-function buildGoogleEventBody(event: EventRecord) {
+function buildGoogleEventBody(event: EventRecord, timeZone?: string) {
+  // Decrypt event fields since they're encrypted in DB
+  const decrypted = decryptEventFields(event);
   const body: Record<string, unknown> = {
-    summary: event.title,
-    description: event.description ?? undefined,
-    location: event.location ?? undefined,
+    summary: decrypted.title,
+    description: decrypted.description ?? undefined,
+    location: decrypted.location ?? undefined,
   };
 
   if (event.isAllDay) {
-    const startDate = event.startTime.toISOString().slice(0, 10);
+    // For all-day events, extract the UTC date directly
+    const start = event.startTime;
+    const startDate = `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, "0")}-${String(start.getUTCDate()).padStart(2, "0")}`;
     // Google uses exclusive end date for all-day events, so add 1 day
-    const endDate = new Date(event.endTime);
-    endDate.setDate(endDate.getDate() + 1);
+    const end = new Date(event.endTime);
+    end.setUTCDate(end.getUTCDate() + 1);
+    const endDate = `${end.getUTCFullYear()}-${String(end.getUTCMonth() + 1).padStart(2, "0")}-${String(end.getUTCDate()).padStart(2, "0")}`;
     body.start = { date: startDate };
-    body.end = { date: endDate.toISOString().slice(0, 10) };
+    body.end = { date: endDate };
   } else {
-    body.start = { dateTime: event.startTime.toISOString() };
-    body.end = { dateTime: event.endTime.toISOString() };
+    body.start = { dateTime: event.startTime.toISOString(), ...(timeZone ? { timeZone } : {}) };
+    body.end = { dateTime: event.endTime.toISOString(), ...(timeZone ? { timeZone } : {}) };
   }
 
   if (event.recurrenceRule) {
@@ -460,10 +471,12 @@ export async function pushEventToGoogle(
   calendar: CalendarRecord,
   event: EventRecord,
   token: OAuthToken
-): Promise<void> {
+): Promise<{ success: boolean; error?: string }> {
   try {
     const accessToken = await refreshGoogleToken(db, token);
     const body = buildGoogleEventBody(event);
+
+    console.log("[Google Sync] Pushing event body:", JSON.stringify(body));
 
     const response = await fetch(
       `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.externalId)}/events`,
@@ -480,7 +493,7 @@ export async function pushEventToGoogle(
     if (!response.ok) {
       const text = await response.text();
       console.error(`[Google Sync] Failed to push event: ${response.status} ${text}`);
-      return;
+      return { success: false, error: `Google Calendar sync failed (${response.status})` };
     }
 
     const created = (await response.json()) as GoogleEvent;
@@ -494,8 +507,11 @@ export async function pushEventToGoogle(
         updatedAt: new Date(),
       })
       .where(eq(events.id, event.id));
+
+    return { success: true };
   } catch (err) {
     console.error("[Google Sync] Error pushing event:", err);
+    return { success: false, error: "Failed to sync event to Google Calendar" };
   }
 }
 

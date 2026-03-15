@@ -258,6 +258,7 @@ export interface IptvChannel {
   logoUrl: string | null;
   epgChannelId: string | null;
   streamIcon: string | null;
+  isHidden?: boolean;
   isFavorite?: boolean;
   categoryName?: string;
 }

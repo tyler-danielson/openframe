@@ -18,10 +18,12 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { nanoid } from "nanoid";
 import bcrypt from "bcryptjs";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { encryptField, decryptField } from "../../lib/encryption.js";
 import { getCategorySettings } from "../settings/index.js";
 import { isPrivateIp, getRequestOrigin } from "../../utils/oauth-helpers.js";
 import { getScopesForFeature, type OAuthFeature } from "../../utils/oauth-scopes.js";
 import { resetDemoData } from "./demo-seed.js";
+import { kioskCommands as kioskCommandsById } from "../kiosks/index.js";
 
 // In-memory OAuth state store (for single-server deployments)
 // States expire after 10 minutes
@@ -816,8 +818,8 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         await fastify.db
           .update(oauthTokens)
           .set({
-            accessToken: tokens.access_token,
-            refreshToken: tokens.refresh_token ?? existingOAuth.refreshToken,
+            accessToken: encryptField(tokens.access_token) ?? tokens.access_token,
+            refreshToken: encryptField(tokens.refresh_token ?? decryptField(existingOAuth.refreshToken)) ?? existingOAuth.refreshToken,
             expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
             scope: tokens.scope,
             externalAccountId: userInfo.email,
@@ -828,8 +830,8 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         await fastify.db.insert(oauthTokens).values({
           userId: user!.id,
           provider: "google",
-          accessToken: tokens.access_token,
-          refreshToken: tokens.refresh_token,
+          accessToken: encryptField(tokens.access_token) ?? tokens.access_token,
+          refreshToken: encryptField(tokens.refresh_token) ?? tokens.refresh_token,
           expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
           scope: tokens.scope,
           externalAccountId: userInfo.email,
@@ -1145,8 +1147,8 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         await fastify.db
           .update(oauthTokens)
           .set({
-            accessToken: tokens.access_token,
-            refreshToken: tokens.refresh_token ?? existingOAuth.refreshToken,
+            accessToken: encryptField(tokens.access_token) ?? tokens.access_token,
+            refreshToken: encryptField(tokens.refresh_token ?? decryptField(existingOAuth.refreshToken)) ?? existingOAuth.refreshToken,
             expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
             scope: tokens.scope,
             externalAccountId: email,
@@ -1157,8 +1159,8 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         await fastify.db.insert(oauthTokens).values({
           userId: user!.id,
           provider: "microsoft",
-          accessToken: tokens.access_token,
-          refreshToken: tokens.refresh_token,
+          accessToken: encryptField(tokens.access_token) ?? tokens.access_token,
+          refreshToken: encryptField(tokens.refresh_token) ?? tokens.refresh_token,
           expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
           scope: tokens.scope,
           externalAccountId: email,
@@ -1427,6 +1429,39 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             linkedOAuth.map(o => [o.provider, o.scope ?? ""])
           ),
         },
+      };
+    }
+  );
+
+  // Update user preferences
+  fastify.patch(
+    "/me/preferences",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Update user preferences",
+        tags: ["Auth"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+
+      const body = request.body as Record<string, unknown>;
+      const currentPrefs = (user.preferences ?? {}) as Record<string, unknown>;
+      const merged = { ...currentPrefs, ...body };
+
+      await fastify.db
+        .update(users)
+        .set({ preferences: merged, updatedAt: new Date() })
+        .where(eq(users.id, user.id));
+
+      return {
+        success: true,
+        data: merged,
       };
     }
   );
@@ -1720,15 +1755,25 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.unauthorized("User not found");
       }
 
-      // Add refresh command for this user's kiosks
-      const existingCommands = kioskCommands.get(user.id) ?? [];
-      existingCommands.push({
-        type: "refresh",
-        timestamp: Date.now(),
-      });
-      kioskCommands.set(user.id, existingCommands);
+      // Find all kiosks belonging to this user and add refresh command to each
+      const userKiosks = await fastify.db
+        .select({ id: kiosks.id })
+        .from(kiosks)
+        .where(eq(kiosks.userId, user.id));
 
-      fastify.log.info(`Kiosk refresh triggered by user ${user.id}`);
+      const timestamp = Date.now();
+      for (const kiosk of userKiosks) {
+        const existingCommands = kioskCommandsById.get(kiosk.id) ?? [];
+        existingCommands.push({ type: "refresh", timestamp });
+        kioskCommandsById.set(kiosk.id, existingCommands);
+      }
+
+      // Also write to legacy auth command map for backward compat
+      const legacyCommands = kioskCommands.get(user.id) ?? [];
+      legacyCommands.push({ type: "refresh", timestamp });
+      kioskCommands.set(user.id, legacyCommands);
+
+      fastify.log.info(`Kiosk refresh triggered by user ${user.id} for ${userKiosks.length} kiosk(s)`);
 
       return { success: true };
     }

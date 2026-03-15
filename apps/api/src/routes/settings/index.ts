@@ -14,47 +14,8 @@ import type {
   ExportedSettings,
   ImportResult,
 } from "@openframe/shared";
-import crypto from "crypto";
 import { getCurrentUser } from "../../plugins/auth.js";
-
-// Simple encryption for secrets (uses the ENCRYPTION_KEY from env)
-const ALGORITHM = "aes-256-gcm";
-
-function encrypt(text: string): string {
-  const key = process.env.ENCRYPTION_KEY;
-  if (!key) throw new Error("ENCRYPTION_KEY not set");
-
-  const keyBuffer = Buffer.from(key, "hex");
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv(ALGORITHM, keyBuffer, iv);
-
-  let encrypted = cipher.update(text, "utf8", "hex");
-  encrypted += cipher.final("hex");
-  const authTag = cipher.getAuthTag();
-
-  return `${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted}`;
-}
-
-function decrypt(encryptedText: string): string {
-  const key = process.env.ENCRYPTION_KEY;
-  if (!key) throw new Error("ENCRYPTION_KEY not set");
-
-  const [ivHex, authTagHex, encrypted] = encryptedText.split(":");
-  if (!ivHex || !authTagHex || !encrypted) {
-    throw new Error("Invalid encrypted format");
-  }
-
-  const keyBuffer = Buffer.from(key, "hex");
-  const iv = Buffer.from(ivHex, "hex");
-  const authTag = Buffer.from(authTagHex, "hex");
-  const decipher = crypto.createDecipheriv(ALGORITHM, keyBuffer, iv);
-  decipher.setAuthTag(authTag);
-
-  let decrypted = decipher.update(encrypted, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-
-  return decrypted;
-}
+import { encrypt, decrypt } from "../../lib/encryption.js";
 
 // Setting definitions with metadata
 interface SettingDefinition {
@@ -168,6 +129,13 @@ const SETTING_DEFINITIONS: CategoryDefinition[] = [
         description: "For Gemini vision - best value (~$0.001 per recognition)",
         isSecret: true,
         placeholder: "AIza...",
+      },
+      {
+        key: "gemini_model",
+        label: "Gemini Model",
+        description: "Model to use for chat (e.g., gemini-2.5-flash, gemini-2.0-flash, gemini-1.5-pro)",
+        isSecret: false,
+        placeholder: "gemini-2.5-flash",
       },
       {
         key: "vision_api_key",
@@ -295,6 +263,13 @@ const SETTING_DEFINITIONS: CategoryDefinition[] = [
         isSecret: true,
         placeholder: "sk-...",
       },
+      {
+        key: "model",
+        label: "Model",
+        description: "Model to use for chat (e.g., gpt-4o, gpt-4o-mini, gpt-4-turbo)",
+        isSecret: false,
+        placeholder: "gpt-4o",
+      },
     ],
   },
   {
@@ -308,6 +283,118 @@ const SETTING_DEFINITIONS: CategoryDefinition[] = [
         description: "For Claude vision (~$0.01-0.02 per recognition)",
         isSecret: true,
         placeholder: "sk-ant-...",
+      },
+      {
+        key: "model",
+        label: "Model",
+        description: "Model to use for chat (e.g., claude-sonnet-4-5-20250929, claude-3-5-haiku-latest)",
+        isSecret: false,
+        placeholder: "claude-sonnet-4-5-20250929",
+      },
+    ],
+  },
+  {
+    category: "azure_openai",
+    label: "Azure OpenAI",
+    description: "Configure Azure OpenAI Service for AI chat",
+    settings: [
+      {
+        key: "api_key",
+        label: "API Key",
+        description: "Azure OpenAI API key",
+        isSecret: true,
+        placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      },
+      {
+        key: "base_url",
+        label: "Endpoint URL",
+        description: "Azure OpenAI resource endpoint (e.g., https://myresource.openai.azure.com)",
+        isSecret: false,
+        placeholder: "https://myresource.openai.azure.com",
+      },
+      {
+        key: "deployment_name",
+        label: "Deployment Name",
+        description: "The name of your model deployment",
+        isSecret: false,
+        placeholder: "gpt-4o",
+      },
+      {
+        key: "api_version",
+        label: "API Version",
+        description: "Azure OpenAI API version",
+        isSecret: false,
+        placeholder: "2024-02-01",
+      },
+    ],
+  },
+  {
+    category: "grok",
+    label: "Grok (xAI)",
+    description: "Configure xAI Grok API for AI chat",
+    settings: [
+      {
+        key: "api_key",
+        label: "API Key",
+        description: "xAI API key for Grok",
+        isSecret: true,
+        placeholder: "xai-...",
+      },
+      {
+        key: "model",
+        label: "Model",
+        description: "Model to use for chat (e.g., grok-3, grok-3-mini)",
+        isSecret: false,
+        placeholder: "grok-3-mini",
+      },
+    ],
+  },
+  {
+    category: "openrouter",
+    label: "OpenRouter",
+    description: "Access 400+ AI models through a single API",
+    settings: [
+      {
+        key: "api_key",
+        label: "API Key",
+        description: "OpenRouter API key",
+        isSecret: true,
+        placeholder: "sk-or-v1-...",
+      },
+      {
+        key: "model",
+        label: "Default Model",
+        description: "Model to use (e.g., anthropic/claude-3.5-sonnet, openai/gpt-4o, google/gemini-2.0-flash)",
+        isSecret: false,
+        placeholder: "anthropic/claude-3.5-sonnet",
+      },
+    ],
+  },
+  {
+    category: "local_llm",
+    label: "Local LLM",
+    description: "Configure a local LLM server (Ollama, LM Studio, etc.)",
+    settings: [
+      {
+        key: "base_url",
+        label: "Base URL",
+        description: "OpenAI-compatible API endpoint. Use host.docker.internal instead of localhost if running in Docker.",
+        isSecret: false,
+        placeholder: "http://localhost:11434/v1",
+      },
+      {
+        key: "api_key",
+        label: "API Key (optional)",
+        description: "API key if your local server requires one",
+        isSecret: true,
+        placeholder: "optional",
+      },
+      {
+        key: "model",
+        label: "Model Name",
+        description: "Model to use (e.g., llama3, mistral, codellama)",
+        isSecret: false,
+        placeholder: "llama3",
       },
     ],
   },

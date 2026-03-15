@@ -13,6 +13,7 @@ import {
   type KioskSettings,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { decryptEventFields } from "../../lib/encryption.js";
 import { randomUUID } from "crypto";
 import type { UploadTokenData } from "../photos/index.js";
 import { getSystemSetting } from "../settings/index.js";
@@ -154,7 +155,9 @@ type KioskCommandType =
   | "camera-view"
   | "file-share"
   | "file-share-dismiss"
-  | "file-share-page";
+  | "file-share-page"
+  | "split-screen"
+  | "exit-split-screen";
 
 export interface KioskCommand {
   type: KioskCommandType;
@@ -180,6 +183,8 @@ const VALID_COMMAND_TYPES: KioskCommandType[] = [
   "file-share",
   "file-share-dismiss",
   "file-share-page",
+  "split-screen",
+  "exit-split-screen",
 ];
 
 // In-memory widget state store (kioskId -> widgetId -> state)
@@ -1274,7 +1279,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
           )
         );
 
-      const filteredEvents = allEvents.filter((event) => {
+      const filteredEvents = allEvents.map(decryptEventFields).filter((event) => {
         if (!calendarIds.includes(event.calendarId)) return false;
         const eventStart = new Date(event.startTime);
         const eventEnd = new Date(event.endTime);

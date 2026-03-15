@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { format, isToday, isTomorrow, addDays, startOfDay, endOfDay } from "date-fns";
 import { useCalendars, useEvents } from "../../hooks/useCalendarData";
 import { useCalendarStore } from "../../stores/calendar";
+import { useSelectedEventStore } from "../../stores/selectedEvent";
 import { useThemeColors } from "../../hooks/useColorScheme";
 import { EventCard } from "../../components/EventCard";
 import type { CalendarEvent } from "@openframe/shared";
@@ -15,6 +16,8 @@ export default function TodayScreen() {
   const { data: events, isLoading: eventsLoading, refetch: refetchEvents } = useEvents(new Date());
 
   const isLoading = calendarsLoading || eventsLoading;
+
+  const setSelectedEvent = useSelectedEventStore((s) => s.setEvent);
 
   const onRefresh = async () => {
     await Promise.all([refetchCalendars(), refetchEvents()]);
@@ -66,7 +69,7 @@ export default function TodayScreen() {
                 key={event.id}
                 event={event}
                 color={getCalendarColor(event.calendarId)}
-                onPress={() => router.push(`/event/${event.id}`)}
+                onPress={() => { setSelectedEvent(event); router.push(`/event/${event.id}`); }}
               />
             ))}
           </View>

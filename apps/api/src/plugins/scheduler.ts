@@ -36,6 +36,7 @@ import { getRemarkableClient } from "../services/remarkable/client.js";
 import { syncGoogleCalendars } from "../services/calendar-sync/google.js";
 import { syncMicrosoftCalendars } from "../services/calendar-sync/microsoft.js";
 import { syncICSCalendar } from "../services/calendar-sync/ics.js";
+import { decryptEventFields } from "../lib/encryption.js";
 import { oauthTokens, users } from "@openframe/database/schema";
 import { hasRequiredScopes, getScopesForFeature } from "../utils/oauth-scopes.js";
 import { generateAgendaPdf, getAgendaFilename, type AgendaEvent } from "../services/remarkable/agenda-generator.js";
@@ -556,7 +557,7 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
       }
     };
 
-    // Initial sync after startup delay
+    // Initial sync shortly after startup (5s to let DB connections settle)
     setTimeout(async () => {
       fastify.log.info("Running initial calendar sync...");
       await syncDueCalendars();
@@ -565,7 +566,7 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
       calendarSyncInterval = setInterval(syncDueCalendars, CALENDAR_SYNC_CHECK_INTERVAL_MS);
 
       fastify.log.info("Calendar sync scheduler started (checking every 60s, per-calendar intervals)");
-    }, STARTUP_DELAY_MS + 10000);
+    }, 5000);
   };
 
   // Start reMarkable note polling scheduler
@@ -685,13 +686,14 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
                   );
 
                 for (const event of calEvents) {
+                  const decrypted = decryptEventFields(event);
                   dayEvents.push({
-                    title: event.title,
-                    startTime: event.startTime,
-                    endTime: event.endTime,
-                    isAllDay: event.isAllDay,
-                    location: event.location,
-                    description: event.description,
+                    title: decrypted.title,
+                    startTime: decrypted.startTime,
+                    endTime: decrypted.endTime,
+                    isAllDay: decrypted.isAllDay,
+                    location: decrypted.location,
+                    description: decrypted.description,
                     calendarName: calendarMap.get(calId)?.name,
                     calendarColor: calendarMap.get(calId)?.color ?? undefined,
                   });
@@ -819,17 +821,20 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
               )
             );
 
-          calendarEvents = allEvents.map(e => ({
-            id: e.id,
-            title: e.title,
-            startTime: e.startTime,
-            endTime: e.endTime,
-            isAllDay: e.isAllDay,
-            location: e.location ?? undefined,
-            description: e.description ?? undefined,
-            calendarName: calendarMap.get(e.calendarId)?.name,
-            color: calendarMap.get(e.calendarId)?.color ?? undefined,
-          }));
+          calendarEvents = allEvents.map(e => {
+            const d = decryptEventFields(e);
+            return {
+              id: d.id,
+              title: d.title,
+              startTime: d.startTime,
+              endTime: d.endTime,
+              isAllDay: d.isAllDay,
+              location: d.location ?? undefined,
+              description: d.description ?? undefined,
+              calendarName: calendarMap.get(d.calendarId)?.name,
+              color: calendarMap.get(d.calendarId)?.color ?? undefined,
+            };
+          });
         }
       }
 

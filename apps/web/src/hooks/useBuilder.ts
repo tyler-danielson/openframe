@@ -34,5 +34,9 @@ export function useBuilder() {
     sendWidgetToBack: store.sendWidgetToBack,
     toggleWidgetVisibility: store.toggleWidgetVisibility,
     setGridSnap: store.setGridSnap,
+    canUndo: false,
+    canRedo: false,
+    undo: () => {},
+    redo: () => {},
   };
 }

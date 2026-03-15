@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Trash2, Pencil } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { ASPECT_RATIO_PRESETS, type WidgetInstance, type BuilderWidgetType } from "../../stores/screensaver";
 import { WIDGET_REGISTRY, getWidgetDefinition } from "../../lib/widgets/registry";
@@ -402,7 +402,7 @@ export function BuilderCanvas({ showGrid, previewMode, liveMode = false, onWidge
     widgets,
   ]);
 
-  // Handle keyboard shortcuts (Escape to deselect only - no keyboard deletion)
+  // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (previewMode) return;
@@ -410,12 +410,18 @@ export function BuilderCanvas({ showGrid, previewMode, liveMode = false, onWidge
 
       if (e.key === "Escape") {
         selectWidget(null);
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        // Don't delete if user is typing in an input
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        removeWidget(selectedWidgetId);
+        selectWidget(null);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedWidgetId, selectWidget, previewMode]);
+  }, [selectedWidgetId, selectWidget, removeWidget, previewMode]);
 
   // Handle canvas mousedown to deselect - uses mousedown so widget's stopPropagation works
   const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
@@ -707,17 +713,6 @@ export function BuilderCanvas({ showGrid, previewMode, liveMode = false, onWidge
                       title="Edit"
                     >
                       <Pencil className="h-4 w-4 text-white" />
-                    </button>
-                    <button
-                      className="p-1.5 bg-red-600/80 rounded-md hover:bg-red-600 transition-colors"
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeWidget(widget.id);
-                      }}
-                      title="Delete"
-                    >
-                      <Trash2 className="h-4 w-4 text-white" />
                     </button>
                   </div>
 

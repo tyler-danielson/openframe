@@ -261,7 +261,7 @@ function MapView({
       : [0, 0];
 
   // Map styles
-  const OSM_STYLE = {
+  const OSM_LIGHT_STYLE = {
     version: 8 as const,
     sources: {
       osm: {
@@ -276,6 +276,24 @@ function MapView({
     },
     layers: [{ id: "osm", type: "raster" as const, source: "osm", minzoom: 0, maxzoom: 19 }],
   };
+
+  const OSM_DARK_STYLE = {
+    version: 8 as const,
+    sources: {
+      carto: {
+        type: "raster" as const,
+        tiles: [
+          "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+          "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+          "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+        ],
+        tileSize: 256,
+      },
+    },
+    layers: [{ id: "carto", type: "raster" as const, source: "carto", minzoom: 0, maxzoom: 19 }],
+  };
+
+  const mapStyle = darkMode ? OSM_DARK_STYLE : OSM_LIGHT_STYLE;
 
   return (
     <>
@@ -295,7 +313,7 @@ function MapView({
           zoom: 13,
         }}
         style={{ width: "100%", height: "100%" }}
-        mapStyle={OSM_STYLE}
+        mapStyle={mapStyle}
         onLoad={() => setMapLoaded(true)}
         onError={() => onError()}
         attributionControl={false}

@@ -187,9 +187,10 @@ export function useTizenKeys(handler: KeyHandler, enabled: boolean = true): void
 }
 
 /**
- * Disable screen saver on Tizen TV
+ * Disable screen saver and keep screen on for Tizen TV
  */
 export function disableScreenSaver(): void {
+  // Disable the built-in screensaver
   if (typeof window !== "undefined" && window.webapis?.appcommon) {
     try {
       window.webapis.appcommon.setScreenSaver(
@@ -199,6 +200,16 @@ export function disableScreenSaver(): void {
       );
     } catch (e: unknown) {
       console.warn("Screen saver disable error:", e);
+    }
+  }
+
+  // Request the screen to stay on (prevents display sleep/standby)
+  if (typeof window !== "undefined" && window.tizen?.power) {
+    try {
+      window.tizen.power.request("SCREEN", "SCREEN_NORMAL");
+      console.log("Screen power lock acquired (SCREEN_NORMAL)");
+    } catch (e: unknown) {
+      console.warn("Screen power request error:", e);
     }
   }
 }

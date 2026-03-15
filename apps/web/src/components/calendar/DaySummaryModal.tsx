@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Calendar, Clock, MapPin } from "lucide-react";
+import { X, Calendar, Clock, MapPin, Plus, ChevronDown, ChevronUp } from "lucide-react";
 import { format, isSameDay } from "date-fns";
 import type { CalendarEvent } from "@openframe/shared";
 
@@ -10,9 +10,10 @@ interface DaySummaryModalProps {
   open: boolean;
   onClose: () => void;
   onSelectEvent: (event: CalendarEvent) => void;
+  onAddEvent?: () => void;
 }
 
-export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: DaySummaryModalProps) {
+export function DaySummaryModal({ date, events, open, onClose, onSelectEvent, onAddEvent }: DaySummaryModalProps) {
   if (!date) return null;
 
   // Filter events for this specific day, then deduplicate
@@ -43,12 +44,27 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(sortedEvents.length);
+  const [canScrollUp, setCanScrollUp] = useState(false);
+  const [canScrollDown, setCanScrollDown] = useState(false);
 
   // Find the next upcoming event index
   const now = new Date();
   const nextEventIndex = sortedEvents.findIndex(
     (event) => new Date(event.endTime) >= now
   );
+
+  const updateScrollIndicators = useCallback(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    setCanScrollUp(container.scrollTop > 10);
+    setCanScrollDown(container.scrollTop + container.clientHeight < container.scrollHeight - 10);
+  }, []);
+
+  const scrollBy = useCallback((direction: "up" | "down") => {
+    const container = scrollRef.current;
+    if (!container) return;
+    container.scrollBy({ top: direction === "down" ? 200 : -200, behavior: "smooth" });
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -66,6 +82,12 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
         }
       }
 
+      // Initial scroll indicator check
+      updateScrollIndicators();
+
+      // Listen for scroll to update indicators
+      container.addEventListener("scroll", updateScrollIndicators, { passive: true });
+
       const visibleIds = new Set<string>();
 
       const observer = new IntersectionObserver(
@@ -82,11 +104,14 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
       );
 
       container.querySelectorAll('[data-event-id]').forEach(el => observer.observe(el));
-      return () => observer.disconnect();
+      return () => {
+        observer.disconnect();
+        container.removeEventListener("scroll", updateScrollIndicators);
+      };
     }, 50);
 
     return () => clearTimeout(timer);
-  }, [open, sortedEvents.length, nextEventIndex]);
+  }, [open, sortedEvents.length, nextEventIndex, updateScrollIndicators]);
 
   const handleEventClick = (event: CalendarEvent) => {
     onClose();
@@ -122,81 +147,113 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent }: 
             </Dialog.Close>
           </div>
 
-          {/* Events List */}
-          <div ref={scrollRef} className="p-4 overflow-y-auto max-h-[calc(80vh-80px)]">
-            {sortedEvents.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">
-                No events scheduled for this day
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {sortedEvents.map((event, index) => {
-                  const isHoliday = event.calendarId === "federal-holidays";
-                  const calendarColor = isHoliday
-                    ? "#9333EA"
-                    : ((event as CalendarEvent & { calendar?: { color: string } }).calendar?.color ?? "#3B82F6");
-                  const isPast = new Date(event.endTime) < new Date();
-                  const isNextEvent = index === nextEventIndex;
+          {/* Scroll container wrapper */}
+          <div className="relative">
+            {/* Scroll up indicator */}
+            {canScrollUp && (
+              <button
+                onClick={() => scrollBy("up")}
+                className="absolute top-0 left-0 right-0 z-10 flex justify-center py-1.5 bg-gradient-to-b from-card via-card/90 to-transparent cursor-pointer hover:from-muted transition-colors"
+              >
+                <ChevronUp className="h-5 w-5 text-muted-foreground animate-bounce" />
+              </button>
+            )}
 
-                  return (
-                    <button
-                      key={event.id}
-                      data-event-id={event.id}
-                      data-event-index={index}
-                      onClick={() => handleEventClick(event)}
-                      className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                        isPast ? "opacity-40" : ""
-                      } ${
-                        isHoliday
-                          ? "border-purple-500/40 bg-purple-500/5 hover:bg-purple-500/10"
-                          : isNextEvent
-                            ? "border-primary/50 bg-primary/5 hover:bg-primary/10"
-                            : "border-border hover:bg-muted/50"
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
-                        {/* Color indicator */}
-                        <div
-                          className="w-1 h-full min-h-[40px] rounded-full flex-shrink-0"
-                          style={{ backgroundColor: calendarColor }}
-                        />
+            {/* Events List */}
+            <div ref={scrollRef} className="p-4 overflow-y-auto max-h-[calc(80vh-80px)]">
+              {onAddEvent && (
+                <button
+                  onClick={() => { onClose(); onAddEvent(); }}
+                  className="w-full flex items-center gap-2 p-3 mb-3 rounded-lg border border-dashed border-primary/40 text-primary hover:bg-primary/5 transition-colors"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span className="text-sm font-medium">Add New Event</span>
+                </button>
+              )}
+              {sortedEvents.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">
+                  No events scheduled for this day
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {sortedEvents.map((event, index) => {
+                    const isHoliday = event.calendarId === "federal-holidays";
+                    const calendarColor = isHoliday
+                      ? "#9333EA"
+                      : ((event as CalendarEvent & { calendar?: { color: string } }).calendar?.color ?? "#3B82F6");
+                    const isPast = new Date(event.endTime) < new Date();
+                    const isNextEvent = index === nextEventIndex;
 
-                        <div className="flex-1 min-w-0">
-                          {/* Event title */}
-                          <h3 className={`font-medium truncate ${isHoliday ? "text-purple-600 dark:text-purple-400" : ""}`}>
-                            {isHoliday && <span className="mr-1">🇺🇸</span>}
-                            {event.title}
-                          </h3>
+                    return (
+                      <button
+                        key={event.id}
+                        data-event-id={event.id}
+                        data-event-index={index}
+                        onClick={() => handleEventClick(event)}
+                        className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                          isPast ? "opacity-50" : ""
+                        } ${
+                          isHoliday
+                            ? "border-purple-500/40 bg-purple-500/5 hover:bg-purple-500/10"
+                            : isNextEvent
+                              ? "border-primary/50 bg-primary/5 hover:bg-primary/10"
+                              : "border-border hover:bg-muted/50"
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          {/* Color indicator */}
+                          <div
+                            className="w-1 h-full min-h-[40px] rounded-full flex-shrink-0"
+                            style={{ backgroundColor: calendarColor }}
+                          />
 
-                          {/* Time */}
-                          <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
-                            <Clock className="h-3.5 w-3.5" />
-                            {event.isAllDay ? (
-                              <span>All day</span>
-                            ) : (
-                              <span>
-                                {format(new Date(event.startTime), "h:mm a")} - {format(new Date(event.endTime), "h:mm a")}
-                              </span>
+                          <div className="flex-1 min-w-0">
+                            {/* Event title */}
+                            <h3 className={`font-medium truncate ${isHoliday ? "text-purple-600 dark:text-purple-400" : ""}`}>
+                              {isHoliday && <span className="mr-1">🇺🇸</span>}
+                              {event.title}
+                            </h3>
+
+                            {/* Time */}
+                            <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
+                              <Clock className="h-3.5 w-3.5" />
+                              {event.isAllDay ? (
+                                <span>All day</span>
+                              ) : (
+                                <span>
+                                  {format(new Date(event.startTime), "h:mm a")} - {format(new Date(event.endTime), "h:mm a")}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Location */}
+                            {event.location && (
+                              <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
+                                <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
+                                <span className="truncate">{event.location}</span>
+                              </div>
                             )}
                           </div>
-
-                          {/* Location */}
-                          {event.location && (
-                            <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
-                              <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
-                              <span className="truncate">{event.location}</span>
-                            </div>
-                          )}
                         </div>
-                      </div>
-                    </button>
-                  );
-                })}
-                {/* End-of-list indicator */}
-                <div className="flex justify-center mt-[5px] mb-16">
-                  <div className="w-1/3 h-px bg-primary/30 rounded-full" />
+                      </button>
+                    );
+                  })}
+                  {/* End-of-list indicator */}
+                  <div className="flex justify-center mt-[5px] mb-16">
+                    <div className="w-1/3 h-px bg-primary/30 rounded-full" />
+                  </div>
                 </div>
-              </div>
+              )}
+            </div>
+
+            {/* Scroll down indicator */}
+            {canScrollDown && (
+              <button
+                onClick={() => scrollBy("down")}
+                className="absolute bottom-0 left-0 right-0 z-10 flex justify-center py-1.5 bg-gradient-to-t from-card via-card/90 to-transparent cursor-pointer hover:from-muted transition-colors"
+              >
+                <ChevronDown className="h-5 w-5 text-muted-foreground animate-bounce" />
+              </button>
             )}
           </div>
         </Dialog.Content>

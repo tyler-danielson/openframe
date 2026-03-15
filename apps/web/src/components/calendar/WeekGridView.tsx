@@ -437,7 +437,7 @@ export function WeekGridView({
               const isNextEvent = event.id === nextEventId;
               const isPast = getEventEndDate(event) < now;
               return (
-                <div key={event.id} data-event-id={event.id} className={cn(isPast && "opacity-40")}>
+                <div key={event.id} data-event-id={event.id} className={cn(isPast && "opacity-50")}>
                   {isNextEvent && (
                     <div className="mb-0.5 ml-1">
                       <p className="text-[10px] text-muted-foreground italic">up next</p>

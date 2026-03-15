@@ -26,7 +26,8 @@
         "backgroundColor": "#0A0A0A"
       },
       "package": "com.openframe.mobile",
-      "permissions": ["android.permission.CAMERA"]
+      "permissions": ["android.permission.CAMERA"],
+      "usesCleartextTraffic": true
     },
     "web": {
       "bundler": "metro",
@@ -36,7 +37,6 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-web-browser",
       [
         "expo-camera",
         {

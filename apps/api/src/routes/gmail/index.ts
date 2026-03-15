@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { oauthTokens } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { getGmailHighlights, checkGmailAccess } from "../../services/gmail.js";
+import { decryptOAuthToken } from "../../lib/encryption.js";
 import { getCategorySettings } from "../settings/index.js";
 
 export const gmailRoutes: FastifyPluginAsync = async (fastify) => {
@@ -40,7 +41,7 @@ export const gmailRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Get Google OAuth tokens
-      const [oauth] = await fastify.db
+      const [rawOauth] = await fastify.db
         .select()
         .from(oauthTokens)
         .where(
@@ -50,6 +51,8 @@ export const gmailRoutes: FastifyPluginAsync = async (fastify) => {
           )
         )
         .limit(1);
+
+      const oauth = rawOauth ? decryptOAuthToken(rawOauth) : null;
 
       if (!oauth) {
         return {
@@ -145,7 +148,7 @@ export const gmailRoutes: FastifyPluginAsync = async (fastify) => {
       const { limit = 10 } = request.query as { limit?: number };
 
       // Get Google OAuth tokens
-      const [oauth] = await fastify.db
+      const [rawOauth] = await fastify.db
         .select()
         .from(oauthTokens)
         .where(
@@ -155,6 +158,8 @@ export const gmailRoutes: FastifyPluginAsync = async (fastify) => {
           )
         )
         .limit(1);
+
+      const oauth = rawOauth ? decryptOAuthToken(rawOauth) : null;
 
       if (!oauth) {
         return reply.badRequest("Not connected to Google");

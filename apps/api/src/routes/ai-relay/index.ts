@@ -24,7 +24,7 @@ export const aiRelayRoutes: FastifyPluginAsync = async (fastify) => {
           properties: {
             provider: {
               type: "string",
-              enum: ["claude", "openai", "gemini"],
+              enum: ["claude", "openai", "gemini", "azure_openai", "grok", "openrouter", "local_llm"],
             },
             model: { type: "string" },
             systemPrompt: { type: "string" },
@@ -78,6 +78,10 @@ export const aiRelayRoutes: FastifyPluginAsync = async (fastify) => {
         claude: { category: "anthropic", key: "api_key" },
         openai: { category: "openai", key: "api_key" },
         gemini: { category: "google", key: "gemini_api_key" },
+        azure_openai: { category: "azure_openai", key: "api_key" },
+        grok: { category: "grok", key: "api_key" },
+        openrouter: { category: "openrouter", key: "api_key" },
+        local_llm: { category: "local_llm", key: "base_url" },
       };
       const keyInfo = providerKeyMap[provider];
       if (!keyInfo) {

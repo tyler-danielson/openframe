@@ -322,7 +322,7 @@ export function RollingMonthView({
               const isNextEvent = event.id === nextEventId;
               const isPast = getEventEndDate(event) < now;
               return (
-                <div key={event.id} className={cn(isPast && "opacity-40")}>
+                <div key={event.id} className={cn(isPast && "opacity-50")}>
                   {isNextEvent && (
                     <p className="text-[9px] text-muted-foreground italic mb-0.5 ml-0.5">up next</p>
                   )}

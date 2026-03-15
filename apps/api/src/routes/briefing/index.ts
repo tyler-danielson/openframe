@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { eq, and, inArray, gte, lte } from "drizzle-orm";
 import { calendars, events, tasks, taskLists, newsArticles, newsFeeds } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { decryptEventFields } from "../../lib/encryption.js";
 import { getSystemSetting } from "../settings/index.js";
 import { generateDailyBriefing, checkBriefingStatus } from "../../services/ai-briefing.js";
 import type { CalendarEvent, Task, NewsHeadline } from "@openframe/shared";
@@ -150,6 +151,7 @@ export const briefingRoutes: FastifyPluginAsync = async (fastify) => {
           );
 
         todayEvents = filteredEvents
+          .map(decryptEventFields)
           .map((e) => ({
             ...e,
             attendees: (e.attendees as any) || [],

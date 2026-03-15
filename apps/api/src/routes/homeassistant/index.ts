@@ -10,6 +10,7 @@ import {
   events,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { encryptEventFields } from "../../lib/encryption.js";
 
 // Helper to check if a URL is a Home Assistant instance
 async function checkHomeAssistant(url: string, timeout = 2000): Promise<{ url: string; name?: string } | null> {
@@ -2277,7 +2278,7 @@ export async function syncHACalendar(
       : `${haEvent.summary}-${dateKey}`;
     processedIds.add(externalId);
 
-    const eventData = {
+    const eventData = encryptEventFields({
       calendarId,
       externalId,
       title: haEvent.summary,
@@ -2289,7 +2290,7 @@ export async function syncHACalendar(
       status: "confirmed" as const,
       recurrenceRule: null,
       updatedAt: new Date(),
-    };
+    });
 
     const existing = existingByExternalId.get(externalId);
     if (existing) {
