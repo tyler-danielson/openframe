@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -100,6 +100,7 @@ export function IptvChannelManagerPage() {
   }, [channels, showFavoritesOnly, showHiddenOnly, favoriteIds, sortBy]);
 
   const allDisplayedSelected = displayedChannels.length > 0 && displayedChannels.every((ch) => selectedIds.has(ch.id));
+  const lastClickedIndex = useRef<number | null>(null);
 
   const toggleSelectAll = () => {
     if (allDisplayedSelected) {
@@ -107,16 +108,33 @@ export function IptvChannelManagerPage() {
     } else {
       setSelectedIds(new Set(displayedChannels.map((ch) => ch.id)));
     }
+    lastClickedIndex.current = null;
   };
 
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  const toggleSelect = useCallback((id: string, shiftKey: boolean) => {
+    const currentIndex = displayedChannels.findIndex((ch) => ch.id === id);
+
+    if (shiftKey && lastClickedIndex.current !== null && currentIndex !== -1) {
+      const start = Math.min(lastClickedIndex.current, currentIndex);
+      const end = Math.max(lastClickedIndex.current, currentIndex);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (let i = start; i <= end; i++) {
+          next.add(displayedChannels[i]!.id);
+        }
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    }
+
+    lastClickedIndex.current = currentIndex;
+  }, [displayedChannels]);
 
   const handleHideSelected = () => {
     if (selectedIds.size === 0) return;
@@ -349,7 +367,7 @@ export function IptvChannelManagerPage() {
                         isHidden && "opacity-50",
                         isSelected && bulkMode && "bg-primary/5"
                       )}
-                      onClick={bulkMode ? () => toggleSelect(channel.id) : undefined}
+                      onClick={bulkMode ? (e) => toggleSelect(channel.id, e.shiftKey) : undefined}
                       style={bulkMode ? { cursor: "pointer" } : undefined}
                     >
                       {bulkMode && (
@@ -357,8 +375,8 @@ export function IptvChannelManagerPage() {
                           <input
                             type="checkbox"
                             checked={isSelected}
-                            onChange={() => toggleSelect(channel.id)}
-                            onClick={(e) => e.stopPropagation()}
+                            onChange={() => {}}
+                            onClick={(e) => { e.stopPropagation(); toggleSelect(channel.id, e.shiftKey); }}
                             className="h-4 w-4 rounded border-border accent-primary"
                           />
                         </td>
