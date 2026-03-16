@@ -74,30 +74,41 @@ export function SportsTicker({ className = "", variant = "light" }: SportsTicker
     ? "text-white/90"
     : "text-foreground";
 
+  const fadeClass = variant === "dark"
+    ? "from-black/60 to-transparent"
+    : "from-muted/80 to-transparent";
+
   return (
-    <div className={`overflow-hidden ${bgClass} ${className}`}>
+    <div className={`overflow-hidden ${bgClass} ${className} relative`}>
+      {/* Fade edges */}
+      <div className={`absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r ${fadeClass} z-10 pointer-events-none`} />
+      <div className={`absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l ${fadeClass} z-10 pointer-events-none`} />
       <div className="ticker-container relative h-7 flex items-center">
         <div
-          className={`ticker-content whitespace-nowrap text-sm font-medium ${textClass}`}
+          className={`ticker-content whitespace-nowrap text-sm font-medium ${textClass} flex`}
           style={{
-            animation: `ticker-scroll ${Math.max(40, games.length * 12)}s linear infinite`,
+            animation: `ticker-scroll ${Math.max(30, games.length * 10)}s linear infinite`,
             willChange: "transform",
-            paddingLeft: "100vw",
           }}
         >
-          {games.map((game, i) => (
-            <span key={game.externalId} className="inline-block">
-              {formatGame(game)}
-              {i < games.length - 1 && <span className="mx-12 text-muted-foreground">•</span>}
-            </span>
-          ))}
-          <span className="inline-block mx-24" />
-          {games.map((game, i) => (
-            <span key={`dup-${game.externalId}`} className="inline-block">
-              {formatGame(game)}
-              {i < games.length - 1 && <span className="mx-12 text-muted-foreground">•</span>}
-            </span>
-          ))}
+          <span className="flex items-center">
+            {games.map((game, i) => (
+              <span key={game.externalId} className="inline-block">
+                {formatGame(game)}
+                {i < games.length - 1 && <span className="mx-12 text-muted-foreground">•</span>}
+              </span>
+            ))}
+            <span className="inline-block mx-16" />
+          </span>
+          <span className="flex items-center">
+            {games.map((game, i) => (
+              <span key={`dup-${game.externalId}`} className="inline-block">
+                {formatGame(game)}
+                {i < games.length - 1 && <span className="mx-12 text-muted-foreground">•</span>}
+              </span>
+            ))}
+            <span className="inline-block mx-16" />
+          </span>
         </div>
       </div>
       <style>{`
