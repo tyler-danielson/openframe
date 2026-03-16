@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, useNavigate, useLocation, Link } from "react-router-dom";
@@ -3099,6 +3099,9 @@ function IptvChannelManager() {
   const [sortBy, setSortBy] = useState<"name" | "category">("name");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkMode, setBulkMode] = useState(false);
+  const [previewChannelId, setPreviewChannelId] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const { data: categories = [] } = useQuery({
     queryKey: ["iptv-categories"],
@@ -3212,6 +3215,25 @@ function IptvChannelManager() {
   const handleUnhideCategory = () => {
     if (!selectedCategory) return;
     bulkVisibility.mutate({ categoryId: selectedCategory, isHidden: false });
+  };
+
+  const handlePreview = async (channelId: string) => {
+    if (previewChannelId === channelId) {
+      setPreviewChannelId(null);
+      setPreviewUrl(null);
+      return;
+    }
+    setPreviewChannelId(channelId);
+    setPreviewUrl(null);
+    setPreviewLoading(true);
+    try {
+      const result = await api.getIptvChannelStream(channelId);
+      setPreviewUrl(result.streamUrl);
+    } catch {
+      setPreviewUrl(null);
+    } finally {
+      setPreviewLoading(false);
+    }
   };
 
   return (
@@ -3399,9 +3421,9 @@ function IptvChannelManager() {
                   )}
                   <th className="px-3 py-2 text-left font-medium">Channel</th>
                   <th className="px-3 py-2 text-left font-medium">Category</th>
-                  <th className="px-3 py-2 text-center font-medium w-20">
-                    {bulkMode ? "Visible" : "Favorite"}
-                  </th>
+                  <th className="px-3 py-2 text-center font-medium w-16">Visible</th>
+                  <th className="px-3 py-2 text-center font-medium w-16">Preview</th>
+                  <th className="px-3 py-2 text-center font-medium w-16">Favorite</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -3410,8 +3432,8 @@ function IptvChannelManager() {
                   const isHidden = !!channel.isHidden;
                   const isSelected = selectedIds.has(channel.id);
                   return (
+                    <React.Fragment key={channel.id}>
                     <tr
-                      key={channel.id}
                       className={cn(
                         "hover:bg-muted/50",
                         isHidden && "opacity-50",
@@ -3453,31 +3475,77 @@ function IptvChannelManager() {
                         <span className="truncate max-w-[150px] block">{channel.categoryName || "-"}</span>
                       </td>
                       <td className="px-3 py-2 text-center">
-                        {bulkMode ? (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              bulkVisibility.mutate({
-                                channelIds: [channel.id],
-                                isHidden: !isHidden,
-                              });
-                            }}
-                            disabled={bulkVisibility.isPending}
-                            className={`p-1 rounded hover:bg-muted ${isHidden ? "text-muted-foreground" : "text-primary"}`}
-                          >
-                            {isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => toggleFavorite.mutate({ channelId: channel.id, isFavorite: isFav })}
-                            disabled={toggleFavorite.isPending}
-                            className={`p-1 rounded hover:bg-muted ${isFav ? "text-yellow-500" : "text-muted-foreground"}`}
-                          >
-                            <Star className={`h-4 w-4 ${isFav ? "fill-current" : ""}`} />
-                          </button>
-                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            bulkVisibility.mutate({
+                              channelIds: [channel.id],
+                              isHidden: !isHidden,
+                            });
+                          }}
+                          disabled={bulkVisibility.isPending}
+                          className={`p-1 rounded hover:bg-muted ${isHidden ? "text-muted-foreground" : "text-primary"}`}
+                          title={isHidden ? "Show channel" : "Hide channel"}
+                        >
+                          {isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePreview(channel.id);
+                          }}
+                          className={`p-1 rounded hover:bg-muted ${previewChannelId === channel.id ? "text-primary" : "text-muted-foreground"}`}
+                          title="Preview stream"
+                        >
+                          {previewLoading && previewChannelId === channel.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Play className="h-4 w-4" />
+                          )}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFavorite.mutate({ channelId: channel.id, isFavorite: isFav });
+                          }}
+                          disabled={toggleFavorite.isPending}
+                          className={`p-1 rounded hover:bg-muted ${isFav ? "text-yellow-500" : "text-muted-foreground"}`}
+                          title={isFav ? "Remove favorite" : "Add favorite"}
+                        >
+                          <Star className={`h-4 w-4 ${isFav ? "fill-current" : ""}`} />
+                        </button>
                       </td>
                     </tr>
+                    {previewChannelId === channel.id && previewUrl && (
+                      <tr>
+                        <td colSpan={bulkMode ? 6 : 5} className="p-0">
+                          <div className="bg-black relative" style={{ height: 200 }}>
+                            <video
+                              src={previewUrl}
+                              autoPlay
+                              muted
+                              controls
+                              className="w-full h-full object-contain"
+                              onError={() => {
+                                setPreviewUrl(null);
+                                setPreviewChannelId(null);
+                              }}
+                            />
+                            <button
+                              onClick={() => { setPreviewChannelId(null); setPreviewUrl(null); }}
+                              className="absolute top-2 right-2 p-1 rounded bg-black/60 text-white hover:bg-black/80"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
