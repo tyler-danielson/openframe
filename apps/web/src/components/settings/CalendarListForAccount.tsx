@@ -4,6 +4,17 @@ import type { Calendar, CalendarProvider, CalendarEvent, FavoriteSportsTeam } fr
 import type { Kiosk } from "../../services/api";
 import { Button } from "../ui/Button";
 
+function formatTimeAgo(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 type CalendarUpdate = Partial<Calendar>;
 
 interface CalendarConnectionsViewProps {
@@ -483,7 +494,7 @@ function CalendarRow({
           <p className="text-[10px] text-muted-foreground mt-1">
             Default: {calendar.provider === "ics" || calendar.provider === "homeassistant" ? "15 min" : "2 min"}
             {calendar.lastSyncAt && (
-              <> · Last synced {new Date(calendar.lastSyncAt).toLocaleString()}</>
+              <> · Last synced {new Date(calendar.lastSyncAt).toLocaleString()} ({formatTimeAgo(new Date(calendar.lastSyncAt))})</>
             )}
           </p>
         </div>
