@@ -3092,6 +3092,7 @@ function AudiobookshelfSettings() {
 
 function IptvChannelManager() {
   const queryClient = useQueryClient();
+  const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
@@ -3106,6 +3107,7 @@ function IptvChannelManager() {
   const { data: categories = [] } = useQuery({
     queryKey: ["iptv-categories"],
     queryFn: () => api.getIptvCategories(),
+    enabled: isOpen,
   });
 
   const { data: channels = [], isLoading } = useQuery({
@@ -3115,16 +3117,19 @@ function IptvChannelManager() {
       search: search || undefined,
       includeHidden: true,
     }),
+    enabled: isOpen,
   });
 
   const { data: favorites = [] } = useQuery({
     queryKey: ["iptv-favorites"],
     queryFn: () => api.getIptvFavorites(),
+    enabled: isOpen,
   });
 
   const { data: hiddenStats } = useQuery({
     queryKey: ["iptv-hidden-stats"],
     queryFn: () => api.getIptvHiddenStats(),
+    enabled: isOpen,
   });
 
   const favoriteIds = new Set(favorites.map((f) => f.id));
@@ -3238,40 +3243,48 @@ function IptvChannelManager() {
 
   return (
     <Card className="border-2 border-primary/40">
-      <CardHeader>
+      <CardHeader
+        className="cursor-pointer select-none"
+        onClick={() => setIsOpen(!isOpen)}
+      >
         <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>Channel Manager</CardTitle>
-            <CardDescription>
-              {favorites.length} favorites
-              {hiddenStats && hiddenStats.totalHidden > 0 && (
-                <> · {hiddenStats.totalHidden} hidden of {hiddenStats.totalChannels} total</>
-              )}
-            </CardDescription>
+          <div className="flex items-center gap-3">
+            <div>
+              <CardTitle>Channel Manager</CardTitle>
+              <CardDescription>
+                Manage favorites, visibility, and preview channels
+              </CardDescription>
+            </div>
           </div>
-          <Button
-            variant={bulkMode ? "default" : "outline"}
-            size="sm"
-            onClick={() => {
-              setBulkMode(!bulkMode);
-              setSelectedIds(new Set());
-            }}
-          >
-            {bulkMode ? (
-              <>
-                <Check className="mr-2 h-4 w-4" />
-                Done
-              </>
-            ) : (
-              <>
-                <Pencil className="mr-2 h-4 w-4" />
-                Bulk Edit
-              </>
+          <div className="flex items-center gap-2">
+            {isOpen && (
+              <Button
+                variant={bulkMode ? "default" : "outline"}
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setBulkMode(!bulkMode);
+                  setSelectedIds(new Set());
+                }}
+              >
+                {bulkMode ? (
+                  <>
+                    <Check className="mr-2 h-4 w-4" />
+                    Done
+                  </>
+                ) : (
+                  <>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Bulk Edit
+                  </>
+                )}
+              </Button>
             )}
-          </Button>
+            {isOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      {isOpen && <CardContent className="space-y-4">
         {/* Filters */}
         <div className="flex flex-wrap gap-3">
           {/* Search */}
@@ -3552,7 +3565,7 @@ function IptvChannelManager() {
             </table>
           </div>
         )}
-      </CardContent>
+      </CardContent>}
     </Card>
   );
 }
