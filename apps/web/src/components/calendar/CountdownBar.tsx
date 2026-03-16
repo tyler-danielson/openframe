@@ -53,11 +53,11 @@ export function CountdownBar({ events, onSelectEvent }: CountdownBarProps) {
             onClick={() => onSelectEvent(event)}
             className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-full border border-primary/30 bg-primary/10 hover:bg-primary/20 transition-colors flex-1 min-w-0"
           >
-            <Timer className="h-3.5 w-3.5 text-primary" />
-            <span className="text-xs font-medium text-primary truncate max-w-[120px]">
+            <Timer className="h-3.5 w-3.5 text-primary shrink-0" />
+            <span className="text-xs font-medium text-primary truncate">
               {displayName}
             </span>
-            <span className="text-xs font-mono text-primary/80 tabular-nums">
+            <span className="text-xs font-mono text-primary/80 tabular-nums shrink-0">
               {formatCountdownWithOptions(tr, fmt, new Date(event.startTime))}
             </span>
           </button>
