@@ -1029,7 +1029,16 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
                   return (
                     <div
                       key={service.id}
-                      className="flex items-center justify-between rounded-lg border border-border p-4 transition-colors hover:bg-muted/30"
+                      className={`flex items-center justify-between rounded-lg border border-border p-4 transition-colors hover:bg-muted/30 ${service.configRoute || service.configService || service.configTab ? "cursor-pointer" : ""}`}
+                      onClick={() => {
+                        if (service.configRoute) {
+                          navigate(service.configRoute);
+                        } else if (service.configService) {
+                          onNavigateToService(service.configService);
+                        } else if (service.configTab) {
+                          onNavigateToTab(service.configTab);
+                        }
+                      }}
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div
@@ -1060,7 +1069,7 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => setConfirmDisconnect(null)}
+                              onClick={(e) => { e.stopPropagation(); setConfirmDisconnect(null); }}
                               disabled={isDisconnecting}
                             >
                               Cancel
@@ -1069,7 +1078,7 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
                               variant="outline"
                               size="sm"
                               className="text-destructive border-destructive/40 hover:bg-destructive/10"
-                              onClick={() => handleDisconnect(service.id)}
+                              onClick={(e) => { e.stopPropagation(); handleDisconnect(service.id); }}
                               disabled={isDisconnecting}
                             >
                               {isDisconnecting ? (
@@ -1105,7 +1114,7 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
                                 variant="outline"
                                 size="sm"
                                 className="text-muted-foreground hover:text-destructive hover:border-destructive/40"
-                                onClick={() => setConfirmDisconnect(service.id)}
+                                onClick={(e) => { e.stopPropagation(); setConfirmDisconnect(service.id); }}
                               >
                                 <Trash2 className="h-3 w-3" />
                               </Button>
@@ -1114,7 +1123,7 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => handleConnect(service)}
+                                onClick={(e) => { e.stopPropagation(); handleConnect(service); }}
                               >
                                 <RefreshCw className="mr-1 h-3 w-3" />
                                 Reconnect
