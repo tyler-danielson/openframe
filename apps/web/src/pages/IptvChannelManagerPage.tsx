@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import {
-  ArrowLeft, Check, Eye, EyeOff, Loader2, Pencil, Play, Star, Tv, X,
+  ArrowLeft, Check, ChevronDown, ChevronRight, Eye, EyeOff, Loader2, Pencil, Play, Star, Tv, X,
 } from "lucide-react";
 import { api } from "../services/api";
 import { Button } from "../components/ui/Button";
@@ -16,7 +16,6 @@ export function IptvChannelManagerPage() {
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
-  const [showHiddenOnly, setShowHiddenOnly] = useState(false);
   const [sortBy, setSortBy] = useState<"name" | "category">("name");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkMode, setBulkMode] = useState(false);
@@ -30,7 +29,7 @@ export function IptvChannelManagerPage() {
   });
 
   const { data: channels = [], isLoading } = useQuery({
-    queryKey: ["iptv-channels-manage", serverId, selectedCategory, search, showHiddenOnly],
+    queryKey: ["iptv-channels-manage", serverId, selectedCategory, search],
     queryFn: () => api.getIptvChannels({
       serverId,
       categoryId: selectedCategory || undefined,
@@ -77,42 +76,53 @@ export function IptvChannelManagerPage() {
     },
   });
 
-  const displayedChannels = useMemo(() => {
-    let result = [...channels];
+  const [showHiddenSection, setShowHiddenSection] = useState(true);
 
-    if (showHiddenOnly) {
-      result = result.filter((ch) => ch.isHidden);
-    }
+  const { visibleChannels, hiddenChannels } = useMemo(() => {
+    let visible = channels.filter((ch) => !ch.isHidden);
+    let hidden = channels.filter((ch) => ch.isHidden);
 
     if (showFavoritesOnly) {
-      result = result.filter((ch) => favoriteIds.has(ch.id));
+      visible = visible.filter((ch) => favoriteIds.has(ch.id));
+      hidden = hidden.filter((ch) => favoriteIds.has(ch.id));
     }
 
-    if (sortBy === "name") {
-      result.sort((a, b) => a.name.localeCompare(b.name));
-    } else if (sortBy === "category") {
-      result.sort((a, b) =>
-        (a.categoryName || "").localeCompare(b.categoryName || "")
-      );
-    }
+    const sortFn = sortBy === "name"
+      ? (a: typeof channels[0], b: typeof channels[0]) => a.name.localeCompare(b.name)
+      : (a: typeof channels[0], b: typeof channels[0]) => (a.categoryName || "").localeCompare(b.categoryName || "");
 
-    return result.slice(0, 500);
-  }, [channels, showFavoritesOnly, showHiddenOnly, favoriteIds, sortBy]);
+    visible.sort(sortFn);
+    hidden.sort(sortFn);
 
-  const allDisplayedSelected = displayedChannels.length > 0 && displayedChannels.every((ch) => selectedIds.has(ch.id));
+    return { visibleChannels: visible.slice(0, 500), hiddenChannels: hidden.slice(0, 500) };
+  }, [channels, showFavoritesOnly, favoriteIds, sortBy]);
+
+  const allVisibleSelected = visibleChannels.length > 0 && visibleChannels.every((ch) => selectedIds.has(ch.id));
+  const allHiddenSelected = hiddenChannels.length > 0 && hiddenChannels.every((ch) => selectedIds.has(ch.id));
   const lastClickedIndex = useRef<number | null>(null);
 
-  const toggleSelectAll = () => {
-    if (allDisplayedSelected) {
-      setSelectedIds(new Set());
+  const toggleSelectAll = (list: typeof visibleChannels, allSelected: boolean) => {
+    if (allSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const ch of list) next.delete(ch.id);
+        return next;
+      });
     } else {
-      setSelectedIds(new Set(displayedChannels.map((ch) => ch.id)));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const ch of list) next.add(ch.id);
+        return next;
+      });
     }
     lastClickedIndex.current = null;
   };
 
+  // Combined list for shift-click index calculation
+  const allDisplayed = useMemo(() => [...visibleChannels, ...hiddenChannels], [visibleChannels, hiddenChannels]);
+
   const toggleSelect = useCallback((id: string, shiftKey: boolean) => {
-    const currentIndex = displayedChannels.findIndex((ch) => ch.id === id);
+    const currentIndex = allDisplayed.findIndex((ch) => ch.id === id);
 
     if (shiftKey && lastClickedIndex.current !== null && currentIndex !== -1) {
       const start = Math.min(lastClickedIndex.current, currentIndex);
@@ -120,7 +130,7 @@ export function IptvChannelManagerPage() {
       setSelectedIds((prev) => {
         const next = new Set(prev);
         for (let i = start; i <= end; i++) {
-          next.add(displayedChannels[i]!.id);
+          next.add(allDisplayed[i]!.id);
         }
         return next;
       });
@@ -134,7 +144,7 @@ export function IptvChannelManagerPage() {
     }
 
     lastClickedIndex.current = currentIndex;
-  }, [displayedChannels]);
+  }, [allDisplayed]);
 
   const handleHideSelected = () => {
     if (selectedIds.size === 0) return;
@@ -262,22 +272,13 @@ export function IptvChannelManagerPage() {
         <Button
           variant={showFavoritesOnly ? "default" : "outline"}
           size="sm"
-          onClick={() => { setShowFavoritesOnly(!showFavoritesOnly); setShowHiddenOnly(false); }}
+          onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
           className="whitespace-nowrap"
         >
           <Star className={`mr-2 h-4 w-4 ${showFavoritesOnly ? "fill-current" : ""}`} />
           Favorites
         </Button>
 
-        <Button
-          variant={showHiddenOnly ? "default" : "outline"}
-          size="sm"
-          onClick={() => { setShowHiddenOnly(!showHiddenOnly); setShowFavoritesOnly(false); }}
-          className="whitespace-nowrap"
-        >
-          <EyeOff className="mr-2 h-4 w-4" />
-          Hidden{hiddenStats?.totalHidden ? ` (${hiddenStats.totalHidden})` : ""}
-        </Button>
       </div>
 
       {/* Bulk actions bar */}
@@ -314,169 +315,258 @@ export function IptvChannelManagerPage() {
         </div>
       )}
 
-      {/* Results info */}
-      <p className="text-sm text-muted-foreground">
-        Showing {displayedChannels.length} of {showFavoritesOnly ? favorites.length : showHiddenOnly ? (hiddenStats?.totalHidden ?? 0) : channels.length} channels
-        {displayedChannels.length === 500 && " (limited to 500)"}
-      </p>
-
       {/* Channel list */}
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
-      ) : displayedChannels.length === 0 ? (
+      ) : visibleChannels.length === 0 && hiddenChannels.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center">
           <Tv className="mx-auto h-10 w-10 text-muted-foreground" />
           <p className="mt-3 text-sm text-muted-foreground">
-            {showFavoritesOnly ? "No favorite channels" : showHiddenOnly ? "No hidden channels" : "No channels found"}
+            {showFavoritesOnly ? "No favorite channels" : "No channels found"}
           </p>
         </div>
       ) : (
-        <div className="overflow-y-auto rounded-lg border border-border" style={{ maxHeight: "calc(100vh - 320px)" }}>
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-muted z-10">
-              <tr>
-                {bulkMode && (
-                  <th className="px-3 py-2 w-10">
-                    <input
-                      type="checkbox"
-                      checked={allDisplayedSelected}
-                      onChange={toggleSelectAll}
-                      className="h-4 w-4 rounded border-border accent-primary"
-                    />
-                  </th>
-                )}
-                <th className="px-3 py-2 text-left font-medium">Channel</th>
-                <th className="px-3 py-2 text-left font-medium">Category</th>
-                <th className="px-3 py-2 text-center font-medium w-16">Visible</th>
-                <th className="px-3 py-2 text-center font-medium w-16">Preview</th>
-                <th className="px-3 py-2 text-center font-medium w-16">Favorite</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {displayedChannels.map((channel) => {
-                const isFav = favoriteIds.has(channel.id);
-                const isHidden = !!channel.isHidden;
-                const isSelected = selectedIds.has(channel.id);
-                return (
-                  <React.Fragment key={channel.id}>
-                    <tr
-                      className={cn(
-                        "hover:bg-muted/50",
-                        isHidden && "opacity-50",
-                        isSelected && bulkMode && "bg-primary/5"
-                      )}
-                      onClick={bulkMode ? (e) => toggleSelect(channel.id, e.shiftKey) : undefined}
-                      style={bulkMode ? { cursor: "pointer" } : undefined}
-                    >
-                      {bulkMode && (
-                        <td className="px-3 py-2">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => {}}
-                            onClick={(e) => { e.stopPropagation(); toggleSelect(channel.id, e.shiftKey); }}
-                            className="h-4 w-4 rounded border-border accent-primary"
-                          />
-                        </td>
-                      )}
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          {channel.logoUrl && (
-                            <img
-                              src={channel.logoUrl}
-                              alt=""
-                              className="h-6 w-6 rounded object-contain bg-black"
-                              onError={(e) => (e.currentTarget.style.display = "none")}
-                            />
-                          )}
-                          <span className="truncate max-w-[300px]">{channel.name}</span>
-                          {isHidden && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
-                              hidden
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">
-                        <span className="truncate max-w-[200px] block">{channel.categoryName || "-"}</span>
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            bulkVisibility.mutate({ channelIds: [channel.id], isHidden: !isHidden });
-                          }}
-                          disabled={bulkVisibility.isPending}
-                          className={`p-1 rounded hover:bg-muted ${isHidden ? "text-muted-foreground" : "text-primary"}`}
-                          title={isHidden ? "Show channel" : "Hide channel"}
-                        >
-                          {isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePreview(channel.id);
-                          }}
-                          className={`p-1 rounded hover:bg-muted ${previewChannelId === channel.id ? "text-primary" : "text-muted-foreground"}`}
-                          title="Preview stream"
-                        >
-                          {previewLoading && previewChannelId === channel.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Play className="h-4 w-4" />
-                          )}
-                        </button>
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleFavorite.mutate({ channelId: channel.id, isFavorite: isFav });
-                          }}
-                          disabled={toggleFavorite.isPending}
-                          className={`p-1 rounded hover:bg-muted ${isFav ? "text-yellow-500" : "text-muted-foreground"}`}
-                          title={isFav ? "Remove favorite" : "Add favorite"}
-                        >
-                          <Star className={`h-4 w-4 ${isFav ? "fill-current" : ""}`} />
-                        </button>
-                      </td>
-                    </tr>
-                    {previewChannelId === channel.id && previewUrl && (
-                      <tr>
-                        <td colSpan={bulkMode ? 6 : 5} className="p-0">
-                          <div className="bg-black relative" style={{ height: 240 }}>
-                            <video
-                              src={previewUrl}
-                              autoPlay
-                              muted
-                              controls
-                              className="w-full h-full object-contain"
-                              onError={() => {
-                                setPreviewUrl(null);
-                                setPreviewChannelId(null);
-                              }}
-                            />
-                            <button
-                              onClick={() => { setPreviewChannelId(null); setPreviewUrl(null); }}
-                              className="absolute top-2 right-2 p-1 rounded bg-black/60 text-white hover:bg-black/80"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {/* Visible channels */}
+          <p className="text-sm text-muted-foreground">
+            {visibleChannels.length} channels{visibleChannels.length === 500 && " (limited to 500)"}
+          </p>
+          {visibleChannels.length > 0 && (
+            <div className="overflow-y-auto rounded-lg border border-border" style={{ maxHeight: "calc(100vh - 380px)" }}>
+              <ChannelTable
+                channels={visibleChannels}
+                allSelected={allVisibleSelected}
+                onToggleSelectAll={() => toggleSelectAll(visibleChannels, allVisibleSelected)}
+                bulkMode={bulkMode}
+                selectedIds={selectedIds}
+                toggleSelect={toggleSelect}
+                bulkVisibility={bulkVisibility}
+                toggleFavorite={toggleFavorite}
+                favoriteIds={favoriteIds}
+                previewChannelId={previewChannelId}
+                previewUrl={previewUrl}
+                previewLoading={previewLoading}
+                handlePreview={handlePreview}
+                setPreviewChannelId={setPreviewChannelId}
+                setPreviewUrl={setPreviewUrl}
+              />
+            </div>
+          )}
+
+          {/* Hidden channels */}
+          {hiddenChannels.length > 0 && (
+            <div className="mt-6">
+              <button
+                onClick={() => setShowHiddenSection(!showHiddenSection)}
+                className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors mb-2"
+              >
+                {showHiddenSection ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                <EyeOff className="h-4 w-4" />
+                Hidden Channels ({hiddenChannels.length})
+              </button>
+              {showHiddenSection && (
+                <div className="overflow-y-auto rounded-lg border border-border opacity-60 hover:opacity-100 transition-opacity" style={{ maxHeight: 400 }}>
+                  <ChannelTable
+                    channels={hiddenChannels}
+                    allSelected={allHiddenSelected}
+                    onToggleSelectAll={() => toggleSelectAll(hiddenChannels, allHiddenSelected)}
+                    bulkMode={bulkMode}
+                    selectedIds={selectedIds}
+                    toggleSelect={toggleSelect}
+                    bulkVisibility={bulkVisibility}
+                    toggleFavorite={toggleFavorite}
+                    favoriteIds={favoriteIds}
+                    previewChannelId={previewChannelId}
+                    previewUrl={previewUrl}
+                    previewLoading={previewLoading}
+                    handlePreview={handlePreview}
+                    setPreviewChannelId={setPreviewChannelId}
+                    setPreviewUrl={setPreviewUrl}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
+  );
+}
+
+// Shared table component for both visible and hidden channel sections
+import type { IptvChannel } from "@openframe/shared";
+import type { UseMutationResult } from "@tanstack/react-query";
+
+function ChannelTable({
+  channels,
+  allSelected,
+  onToggleSelectAll,
+  bulkMode,
+  selectedIds,
+  toggleSelect,
+  bulkVisibility,
+  toggleFavorite,
+  favoriteIds,
+  previewChannelId,
+  previewUrl,
+  previewLoading,
+  handlePreview,
+  setPreviewChannelId,
+  setPreviewUrl,
+}: {
+  channels: IptvChannel[];
+  allSelected: boolean;
+  onToggleSelectAll: () => void;
+  bulkMode: boolean;
+  selectedIds: Set<string>;
+  toggleSelect: (id: string, shiftKey: boolean) => void;
+  bulkVisibility: UseMutationResult<unknown, unknown, { channelIds?: string[]; categoryId?: string; isHidden: boolean }>;
+  toggleFavorite: UseMutationResult<void, unknown, { channelId: string; isFavorite: boolean }>;
+  favoriteIds: Set<string>;
+  previewChannelId: string | null;
+  previewUrl: string | null;
+  previewLoading: boolean;
+  handlePreview: (id: string) => void;
+  setPreviewChannelId: (id: string | null) => void;
+  setPreviewUrl: (url: string | null) => void;
+}) {
+  return (
+    <table className="w-full text-sm">
+      <thead className="sticky top-0 bg-muted z-10">
+        <tr>
+          {bulkMode && (
+            <th className="px-3 py-2 w-10">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={onToggleSelectAll}
+                className="h-4 w-4 rounded border-border accent-primary"
+              />
+            </th>
+          )}
+          <th className="px-3 py-2 text-left font-medium">Channel</th>
+          <th className="px-3 py-2 text-left font-medium">Category</th>
+          <th className="px-3 py-2 text-center font-medium w-16">Visible</th>
+          <th className="px-3 py-2 text-center font-medium w-16">Preview</th>
+          <th className="px-3 py-2 text-center font-medium w-16">Favorite</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-border">
+        {channels.map((channel) => {
+          const isFav = favoriteIds.has(channel.id);
+          const isHidden = !!channel.isHidden;
+          const isSelected = selectedIds.has(channel.id);
+          return (
+            <React.Fragment key={channel.id}>
+              <tr
+                className={cn(
+                  "hover:bg-muted/50",
+                  isSelected && bulkMode && "bg-primary/5"
+                )}
+                onClick={bulkMode ? (e) => toggleSelect(channel.id, e.shiftKey) : undefined}
+                style={bulkMode ? { cursor: "pointer" } : undefined}
+              >
+                {bulkMode && (
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => {}}
+                      onClick={(e) => { e.stopPropagation(); toggleSelect(channel.id, e.shiftKey); }}
+                      className="h-4 w-4 rounded border-border accent-primary"
+                    />
+                  </td>
+                )}
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    {channel.logoUrl && (
+                      <img
+                        src={channel.logoUrl}
+                        alt=""
+                        className="h-6 w-6 rounded object-contain bg-black"
+                        onError={(e) => (e.currentTarget.style.display = "none")}
+                      />
+                    )}
+                    <span className="truncate max-w-[300px]">{channel.name}</span>
+                  </div>
+                </td>
+                <td className="px-3 py-2 text-muted-foreground">
+                  <span className="truncate max-w-[200px] block">{channel.categoryName || "-"}</span>
+                </td>
+                <td className="px-3 py-2 text-center">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      bulkVisibility.mutate({ channelIds: [channel.id], isHidden: !isHidden });
+                    }}
+                    disabled={bulkVisibility.isPending}
+                    className={`p-1 rounded hover:bg-muted ${isHidden ? "text-muted-foreground" : "text-primary"}`}
+                    title={isHidden ? "Show channel" : "Hide channel"}
+                  >
+                    {isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </td>
+                <td className="px-3 py-2 text-center">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handlePreview(channel.id);
+                    }}
+                    className={`p-1 rounded hover:bg-muted ${previewChannelId === channel.id ? "text-primary" : "text-muted-foreground"}`}
+                    title="Preview stream"
+                  >
+                    {previewLoading && previewChannelId === channel.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Play className="h-4 w-4" />
+                    )}
+                  </button>
+                </td>
+                <td className="px-3 py-2 text-center">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleFavorite.mutate({ channelId: channel.id, isFavorite: isFav });
+                    }}
+                    disabled={toggleFavorite.isPending}
+                    className={`p-1 rounded hover:bg-muted ${isFav ? "text-yellow-500" : "text-muted-foreground"}`}
+                    title={isFav ? "Remove favorite" : "Add favorite"}
+                  >
+                    <Star className={`h-4 w-4 ${isFav ? "fill-current" : ""}`} />
+                  </button>
+                </td>
+              </tr>
+              {previewChannelId === channel.id && previewUrl && (
+                <tr>
+                  <td colSpan={bulkMode ? 6 : 5} className="p-0">
+                    <div className="bg-black relative" style={{ height: 240 }}>
+                      <video
+                        src={previewUrl}
+                        autoPlay
+                        muted
+                        controls
+                        className="w-full h-full object-contain"
+                        onError={() => {
+                          setPreviewUrl(null);
+                          setPreviewChannelId(null);
+                        }}
+                      />
+                      <button
+                        onClick={() => { setPreviewChannelId(null); setPreviewUrl(null); }}
+                        className="absolute top-2 right-2 p-1 rounded bg-black/60 text-white hover:bg-black/80"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
