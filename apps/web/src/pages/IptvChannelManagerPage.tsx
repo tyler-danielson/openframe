@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft, Check, Eye, EyeOff, Loader2, Pencil, Play, Star, Tv, X,
 } from "lucide-react";
@@ -10,6 +10,9 @@ import { cn } from "../lib/utils";
 
 export function IptvChannelManagerPage() {
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const serverId = searchParams.get("serverId") || undefined;
+  const serverName = searchParams.get("serverName") || undefined;
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
@@ -22,13 +25,14 @@ export function IptvChannelManagerPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
 
   const { data: categories = [] } = useQuery({
-    queryKey: ["iptv-categories"],
-    queryFn: () => api.getIptvCategories(),
+    queryKey: ["iptv-categories", serverId],
+    queryFn: () => api.getIptvCategories(serverId),
   });
 
   const { data: channels = [], isLoading } = useQuery({
-    queryKey: ["iptv-channels-manage", selectedCategory, search, showHiddenOnly],
+    queryKey: ["iptv-channels-manage", serverId, selectedCategory, search, showHiddenOnly],
     queryFn: () => api.getIptvChannels({
+      serverId,
       categoryId: selectedCategory || undefined,
       search: search || undefined,
       includeHidden: true,
@@ -170,7 +174,9 @@ export function IptvChannelManagerPage() {
 
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Channel Manager</h1>
+          <h1 className="text-2xl font-bold">
+            Channel Manager{serverName && <span className="text-muted-foreground font-normal text-lg ml-2">— {serverName}</span>}
+          </h1>
           <p className="text-sm text-muted-foreground">
             {channels.length} channels
             {favorites.length > 0 && <> &middot; {favorites.length} favorites</>}
