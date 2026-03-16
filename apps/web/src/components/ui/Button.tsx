@@ -18,7 +18,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
               variant === "default",
             "bg-secondary text-secondary-foreground hover:bg-secondary/80":
               variant === "secondary",
-            "border border-border bg-transparent hover:bg-accent hover:text-accent-foreground":
+            "border border-primary/25 bg-transparent hover:bg-accent hover:text-accent-foreground hover:border-primary/40":
               variant === "outline",
             "hover:bg-accent hover:text-accent-foreground": variant === "ghost",
             "bg-destructive text-destructive-foreground hover:bg-destructive/90":

@@ -639,7 +639,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
       {/* Sidebar */}
       {!hideNav && <aside
         className={cn(
-          "fixed lg:relative z-50 lg:z-auto h-full flex w-16 shrink-0 flex-col items-center border-r border-border bg-card py-4 transform transition-transform duration-500 ease-in-out",
+          "fixed lg:relative z-50 lg:z-auto h-full flex w-16 shrink-0 flex-col items-center border-r border-primary/15 bg-card py-4 transform transition-transform duration-500 ease-in-out",
           hideToolbarForBurnIn
             ? "-translate-x-full"
             : isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
@@ -888,7 +888,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
 
       {/* Media Submenu - appears to the right of sidebar */}
       {!hideNav && !hideToolbarForBurnIn && isMediaMenuOpen && showMedia && (
-        <aside className="fixed lg:relative z-40 lg:z-auto h-full flex w-16 shrink-0 flex-col items-center border-r border-border bg-card/95 backdrop-blur-sm py-4 left-16 lg:left-auto">
+        <aside className="fixed lg:relative z-40 lg:z-auto h-full flex w-16 shrink-0 flex-col items-center border-r border-primary/15 bg-card/95 backdrop-blur-sm py-4 left-16 lg:left-auto">
           <div className="flex flex-col items-center gap-2 mt-[72px]">
             {filteredMediaItems.map((item) => (
               <NavLink
@@ -916,7 +916,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
       {!hideNav && !hideToolbarForBurnIn && isMoreMenuOpen && (moreItems.length > 0 || moreMediaItems.length > 0) && (
         <div
           ref={moreMenuRef}
-          className="fixed z-50 left-16 top-0 h-full w-48 border-r border-border bg-card/95 backdrop-blur-sm py-4 shadow-lg"
+          className="fixed z-50 left-16 top-0 h-full w-48 border-r border-primary/15 bg-card/95 backdrop-blur-sm py-4 shadow-lg"
         >
           <div className="flex flex-col gap-1 px-2">
             <p className="text-xs font-medium text-muted-foreground px-2 py-1 uppercase tracking-wider">More</p>

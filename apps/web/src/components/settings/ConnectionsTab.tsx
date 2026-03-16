@@ -1029,7 +1029,7 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
                   return (
                     <div
                       key={service.id}
-                      className={`flex items-center justify-between rounded-lg border border-border p-4 transition-colors hover:bg-muted/30 ${service.configRoute || service.configService || service.configTab ? "cursor-pointer" : ""}`}
+                      className={`flex items-center justify-between rounded-lg border border-primary/20 p-4 transition-colors hover:bg-muted/30 hover:border-primary/35 ${service.configRoute || service.configService || service.configTab ? "cursor-pointer" : ""}`}
                       onClick={() => {
                         if (service.configRoute) {
                           navigate(service.configRoute);
