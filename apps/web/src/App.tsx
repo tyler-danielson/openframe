@@ -11,6 +11,7 @@ import { TasksPage } from "./pages/TasksPage";
 import { PhotosPage } from "./pages/PhotosPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { IptvPage } from "./pages/IptvPage";
+import { IptvChannelManagerPage } from "./pages/IptvChannelManagerPage";
 import { CamerasPage } from "./pages/CamerasPage";
 import { MultiViewPage } from "./pages/MultiViewPage";
 import { HomeAssistantPage } from "./pages/HomeAssistantPage";
@@ -364,6 +365,7 @@ export default function App() {
           <Route path="routines" element={<ModuleGate moduleId="routines"><RoutinesPage /></ModuleGate>} />
           <Route path="photos" element={<ModuleGate moduleId="photos"><PhotosPage /></ModuleGate>} />
           <Route path="iptv" element={<ModuleGate moduleId="iptv"><IptvPage /></ModuleGate>} />
+          <Route path="iptv/channels" element={<ModuleGate moduleId="iptv"><IptvChannelManagerPage /></ModuleGate>} />
           <Route path="cameras" element={<ModuleGate moduleId="cameras"><CamerasPage /></ModuleGate>} />
           <Route path="multiview" element={<ModuleGate moduleId="cameras"><MultiViewPage /></ModuleGate>} />
           <Route path="homeassistant" element={<ModuleGate moduleId="homeassistant"><HomeAssistantPage /></ModuleGate>} />
