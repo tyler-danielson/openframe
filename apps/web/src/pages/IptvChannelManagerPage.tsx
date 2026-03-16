@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import {
-  ArrowLeft, Check, ChevronDown, ChevronRight, Eye, EyeOff, Loader2, Pencil, Play, Star, Tv, X,
+  ArrowLeft, ChevronDown, ChevronRight, Eye, EyeOff, Loader2, Play, Star, Tv, X,
 } from "lucide-react";
 import { api } from "../services/api";
 import { Button } from "../components/ui/Button";
@@ -18,7 +18,6 @@ export function IptvChannelManagerPage() {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [sortBy, setSortBy] = useState<"name" | "category">("name");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkMode, setBulkMode] = useState(false);
   const [previewChannelId, setPreviewChannelId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -213,26 +212,6 @@ export function IptvChannelManagerPage() {
             )}
           </p>
         </div>
-        <Button
-          variant={bulkMode ? "default" : "outline"}
-          size="sm"
-          onClick={() => {
-            setBulkMode(!bulkMode);
-            setSelectedIds(new Set());
-          }}
-        >
-          {bulkMode ? (
-            <>
-              <Check className="mr-2 h-4 w-4" />
-              Done
-            </>
-          ) : (
-            <>
-              <Pencil className="mr-2 h-4 w-4" />
-              Bulk Edit
-            </>
-          )}
-        </Button>
       </div>
 
       {/* Filters */}
@@ -290,7 +269,7 @@ export function IptvChannelManagerPage() {
       </div>
 
       {/* Bulk actions bar */}
-      {bulkMode && (
+      {selectedIds.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
           <span className="text-sm font-medium text-primary">
             {selectedIds.size} selected
@@ -347,7 +326,7 @@ export function IptvChannelManagerPage() {
                 channels={visibleChannels}
                 allSelected={allVisibleSelected}
                 onToggleSelectAll={() => toggleSelectAll(visibleChannels, allVisibleSelected)}
-                bulkMode={bulkMode}
+
                 selectedIds={selectedIds}
                 toggleSelect={toggleSelect}
                 bulkVisibility={bulkVisibility}
@@ -380,7 +359,7 @@ export function IptvChannelManagerPage() {
                     channels={hiddenChannels}
                     allSelected={allHiddenSelected}
                     onToggleSelectAll={() => toggleSelectAll(hiddenChannels, allHiddenSelected)}
-                    bulkMode={bulkMode}
+    
                     selectedIds={selectedIds}
                     toggleSelect={toggleSelect}
                     bulkVisibility={bulkVisibility}
@@ -411,7 +390,6 @@ function ChannelTable({
   channels,
   allSelected,
   onToggleSelectAll,
-  bulkMode,
   selectedIds,
   toggleSelect,
   bulkVisibility,
@@ -427,7 +405,6 @@ function ChannelTable({
   channels: IptvChannel[];
   allSelected: boolean;
   onToggleSelectAll: () => void;
-  bulkMode: boolean;
   selectedIds: Set<string>;
   toggleSelect: (id: string, shiftKey: boolean) => void;
   bulkVisibility: UseMutationResult<unknown, unknown, { channelIds?: string[]; categoryId?: string; isHidden: boolean }>;
@@ -444,16 +421,14 @@ function ChannelTable({
     <table className="w-full text-sm">
       <thead className="sticky top-0 bg-muted z-10">
         <tr>
-          {bulkMode && (
-            <th className="px-3 py-2 w-10">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                onChange={onToggleSelectAll}
-                className="h-4 w-4 rounded border-border accent-primary"
-              />
-            </th>
-          )}
+          <th className="px-3 py-2 w-10">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={onToggleSelectAll}
+              className="h-4 w-4 rounded border-border accent-primary"
+            />
+          </th>
           <th className="px-3 py-2 text-left font-medium">Channel</th>
           <th className="px-3 py-2 text-left font-medium">Category</th>
           <th className="px-3 py-2 text-center font-medium w-16">Visible</th>
@@ -471,22 +446,20 @@ function ChannelTable({
               <tr
                 className={cn(
                   "hover:bg-muted/50",
-                  isSelected && bulkMode && "bg-primary/5"
+                  isSelected && "bg-primary/5"
                 )}
-                onClick={bulkMode ? (e) => toggleSelect(channel.id, e.shiftKey) : undefined}
-                style={bulkMode ? { cursor: "pointer" } : undefined}
+                onClick={(e) => toggleSelect(channel.id, e.shiftKey)}
+                style={{ cursor: "pointer" }}
               >
-                {bulkMode && (
-                  <td className="px-3 py-2">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => {}}
-                      onClick={(e) => { e.stopPropagation(); toggleSelect(channel.id, e.shiftKey); }}
-                      className="h-4 w-4 rounded border-border accent-primary"
-                    />
-                  </td>
-                )}
+                <td className="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => {}}
+                    onClick={(e) => { e.stopPropagation(); toggleSelect(channel.id, e.shiftKey); }}
+                    className="h-4 w-4 rounded border-border accent-primary"
+                  />
+                </td>
                 <td className="px-3 py-2">
                   <div className="flex items-center gap-2">
                     {channel.logoUrl && (
@@ -548,7 +521,7 @@ function ChannelTable({
               </tr>
               {previewChannelId === channel.id && previewUrl && (
                 <tr>
-                  <td colSpan={bulkMode ? 6 : 5} className="p-0">
+                  <td colSpan={6} className="p-0">
                     <div className="bg-black relative" style={{ height: 240 }}>
                       <video
                         src={previewUrl}
