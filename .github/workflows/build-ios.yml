@@ -1,0 +1,51 @@
+name: Build iOS App
+
+on:
+  push:
+    paths:
+      - 'apps/ios/**'
+      - '.github/workflows/build-ios.yml'
+  pull_request:
+    paths:
+      - 'apps/ios/**'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  build:
+    name: Build iOS Simulator
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode Project
+        working-directory: apps/ios
+        run: xcodegen generate
+
+      - name: Build for Simulator
+        working-directory: apps/ios
+        run: |
+          xcodebuild build \
+            -project OpenFrame.xcodeproj \
+            -scheme OpenFrame \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -configuration Debug \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload build artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenFrame-iOS-Debug
+          path: apps/ios/build/Build/Products/Debug-iphonesimulator/OpenFrame.app
+          retention-days: 7
