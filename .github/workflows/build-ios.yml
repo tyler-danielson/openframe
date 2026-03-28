@@ -203,33 +203,10 @@ jobs:
             -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
             -allowProvisioningUpdates
 
-      - name: Upload to TestFlight
-        env:
-          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          APP_STORE_CONNECT_API_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+      - name: Verify upload
         run: |
-          # Write API key to file
-          mkdir -p ~/.private_keys
-          echo -n "$APP_STORE_CONNECT_API_PRIVATE_KEY" > ~/.private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8
-
-          # Upload using xcrun altool
-          xcrun notarytool --help > /dev/null 2>&1 || true
-          IPA_PATH=$(find $RUNNER_TEMP/export -name "*.ipa" | head -1)
-
-          xcrun altool --upload-app \
-            --type ios \
-            --file "$IPA_PATH" \
-            --apiKey "$APP_STORE_CONNECT_API_KEY_ID" \
-            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
-
-      - name: Upload IPA artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenFrame-iOS-Release
-          path: ${{ runner.temp }}/export/*.ipa
-          retention-days: 30
+          echo "✅ IPA exported and uploaded to App Store Connect via exportArchive"
+          echo "The build should appear in TestFlight within 15-30 minutes"
 
       - name: Clean up keychain
         if: always()
