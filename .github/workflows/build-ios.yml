@@ -77,8 +77,13 @@ jobs:
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
 
           # Decode from base64
-          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
-          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o $PP_PATH
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 -D -o $CERTIFICATE_PATH
+          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 -D -o $PP_PATH
+
+          # Debug: verify decoded files
+          echo "Certificate size: $(wc -c < $CERTIFICATE_PATH) bytes"
+          echo "Profile size: $(wc -c < $PP_PATH) bytes"
+          echo "Profile file type: $(file $PP_PATH)"
 
           # Create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
