@@ -116,6 +116,13 @@ jobs:
           # Regenerate with team ID
           xcodegen generate
 
+          # Add iPad orientations for App Store validation
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad array" OpenFrame/Resources/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:0 string UIInterfaceOrientationPortrait" OpenFrame/Resources/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:1 string UIInterfaceOrientationPortraitUpsideDown" OpenFrame/Resources/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:2 string UIInterfaceOrientationLandscapeLeft" OpenFrame/Resources/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:3 string UIInterfaceOrientationLandscapeRight" OpenFrame/Resources/Info.plist
+
       - name: Archive app
         working-directory: apps/ios
         env:
