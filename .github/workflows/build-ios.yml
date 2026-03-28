@@ -123,6 +123,10 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:2 string UIInterfaceOrientationLandscapeLeft" OpenFrame/Resources/Info.plist
           /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:3 string UIInterfaceOrientationLandscapeRight" OpenFrame/Resources/Info.plist
 
+          # Ensure UILaunchStoryboardName is set (required for iPad multitasking)
+          /usr/libexec/PlistBuddy -c "Delete :UILaunchStoryboardName" OpenFrame/Resources/Info.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UILaunchStoryboardName string LaunchScreen" OpenFrame/Resources/Info.plist
+
       - name: Archive app
         working-directory: apps/ios
         env:
