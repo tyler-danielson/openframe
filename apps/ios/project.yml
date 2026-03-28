@@ -33,5 +33,11 @@ targets:
         ENABLE_PREVIEWS: true
     info:
       path: OpenFrame/Resources/Info.plist
+      properties:
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     entitlements:
       path: OpenFrame/Resources/OpenFrame.entitlements
