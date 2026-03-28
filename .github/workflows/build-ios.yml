@@ -76,9 +76,9 @@ jobs:
           PP_PATH=$RUNNER_TEMP/build_pp.mobileprovision
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
 
-          # Decode from base64 (strip any stray whitespace/CR before decoding)
-          printf '%s' "$BUILD_CERTIFICATE_BASE64" | base64 -D > $CERTIFICATE_PATH
-          printf '%s' "$BUILD_PROVISION_PROFILE_BASE64" | base64 -D > $PP_PATH
+          # Decode from base64
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > $CERTIFICATE_PATH
+          echo "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > $PP_PATH
 
           # Debug: verify decoded files
           echo "Certificate size: $(wc -c < $CERTIFICATE_PATH) bytes"
@@ -96,9 +96,12 @@ jobs:
           security list-keychain -d user -s $KEYCHAIN_PATH
 
           # Copy provisioning profile (must be named by UUID)
+          # Xcode 16+ uses new location, copy to both for compatibility
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          mkdir -p ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles
           PP_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(/usr/bin/security cms -D -i $PP_PATH))
           cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$PP_UUID.mobileprovision
+          cp $PP_PATH ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/$PP_UUID.mobileprovision
           echo "PP_UUID=$PP_UUID" >> $GITHUB_ENV
           PP_NAME=$(/usr/libexec/PlistBuddy -c "Print Name" /dev/stdin <<< $(/usr/bin/security cms -D -i $PP_PATH))
           echo "PP_NAME=$PP_NAME" >> $GITHUB_ENV
