@@ -133,8 +133,10 @@ jobs:
             CODE_SIGN_IDENTITY="Apple Distribution"
 
       - name: Create ExportOptions.plist
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          cat > $RUNNER_TEMP/ExportOptions.plist << 'PLIST'
+          cat > $RUNNER_TEMP/ExportOptions.plist << PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -143,6 +145,17 @@ jobs:
               <string>app-store-connect</string>
               <key>destination</key>
               <string>upload</string>
+              <key>teamID</key>
+              <string>${APPLE_TEAM_ID}</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>us.openframe.app</key>
+                  <string>${PP_NAME}</string>
+              </dict>
+              <key>signingCertificate</key>
+              <string>Apple Distribution</string>
           </dict>
           </plist>
           PLIST
