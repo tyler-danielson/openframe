@@ -1,17 +1,16 @@
 import SwiftUI
 
-@Observable
-final class AppState {
+final class AppState: ObservableObject {
     let keychainManager = KeychainManager()
     let settingsManager = SettingsManager()
     let themeManager: ThemeManager
 
-    private(set) var apiClient: APIClient!
-    private(set) var authRepository: AuthRepository!
-    private(set) var calendarRepository: CalendarRepository!
-    private(set) var taskRepository: TaskRepository!
-    private(set) var photoRepository: PhotoRepository!
-    private(set) var kioskRepository: KioskRepository!
+    @Published private(set) var apiClient: APIClient!
+    @Published private(set) var authRepository: AuthRepository!
+    @Published private(set) var calendarRepository: CalendarRepository!
+    @Published private(set) var taskRepository: TaskRepository!
+    @Published private(set) var photoRepository: PhotoRepository!
+    @Published private(set) var kioskRepository: KioskRepository!
 
     var isAuthenticated: Bool {
         keychainManager.hasCredentials()
@@ -22,8 +21,8 @@ final class AppState {
     }
 
     // Deep link state for OAuth callbacks
-    var pendingDeepLinkTokens: (accessToken: String, refreshToken: String)?
-    var pendingConnectLink: (server: String, apiKey: String)?
+    @Published var pendingDeepLinkTokens: (accessToken: String, refreshToken: String)?
+    @Published var pendingConnectLink: (server: String, apiKey: String)?
 
     init() {
         self.themeManager = ThemeManager(settingsManager: settingsManager)

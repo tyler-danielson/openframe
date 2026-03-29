@@ -1,11 +1,10 @@
 import Foundation
 
-@Observable
-final class SettingsViewModel {
-    var user: User?
-    var calendars: [OFCalendar] = []
-    var isSyncing = false
-    var isLoading = false
+final class SettingsViewModel: ObservableObject {
+    @Published var user: User?
+    @Published var calendars: [OFCalendar] = []
+    @Published var isSyncing = false
+    @Published var isLoading = false
 
     private let authRepository: AuthRepository
     private let calendarRepository: CalendarRepository

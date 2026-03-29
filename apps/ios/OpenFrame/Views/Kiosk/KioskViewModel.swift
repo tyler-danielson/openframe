@@ -1,13 +1,12 @@
 import Foundation
 
-@Observable
-final class KioskViewModel {
-    var kiosks: [Kiosk] = []
-    var selectedKiosk: Kiosk?
-    var savedFiles: [KioskSavedFile] = []
-    var isLoading = false
-    var errorMessage: String?
-    var commandStatus: String?
+final class KioskViewModel: ObservableObject {
+    @Published var kiosks: [Kiosk] = []
+    @Published var selectedKiosk: Kiosk?
+    @Published var savedFiles: [KioskSavedFile] = []
+    @Published var isLoading = false
+    @Published var errorMessage: String?
+    @Published var commandStatus: String?
 
     private let kioskRepository: KioskRepository
 
@@ -57,7 +56,7 @@ final class KioskViewModel {
         }
 
         // Auto-dismiss status after 2 seconds
-        try? await Task.sleep(for: .seconds(2))
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
         commandStatus = nil
     }
 
@@ -66,7 +65,7 @@ final class KioskViewModel {
         let result = await kioskRepository.refreshKiosk(id: kioskId)
         if case .success = result {
             commandStatus = "Refresh sent"
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
             commandStatus = nil
         }
     }

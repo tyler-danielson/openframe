@@ -10,14 +10,13 @@ enum AuthScreen {
     case authenticated
 }
 
-@Observable
-final class AuthViewModel {
-    var screen: AuthScreen = .loading
-    var isLoading = false
-    var errorMessage: String?
-    var serverUrl: String = ""
-    var authConfig: AuthConfigDTO?
-    var kiosks: [Kiosk] = []
+final class AuthViewModel: ObservableObject {
+    @Published var screen: AuthScreen = .loading
+    @Published var isLoading = false
+    @Published var errorMessage: String?
+    @Published var serverUrl: String = ""
+    @Published var authConfig: AuthConfigDTO?
+    @Published var kiosks: [Kiosk] = []
 
     let appState: AppState
 

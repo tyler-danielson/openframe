@@ -1,10 +1,9 @@
 import SwiftUI
 
-@Observable
-final class ThemeManager {
+final class ThemeManager: ObservableObject {
     private let settingsManager: SettingsManager
 
-    var prefersDark: Bool = true
+    @Published var prefersDark: Bool = true
 
     var currentScheme: AppColorScheme {
         AppColorScheme.from(key: settingsManager.colorScheme)

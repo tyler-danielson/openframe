@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct EventDetailView: View {
-    @Environment(AppState.self) private var appState
+    @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     let eventId: String
     @State private var viewModel: EventViewModel?
@@ -10,7 +10,7 @@ struct EventDetailView: View {
     var body: some View {
         Group {
             if let vm = viewModel {
-                eventContent(vm)
+                EventDetailContentView(viewModel: vm, appState: appState)
             } else {
                 LoadingView()
             }
@@ -44,13 +44,17 @@ struct EventDetailView: View {
             Text("Are you sure you want to delete this event?")
         }
     }
+}
 
-    @ViewBuilder
-    private func eventContent(_ vm: EventViewModel) -> some View {
+private struct EventDetailContentView: View {
+    @ObservedObject var viewModel: EventViewModel
+    let appState: AppState
+
+    var body: some View {
         let palette = appState.themeManager.palette
-        if vm.isLoading {
+        if viewModel.isLoading {
             LoadingView()
-        } else if let event = vm.event {
+        } else if let event = viewModel.event {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     // Title
@@ -111,7 +115,7 @@ struct EventDetailView: View {
                 }
                 .padding()
             }
-        } else if let error = vm.errorMessage {
+        } else if let error = viewModel.errorMessage {
             ErrorView(message: error)
         }
     }

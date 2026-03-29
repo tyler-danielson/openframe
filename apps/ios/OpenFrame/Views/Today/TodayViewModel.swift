@@ -1,10 +1,9 @@
 import Foundation
 
-@Observable
-final class TodayViewModel {
-    var groupedEvents: [(String, [CalendarEvent])] = []
-    var isLoading = false
-    var errorMessage: String?
+final class TodayViewModel: ObservableObject {
+    @Published var groupedEvents: [(String, [CalendarEvent])] = []
+    @Published var isLoading = false
+    @Published var errorMessage: String?
 
     private let calendarRepository: CalendarRepository
 

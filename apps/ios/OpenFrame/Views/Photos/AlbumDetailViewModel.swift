@@ -1,10 +1,9 @@
 import Foundation
 
-@Observable
-final class AlbumDetailViewModel {
-    var photos: [Photo] = []
-    var isLoading = false
-    var errorMessage: String?
+final class AlbumDetailViewModel: ObservableObject {
+    @Published var photos: [Photo] = []
+    @Published var isLoading = false
+    @Published var errorMessage: String?
 
     private let photoRepository: PhotoRepository
 

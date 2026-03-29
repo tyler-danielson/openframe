@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SignupView: View {
-    @Bindable var viewModel: AuthViewModel
+    @ObservedObject var viewModel: AuthViewModel
     @State private var name = ""
     @State private var email = ""
     @State private var password = ""
@@ -24,7 +24,7 @@ struct SignupView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             ScrollView {
                 VStack(spacing: 20) {
                     Text("Create Account")

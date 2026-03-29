@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct CalendarTabView: View {
-    @Environment(AppState.self) private var appState
+    @EnvironmentObject private var appState: AppState
     @State private var viewModel: CalendarViewModel?
 
     var onNavigateToEvent: (String) -> Void
@@ -10,7 +10,7 @@ struct CalendarTabView: View {
     var body: some View {
         Group {
             if let vm = viewModel {
-                calendarContent(vm)
+                CalendarContentView(viewModel: vm, appState: appState, onNavigateToEvent: onNavigateToEvent)
             } else {
                 LoadingView()
             }
@@ -29,22 +29,27 @@ struct CalendarTabView: View {
             await vm.loadMonth()
         }
     }
+}
 
-    @ViewBuilder
-    private func calendarContent(_ vm: CalendarViewModel) -> some View {
+private struct CalendarContentView: View {
+    @ObservedObject var viewModel: CalendarViewModel
+    let appState: AppState
+    var onNavigateToEvent: (String) -> Void
+
+    var body: some View {
         let palette = appState.themeManager.palette
         ScrollView {
             VStack(spacing: 0) {
                 // Month navigation
                 HStack {
-                    Button { vm.navigateMonth(forward: false) } label: {
+                    Button { viewModel.navigateMonth(forward: false) } label: {
                         Image(systemName: "chevron.left")
                     }
                     Spacer()
-                    Text(monthYearString(vm.currentMonth))
+                    Text(monthYearString(viewModel.currentMonth))
                         .font(.headline)
                     Spacer()
-                    Button { vm.navigateMonth(forward: true) } label: {
+                    Button { viewModel.navigateMonth(forward: true) } label: {
                         Image(systemName: "chevron.right")
                     }
                 }
@@ -63,18 +68,18 @@ struct CalendarTabView: View {
                 .padding(.horizontal)
 
                 // Calendar grid
-                let days = calendarDays(for: vm.currentMonth)
+                let days = calendarDays(for: viewModel.currentMonth)
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 4) {
                     ForEach(days, id: \.self) { date in
-                        if let date {
+                        if let date = date {
                             CalendarDayCell(
                                 date: date,
-                                isSelected: Calendar.current.isDate(date, inSameDayAs: vm.selectedDate),
+                                isSelected: Calendar.current.isDate(date, inSameDayAs: viewModel.selectedDate),
                                 isToday: date.isToday,
-                                hasEvents: vm.daysWithEvents.contains(Calendar.current.component(.day, from: date)),
+                                hasEvents: viewModel.daysWithEvents.contains(Calendar.current.component(.day, from: date)),
                                 primaryColor: palette.primary
                             ) {
-                                vm.selectDate(date)
+                                viewModel.selectDate(date)
                             }
                         } else {
                             Color.clear.frame(height: 40)
@@ -86,14 +91,14 @@ struct CalendarTabView: View {
                 Divider().padding(.vertical, 8)
 
                 // Events for selected day
-                if vm.eventsForSelectedDate.isEmpty {
+                if viewModel.eventsForSelectedDate.isEmpty {
                     Text("No events")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .padding()
                 } else {
                     LazyVStack(spacing: 6) {
-                        ForEach(vm.eventsForSelectedDate) { event in
+                        ForEach(viewModel.eventsForSelectedDate) { event in
                             EventCard(event: event) { onNavigateToEvent(event.id) }
                                 .padding(.horizontal)
                         }

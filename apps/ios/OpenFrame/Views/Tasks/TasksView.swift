@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct TasksView: View {
-    @Environment(AppState.self) private var appState
+    @EnvironmentObject private var appState: AppState
     @State private var viewModel: TasksViewModel?
     @State private var showAddSheet = false
     @State private var newTaskTitle = ""
@@ -9,7 +9,7 @@ struct TasksView: View {
     var body: some View {
         Group {
             if let vm = viewModel {
-                tasksContent(vm)
+                TasksContentView(viewModel: vm, appState: appState, showAddSheet: $showAddSheet)
             } else {
                 LoadingView()
             }
@@ -35,80 +35,8 @@ struct TasksView: View {
         }
     }
 
-    @ViewBuilder
-    private func tasksContent(_ vm: TasksViewModel) -> some View {
-        let palette = appState.themeManager.palette
-        VStack(spacing: 0) {
-            // Task list chips
-            if !vm.taskLists.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(vm.taskLists) { list in
-                            Button {
-                                vm.selectList(list.id)
-                            } label: {
-                                Text(list.name)
-                                    .font(.subheadline)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 8)
-                                    .background(vm.selectedListId == list.id ? palette.primary.opacity(0.15) : palette.muted)
-                                    .foregroundStyle(vm.selectedListId == list.id ? palette.primary : palette.mutedForeground)
-                                    .clipShape(Capsule())
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                }
-            }
-
-            if vm.isLoading && vm.tasks.isEmpty {
-                LoadingView()
-            } else if vm.filteredTasks.isEmpty {
-                EmptyStateView(icon: "checklist", title: "No tasks", subtitle: "Tap + to add a task")
-            } else {
-                List {
-                    ForEach(vm.filteredTasks) { task in
-                        TaskRow(task: task) {
-                            Task { await vm.completeTask(task.id) }
-                        }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                Task { await vm.deleteTask(task.id) }
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
-                    }
-                }
-                .listStyle(.plain)
-                .refreshable {
-                    if let id = vm.selectedListId {
-                        await vm.loadTasks(listId: id)
-                    }
-                }
-            }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if vm.selectedListId != nil {
-                Button {
-                    showAddSheet = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.title2)
-                        .foregroundStyle(palette.primaryForeground)
-                        .frame(width: 56, height: 56)
-                        .background(palette.primary)
-                        .clipShape(Circle())
-                        .shadow(radius: 4)
-                }
-                .padding(20)
-            }
-        }
-    }
-
     private var addTaskSheet: some View {
-        NavigationStack {
+        NavigationView {
             VStack(spacing: 16) {
                 TextField("Task title", text: $newTaskTitle)
                     .textFieldStyle(.roundedBorder)
@@ -132,6 +60,82 @@ struct TasksView: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+    }
+}
+
+private struct TasksContentView: View {
+    @ObservedObject var viewModel: TasksViewModel
+    let appState: AppState
+    @Binding var showAddSheet: Bool
+
+    var body: some View {
+        let palette = appState.themeManager.palette
+        VStack(spacing: 0) {
+            // Task list chips
+            if !viewModel.taskLists.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(viewModel.taskLists) { list in
+                            Button {
+                                viewModel.selectList(list.id)
+                            } label: {
+                                Text(list.name)
+                                    .font(.subheadline)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                                    .background(viewModel.selectedListId == list.id ? palette.primary.opacity(0.15) : palette.muted)
+                                    .foregroundStyle(viewModel.selectedListId == list.id ? palette.primary : palette.mutedForeground)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                }
+            }
+
+            if viewModel.isLoading && viewModel.tasks.isEmpty {
+                LoadingView()
+            } else if viewModel.filteredTasks.isEmpty {
+                EmptyStateView(icon: "checklist", title: "No tasks", subtitle: "Tap + to add a task")
+            } else {
+                List {
+                    ForEach(viewModel.filteredTasks) { task in
+                        TaskRow(task: task) {
+                            Task { await viewModel.completeTask(task.id) }
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                Task { await viewModel.deleteTask(task.id) }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                .listStyle(.plain)
+                .refreshable {
+                    if let id = viewModel.selectedListId {
+                        await viewModel.loadTasks(listId: id)
+                    }
+                }
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if viewModel.selectedListId != nil {
+                Button {
+                    showAddSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.title2)
+                        .foregroundStyle(palette.primaryForeground)
+                        .frame(width: 56, height: 56)
+                        .background(palette.primary)
+                        .clipShape(Circle())
+                        .shadow(radius: 4)
+                }
+                .padding(20)
+            }
+        }
     }
 }

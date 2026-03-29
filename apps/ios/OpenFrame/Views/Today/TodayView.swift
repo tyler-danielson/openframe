@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct TodayView: View {
-    @Environment(AppState.self) private var appState
+    @EnvironmentObject private var appState: AppState
     @State private var viewModel: TodayViewModel?
 
     var onNavigateToEvent: (String) -> Void
@@ -10,7 +10,7 @@ struct TodayView: View {
     var body: some View {
         Group {
             if let vm = viewModel {
-                todayContent(vm)
+                TodayContentView(viewModel: vm, appState: appState, onNavigateToEvent: onNavigateToEvent)
             } else {
                 LoadingView()
             }
@@ -29,19 +29,24 @@ struct TodayView: View {
             await vm.loadEvents()
         }
     }
+}
 
-    @ViewBuilder
-    private func todayContent(_ vm: TodayViewModel) -> some View {
-        if vm.isLoading && vm.groupedEvents.isEmpty {
+private struct TodayContentView: View {
+    @ObservedObject var viewModel: TodayViewModel
+    let appState: AppState
+    var onNavigateToEvent: (String) -> Void
+
+    var body: some View {
+        if viewModel.isLoading && viewModel.groupedEvents.isEmpty {
             LoadingView()
-        } else if let error = vm.errorMessage, vm.groupedEvents.isEmpty {
-            ErrorView(message: error) { Task { await vm.loadEvents() } }
-        } else if vm.groupedEvents.isEmpty {
+        } else if let error = viewModel.errorMessage, viewModel.groupedEvents.isEmpty {
+            ErrorView(message: error) { Task { await viewModel.loadEvents() } }
+        } else if viewModel.groupedEvents.isEmpty {
             EmptyStateView(icon: "calendar", title: "No upcoming events", subtitle: "Events for the next 7 days will appear here")
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(vm.groupedEvents, id: \.0) { dateLabel, events in
+                    ForEach(viewModel.groupedEvents, id: \.0) { dateLabel, events in
                         Text(dateLabel)
                             .font(.headline)
                             .foregroundStyle(appState.themeManager.palette.primary)
@@ -58,7 +63,7 @@ struct TodayView: View {
                 }
                 .padding(.vertical)
             }
-            .refreshable { await vm.loadEvents() }
+            .refreshable { await viewModel.loadEvents() }
         }
     }
 }

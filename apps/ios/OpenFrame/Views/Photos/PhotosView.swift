@@ -1,17 +1,15 @@
 import SwiftUI
 
 struct PhotosView: View {
-    @Environment(AppState.self) private var appState
+    @EnvironmentObject private var appState: AppState
     @State private var viewModel: PhotosViewModel?
 
     var onNavigateToAlbum: (String) -> Void
 
-    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
-
     var body: some View {
         Group {
             if let vm = viewModel {
-                photosContent(vm)
+                PhotosContentView(viewModel: vm, onNavigateToAlbum: onNavigateToAlbum)
             } else {
                 LoadingView()
             }
@@ -23,25 +21,31 @@ struct PhotosView: View {
             await vm.loadAlbums()
         }
     }
+}
 
-    @ViewBuilder
-    private func photosContent(_ vm: PhotosViewModel) -> some View {
-        if vm.isLoading && vm.albums.isEmpty {
+private struct PhotosContentView: View {
+    @ObservedObject var viewModel: PhotosViewModel
+    var onNavigateToAlbum: (String) -> Void
+
+    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
+
+    var body: some View {
+        if viewModel.isLoading && viewModel.albums.isEmpty {
             LoadingView()
-        } else if vm.albums.isEmpty {
+        } else if viewModel.albums.isEmpty {
             EmptyStateView(icon: "photo.on.rectangle", title: "No albums")
         } else {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(vm.albums) { album in
-                        AlbumCard(album: album, coverUrl: vm.coverUrl(for: album)) {
+                    ForEach(viewModel.albums) { album in
+                        AlbumCard(album: album, coverUrl: viewModel.coverUrl(for: album)) {
                             onNavigateToAlbum(album.id)
                         }
                     }
                 }
                 .padding()
             }
-            .refreshable { await vm.loadAlbums() }
+            .refreshable { await viewModel.loadAlbums() }
         }
     }
 }

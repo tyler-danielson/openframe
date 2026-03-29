@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @Environment(AppState.self) private var appState
+    @EnvironmentObject private var appState: AppState
 
     var body: some View {
         Group {

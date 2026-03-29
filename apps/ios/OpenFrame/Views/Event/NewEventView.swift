@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct NewEventView: View {
-    @Environment(AppState.self) private var appState
+    @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: EventViewModel?
 
@@ -12,7 +12,7 @@ struct NewEventView: View {
     @State private var showDetailedForm = false
     @State private var title = ""
     @State private var location = ""
-    @State private var description = ""
+    @State private var descriptionText = ""
     @State private var startDate = Date()
     @State private var endDate = Date().addingTimeInterval(3600)
     @State private var isAllDay = false
@@ -56,45 +56,20 @@ struct NewEventView: View {
                 }
 
                 if showDetailedForm {
-                    VStack(spacing: 14) {
-                        TextField("Title", text: $title)
-                            .textFieldStyle(.roundedBorder)
-
-                        // Calendar picker
-                        if let calendars = viewModel?.calendars, !calendars.isEmpty {
-                            Picker("Calendar", selection: $selectedCalendarId) {
-                                ForEach(calendars) { cal in
-                                    Text(cal.effectiveName).tag(cal.id as String?)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                        }
-
-                        Toggle("All Day", isOn: $isAllDay)
-
-                        DatePicker("Start", selection: $startDate, displayedComponents: isAllDay ? .date : [.date, .hourAndMinute])
-                        DatePicker("End", selection: $endDate, displayedComponents: isAllDay ? .date : [.date, .hourAndMinute])
-
-                        TextField("Location", text: $location)
-                            .textFieldStyle(.roundedBorder)
-
-                        TextField("Description", text: $description, axis: .vertical)
-                            .textFieldStyle(.roundedBorder)
-                            .lineLimit(3...6)
-
-                        Button {
-                            Task { await createDetailedEvent() }
-                        } label: {
-                            HStack {
-                                if isSubmitting { ProgressView().tint(.white) }
-                                Text("Create Event")
-                            }
-                            .frame(maxWidth: .infinity).padding()
-                            .background(appState.themeManager.palette.primary)
-                            .foregroundStyle(appState.themeManager.palette.primaryForeground)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                        }
-                        .disabled(title.isEmpty || selectedCalendarId == nil || isSubmitting)
+                    if let vm = viewModel {
+                        NewEventFormView(
+                            viewModel: vm,
+                            appState: appState,
+                            title: $title,
+                            location: $location,
+                            descriptionText: $descriptionText,
+                            startDate: $startDate,
+                            endDate: $endDate,
+                            isAllDay: $isAllDay,
+                            selectedCalendarId: $selectedCalendarId,
+                            isSubmitting: $isSubmitting,
+                            onCreated: { dismiss() }
+                        )
                     }
                 }
             }
@@ -115,6 +90,75 @@ struct NewEventView: View {
         }
         isSubmitting = false
     }
+}
+
+private struct NewEventFormView: View {
+    @ObservedObject var viewModel: EventViewModel
+    let appState: AppState
+    @Binding var title: String
+    @Binding var location: String
+    @Binding var descriptionText: String
+    @Binding var startDate: Date
+    @Binding var endDate: Date
+    @Binding var isAllDay: Bool
+    @Binding var selectedCalendarId: String?
+    @Binding var isSubmitting: Bool
+    var onCreated: () -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            TextField("Title", text: $title)
+                .textFieldStyle(.roundedBorder)
+
+            // Calendar picker
+            if !viewModel.calendars.isEmpty {
+                Picker("Calendar", selection: $selectedCalendarId) {
+                    ForEach(viewModel.calendars) { cal in
+                        Text(cal.effectiveName).tag(cal.id as String?)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
+            Toggle("All Day", isOn: $isAllDay)
+
+            DatePicker("Start", selection: $startDate, displayedComponents: isAllDay ? .date : [.date, .hourAndMinute])
+            DatePicker("End", selection: $endDate, displayedComponents: isAllDay ? .date : [.date, .hourAndMinute])
+
+            TextField("Location", text: $location)
+                .textFieldStyle(.roundedBorder)
+
+            TextEditor(text: $descriptionText)
+                .frame(minHeight: 60, maxHeight: 120)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .stroke(Color(.systemGray4), lineWidth: 1)
+                )
+                .overlay(alignment: .topLeading) {
+                    if descriptionText.isEmpty {
+                        Text("Description")
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                    }
+                }
+
+            Button {
+                Task { await createDetailedEvent() }
+            } label: {
+                HStack {
+                    if isSubmitting { ProgressView().tint(.white) }
+                    Text("Create Event")
+                }
+                .frame(maxWidth: .infinity).padding()
+                .background(appState.themeManager.palette.primary)
+                .foregroundStyle(appState.themeManager.palette.primaryForeground)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .disabled(title.isEmpty || selectedCalendarId == nil || isSubmitting)
+        }
+    }
 
     private func createDetailedEvent() async {
         guard let calId = selectedCalendarId else { return }
@@ -124,12 +168,12 @@ struct NewEventView: View {
             title: title,
             startTime: startDate.toISO8601(),
             endTime: endDate.toISO8601(),
-            description: description.isEmpty ? nil : description,
+            description: descriptionText.isEmpty ? nil : descriptionText,
             location: location.isEmpty ? nil : location,
             isAllDay: isAllDay
         )
-        if let _ = await viewModel?.createEvent(request) {
-            dismiss()
+        if let _ = await viewModel.createEvent(request) {
+            onCreated()
         }
         isSubmitting = false
     }

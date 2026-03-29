@@ -1,7 +1,6 @@
 import Foundation
 
-@Observable
-final class SettingsManager {
+final class SettingsManager: ObservableObject {
     private let defaults = UserDefaults.standard
 
     static let colorSchemeKey = "openframe_color_scheme"

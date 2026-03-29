@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct KioskControlView: View {
-    @Environment(AppState.self) private var appState
+    @EnvironmentObject private var appState: AppState
     let kioskId: String
     @State private var viewModel: KioskViewModel?
     @State private var showWebpageAlert = false
@@ -10,7 +10,11 @@ struct KioskControlView: View {
     var body: some View {
         Group {
             if let vm = viewModel {
-                kioskControlContent(vm)
+                KioskControlContentView(
+                    viewModel: vm,
+                    appState: appState,
+                    showWebpageAlert: $showWebpageAlert
+                )
             } else {
                 LoadingView()
             }
@@ -22,15 +26,31 @@ struct KioskControlView: View {
             viewModel = vm
             await vm.loadKiosk(id: kioskId)
         }
+        .alert("Open Webpage", isPresented: $showWebpageAlert) {
+            TextField("https://...", text: $webpageUrl)
+            Button("Open") {
+                guard !webpageUrl.isEmpty else { return }
+                Task {
+                    await viewModel?.sendCommand(type: "cast", payload: ["url": webpageUrl, "type": "webpage"])
+                }
+                webpageUrl = ""
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
+}
 
-    @ViewBuilder
-    private func kioskControlContent(_ vm: KioskViewModel) -> some View {
+private struct KioskControlContentView: View {
+    @ObservedObject var viewModel: KioskViewModel
+    let appState: AppState
+    @Binding var showWebpageAlert: Bool
+
+    var body: some View {
         let palette = appState.themeManager.palette
         ScrollView {
             VStack(spacing: 16) {
                 // Kiosk info header
-                if let kiosk = vm.selectedKiosk {
+                if let kiosk = viewModel.selectedKiosk {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(kiosk.name).font(.title2).bold()
@@ -53,7 +73,7 @@ struct KioskControlView: View {
                 }
 
                 // Command status
-                if let status = vm.commandStatus {
+                if let status = viewModel.commandStatus {
                     Text(status)
                         .font(.subheadline)
                         .padding(10)
@@ -66,13 +86,13 @@ struct KioskControlView: View {
                 SectionHeader(title: "Quick Actions")
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                     ActionButton(icon: "arrow.clockwise", label: "Refresh", color: palette.primary) {
-                        Task { await vm.refreshKiosk() }
+                        Task { await viewModel.refreshKiosk() }
                     }
                     ActionButton(icon: "arrow.up.left.and.arrow.down.right", label: "Fullscreen", color: palette.primary) {
-                        Task { await vm.sendCommand(type: "fullscreen") }
+                        Task { await viewModel.sendCommand(type: "fullscreen") }
                     }
                     ActionButton(icon: "moon.stars", label: "Screensaver", color: palette.primary) {
-                        Task { await vm.sendCommand(type: "screensaver") }
+                        Task { await viewModel.sendCommand(type: "screensaver") }
                     }
                 }
 
@@ -83,17 +103,17 @@ struct KioskControlView: View {
                         showWebpageAlert = true
                     }
                     ActionButton(icon: "xmark.circle", label: "Dismiss", color: palette.destructive) {
-                        Task { await vm.sendCommand(type: "dismiss-overlay") }
+                        Task { await viewModel.sendCommand(type: "dismiss-overlay") }
                     }
                 }
 
                 // Dashboards
-                if let kiosk = vm.selectedKiosk, !kiosk.dashboards.isEmpty {
+                if let kiosk = viewModel.selectedKiosk, !kiosk.dashboards.isEmpty {
                     SectionHeader(title: "Dashboards")
                     ForEach(kiosk.dashboards) { dash in
                         Button {
                             Task {
-                                await vm.sendCommand(type: "navigate", payload: ["dashboardId": dash.id])
+                                await viewModel.sendCommand(type: "navigate", payload: ["dashboardId": dash.id])
                             }
                         } label: {
                             HStack {
@@ -116,9 +136,9 @@ struct KioskControlView: View {
                 }
 
                 // Saved files
-                if !vm.savedFiles.isEmpty {
+                if !viewModel.savedFiles.isEmpty {
                     SectionHeader(title: "Saved Files")
-                    ForEach(vm.savedFiles) { file in
+                    ForEach(viewModel.savedFiles) { file in
                         HStack {
                             Image(systemName: "doc")
                                 .foregroundStyle(palette.primary)
@@ -128,7 +148,7 @@ struct KioskControlView: View {
                             }
                             Spacer()
                             Button {
-                                Task { await vm.deleteSavedFile(file.id) }
+                                Task { await viewModel.deleteSavedFile(file.id) }
                             } label: {
                                 Image(systemName: "trash")
                                     .foregroundStyle(palette.destructive)
@@ -141,17 +161,6 @@ struct KioskControlView: View {
                 }
             }
             .padding()
-        }
-        .alert("Open Webpage", isPresented: $showWebpageAlert) {
-            TextField("https://...", text: $webpageUrl)
-            Button("Open") {
-                guard !webpageUrl.isEmpty else { return }
-                Task {
-                    await viewModel?.sendCommand(type: "cast", payload: ["url": webpageUrl, "type": "webpage"])
-                }
-                webpageUrl = ""
-            }
-            Button("Cancel", role: .cancel) {}
         }
     }
 }

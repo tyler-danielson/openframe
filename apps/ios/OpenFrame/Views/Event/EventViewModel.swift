@@ -1,12 +1,11 @@
 import Foundation
 
-@Observable
-final class EventViewModel {
-    var event: CalendarEvent?
-    var calendars: [OFCalendar] = []
-    var isLoading = false
-    var errorMessage: String?
-    var didDelete = false
+final class EventViewModel: ObservableObject {
+    @Published var event: CalendarEvent?
+    @Published var calendars: [OFCalendar] = []
+    @Published var isLoading = false
+    @Published var errorMessage: String?
+    @Published var didDelete = false
 
     private let calendarRepository: CalendarRepository
 

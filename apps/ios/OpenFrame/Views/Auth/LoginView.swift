@@ -2,7 +2,7 @@ import SwiftUI
 import AuthenticationServices
 
 struct LoginView: View {
-    @Bindable var viewModel: AuthViewModel
+    @ObservedObject var viewModel: AuthViewModel
     @State private var email = ""
     @State private var password = ""
     @State private var apiKeyText = ""
@@ -13,7 +13,7 @@ struct LoginView: View {
     private var palette: ThemePalette { viewModel.appState.themeManager.palette }
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             ScrollView {
                 VStack(spacing: 20) {
                     Text("Sign In")

@@ -1,16 +1,14 @@
 import SwiftUI
 
 struct AlbumDetailView: View {
-    @Environment(AppState.self) private var appState
+    @EnvironmentObject private var appState: AppState
     let albumId: String
     @State private var viewModel: AlbumDetailViewModel?
-
-    private let columns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
 
     var body: some View {
         Group {
             if let vm = viewModel {
-                albumContent(vm)
+                AlbumDetailContentView(viewModel: vm)
             } else {
                 LoadingView()
             }
@@ -23,18 +21,23 @@ struct AlbumDetailView: View {
             await vm.loadPhotos(albumId: albumId)
         }
     }
+}
 
-    @ViewBuilder
-    private func albumContent(_ vm: AlbumDetailViewModel) -> some View {
-        if vm.isLoading && vm.photos.isEmpty {
+private struct AlbumDetailContentView: View {
+    @ObservedObject var viewModel: AlbumDetailViewModel
+
+    private let columns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
+
+    var body: some View {
+        if viewModel.isLoading && viewModel.photos.isEmpty {
             LoadingView()
-        } else if vm.photos.isEmpty {
+        } else if viewModel.photos.isEmpty {
             EmptyStateView(icon: "photo", title: "No photos")
         } else {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 2) {
-                    ForEach(vm.photos) { photo in
-                        AsyncImage(url: vm.thumbnailUrl(for: photo)) { phase in
+                    ForEach(viewModel.photos) { photo in
+                        AsyncImage(url: viewModel.thumbnailUrl(for: photo)) { phase in
                             switch phase {
                             case .success(let image):
                                 image.resizable().aspectRatio(1, contentMode: .fill)

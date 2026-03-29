@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct KioskListView: View {
-    @Environment(AppState.self) private var appState
+    @EnvironmentObject private var appState: AppState
     @State private var viewModel: KioskViewModel?
 
     var onNavigateToKiosk: (String) -> Void
@@ -9,7 +9,7 @@ struct KioskListView: View {
     var body: some View {
         Group {
             if let vm = viewModel {
-                kioskListContent(vm)
+                KioskListContentView(viewModel: vm, appState: appState, onNavigateToKiosk: onNavigateToKiosk)
             } else {
                 LoadingView()
             }
@@ -21,17 +21,22 @@ struct KioskListView: View {
             await vm.loadKiosks()
         }
     }
+}
 
-    @ViewBuilder
-    private func kioskListContent(_ vm: KioskViewModel) -> some View {
+private struct KioskListContentView: View {
+    @ObservedObject var viewModel: KioskViewModel
+    let appState: AppState
+    var onNavigateToKiosk: (String) -> Void
+
+    var body: some View {
         let palette = appState.themeManager.palette
-        if vm.isLoading && vm.kiosks.isEmpty {
+        if viewModel.isLoading && viewModel.kiosks.isEmpty {
             LoadingView()
-        } else if vm.kiosks.isEmpty {
+        } else if viewModel.kiosks.isEmpty {
             EmptyStateView(icon: "tv", title: "No kiosks")
         } else {
             List {
-                ForEach(vm.kiosks) { kiosk in
+                ForEach(viewModel.kiosks) { kiosk in
                     Button { onNavigateToKiosk(kiosk.id) } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "tv")
@@ -61,7 +66,7 @@ struct KioskListView: View {
                 }
             }
             .listStyle(.plain)
-            .refreshable { await vm.loadKiosks() }
+            .refreshable { await viewModel.loadKiosks() }
         }
     }
 }

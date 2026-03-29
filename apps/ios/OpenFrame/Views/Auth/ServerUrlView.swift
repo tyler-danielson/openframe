@@ -1,13 +1,12 @@
 import SwiftUI
 
 struct ServerUrlView: View {
-    @Bindable var viewModel: AuthViewModel
+    @ObservedObject var viewModel: AuthViewModel
     @State private var customUrl = ""
     @State private var showCustomUrl = false
 
     var body: some View {
-        @Bindable var vm = viewModel
-        NavigationStack {
+        NavigationView {
             ScrollView {
                 VStack(spacing: 24) {
                     Spacer().frame(height: 40)

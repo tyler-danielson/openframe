@@ -1,13 +1,13 @@
 import SwiftUI
 
 struct KioskPickerView: View {
-    @Bindable var viewModel: AuthViewModel
+    @ObservedObject var viewModel: AuthViewModel
     let user: User
 
     private var palette: ThemePalette { viewModel.appState.themeManager.palette }
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             VStack(spacing: 24) {
                 Text("Welcome, \(user.name ?? "there")!")
                     .font(.title2).bold()

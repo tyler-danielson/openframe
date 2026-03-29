@@ -1,13 +1,12 @@
 import Foundation
 
-@Observable
-final class TasksViewModel {
-    var taskLists: [TaskList] = []
-    var selectedListId: String?
-    var tasks: [OFTask] = []
-    var showCompleted = false
-    var isLoading = false
-    var errorMessage: String?
+final class TasksViewModel: ObservableObject {
+    @Published var taskLists: [TaskList] = []
+    @Published var selectedListId: String?
+    @Published var tasks: [OFTask] = []
+    @Published var showCompleted = false
+    @Published var isLoading = false
+    @Published var errorMessage: String?
 
     private let taskRepository: TaskRepository
     private let settingsManager: SettingsManager

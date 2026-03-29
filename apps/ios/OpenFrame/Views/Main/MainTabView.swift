@@ -27,12 +27,12 @@ enum AppTab: String, CaseIterable {
 }
 
 struct MainTabView: View {
-    @Environment(AppState.self) private var appState
+    @EnvironmentObject private var appState: AppState
     @State private var selectedTab: AppTab = .today
-    @State private var navigationPath = NavigationPath()
+    @State private var activeRoute: AppRoute?
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
+        NavigationView {
             TabView(selection: $selectedTab) {
                 TodayView(onNavigateToEvent: navigateToEvent, onNavigateToNewEvent: navigateToNewEvent)
                     .tabItem { Label(AppTab.today.label, systemImage: AppTab.today.icon) }
@@ -58,35 +58,56 @@ struct MainTabView: View {
                     .tabItem { Label(AppTab.settings.label, systemImage: AppTab.settings.icon) }
                     .tag(AppTab.settings)
             }
-            .navigationDestination(for: AppRoute.self) { route in
-                switch route {
-                case .eventDetail(let id):
-                    EventDetailView(eventId: id)
-                case .newEvent:
-                    NewEventView()
-                case .albumDetail(let id):
-                    AlbumDetailView(albumId: id)
-                case .kioskControl(let id):
-                    KioskControlView(kioskId: id)
+            .background(
+                Group {
+                    NavigationLink(
+                        destination: routeDestination,
+                        isActive: Binding(
+                            get: { activeRoute != nil },
+                            set: { if !$0 { activeRoute = nil } }
+                        )
+                    ) {
+                        EmptyView()
+                    }
+                    .hidden()
                 }
+            )
+        }
+        .navigationViewStyle(.stack)
+    }
+
+    @ViewBuilder
+    private var routeDestination: some View {
+        if let route = activeRoute {
+            switch route {
+            case .eventDetail(let id):
+                EventDetailView(eventId: id)
+            case .newEvent:
+                NewEventView()
+            case .albumDetail(let id):
+                AlbumDetailView(albumId: id)
+            case .kioskControl(let id):
+                KioskControlView(kioskId: id)
             }
+        } else {
+            EmptyView()
         }
     }
 
     private func navigateToEvent(_ id: String) {
-        navigationPath.append(AppRoute.eventDetail(id))
+        activeRoute = .eventDetail(id)
     }
 
     private func navigateToNewEvent() {
-        navigationPath.append(AppRoute.newEvent)
+        activeRoute = .newEvent
     }
 
     private func navigateToAlbum(_ id: String) {
-        navigationPath.append(AppRoute.albumDetail(id))
+        activeRoute = .albumDetail(id)
     }
 
     private func navigateToKiosk(_ id: String) {
-        navigationPath.append(AppRoute.kioskControl(id))
+        activeRoute = .kioskControl(id)
     }
 }
 

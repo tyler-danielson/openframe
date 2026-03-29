@@ -1,11 +1,11 @@
 import SwiftUI
 
 struct AuthFlowView: View {
-    @Environment(AppState.self) private var appState
-    @State private var viewModel: AuthViewModel
+    @EnvironmentObject private var appState: AppState
+    @StateObject private var viewModel: AuthViewModel
 
     init(appState: AppState) {
-        _viewModel = State(initialValue: AuthViewModel(appState: appState))
+        _viewModel = StateObject(wrappedValue: AuthViewModel(appState: appState))
     }
 
     var body: some View {
@@ -29,7 +29,7 @@ struct AuthFlowView: View {
         .task {
             await viewModel.checkInitialState()
         }
-        .onChange(of: appState.pendingDeepLinkTokens?.accessToken) { _, newValue in
+        .onChange(of: appState.pendingDeepLinkTokens?.accessToken) { newValue in
             if let tokens = appState.pendingDeepLinkTokens {
                 Task {
                     await viewModel.handleOAuthTokens(

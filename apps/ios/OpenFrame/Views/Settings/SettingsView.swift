@@ -1,14 +1,18 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @Environment(AppState.self) private var appState
+    @EnvironmentObject private var appState: AppState
     @State private var viewModel: SettingsViewModel?
     @State private var showLogoutConfirm = false
 
     var body: some View {
         Group {
             if let vm = viewModel {
-                settingsContent(vm)
+                SettingsContentView(
+                    viewModel: vm,
+                    appState: appState,
+                    showLogoutConfirm: $showLogoutConfirm
+                )
             } else {
                 LoadingView()
             }
@@ -23,15 +27,28 @@ struct SettingsView: View {
             viewModel = vm
             await vm.load()
         }
+        .alert("Log Out", isPresented: $showLogoutConfirm) {
+            Button("Log Out", role: .destructive) {
+                appState.logout()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to log out?")
+        }
     }
+}
 
-    @ViewBuilder
-    private func settingsContent(_ vm: SettingsViewModel) -> some View {
+private struct SettingsContentView: View {
+    @ObservedObject var viewModel: SettingsViewModel
+    let appState: AppState
+    @Binding var showLogoutConfirm: Bool
+
+    var body: some View {
         let palette = appState.themeManager.palette
         ScrollView {
             VStack(spacing: 20) {
                 // Profile card
-                if let user = vm.user {
+                if let user = viewModel.user {
                     HStack(spacing: 16) {
                         // Avatar circle with initials
                         ZStack {
@@ -56,10 +73,10 @@ struct SettingsView: View {
 
                 // Sync button
                 Button {
-                    Task { await vm.syncAll() }
+                    Task { await viewModel.syncAll() }
                 } label: {
                     HStack {
-                        if vm.isSyncing {
+                        if viewModel.isSyncing {
                             ProgressView()
                         } else {
                             Image(systemName: "arrow.triangle.2.circlepath")
@@ -71,7 +88,7 @@ struct SettingsView: View {
                     .foregroundStyle(palette.secondaryForeground)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
-                .disabled(vm.isSyncing)
+                .disabled(viewModel.isSyncing)
 
                 // Color scheme picker
                 VStack(alignment: .leading, spacing: 12) {
@@ -102,16 +119,16 @@ struct SettingsView: View {
                 }
 
                 // Calendar visibility
-                if !vm.calendars.isEmpty {
+                if !viewModel.calendars.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Calendars")
                             .font(.headline)
 
-                        ForEach(vm.calendars) { calendar in
+                        ForEach(viewModel.calendars) { calendar in
                             HStack {
                                 Toggle(isOn: Binding(
                                     get: { calendar.isVisible },
-                                    set: { _ in Task { await vm.toggleCalendarVisibility(calendar) } }
+                                    set: { _ in Task { await viewModel.toggleCalendarVisibility(calendar) } }
                                 )) {
                                     VStack(alignment: .leading) {
                                         Text(calendar.effectiveName).font(.subheadline)
@@ -143,14 +160,6 @@ struct SettingsView: View {
                 }
             }
             .padding()
-        }
-        .alert("Log Out", isPresented: $showLogoutConfirm) {
-            Button("Log Out", role: .destructive) {
-                appState.logout()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Are you sure you want to log out?")
         }
     }
 

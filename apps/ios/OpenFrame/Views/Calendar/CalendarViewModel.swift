@@ -1,12 +1,11 @@
 import Foundation
 
-@Observable
-final class CalendarViewModel {
-    var currentMonth = Date()
-    var selectedDate = Date()
-    var monthEvents: [CalendarEvent] = []
-    var isLoading = false
-    var errorMessage: String?
+final class CalendarViewModel: ObservableObject {
+    @Published var currentMonth = Date()
+    @Published var selectedDate = Date()
+    @Published var monthEvents: [CalendarEvent] = []
+    @Published var isLoading = false
+    @Published var errorMessage: String?
 
     private let calendarRepository: CalendarRepository
 
