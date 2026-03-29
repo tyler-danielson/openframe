@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 final class RecipeDetailViewModel: ObservableObject {
     private let recipeId: String
     private let repository: RecipeRepository

@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 final class EventViewModel: ObservableObject {
     @Published var event: CalendarEvent?
     @Published var calendars: [OFCalendar] = []

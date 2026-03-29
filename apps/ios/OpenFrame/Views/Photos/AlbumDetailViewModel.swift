@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 final class AlbumDetailViewModel: ObservableObject {
     @Published var photos: [Photo] = []
     @Published var isLoading = false

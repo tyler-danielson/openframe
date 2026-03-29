@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 final class SettingsViewModel: ObservableObject {
     @Published var user: User?
     @Published var calendars: [OFCalendar] = []

@@ -10,6 +10,7 @@ enum AuthScreen {
     case authenticated
 }
 
+@MainActor
 final class AuthViewModel: ObservableObject {
     @Published var screen: AuthScreen = .loading
     @Published var isLoading = false

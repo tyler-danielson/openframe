@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 final class TasksViewModel: ObservableObject {
     @Published var taskLists: [TaskList] = []
     @Published var selectedListId: String?

@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 final class TodayViewModel: ObservableObject {
     @Published var groupedEvents: [(String, [CalendarEvent])] = []
     @Published var isLoading = false

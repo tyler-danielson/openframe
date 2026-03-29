@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 final class CalendarViewModel: ObservableObject {
     @Published var currentMonth = Date()
     @Published var selectedDate = Date()

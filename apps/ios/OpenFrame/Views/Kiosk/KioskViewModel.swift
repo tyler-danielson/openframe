@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 final class KioskViewModel: ObservableObject {
     @Published var kiosks: [Kiosk] = []
     @Published var selectedKiosk: Kiosk?
