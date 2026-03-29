@@ -25,7 +25,7 @@ private struct RecipesContentView: View {
 
     @State private var showingAddMenu = false
 
-    private var palette: ColorPalette {
+    private var palette: ThemePalette {
         appState.themeManager.palette
     }
 
@@ -151,7 +151,7 @@ private struct RecipesContentView: View {
 private struct RecipeCard: View {
     let recipe: Recipe
     let imageUrl: URL?
-    let palette: ColorPalette
+    let palette: ThemePalette
     let onFavorite: () -> Void
 
     var body: some View {
@@ -224,7 +224,7 @@ private struct RecipeCard: View {
 private struct TagChip: View {
     let tag: String
     let isSelected: Bool
-    let palette: ColorPalette
+    let palette: ThemePalette
     let action: () -> Void
 
     var body: some View {

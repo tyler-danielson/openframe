@@ -12,7 +12,7 @@ struct ScanRecipeView: View {
     @State private var parsedRecipeId: String?
     @State private var navigateToRecipe = false
 
-    private var palette: ColorPalette {
+    private var palette: ThemePalette {
         appState.themeManager.palette
     }
 

@@ -20,7 +20,7 @@ private struct RecipeDetailContentView: View {
     @State private var checkedInstructions: Set<Int> = []
     @State private var showDeleteConfirm = false
 
-    private var palette: ColorPalette {
+    private var palette: ThemePalette {
         appState.themeManager.palette
     }
 
@@ -219,7 +219,7 @@ private struct MetadataBadge: View {
     let icon: String
     let label: String
     let value: String
-    let palette: ColorPalette
+    let palette: ThemePalette
 
     var body: some View {
         VStack(spacing: 4) {
@@ -242,7 +242,7 @@ private struct MetadataBadge: View {
 private struct IngredientRow: View {
     let ingredient: RecipeIngredient
     let isChecked: Bool
-    let palette: ColorPalette
+    let palette: ThemePalette
     let onToggle: () -> Void
 
     var body: some View {
@@ -268,7 +268,7 @@ private struct InstructionRow: View {
     let stepNumber: Int
     let instruction: String
     let isChecked: Bool
-    let palette: ColorPalette
+    let palette: ThemePalette
     let onToggle: () -> Void
 
     var body: some View {

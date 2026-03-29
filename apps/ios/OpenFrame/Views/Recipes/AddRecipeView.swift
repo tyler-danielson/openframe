@@ -15,7 +15,7 @@ struct AddRecipeView: View {
     @State private var notes = ""
     @State private var isSaving = false
 
-    private var palette: ColorPalette {
+    private var palette: ThemePalette {
         appState.themeManager.palette
     }
 
