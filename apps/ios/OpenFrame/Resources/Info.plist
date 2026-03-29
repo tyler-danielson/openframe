@@ -52,6 +52,10 @@
             </array>
         </dict>
     </array>
+    <key>NSCameraUsageDescription</key>
+    <string>OpenFrame needs camera access to scan recipes from photos</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>OpenFrame needs photo library access to upload photos and scan recipes</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsArbitraryLoads</key>

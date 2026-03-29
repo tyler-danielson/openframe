@@ -1,13 +1,14 @@
 import SwiftUI
 
 enum AppTab: String, CaseIterable {
-    case today, calendar, tasks, photos, kiosk, settings
+    case today, calendar, tasks, recipes, photos, kiosk, settings
 
     var label: String {
         switch self {
         case .today: return "Today"
         case .calendar: return "Calendar"
         case .tasks: return "Tasks"
+        case .recipes: return "Recipes"
         case .photos: return "Photos"
         case .kiosk: return "Kiosks"
         case .settings: return "Settings"
@@ -19,6 +20,7 @@ enum AppTab: String, CaseIterable {
         case .today: return "calendar.day.timeline.left"
         case .calendar: return "calendar"
         case .tasks: return "checklist"
+        case .recipes: return "book.closed"
         case .photos: return "photo.on.rectangle"
         case .kiosk: return "tv"
         case .settings: return "gearshape"
@@ -45,6 +47,14 @@ struct MainTabView: View {
                 TasksView()
                     .tabItem { Label(AppTab.tasks.label, systemImage: AppTab.tasks.icon) }
                     .tag(AppTab.tasks)
+
+                RecipesView(
+                    onNavigateToRecipe: navigateToRecipe,
+                    onNavigateToAddRecipe: navigateToAddRecipe,
+                    onNavigateToScanRecipe: navigateToScanRecipe
+                )
+                    .tabItem { Label(AppTab.recipes.label, systemImage: AppTab.recipes.icon) }
+                    .tag(AppTab.recipes)
 
                 PhotosView(onNavigateToAlbum: navigateToAlbum)
                     .tabItem { Label(AppTab.photos.label, systemImage: AppTab.photos.icon) }
@@ -88,6 +98,12 @@ struct MainTabView: View {
                 AlbumDetailView(albumId: id)
             case .kioskControl(let id):
                 KioskControlView(kioskId: id)
+            case .recipeDetail(let id):
+                RecipeDetailView(recipeId: id)
+            case .addRecipe:
+                AddRecipeView()
+            case .scanRecipe:
+                ScanRecipeView()
             }
         } else {
             EmptyView()
@@ -109,6 +125,18 @@ struct MainTabView: View {
     private func navigateToKiosk(_ id: String) {
         activeRoute = .kioskControl(id)
     }
+
+    private func navigateToRecipe(_ id: String) {
+        activeRoute = .recipeDetail(id)
+    }
+
+    private func navigateToAddRecipe() {
+        activeRoute = .addRecipe
+    }
+
+    private func navigateToScanRecipe() {
+        activeRoute = .scanRecipe
+    }
 }
 
 enum AppRoute: Hashable {
@@ -116,4 +144,7 @@ enum AppRoute: Hashable {
     case newEvent
     case albumDetail(String)
     case kioskControl(String)
+    case recipeDetail(String)
+    case addRecipe
+    case scanRecipe
 }

@@ -11,6 +11,7 @@ final class AppState: ObservableObject {
     @Published private(set) var taskRepository: TaskRepository!
     @Published private(set) var photoRepository: PhotoRepository!
     @Published private(set) var kioskRepository: KioskRepository!
+    @Published private(set) var recipeRepository: RecipeRepository!
 
     var isAuthenticated: Bool {
         keychainManager.hasCredentials()
@@ -34,6 +35,7 @@ final class AppState: ObservableObject {
         self.taskRepository = TaskRepository(apiClient: client)
         self.photoRepository = PhotoRepository(apiClient: client, keychainManager: keychainManager)
         self.kioskRepository = KioskRepository(apiClient: client)
+        self.recipeRepository = RecipeRepository(apiClient: client, keychainManager: keychainManager)
     }
 
     func handleDeepLink(_ url: URL) {
