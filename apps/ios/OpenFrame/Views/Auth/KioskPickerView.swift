@@ -37,6 +37,7 @@ struct KioskPickerView: View {
             }
             .padding(24)
         }
+        .navigationViewStyle(.stack)
     }
 }
 

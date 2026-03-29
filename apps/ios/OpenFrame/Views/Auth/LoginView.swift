@@ -117,6 +117,7 @@ struct LoginView: View {
                 .padding(.top, 40)
             }
         }
+        .navigationViewStyle(.stack)
         .sheet(isPresented: $showOAuth) {
             OAuthWebView(
                 provider: oauthProvider,

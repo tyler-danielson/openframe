@@ -115,6 +115,7 @@ struct ServerUrlView: View {
                 .padding(.horizontal, 24)
             }
         }
+        .navigationViewStyle(.stack)
     }
 
     private var appState: AppState {
