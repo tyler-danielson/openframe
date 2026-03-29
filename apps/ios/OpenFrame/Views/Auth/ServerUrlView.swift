@@ -18,7 +18,7 @@ struct ServerUrlView: View {
                         .frame(width: 80, height: 80)
 
                     Text("OpenFrame")
-                        .font(.largeTitle).bold()
+                        .font(Font.largeTitle.bold())
 
                     Text("Your life, beautifully organized")
                         .font(.subheadline)

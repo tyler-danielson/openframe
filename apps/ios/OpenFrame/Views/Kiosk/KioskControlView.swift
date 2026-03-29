@@ -53,7 +53,7 @@ private struct KioskControlContentView: View {
                 if let kiosk = viewModel.selectedKiosk {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(kiosk.name).font(.title2).bold()
+                            Text(kiosk.name).font(Font.title2.bold())
                             HStack(spacing: 6) {
                                 Circle()
                                     .fill(kiosk.isActive ? Color.green : palette.mutedForeground)

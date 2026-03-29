@@ -59,7 +59,7 @@ private struct EventDetailContentView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     // Title
                     Text(event.title ?? "Untitled")
-                        .font(.title2).bold()
+                        .font(Font.title2.bold())
 
                     // Calendar name
                     if let calName = event.calendarName {

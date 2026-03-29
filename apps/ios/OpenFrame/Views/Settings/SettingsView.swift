@@ -56,7 +56,7 @@ private struct SettingsContentView: View {
                                 .fill(palette.primary.opacity(0.2))
                                 .frame(width: 56, height: 56)
                             Text(initials(for: user))
-                                .font(.title2).bold()
+                                .font(Font.title2.bold())
                                 .foregroundStyle(palette.primary)
                         }
 
@@ -109,7 +109,7 @@ private struct SettingsContentView: View {
                                             .stroke(.white, lineWidth: 2)
                                             .frame(width: 44, height: 44)
                                         Image(systemName: "checkmark")
-                                            .font(.caption).fontWeight(.bold)
+                                            .font(Font.caption.bold())
                                             .foregroundStyle(.white)
                                     }
                                 }

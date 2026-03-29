@@ -28,7 +28,7 @@ struct SignupView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     Text("Create Account")
-                        .font(.title).bold()
+                        .font(Font.title.bold())
 
                     VStack(spacing: 12) {
                         TextField("Full Name", text: $name)

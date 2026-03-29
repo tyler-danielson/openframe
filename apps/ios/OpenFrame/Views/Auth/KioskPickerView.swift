@@ -10,7 +10,7 @@ struct KioskPickerView: View {
         NavigationView {
             VStack(spacing: 24) {
                 Text("Welcome, \(user.name ?? "there")!")
-                    .font(.title2).bold()
+                    .font(Font.title2.bold())
 
                 Text("Select a kiosk to manage")
                     .foregroundStyle(.secondary)

@@ -17,7 +17,7 @@ struct LoginView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     Text("Sign In")
-                        .font(.title).bold()
+                        .font(Font.title.bold())
 
                     // OAuth buttons
                     if let config = viewModel.authConfig {

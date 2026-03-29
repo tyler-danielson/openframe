@@ -74,7 +74,7 @@ private struct AlbumCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
                 Text(album.name)
-                    .font(.subheadline).bold()
+                    .font(Font.subheadline.bold())
                     .lineLimit(1)
                 Text("\(album.photoCount) photos")
                     .font(.caption)
