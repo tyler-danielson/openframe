@@ -95,11 +95,22 @@ final class APIClient: Sendable {
         _ = try await performRequest(method, path: path, body: body, query: query)
     }
 
-    /// Upload multipart form data
+    /// Upload multipart form data and decode the response
     func uploadMultipart<T: Decodable>(path: String, fileData: Data, fileName: String, mimeType: String) async throws -> T {
+        let data = try await performMultipartUpload(path: path, fileData: fileData, fileName: fileName, mimeType: mimeType)
+        return try decoder.decode(T.self, from: data)
+    }
+
+    /// Upload multipart form data with no meaningful response
+    func uploadMultipartVoid(path: String, fileData: Data, fileName: String, mimeType: String) async throws {
+        _ = try await performMultipartUpload(path: path, fileData: fileData, fileName: fileName, mimeType: mimeType)
+    }
+
+    private func performMultipartUpload(path: String, fileData: Data, fileName: String, mimeType: String, isRetry: Bool = false) async throws -> Data {
         let boundary = "Boundary-\(UUID().uuidString)"
         var request = try buildRequest(.post, path: path)
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120 // Longer timeout for uploads
 
         var bodyData = Data()
         bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
@@ -111,8 +122,20 @@ final class APIClient: Sendable {
         request.httpBody = bodyData
 
         let (data, response) = try await session.data(for: request)
+
+        // Handle 401 with token refresh
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 401, !isRetry {
+            if keychainManager.authMethod == .bearer {
+                let refreshed = await tokenRefresher.refresh(keychainManager: keychainManager)
+                if refreshed {
+                    return try await performMultipartUpload(path: path, fileData: fileData, fileName: fileName, mimeType: mimeType, isRetry: true)
+                }
+            }
+            throw APIError.unauthorized
+        }
+
         try validateResponse(response)
-        return try decoder.decode(T.self, from: data)
+        return data
     }
 
     // MARK: - Internal

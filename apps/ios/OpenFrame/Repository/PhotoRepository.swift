@@ -46,6 +46,15 @@ final class PhotoRepository: Sendable {
         }
     }
 
+    func uploadPhoto(albumId: String, imageData: Data, filename: String) async throws {
+        try await apiClient.uploadMultipartVoid(
+            path: "/api/v1/photos/albums/\(albumId)/photos",
+            fileData: imageData,
+            fileName: filename,
+            mimeType: "image/jpeg"
+        )
+    }
+
     /// Build an authenticated URL for loading photos
     func photoUrl(for path: String?) -> URL? {
         guard let path, let serverUrl = keychainManager.serverUrl else { return nil }
