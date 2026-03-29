@@ -16,8 +16,8 @@ struct TasksView: View {
         }
         .navigationTitle("Tasks")
         .toolbar {
-            if let vm = viewModel {
-                ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                if let vm = viewModel {
                     Button(vm.showCompleted ? "Hide Done" : "Show Done") {
                         vm.showCompleted.toggle()
                     }

@@ -109,7 +109,7 @@ private struct SettingsContentView: View {
                                             .stroke(.white, lineWidth: 2)
                                             .frame(width: 44, height: 44)
                                         Image(systemName: "checkmark")
-                                            .font(.caption).bold()
+                                            .font(.caption).fontWeight(.bold)
                                             .foregroundStyle(.white)
                                     }
                                 }
