@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import AuthenticationServices
 
 struct LoginView: View {
@@ -156,58 +157,70 @@ private struct OAuthButton: View {
     }
 }
 
-struct OAuthWebView: View {
+struct OAuthWebView: UIViewControllerRepresentable {
     let provider: String
     let serverUrl: String
     let onComplete: (String, String) -> Void
     let onCancel: () -> Void
 
-    @State private var isAuthenticating = false
-
-    var body: some View {
-        VStack(spacing: 20) {
-            Text("Authenticating with \(provider.capitalized)...")
-                .font(.headline)
-
-            if isAuthenticating {
-                ProgressView()
-            }
-
-            Button("Cancel") { onCancel() }
-        }
-        .padding()
-        .task {
-            await startOAuth()
-        }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onComplete: onComplete, onCancel: onCancel)
     }
 
-    private func startOAuth() async {
-        isAuthenticating = true
+    func makeUIViewController(context: Context) -> OAuthHostController {
+        let vc = OAuthHostController()
+        vc.coordinator = context.coordinator
         let urlString = "\(serverUrl)/api/v1/auth/oauth/\(provider)?redirect=openframe://auth/callback"
-        guard let url = URL(string: urlString) else {
-            onCancel()
-            return
+        vc.oauthURL = URL(string: urlString)
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: OAuthHostController, context: Context) {}
+
+    final class Coordinator: NSObject, ASWebAuthenticationPresentationContextProviding {
+        let onComplete: (String, String) -> Void
+        let onCancel: () -> Void
+
+        init(onComplete: @escaping (String, String) -> Void, onCancel: @escaping () -> Void) {
+            self.onComplete = onComplete
+            self.onCancel = onCancel
         }
 
-        // Use ASWebAuthenticationSession
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let session = ASWebAuthenticationSession(
-                url: url,
-                callbackURLScheme: "openframe"
-            ) { callbackURL, error in
-                defer { continuation.resume() }
-                guard let callbackURL, error == nil,
-                      let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
-                      let items = components.queryItems,
-                      let accessToken = items.first(where: { $0.name == "accessToken" })?.value,
-                      let refreshToken = items.first(where: { $0.name == "refreshToken" })?.value else {
-                    onCancel()
-                    return
-                }
-                onComplete(accessToken, refreshToken)
-            }
-            session.prefersEphemeralWebBrowserSession = false
-            session.start()
+        func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+            UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap { $0.windows }
+                .first(where: { $0.isKeyWindow }) ?? ASPresentationAnchor()
         }
+    }
+}
+
+final class OAuthHostController: UIViewController {
+    var coordinator: OAuthWebView.Coordinator?
+    var oauthURL: URL?
+    private var authSession: ASWebAuthenticationSession?
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard authSession == nil, let url = oauthURL, let coordinator = coordinator else { return }
+
+        let session = ASWebAuthenticationSession(
+            url: url,
+            callbackURLScheme: "openframe"
+        ) { [weak self] callbackURL, error in
+            guard let callbackURL, error == nil,
+                  let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
+                  let items = components.queryItems,
+                  let accessToken = items.first(where: { $0.name == "accessToken" })?.value,
+                  let refreshToken = items.first(where: { $0.name == "refreshToken" })?.value else {
+                self?.coordinator?.onCancel()
+                return
+            }
+            self?.coordinator?.onComplete(accessToken, refreshToken)
+        }
+        session.presentationContextProvider = coordinator
+        session.prefersEphemeralWebBrowserSession = false
+        authSession = session // Retain the session
+        session.start()
     }
 }
