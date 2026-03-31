@@ -30,6 +30,7 @@ final class AuthViewModel: ObservableObject {
     var keychainManager: KeychainManager { appState.keychainManager }
 
     func checkInitialState() async {
+        print("[Auth] checkInitialState: isAuthenticated=\(appState.isAuthenticated), hasServerUrl=\(appState.hasServerUrl), serverUrl=\(keychainManager.serverUrl ?? "nil")")
         if appState.isAuthenticated {
             screen = .authenticated
         } else if appState.hasServerUrl {
@@ -72,8 +73,13 @@ final class AuthViewModel: ObservableObject {
 
     func loadAuthConfig() async {
         let result = await authRepository.getAuthConfig()
-        if case .success(let config) = result {
+        switch result {
+        case .success(let config):
             authConfig = config
+            print("[AuthConfig] Loaded: google=\(config.google?.clientId != nil), microsoft=\(config.microsoft?.available == true)")
+        case .failure(let error):
+            print("[AuthConfig] Failed to load: \(error)")
+            errorMessage = "Could not load login options: \(error.localizedDescription)"
         }
     }
 

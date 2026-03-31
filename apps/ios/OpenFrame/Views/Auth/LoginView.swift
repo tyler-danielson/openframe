@@ -20,6 +20,13 @@ struct LoginView: View {
                     Text("Sign In")
                         .font(Font.title.bold())
 
+                    // Show connected server
+                    if let url = viewModel.keychainManager.serverUrl {
+                        Text("Connected to: \(url)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
                     // OAuth buttons
                     if let config = viewModel.authConfig {
                         if config.google?.clientId != nil {
