@@ -103,7 +103,7 @@ final class AuthRepository: Sendable {
 
     func getOAuthUrl(provider: String) -> String? {
         guard let serverUrl = keychainManager.serverUrl else { return nil }
-        return "\(serverUrl)/api/v1/auth/oauth/\(provider)?redirect=openframe://auth/callback"
+        return "\(serverUrl)/api/v1/auth/oauth/\(provider)?callbackUrl=openframe://auth/callback"
     }
 
     func saveTokensFromDeepLink(accessToken: String, refreshToken: String) {

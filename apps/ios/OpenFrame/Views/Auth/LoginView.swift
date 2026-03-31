@@ -170,8 +170,13 @@ struct OAuthWebView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> OAuthHostController {
         let vc = OAuthHostController()
         vc.coordinator = context.coordinator
-        let urlString = "\(serverUrl)/api/v1/auth/oauth/\(provider)?callbackUrl=openframe://auth/callback"
-        vc.oauthURL = URL(string: urlString)
+        var components = URLComponents(string: "\(serverUrl)/api/v1/auth/oauth/\(provider)")
+        components?.queryItems = [
+            URLQueryItem(name: "callbackUrl", value: "openframe://auth/callback"),
+            URLQueryItem(name: "mobile", value: "true"),
+        ]
+        vc.oauthURL = components?.url
+        print("[OAuth] Opening URL: \(components?.url?.absoluteString ?? "nil") (serverUrl=\(serverUrl))")
         return vc
     }
 
