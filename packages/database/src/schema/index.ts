@@ -90,12 +90,15 @@ export interface UserPreferences {
 }
 
 // Plan limits for hosted/cloud mode (synced from cloud platform during provisioning)
+// Under the new pricing model, ALL features are available on every tier.
+// Differentiation is resource-based (kiosks, photos, AI queries).
 export interface PlanLimits {
   maxKiosks: number;
   maxCalendars: number;
   maxCameras: number;
-  maxPhotos?: number;              // Total photos allowed (null = unlimited)
-  maxPhotoResolution?: number;     // Max pixel dimension (e.g. 1080, 3840; null = 4K default)
+  maxPhotos: number;               // Total photos allowed (-1 = unlimited)
+  maxPhotoResolution: number;      // Max pixel dimension (1080 for free, -1 = original)
+  hostedAiQueries: number;         // Monthly hosted AI query limit (-1 = unlimited)
   features: {
     iptv: boolean;
     spotify: boolean;

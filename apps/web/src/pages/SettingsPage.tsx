@@ -9116,32 +9116,24 @@ function BillingSettings() {
               current={billing?.usage?.kiosks?.current ?? 0}
               limit={planLimits.maxKiosks}
             />
-            <UsageBar
-              label="Calendars"
-              current={billing?.usage?.calendars?.current ?? 0}
-              limit={planLimits.maxCalendars}
-            />
-            <UsageBar
-              label="Cameras"
-              current={billing?.usage?.cameras?.current ?? 0}
-              limit={planLimits.maxCameras}
-            />
+            {planLimits.maxPhotos !== undefined && planLimits.maxPhotos !== -1 && (
+              <UsageBar
+                label="Photos"
+                current={billing?.usage?.photos?.current ?? 0}
+                limit={planLimits.maxPhotos}
+              />
+            )}
+            {planLimits.hostedAiQueries !== undefined && planLimits.hostedAiQueries !== -1 && (
+              <UsageBar
+                label="AI Queries"
+                current={0}
+                limit={planLimits.hostedAiQueries}
+              />
+            )}
             <div className="pt-2 border-t border-border">
-              <p className="text-sm font-medium text-primary mb-2">Features</p>
-              <div className="grid grid-cols-2 gap-2">
-                {Object.entries(planLimits.features).map(([feature, enabled]) => (
-                  <div key={feature} className="flex items-center gap-2 text-sm">
-                    {enabled ? (
-                      <CheckCircle className="h-4 w-4 text-accent-foreground" />
-                    ) : (
-                      <XCircle className="h-4 w-4 text-muted-foreground" />
-                    )}
-                    <span className={enabled ? "text-foreground" : "text-muted-foreground"}>
-                      {feature.charAt(0).toUpperCase() + feature.slice(1).replace(/([A-Z])/g, " $1")}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <p className="text-xs text-muted-foreground">
+                All features are included on every plan. Upgrade for more screens, storage, and AI queries.
+              </p>
             </div>
           </CardContent>
         </Card>

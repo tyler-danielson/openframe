@@ -5356,7 +5356,11 @@ export interface CloudBillingInfo {
   usage: {
     kiosks: { current: number; limit: number };
     calendars: { current: number; limit: number };
-    cameras: { current: number; limit: number };
+    photos: { current: number; limit: number };
+  };
+  limits: {
+    maxPhotoResolution: number;
+    hostedAiQueries: number;
   };
   activeServices?: Array<{
     id: string;
@@ -5396,6 +5400,9 @@ export interface PlanLimits {
   maxKiosks: number;
   maxCalendars: number;
   maxCameras: number;
+  maxPhotos: number;
+  maxPhotoResolution: number;
+  hostedAiQueries: number;
   features: {
     iptv: boolean;
     spotify: boolean;

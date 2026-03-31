@@ -53,18 +53,10 @@ export const moduleRoutes: FastifyPluginAsync = async (fastify) => {
         enabledMap.set(setting.key, setting.value === "true");
       }
 
-      // Get plan limits for cloud mode
-      let planFeatures: Record<string, boolean> | null = null;
-      if (isHosted) {
-        const limits = await fastify.getUserPlanLimits(userId);
-        planFeatures = limits.features as Record<string, boolean>;
-      }
-
+      // All modules are available on every plan — no feature gating
       const modules = MODULE_IDS.map((id) => {
         const def = MODULE_REGISTRY[id];
         const enabled = enabledMap.get(id) ?? false;
-        // In self-hosted, all modules are available. In cloud, check plan.
-        const available = !isHosted || isPlanFeatureAvailable(id, planFeatures);
         return {
           id: def.id,
           name: def.name,
@@ -73,7 +65,7 @@ export const moduleRoutes: FastifyPluginAsync = async (fastify) => {
           category: def.category,
           dependsOn: def.dependsOn,
           enabled,
-          available,
+          available: true,
         };
       });
 
@@ -172,19 +164,7 @@ export const moduleRoutes: FastifyPluginAsync = async (fastify) => {
 
       const modId = moduleId as ModuleId;
 
-      // Check plan access in hosted mode
-      if (isHosted && enabled) {
-        const limits = await fastify.getUserPlanLimits(userId);
-        const planFeatures = limits.features as Record<string, boolean>;
-        if (!isPlanFeatureAvailable(modId, planFeatures)) {
-          return reply.status(403).send({
-            success: false,
-            error: "plan_limit",
-            message: `The "${MODULE_REGISTRY[modId].name}" module is not available on your current plan`,
-            upgrade_url: "https://openframe.us/billing",
-          });
-        }
-      }
+      // All modules are available on every plan — no feature gating
 
       // Read current enabled modules for dependency checks
       const moduleSettings = isHosted
@@ -322,35 +302,6 @@ async function upsertModuleSetting(
       isSecret: false,
     });
   }
-}
-
-/**
- * Check if a module is available on the user's plan.
- * Maps module IDs to plan feature keys where they exist.
- */
-function isPlanFeatureAvailable(
-  moduleId: ModuleId,
-  planFeatures: Record<string, boolean> | null
-): boolean {
-  if (!planFeatures) return true;
-
-  // Map module IDs to plan feature keys
-  const featureMap: Partial<Record<ModuleId, string>> = {
-    iptv: "iptv",
-    spotify: "spotify",
-    "ai-chat": "ai",
-    "ai-briefing": "ai",
-    gmail: "ai",
-    homeassistant: "homeAssistant",
-    automations: "automations",
-    map: "homeAssistant",
-    cast: "homeAssistant",
-    companion: "companion",
-  };
-
-  const planKey = featureMap[moduleId];
-  if (!planKey) return true; // Module not gated by plan
-  return planFeatures[planKey] !== false;
 }
 
 // ---- In-memory cache for module enabled state ----

@@ -3,18 +3,21 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify";
 import { eq } from "drizzle-orm";
 import { userPlans, type PlanLimits, kiosks, calendars, cameras } from "@openframe/database/schema";
 
+// All features are available on every tier.
+// Differentiation is resource-based (kiosks, photos, AI queries).
 const DEFAULT_FREE_LIMITS: PlanLimits = {
-  maxKiosks: 2,
-  maxCalendars: 5,
-  maxCameras: 2,
-  maxPhotos: 50,
+  maxKiosks: 1,
+  maxCalendars: -1, // Unlimited
+  maxCameras: -1, // Unlimited
+  maxPhotos: 100,
   maxPhotoResolution: 1080,
+  hostedAiQueries: 25,
   features: {
-    iptv: false,
-    spotify: false,
-    ai: false,
+    iptv: true,
+    spotify: true,
+    ai: true,
     homeAssistant: true,
-    automations: false,
+    automations: true,
     companion: true,
   },
 };
@@ -45,7 +48,18 @@ async function getUserPlanLimits(
     return DEFAULT_FREE_LIMITS;
   }
 
-  return plan.limits;
+  // Ensure all features are true regardless of what's stored
+  const limits = plan.limits as PlanLimits;
+  limits.features = {
+    iptv: true,
+    spotify: true,
+    ai: true,
+    homeAssistant: true,
+    automations: true,
+    companion: true,
+  };
+
+  return limits;
 }
 
 async function countUserResources(
@@ -89,8 +103,8 @@ export const planLimitsPlugin: FastifyPluginAsync = fp(
 
         const limits = await getUserPlanLimits(fastify.db, userId);
 
-        // Check resource count limits
-        if (feature === "kiosks") {
+        // Resource count limits only — no feature gating
+        if (feature === "kiosks" && limits.maxKiosks !== -1) {
           const count = await countUserResources(fastify.db, userId, "kiosks");
           if (count >= limits.maxKiosks) {
             return reply.status(403).send({
@@ -99,16 +113,12 @@ export const planLimitsPlugin: FastifyPluginAsync = fp(
               feature: "kiosks",
               current: count,
               limit: limits.maxKiosks,
-              message: `You've reached your plan limit of ${limits.maxKiosks} kiosks`,
-              upgrade_url: "https://openframe.us/billing",
+              message: `Your plan allows up to ${limits.maxKiosks} kiosk${limits.maxKiosks > 1 ? "s" : ""}. Upgrade for more.`,
+              upgrade_url: "https://openframe.us/pricing",
             });
           }
-        } else if (feature === "calendars") {
-          const count = await countUserResources(
-            fastify.db,
-            userId,
-            "calendars"
-          );
+        } else if (feature === "calendars" && limits.maxCalendars !== -1) {
+          const count = await countUserResources(fastify.db, userId, "calendars");
           if (count >= limits.maxCalendars) {
             return reply.status(403).send({
               success: false,
@@ -116,16 +126,12 @@ export const planLimitsPlugin: FastifyPluginAsync = fp(
               feature: "calendars",
               current: count,
               limit: limits.maxCalendars,
-              message: `You've reached your plan limit of ${limits.maxCalendars} calendars`,
-              upgrade_url: "https://openframe.us/billing",
+              message: `Your plan allows up to ${limits.maxCalendars} calendar account${limits.maxCalendars > 1 ? "s" : ""}. Upgrade for more.`,
+              upgrade_url: "https://openframe.us/pricing",
             });
           }
-        } else if (feature === "cameras") {
-          const count = await countUserResources(
-            fastify.db,
-            userId,
-            "cameras"
-          );
+        } else if (feature === "cameras" && limits.maxCameras !== -1) {
+          const count = await countUserResources(fastify.db, userId, "cameras");
           if (count >= limits.maxCameras) {
             return reply.status(403).send({
               success: false,
@@ -133,26 +139,12 @@ export const planLimitsPlugin: FastifyPluginAsync = fp(
               feature: "cameras",
               current: count,
               limit: limits.maxCameras,
-              message: `You've reached your plan limit of ${limits.maxCameras} cameras`,
-              upgrade_url: "https://openframe.us/billing",
-            });
-          }
-        } else {
-          // Feature flag check
-          const featureKey = feature as keyof PlanLimits["features"];
-          if (
-            limits.features[featureKey] !== undefined &&
-            !limits.features[featureKey]
-          ) {
-            return reply.status(403).send({
-              success: false,
-              error: "plan_limit",
-              feature,
-              message: `The ${feature} feature is not available on your current plan`,
-              upgrade_url: "https://openframe.us/billing",
+              message: `Your plan allows up to ${limits.maxCameras} camera${limits.maxCameras > 1 ? "s" : ""}. Upgrade for more.`,
+              upgrade_url: "https://openframe.us/pricing",
             });
           }
         }
+        // All features are available on every plan — no feature boolean checks
       };
     });
   },
