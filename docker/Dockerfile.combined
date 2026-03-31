@@ -55,7 +55,14 @@ COPY apps/api/ ./apps/api/
 RUN pnpm turbo build --filter=@openframe/api...
 
 
-# Stage 3: Production runner
+# Stage 3: Build ddvk/rmapi from source for Alpine/musl
+FROM golang:1.23-alpine AS rmapi-builder
+RUN apk add --no-cache git
+RUN git clone --depth 1 --branch v0.0.32 https://github.com/ddvk/rmapi.git /src/rmapi
+WORKDIR /src/rmapi
+RUN CGO_ENABLED=0 go build -o /usr/local/bin/rmapi .
+
+# Stage 4: Production runner
 FROM node:20-alpine AS runner
 
 RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
@@ -83,6 +90,9 @@ COPY --from=web-builder /app/apps/web/dist ./public
 # Install production dependencies only
 RUN pnpm install --frozen-lockfile --prod
 
+# Copy rmapi binary (ddvk fork with sync15 support)
+COPY --from=rmapi-builder /usr/local/bin/rmapi /usr/local/bin/rmapi
+
 # Create directories
 RUN mkdir -p /app/uploads /app/data
 
@@ -92,6 +102,7 @@ RUN sed -i 's/\r$//' /app/docker-entrypoint.sh && chmod +x /app/docker-entrypoin
 
 ENV NODE_ENV=production
 ENV PORT=3001
+ENV HOME=/root
 
 EXPOSE 3001
 

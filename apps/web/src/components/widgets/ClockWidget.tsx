@@ -47,10 +47,21 @@ export function ClockWidget({ config, style, isBuilder }: ClockWidgetProps) {
     ? { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: !format24h }
     : { hour: "numeric", minute: "2-digit", hour12: !format24h };
 
-  const dateFormat: Intl.DateTimeFormatOptions =
-    preset === "xs" || preset === "sm"
-      ? { weekday: "short", month: "short", day: "numeric" }
-      : { weekday: "long", month: "short", day: "numeric" };
+  const dateFormatConfig = config.dateFormat as string || "full";
+  const dateFormatOptions: Intl.DateTimeFormatOptions = (() => {
+    switch (dateFormatConfig) {
+      case "full":
+        return { weekday: "long", month: "long", day: "numeric", year: "numeric" };
+      case "long":
+        return { month: "long", day: "numeric", year: "numeric" };
+      case "medium":
+        return { month: "short", day: "numeric", year: "numeric" };
+      case "short":
+        return { month: "numeric", day: "numeric", year: "2-digit" };
+      default:
+        return { weekday: "long", month: "long", day: "numeric", year: "numeric" };
+    }
+  })();
 
   // Calculate custom font sizes if using custom mode
   const getCustomFontSize = (scale: number) => {
@@ -79,7 +90,7 @@ export function ClockWidget({ config, style, isBuilder }: ClockWidgetProps) {
           className={cn(sizeClasses?.date, "opacity-70 mt-1")}
           style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.date) } : undefined}
         >
-          {currentTime.toLocaleDateString([], dateFormat)}
+          {currentTime.toLocaleDateString([], dateFormatOptions)}
         </div>
       )}
     </div>

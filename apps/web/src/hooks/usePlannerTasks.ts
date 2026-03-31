@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { isToday, isTomorrow, isPast, startOfDay, format } from "date-fns";
 import { api } from "../services/api";
+import { offlineCache, CACHE_KEYS } from "../lib/offlineCache";
 import type { Task } from "@openframe/shared";
 
 /**
@@ -11,15 +12,23 @@ export function usePlannerTasks(taskListIds: string[]) {
   return useQuery({
     queryKey: ["planner-tasks", taskListIds],
     queryFn: async () => {
-      // Fetch tasks from all selected lists in parallel
-      const taskPromises = taskListIds.map((listId) =>
-        api.getTasks({ listId, status: "needsAction" })
-      );
-      const results = await Promise.all(taskPromises);
+      try {
+        // Fetch tasks from all selected lists in parallel
+        const taskPromises = taskListIds.map((listId) =>
+          api.getTasks({ listId, status: "needsAction" })
+        );
+        const results = await Promise.all(taskPromises);
 
-      // Flatten and sort tasks
-      const allTasks = results.flat();
-      return sortTasks(allTasks);
+        // Flatten and sort tasks
+        const allTasks = results.flat();
+        const sorted = sortTasks(allTasks);
+        offlineCache.set(CACHE_KEYS.TASKS, sorted);
+        return sorted;
+      } catch (error) {
+        const cached = offlineCache.getStale<Task[]>(CACHE_KEYS.TASKS);
+        if (cached) return cached.data;
+        throw error;
+      }
     },
     enabled: taskListIds.length > 0,
     staleTime: 60 * 1000, // Consider fresh for 1 minute

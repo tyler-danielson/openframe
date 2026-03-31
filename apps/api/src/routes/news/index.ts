@@ -10,14 +10,55 @@ import { getCurrentUser } from "../../plugins/auth.js";
 import { validateFeedUrl } from "../../services/rss-parser.js";
 import { getNewsCacheService } from "../../services/news-cache.js";
 
-// Preset NYTimes feeds
+// Source metadata for connection entries
+const SOURCE_METADATA: Record<string, { name: string; icon: string; description: string }> = {
+  nytimes: { name: "New York Times", icon: "🗽", description: "All the news that's fit to print" },
+  bbc: { name: "BBC News", icon: "📡", description: "Breaking news from the BBC" },
+  reuters: { name: "Reuters", icon: "🌐", description: "Reuters wire service" },
+  npr: { name: "NPR", icon: "🎙️", description: "National Public Radio" },
+  "ars-technica": { name: "Ars Technica", icon: "🔬", description: "Technology news & analysis" },
+  techcrunch: { name: "TechCrunch", icon: "💻", description: "Startup and tech news" },
+  "the-verge": { name: "The Verge", icon: "📱", description: "Technology & culture" },
+  "hacker-news": { name: "Hacker News", icon: "🟧", description: "Y Combinator community news" },
+  nasa: { name: "NASA", icon: "🚀", description: "Space and science updates" },
+  espn: { name: "ESPN", icon: "🏀", description: "Sports headlines" },
+  cnbc: { name: "CNBC", icon: "📈", description: "Financial news & markets" },
+};
+
+// Recommended RSS feeds organized by source (slugs match SOURCE_METADATA keys)
 const PRESET_FEEDS = [
-  { name: "NYT Top Stories", url: "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml", category: "general" },
-  { name: "NYT World", url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", category: "world" },
-  { name: "NYT US", url: "https://rss.nytimes.com/services/xml/rss/nyt/US.xml", category: "us" },
-  { name: "NYT Technology", url: "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml", category: "tech" },
-  { name: "NYT Business", url: "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml", category: "business" },
-  { name: "NYT Sports", url: "https://rss.nytimes.com/services/xml/rss/nyt/Sports.xml", category: "sports" },
+  // NYTimes
+  { name: "NYT Top Stories", url: "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml", category: "general", source: "nytimes" },
+  { name: "NYT World", url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", category: "world", source: "nytimes" },
+  { name: "NYT US", url: "https://rss.nytimes.com/services/xml/rss/nyt/US.xml", category: "us", source: "nytimes" },
+  { name: "NYT Technology", url: "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml", category: "tech", source: "nytimes" },
+  { name: "NYT Business", url: "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml", category: "business", source: "nytimes" },
+  { name: "NYT Sports", url: "https://rss.nytimes.com/services/xml/rss/nyt/Sports.xml", category: "sports", source: "nytimes" },
+  // BBC
+  { name: "BBC Top Stories", url: "https://feeds.bbci.co.uk/news/rss.xml", category: "general", source: "bbc" },
+  { name: "BBC World", url: "https://feeds.bbci.co.uk/news/world/rss.xml", category: "world", source: "bbc" },
+  { name: "BBC Technology", url: "https://feeds.bbci.co.uk/news/technology/rss.xml", category: "tech", source: "bbc" },
+  { name: "BBC Business", url: "https://feeds.bbci.co.uk/news/business/rss.xml", category: "business", source: "bbc" },
+  { name: "BBC Science", url: "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", category: "science", source: "bbc" },
+  // Reuters
+  { name: "Reuters World", url: "https://www.reutersagency.com/feed/?best-topics=world&post_type=best", category: "world", source: "reuters" },
+  { name: "Reuters Business", url: "https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best", category: "business", source: "reuters" },
+  { name: "Reuters Tech", url: "https://www.reutersagency.com/feed/?best-topics=tech&post_type=best", category: "tech", source: "reuters" },
+  // NPR
+  { name: "NPR News", url: "https://feeds.npr.org/1001/rss.xml", category: "general", source: "npr" },
+  { name: "NPR Technology", url: "https://feeds.npr.org/1019/rss.xml", category: "tech", source: "npr" },
+  { name: "NPR Science", url: "https://feeds.npr.org/1007/rss.xml", category: "science", source: "npr" },
+  // Tech
+  { name: "Ars Technica", url: "https://feeds.arstechnica.com/arstechnica/index", category: "tech", source: "ars-technica" },
+  { name: "TechCrunch", url: "https://techcrunch.com/feed/", category: "tech", source: "techcrunch" },
+  { name: "The Verge", url: "https://www.theverge.com/rss/index.xml", category: "tech", source: "the-verge" },
+  { name: "Hacker News", url: "https://hnrss.org/frontpage", category: "tech", source: "hacker-news" },
+  // Science
+  { name: "NASA Breaking News", url: "https://www.nasa.gov/news-release/feed/", category: "science", source: "nasa" },
+  // Sports
+  { name: "ESPN Top Headlines", url: "https://www.espn.com/espn/rss/news", category: "sports", source: "espn" },
+  // Finance
+  { name: "CNBC Top News", url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114", category: "business", source: "cnbc" },
 ];
 
 export const newsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -27,6 +68,19 @@ export const newsRoutes: FastifyPluginAsync = async (fastify) => {
    */
   fastify.get("/presets", async (_request, reply) => {
     return reply.send({ success: true, data: PRESET_FEEDS });
+  });
+
+  /**
+   * GET /news/sources
+   * Get available RSS source connections with metadata
+   */
+  fastify.get("/sources", async (_request, reply) => {
+    const sources = Object.entries(SOURCE_METADATA).map(([id, meta]) => ({
+      id,
+      ...meta,
+      presetCount: PRESET_FEEDS.filter((f) => f.source === id).length,
+    }));
+    return reply.send({ success: true, data: sources });
   });
 
   /**
@@ -78,6 +132,7 @@ export const newsRoutes: FastifyPluginAsync = async (fastify) => {
       name: string;
       feedUrl: string;
       category?: string;
+      source?: string;
     };
   }>("/feeds", {
     onRequest: [fastify.authenticateKioskOrAny],
@@ -91,7 +146,7 @@ export const newsRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const { name, feedUrl, category } = request.body;
+    const { name, feedUrl, category, source } = request.body;
 
     if (!name || !feedUrl) {
       return reply.status(400).send({
@@ -135,6 +190,7 @@ export const newsRoutes: FastifyPluginAsync = async (fastify) => {
         name: name || validation.title || "Unnamed Feed",
         feedUrl,
         category: category || null,
+        source: source || null,
       })
       .returning();
 

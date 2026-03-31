@@ -1,5 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import { eq, and, or, isNull, inArray } from "drizzle-orm";
+import { readFile, writeFile, mkdir } from "fs/promises";
+import { join } from "path";
+import sharp from "sharp";
 import {
   systemSettings,
   kiosks,
@@ -9,13 +12,35 @@ import {
   homeAssistantEntities,
   favoriteSportsTeams,
   newsFeeds,
+  shoppingItems,
+  recipes,
+  familyProfiles,
+  routines,
+  customScreens,
+  displayConfigs,
+  kitchenTimerPresets,
+  youtubeBookmarks,
+  assumptions,
+  haAutomations,
+  photoAlbums,
+  photos,
+  calendars,
+  events,
+  taskLists,
+  tasks,
+  oauthTokens,
+  homeAssistantConfig,
+  plexServers,
+  audiobookshelfServers,
 } from "@openframe/database/schema";
 import type {
   ExportedSettings,
   ImportResult,
+  ExportCategory,
 } from "@openframe/shared";
 import { getCurrentUser } from "../../plugins/auth.js";
-import { encrypt, decrypt } from "../../lib/encryption.js";
+import { encrypt, decrypt, decryptField, encryptField } from "../../lib/encryption.js";
+import { processImage } from "../../services/photos/processor.js";
 
 // Setting definitions with metadata
 interface SettingDefinition {
@@ -942,132 +967,43 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // Export all settings (excludes secrets/sensitive data)
-  fastify.get(
+  fastify.get<{
+    Querystring: { categories?: string; includeCredentials?: string; includePhotoFiles?: string };
+  }>(
     "/export",
     {
       preHandler: [authenticate],
       schema: {
-        description: "Export all settings to JSON (excludes passwords and API keys)",
+        description: "Export settings to JSON with optional categories and credentials",
         tags: ["Settings"],
+        querystring: {
+          type: "object",
+          properties: {
+            categories: { type: "string" },
+            includeCredentials: { type: "string" },
+            includePhotoFiles: { type: "string" },
+          },
+        },
       },
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
       if (!user) return reply.unauthorized("User not found");
 
-      // Get system settings (non-secrets only, scoped to user + global)
-      const systemSettingsData = await fastify.db
-        .select({
-          category: systemSettings.category,
-          key: systemSettings.key,
-          value: systemSettings.value,
-        })
-        .from(systemSettings)
-        .where(
-          and(
-            eq(systemSettings.isSecret, false),
-            or(
-              eq(systemSettings.userId, user.id),
-              isNull(systemSettings.userId)
-            )
-          )
-        );
+      const requestedCategories: ExportCategory[] = request.query.categories
+        ? (request.query.categories.split(",") as ExportCategory[])
+        : ["settings"];
+      const includeCredentials = request.query.includeCredentials === "true";
+      const includePhotoFiles = request.query.includePhotoFiles === "true";
+      const uploadDir = process.env.UPLOAD_DIR ?? "./uploads";
 
-      // Get kiosks (exclude token)
-      const kiosksData = await fastify.db
-        .select({
-          name: kiosks.name,
-          colorScheme: kiosks.colorScheme,
-          screensaverEnabled: kiosks.screensaverEnabled,
-          screensaverTimeout: kiosks.screensaverTimeout,
-          screensaverInterval: kiosks.screensaverInterval,
-          screensaverLayout: kiosks.screensaverLayout,
-          screensaverTransition: kiosks.screensaverTransition,
-          screensaverLayoutConfig: kiosks.screensaverLayoutConfig,
-        })
-        .from(kiosks)
-        .where(eq(kiosks.userId, user.id));
-
-      // Get cameras (exclude password)
-      const camerasData = await fastify.db
-        .select({
-          name: cameras.name,
-          rtspUrl: cameras.rtspUrl,
-          mjpegUrl: cameras.mjpegUrl,
-          snapshotUrl: cameras.snapshotUrl,
-          username: cameras.username,
-          isEnabled: cameras.isEnabled,
-          sortOrder: cameras.sortOrder,
-          settings: cameras.settings,
-        })
-        .from(cameras)
-        .where(eq(cameras.userId, user.id));
-
-      // Get IPTV servers (exclude username/password)
-      const iptvServersData = await fastify.db
-        .select({
-          name: iptvServers.name,
-          serverUrl: iptvServers.serverUrl,
-          isActive: iptvServers.isActive,
-        })
-        .from(iptvServers)
-        .where(eq(iptvServers.userId, user.id));
-
-      // Get Home Assistant rooms
-      const haRoomsData = await fastify.db
-        .select({
-          name: homeAssistantRooms.name,
-          sortOrder: homeAssistantRooms.sortOrder,
-          temperatureSensorId: homeAssistantRooms.temperatureSensorId,
-          humiditySensorId: homeAssistantRooms.humiditySensorId,
-          windowSensorId: homeAssistantRooms.windowSensorId,
-        })
-        .from(homeAssistantRooms)
-        .where(eq(homeAssistantRooms.userId, user.id));
-
-      // Get Home Assistant entities
-      const haEntitiesData = await fastify.db
-        .select({
-          entityId: homeAssistantEntities.entityId,
-          displayName: homeAssistantEntities.displayName,
-          sortOrder: homeAssistantEntities.sortOrder,
-          showInDashboard: homeAssistantEntities.showInDashboard,
-          settings: homeAssistantEntities.settings,
-        })
-        .from(homeAssistantEntities)
-        .where(eq(homeAssistantEntities.userId, user.id));
-
-      // Get favorite sports teams
-      const favoriteTeamsData = await fastify.db
-        .select({
-          sport: favoriteSportsTeams.sport,
-          league: favoriteSportsTeams.league,
-          teamId: favoriteSportsTeams.teamId,
-          teamName: favoriteSportsTeams.teamName,
-          teamAbbreviation: favoriteSportsTeams.teamAbbreviation,
-          teamLogo: favoriteSportsTeams.teamLogo,
-          teamColor: favoriteSportsTeams.teamColor,
-          isVisible: favoriteSportsTeams.isVisible,
-          showOnDashboard: favoriteSportsTeams.showOnDashboard,
-          visibility: favoriteSportsTeams.visibility,
-        })
-        .from(favoriteSportsTeams)
-        .where(eq(favoriteSportsTeams.userId, user.id));
-
-      // Get news feeds
-      const newsFeedsData = await fastify.db
-        .select({
-          name: newsFeeds.name,
-          feedUrl: newsFeeds.feedUrl,
-          category: newsFeeds.category,
-          isActive: newsFeeds.isActive,
-        })
-        .from(newsFeeds)
-        .where(eq(newsFeeds.userId, user.id));
+      const hasCategory = (cat: ExportCategory) => requestedCategories.includes(cat);
 
       const exportData: ExportedSettings = {
-        version: "1.0",
+        version: "2.0",
         exportedAt: new Date().toISOString(),
+        categories: requestedCategories,
+        includesCredentials: includeCredentials,
         clientSettings: {
           calendar: null,
           screensaver: null,
@@ -1075,18 +1011,391 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
           durationAlerts: null,
         },
         serverSettings: {
-          systemSettings: systemSettingsData,
-          kiosks: kiosksData as ExportedSettings["serverSettings"]["kiosks"],
-          cameras: camerasData as ExportedSettings["serverSettings"]["cameras"],
-          iptvServers: iptvServersData,
-          homeAssistant: {
-            rooms: haRoomsData,
-            entities: haEntitiesData as ExportedSettings["serverSettings"]["homeAssistant"]["entities"],
-          },
-          favoriteTeams: favoriteTeamsData as ExportedSettings["serverSettings"]["favoriteTeams"],
-          newsFeeds: newsFeedsData,
+          systemSettings: [],
+          kiosks: [],
+          cameras: [],
+          iptvServers: [],
+          homeAssistant: { rooms: [], entities: [] },
+          favoriteTeams: [],
+          newsFeeds: [],
         },
       };
+
+      // ── Settings category ──
+      if (hasCategory("settings")) {
+        // System settings (non-secrets, scoped to user + global)
+        exportData.serverSettings.systemSettings = await fastify.db
+          .select({ category: systemSettings.category, key: systemSettings.key, value: systemSettings.value })
+          .from(systemSettings)
+          .where(and(eq(systemSettings.isSecret, false), or(eq(systemSettings.userId, user.id), isNull(systemSettings.userId))));
+
+        // Include secret settings if credentials requested
+        if (includeCredentials) {
+          const secretSettings = await fastify.db
+            .select({ category: systemSettings.category, key: systemSettings.key, value: systemSettings.value })
+            .from(systemSettings)
+            .where(and(eq(systemSettings.isSecret, true), or(eq(systemSettings.userId, user.id), isNull(systemSettings.userId))));
+          for (const s of secretSettings) {
+            try {
+              exportData.serverSettings.systemSettings.push({
+                category: s.category,
+                key: s.key,
+                value: s.value ? decrypt(s.value) : null,
+              });
+            } catch { /* skip if can't decrypt */ }
+          }
+        }
+
+        // Kiosks (exclude token)
+        exportData.serverSettings.kiosks = (await fastify.db
+          .select({
+            name: kiosks.name, colorScheme: kiosks.colorScheme,
+            screensaverEnabled: kiosks.screensaverEnabled, screensaverTimeout: kiosks.screensaverTimeout,
+            screensaverInterval: kiosks.screensaverInterval, screensaverLayout: kiosks.screensaverLayout,
+            screensaverTransition: kiosks.screensaverTransition, screensaverLayoutConfig: kiosks.screensaverLayoutConfig,
+          })
+          .from(kiosks).where(eq(kiosks.userId, user.id))) as any;
+
+        // Cameras (exclude password unless credentials)
+        exportData.serverSettings.cameras = (await fastify.db
+          .select({
+            name: cameras.name, rtspUrl: cameras.rtspUrl, mjpegUrl: cameras.mjpegUrl,
+            snapshotUrl: cameras.snapshotUrl, username: cameras.username,
+            isEnabled: cameras.isEnabled, sortOrder: cameras.sortOrder, settings: cameras.settings,
+          })
+          .from(cameras).where(eq(cameras.userId, user.id))) as any;
+
+        // IPTV servers (exclude credentials unless requested)
+        exportData.serverSettings.iptvServers = await fastify.db
+          .select({ name: iptvServers.name, serverUrl: iptvServers.serverUrl, isActive: iptvServers.isActive })
+          .from(iptvServers).where(eq(iptvServers.userId, user.id));
+
+        // HA rooms
+        exportData.serverSettings.homeAssistant.rooms = await fastify.db
+          .select({
+            name: homeAssistantRooms.name, sortOrder: homeAssistantRooms.sortOrder,
+            temperatureSensorId: homeAssistantRooms.temperatureSensorId,
+            humiditySensorId: homeAssistantRooms.humiditySensorId,
+            windowSensorId: homeAssistantRooms.windowSensorId,
+          })
+          .from(homeAssistantRooms).where(eq(homeAssistantRooms.userId, user.id));
+
+        // HA entities
+        exportData.serverSettings.homeAssistant.entities = (await fastify.db
+          .select({
+            entityId: homeAssistantEntities.entityId, displayName: homeAssistantEntities.displayName,
+            sortOrder: homeAssistantEntities.sortOrder, showInDashboard: homeAssistantEntities.showInDashboard,
+            settings: homeAssistantEntities.settings,
+          })
+          .from(homeAssistantEntities).where(eq(homeAssistantEntities.userId, user.id))) as any;
+
+        // HA automations
+        exportData.serverSettings.homeAssistant.automations = (await fastify.db
+          .select({
+            name: haAutomations.name, description: haAutomations.description,
+            enabled: haAutomations.enabled, triggerType: haAutomations.triggerType,
+            triggerConfig: haAutomations.triggerConfig, actionType: haAutomations.actionType,
+            actionConfig: haAutomations.actionConfig,
+          })
+          .from(haAutomations).where(eq(haAutomations.userId, user.id))) as any;
+
+        // Favorite teams
+        exportData.serverSettings.favoriteTeams = (await fastify.db
+          .select({
+            sport: favoriteSportsTeams.sport, league: favoriteSportsTeams.league,
+            teamId: favoriteSportsTeams.teamId, teamName: favoriteSportsTeams.teamName,
+            teamAbbreviation: favoriteSportsTeams.teamAbbreviation, teamLogo: favoriteSportsTeams.teamLogo,
+            teamColor: favoriteSportsTeams.teamColor, isVisible: favoriteSportsTeams.isVisible,
+            showOnDashboard: favoriteSportsTeams.showOnDashboard, visibility: favoriteSportsTeams.visibility,
+          })
+          .from(favoriteSportsTeams).where(eq(favoriteSportsTeams.userId, user.id))) as any;
+
+        // News feeds
+        exportData.serverSettings.newsFeeds = await fastify.db
+          .select({ name: newsFeeds.name, feedUrl: newsFeeds.feedUrl, category: newsFeeds.category, source: newsFeeds.source, isActive: newsFeeds.isActive })
+          .from(newsFeeds).where(eq(newsFeeds.userId, user.id));
+
+        // Shopping items
+        exportData.serverSettings.shoppingItems = await fastify.db
+          .select({ name: shoppingItems.name, amazonUrl: shoppingItems.amazonUrl, checked: shoppingItems.checked, sortOrder: shoppingItems.sortOrder })
+          .from(shoppingItems).where(eq(shoppingItems.userId, user.id));
+
+        // Recipes
+        exportData.serverSettings.recipes = (await fastify.db
+          .select({
+            title: recipes.title, description: recipes.description, servings: recipes.servings,
+            prepTime: recipes.prepTime, cookTime: recipes.cookTime, ingredients: recipes.ingredients,
+            instructions: recipes.instructions, tags: recipes.tags, notes: recipes.notes, isFavorite: recipes.isFavorite,
+          })
+          .from(recipes).where(eq(recipes.userId, user.id))) as any;
+
+        // Family profiles
+        exportData.serverSettings.familyProfiles = await fastify.db
+          .select({ name: familyProfiles.name, icon: familyProfiles.icon, color: familyProfiles.color, isDefault: familyProfiles.isDefault })
+          .from(familyProfiles).where(eq(familyProfiles.userId, user.id));
+
+        // Routines
+        exportData.serverSettings.routines = (await fastify.db
+          .select({
+            title: routines.title, icon: routines.icon, category: routines.category,
+            frequency: routines.frequency, daysOfWeek: routines.daysOfWeek,
+            sortOrder: routines.sortOrder, isActive: routines.isActive,
+          })
+          .from(routines).where(eq(routines.userId, user.id))) as any;
+
+        // Custom screens
+        exportData.serverSettings.customScreens = (await fastify.db
+          .select({
+            name: customScreens.name, icon: customScreens.icon, slug: customScreens.slug,
+            layoutConfig: customScreens.layoutConfig, sortOrder: customScreens.sortOrder,
+          })
+          .from(customScreens).where(eq(customScreens.userId, user.id))) as any;
+
+        // Display configs
+        exportData.serverSettings.displayConfigs = (await fastify.db
+          .select({
+            name: displayConfigs.name, isActive: displayConfigs.isActive,
+            layout: displayConfigs.layout, screenSettings: displayConfigs.screenSettings,
+          })
+          .from(displayConfigs).where(eq(displayConfigs.userId, user.id))) as any;
+
+        // Kitchen timer presets
+        exportData.serverSettings.kitchenTimerPresets = await fastify.db
+          .select({ name: kitchenTimerPresets.name, durationSeconds: kitchenTimerPresets.durationSeconds })
+          .from(kitchenTimerPresets).where(eq(kitchenTimerPresets.userId, user.id));
+
+        // YouTube bookmarks
+        exportData.serverSettings.youtubeBookmarks = (await fastify.db
+          .select({
+            youtubeId: youtubeBookmarks.youtubeId, type: youtubeBookmarks.type,
+            title: youtubeBookmarks.title, thumbnailUrl: youtubeBookmarks.thumbnailUrl,
+            channelTitle: youtubeBookmarks.channelTitle, channelId: youtubeBookmarks.channelId,
+            duration: youtubeBookmarks.duration, isLive: youtubeBookmarks.isLive,
+          })
+          .from(youtubeBookmarks).where(eq(youtubeBookmarks.userId, user.id))) as any;
+
+        // Assumptions
+        exportData.serverSettings.assumptions = await fastify.db
+          .select({ text: assumptions.text, enabled: assumptions.enabled, sortOrder: assumptions.sortOrder })
+          .from(assumptions).where(eq(assumptions.userId, user.id));
+      }
+
+      // ── Photos category ──
+      if (hasCategory("photos")) {
+        const albumsData = await fastify.db
+          .select({
+            id: photoAlbums.id, name: photoAlbums.name, description: photoAlbums.description,
+            isActive: photoAlbums.isActive, slideshowInterval: photoAlbums.slideshowInterval,
+          })
+          .from(photoAlbums).where(eq(photoAlbums.userId, user.id));
+
+        const albumIdToName = new Map(albumsData.map(a => [a.id, a.name]));
+
+        const photosData = await fastify.db
+          .select({
+            albumId: photos.albumId, filename: photos.filename, originalFilename: photos.originalFilename,
+            mimeType: photos.mimeType, width: photos.width, height: photos.height,
+            takenAt: photos.takenAt, sortOrder: photos.sortOrder, sourceType: photos.sourceType,
+            originalPath: photos.originalPath,
+          })
+          .from(photos)
+          .innerJoin(photoAlbums, eq(photos.albumId, photoAlbums.id))
+          .where(eq(photoAlbums.userId, user.id));
+
+        // Read photo files if requested, resizing to max 1920x1080 for portability
+        const photoEntries = [];
+        for (const p of photosData) {
+          let fileData: string | undefined;
+          if (includePhotoFiles && p.originalPath) {
+            try {
+              const filePath = join(uploadDir, p.originalPath);
+              const raw = await readFile(filePath);
+              const resized = await sharp(raw)
+                .resize(3840, 2160, { fit: "inside", withoutEnlargement: true })
+                .jpeg({ quality: 85 })
+                .toBuffer();
+              fileData = resized.toString("base64");
+            } catch {
+              // File not found or processing error — skip file data
+            }
+          }
+          photoEntries.push({
+            albumName: albumIdToName.get(p.albumId) ?? "Unknown",
+            filename: p.filename, originalFilename: p.originalFilename, mimeType: p.mimeType,
+            width: p.width, height: p.height,
+            takenAt: p.takenAt?.toISOString() ?? null,
+            sortOrder: p.sortOrder, sourceType: p.sourceType,
+            ...(fileData ? { fileData } : {}),
+          });
+        }
+
+        exportData.photos = {
+          albums: albumsData.map(a => ({
+            name: a.name, description: a.description, isActive: a.isActive, slideshowInterval: a.slideshowInterval,
+          })),
+          photos: photoEntries,
+        };
+      }
+
+      // ── Events category ──
+      if (hasCategory("events")) {
+        const calendarsData = await fastify.db
+          .select({
+            id: calendars.id, provider: calendars.provider, externalId: calendars.externalId,
+            name: calendars.name, displayName: calendars.displayName, description: calendars.description,
+            color: calendars.color, icon: calendars.icon, isVisible: calendars.isVisible,
+            isPrimary: calendars.isPrimary, isFavorite: calendars.isFavorite, isReadOnly: calendars.isReadOnly,
+            syncEnabled: calendars.syncEnabled, showOnDashboard: calendars.showOnDashboard,
+            kioskEnabled: calendars.kioskEnabled, visibility: calendars.visibility,
+            sourceUrl: calendars.sourceUrl,
+          })
+          .from(calendars).where(eq(calendars.userId, user.id));
+
+        const calendarIdToExternalId = new Map(calendarsData.map(c => [c.id, c.externalId]));
+        const calendarIds = calendarsData.map(c => c.id);
+
+        let eventsData: any[] = [];
+        if (calendarIds.length > 0) {
+          eventsData = await fastify.db
+            .select({
+              calendarId: events.calendarId, externalId: events.externalId, title: events.title,
+              description: events.description, location: events.location, startTime: events.startTime,
+              endTime: events.endTime, isAllDay: events.isAllDay, status: events.status,
+              recurrenceRule: events.recurrenceRule, recurringEventId: events.recurringEventId,
+              attendees: events.attendees, reminders: events.reminders, metadata: events.metadata,
+            })
+            .from(events).where(inArray(events.calendarId, calendarIds));
+        }
+
+        const taskListsData = await fastify.db
+          .select({
+            id: taskLists.id, provider: taskLists.provider, externalId: taskLists.externalId,
+            name: taskLists.name, isVisible: taskLists.isVisible,
+          })
+          .from(taskLists).where(eq(taskLists.userId, user.id));
+
+        const taskListIdToExternalId = new Map(taskListsData.map(t => [t.id, t.externalId]));
+        const taskListIds = taskListsData.map(t => t.id);
+
+        let tasksData: any[] = [];
+        if (taskListIds.length > 0) {
+          tasksData = await fastify.db
+            .select({
+              taskListId: tasks.taskListId, externalId: tasks.externalId, title: tasks.title,
+              notes: tasks.notes, status: tasks.status, dueDate: tasks.dueDate,
+              completedAt: tasks.completedAt, position: tasks.position,
+            })
+            .from(tasks).where(inArray(tasks.taskListId, taskListIds));
+        }
+
+        exportData.events = {
+          calendars: calendarsData.map(c => ({
+            provider: c.provider as string, externalId: c.externalId, name: c.name, displayName: c.displayName,
+            description: c.description, color: c.color ?? "#3B82F6", icon: c.icon, isVisible: c.isVisible,
+            isPrimary: c.isPrimary, isFavorite: c.isFavorite, isReadOnly: c.isReadOnly,
+            syncEnabled: c.syncEnabled, showOnDashboard: c.showOnDashboard, kioskEnabled: c.kioskEnabled,
+            visibility: c.visibility as any, sourceUrl: c.sourceUrl ?? null, accountLabel: null,
+          })),
+          events: eventsData.map(e => ({
+            calendarExternalId: calendarIdToExternalId.get(e.calendarId) ?? "",
+            externalId: e.externalId,
+            title: decryptField(e.title) ?? e.title,
+            description: decryptField(e.description),
+            location: decryptField(e.location),
+            startTime: e.startTime.toISOString(), endTime: e.endTime.toISOString(),
+            isAllDay: e.isAllDay, status: e.status, recurrenceRule: e.recurrenceRule,
+            recurringEventId: e.recurringEventId, attendees: e.attendees ?? [], reminders: e.reminders ?? [],
+            metadata: e.metadata ?? null,
+          })),
+          taskLists: taskListsData.map(t => ({
+            provider: t.provider, externalId: t.externalId, name: t.name, isVisible: t.isVisible,
+          })),
+          tasks: tasksData.map(t => ({
+            taskListExternalId: taskListIdToExternalId.get(t.taskListId) ?? "",
+            externalId: t.externalId, title: t.title, notes: t.notes, status: t.status,
+            dueDate: t.dueDate?.toISOString() ?? null, completedAt: t.completedAt?.toISOString() ?? null,
+            position: t.position,
+          })),
+        };
+      }
+
+      // ── Connections category (requires includeCredentials) ──
+      if (hasCategory("connections") && includeCredentials) {
+        // OAuth tokens (decrypt access/refresh tokens)
+        const oauthData = await fastify.db
+          .select({
+            provider: oauthTokens.provider, accessToken: oauthTokens.accessToken,
+            refreshToken: oauthTokens.refreshToken, tokenType: oauthTokens.tokenType,
+            scope: oauthTokens.scope, expiresAt: oauthTokens.expiresAt,
+            accountName: oauthTokens.accountName, externalAccountId: oauthTokens.externalAccountId,
+            isPrimary: oauthTokens.isPrimary, icon: oauthTokens.icon,
+          })
+          .from(oauthTokens).where(eq(oauthTokens.userId, user.id));
+
+        const decryptedOAuth = [];
+        for (const t of oauthData) {
+          try {
+            decryptedOAuth.push({
+              provider: t.provider, tokenType: t.tokenType, scope: t.scope,
+              expiresAt: t.expiresAt?.toISOString() ?? null,
+              accountName: t.accountName, externalAccountId: t.externalAccountId,
+              isPrimary: t.isPrimary, icon: t.icon,
+              accessToken: t.accessToken ? decrypt(t.accessToken) : "",
+              refreshToken: t.refreshToken ? decrypt(t.refreshToken) : null,
+            });
+          } catch { /* skip if can't decrypt */ }
+        }
+
+        // HA config
+        const [haConfig] = await fastify.db
+          .select({ url: homeAssistantConfig.url, accessToken: homeAssistantConfig.accessToken })
+          .from(homeAssistantConfig).where(eq(homeAssistantConfig.userId, user.id)).limit(1);
+
+        let decryptedHaConfig = null;
+        if (haConfig) {
+          try {
+            decryptedHaConfig = {
+              url: haConfig.url,
+              accessToken: haConfig.accessToken ? decrypt(haConfig.accessToken) : "",
+            };
+          } catch { /* skip */ }
+        }
+
+        // Camera passwords
+        const cameraCredsData = await fastify.db
+          .select({ name: cameras.name, password: cameras.password })
+          .from(cameras).where(eq(cameras.userId, user.id));
+        const cameraCreds = cameraCredsData
+          .filter(c => c.password)
+          .map(c => ({ name: c.name, password: c.password! }));
+
+        // IPTV credentials
+        const iptvCredsData = await fastify.db
+          .select({ name: iptvServers.name, username: iptvServers.username, password: iptvServers.password })
+          .from(iptvServers).where(eq(iptvServers.userId, user.id));
+        const iptvCreds = iptvCredsData
+          .filter(c => c.password)
+          .map(c => ({ name: c.name, username: c.username, password: c.password! }));
+
+        // Plex servers
+        const plexData = await fastify.db
+          .select({ name: plexServers.name, serverUrl: plexServers.serverUrl, accessToken: plexServers.accessToken, isActive: plexServers.isActive })
+          .from(plexServers).where(eq(plexServers.userId, user.id));
+
+        // Audiobookshelf servers
+        const abData = await fastify.db
+          .select({ name: audiobookshelfServers.name, serverUrl: audiobookshelfServers.serverUrl, accessToken: audiobookshelfServers.accessToken, isActive: audiobookshelfServers.isActive })
+          .from(audiobookshelfServers).where(eq(audiobookshelfServers.userId, user.id));
+
+        exportData.connections = {
+          oauthTokens: decryptedOAuth,
+          homeAssistantConfig: decryptedHaConfig,
+          cameraCredentials: cameraCreds,
+          iptvCredentials: iptvCreds,
+          plexServers: plexData,
+          audiobookshelfServers: abData,
+        };
+      }
 
       return {
         success: true,
@@ -1103,7 +1412,7 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [authenticate],
       schema: {
-        description: "Import settings from exported JSON",
+        description: "Import settings from exported JSON (v1 or v2)",
         tags: ["Settings"],
         body: {
           type: "object",
@@ -1120,337 +1429,580 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
       if (!user) return reply.unauthorized("User not found");
       const { settings, mode = "merge" } = request.body;
 
-      // Validate version
-      if (settings.version !== "1.0") {
+      if (settings.version !== "1.0" && settings.version !== "2.0") {
         return reply.badRequest("Unsupported export version");
       }
 
       const result: ImportResult = {
         success: true,
         imported: {
-          systemSettings: 0,
-          kiosks: 0,
-          cameras: 0,
-          iptvServers: 0,
-          homeAssistantRooms: 0,
-          homeAssistantEntities: 0,
-          favoriteTeams: 0,
-          newsFeeds: 0,
+          systemSettings: 0, kiosks: 0, cameras: 0, iptvServers: 0,
+          homeAssistantRooms: 0, homeAssistantEntities: 0, favoriteTeams: 0, newsFeeds: 0,
+          shoppingItems: 0, recipes: 0, familyProfiles: 0, routines: 0,
+          customScreens: 0, displayConfigs: 0, kitchenTimerPresets: 0,
+          youtubeBookmarks: 0, assumptions: 0, haAutomations: 0,
+          photoAlbums: 0, photos: 0, calendars: 0, calendarEvents: 0,
+          taskLists: 0, tasks: 0, oauthTokens: 0, connections: 0,
         },
         errors: [],
       };
 
+      // Helper: upsert by match condition
+      const upsert = async <T extends Record<string, any>>(
+        table: any, matchWhere: any, insertData: T, updateData: Partial<T>,
+      ) => {
+        const [existing] = await fastify.db.select().from(table).where(matchWhere).limit(1);
+        if (existing) {
+          const setData = table.updatedAt ? { ...updateData, updatedAt: new Date() } : updateData;
+          await fastify.db.update(table).set(setData).where(eq(table.id, existing.id));
+        } else {
+          await fastify.db.insert(table).values(insertData);
+        }
+      };
+
       try {
-        // Import system settings (non-secrets only)
+        // ── System settings ──
         for (const setting of settings.serverSettings?.systemSettings ?? []) {
           try {
-            // Find if setting is a secret in our definitions
             const categoryDef = SETTING_DEFINITIONS.find((c) => c.category === setting.category);
             const settingDef = categoryDef?.settings.find((s) => s.key === setting.key);
 
-            // Skip if this is a secret setting
-            if (settingDef?.isSecret) {
-              continue;
-            }
+            // For v1 imports, skip secrets. For v2 with credentials, allow them.
+            const isSecret = settingDef?.isSecret ?? false;
+            if (isSecret && !settings.includesCredentials) continue;
 
-            // Scope to user's own settings
-            const [existing] = await fastify.db
-              .select()
-              .from(systemSettings)
-              .where(
-                and(
-                  eq(systemSettings.category, setting.category),
-                  eq(systemSettings.key, setting.key),
-                  eq(systemSettings.userId, user.id)
-                )
-              )
-              .limit(1);
+            const matchWhere = and(
+              eq(systemSettings.category, setting.category),
+              eq(systemSettings.key, setting.key),
+              eq(systemSettings.userId, user.id),
+            );
+            const value = isSecret && setting.value ? encrypt(setting.value) : setting.value;
 
+            const [existing] = await fastify.db.select().from(systemSettings).where(matchWhere).limit(1);
             if (existing) {
-              await fastify.db
-                .update(systemSettings)
-                .set({
-                  value: setting.value,
-                  updatedAt: new Date(),
-                })
-                .where(eq(systemSettings.id, existing.id));
+              await fastify.db.update(systemSettings).set({ value, updatedAt: new Date() }).where(eq(systemSettings.id, existing.id));
             } else {
               await fastify.db.insert(systemSettings).values({
-                category: setting.category,
-                key: setting.key,
-                value: setting.value,
-                isSecret: false,
-                userId: user.id,
-                description: settingDef?.description,
+                category: setting.category, key: setting.key, value,
+                isSecret, userId: user.id, description: settingDef?.description,
               });
             }
             result.imported.systemSettings++;
           } catch (err) {
-            result.errors.push(`Failed to import system setting ${setting.category}/${setting.key}`);
+            result.errors.push(`Failed to import setting ${setting.category}/${setting.key}: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
 
-        // Import kiosks by name match (update if exists, insert if new)
+        // ── Kiosks ──
         for (const kiosk of settings.serverSettings?.kiosks ?? []) {
           try {
-            const [existing] = await fastify.db
-              .select()
-              .from(kiosks)
-              .where(and(eq(kiosks.userId, user.id), eq(kiosks.name, kiosk.name)))
-              .limit(1);
-
-            if (existing) {
-              await fastify.db
-                .update(kiosks)
-                .set({
-                  colorScheme: kiosk.colorScheme as any,
-                  screensaverEnabled: kiosk.screensaverEnabled,
-                  screensaverTimeout: kiosk.screensaverTimeout,
-                  screensaverInterval: kiosk.screensaverInterval,
-                  screensaverLayout: kiosk.screensaverLayout as any,
-                  screensaverTransition: kiosk.screensaverTransition as any,
-                  screensaverLayoutConfig: kiosk.screensaverLayoutConfig,
-                  updatedAt: new Date(),
-                })
-                .where(eq(kiosks.id, existing.id));
-            } else {
-              await fastify.db.insert(kiosks).values({
-                userId: user.id,
-                name: kiosk.name,
-                colorScheme: kiosk.colorScheme as any,
-                screensaverEnabled: kiosk.screensaverEnabled,
-                screensaverTimeout: kiosk.screensaverTimeout,
-                screensaverInterval: kiosk.screensaverInterval,
-                screensaverLayout: kiosk.screensaverLayout as any,
-                screensaverTransition: kiosk.screensaverTransition as any,
+            await upsert(kiosks,
+              and(eq(kiosks.userId, user.id), eq(kiosks.name, kiosk.name)),
+              {
+                userId: user.id, name: kiosk.name, colorScheme: kiosk.colorScheme as any,
+                screensaverEnabled: kiosk.screensaverEnabled, screensaverTimeout: kiosk.screensaverTimeout,
+                screensaverInterval: kiosk.screensaverInterval, screensaverLayout: kiosk.screensaverLayout as any,
+                screensaverTransition: kiosk.screensaverTransition as any, screensaverLayoutConfig: kiosk.screensaverLayoutConfig,
+              },
+              {
+                colorScheme: kiosk.colorScheme as any, screensaverEnabled: kiosk.screensaverEnabled,
+                screensaverTimeout: kiosk.screensaverTimeout, screensaverInterval: kiosk.screensaverInterval,
+                screensaverLayout: kiosk.screensaverLayout as any, screensaverTransition: kiosk.screensaverTransition as any,
                 screensaverLayoutConfig: kiosk.screensaverLayoutConfig,
-              });
-            }
+              },
+            );
             result.imported.kiosks++;
           } catch (err) {
-            result.errors.push(`Failed to import kiosk "${kiosk.name}"`);
+            const msg = err instanceof Error ? err.message : String(err);
+            result.errors.push(`Failed to import kiosk "${kiosk.name}": ${msg}`);
           }
         }
 
-        // Import cameras by name match
+        // ── Cameras ──
         for (const camera of settings.serverSettings?.cameras ?? []) {
           try {
-            const [existing] = await fastify.db
-              .select()
-              .from(cameras)
-              .where(and(eq(cameras.userId, user.id), eq(cameras.name, camera.name)))
-              .limit(1);
-
-            if (existing) {
-              await fastify.db
-                .update(cameras)
-                .set({
-                  rtspUrl: camera.rtspUrl,
-                  mjpegUrl: camera.mjpegUrl,
-                  snapshotUrl: camera.snapshotUrl,
-                  username: camera.username,
-                  isEnabled: camera.isEnabled,
-                  sortOrder: camera.sortOrder,
-                  settings: camera.settings,
-                  updatedAt: new Date(),
-                })
-                .where(eq(cameras.id, existing.id));
-            } else {
-              await fastify.db.insert(cameras).values({
-                userId: user.id,
-                name: camera.name,
-                rtspUrl: camera.rtspUrl,
-                mjpegUrl: camera.mjpegUrl,
-                snapshotUrl: camera.snapshotUrl,
-                username: camera.username,
-                isEnabled: camera.isEnabled,
-                sortOrder: camera.sortOrder,
-                settings: camera.settings,
-              });
-            }
+            await upsert(cameras,
+              and(eq(cameras.userId, user.id), eq(cameras.name, camera.name)),
+              {
+                userId: user.id, name: camera.name, rtspUrl: camera.rtspUrl, mjpegUrl: camera.mjpegUrl,
+                snapshotUrl: camera.snapshotUrl, username: camera.username, isEnabled: camera.isEnabled,
+                sortOrder: camera.sortOrder, settings: camera.settings,
+              },
+              {
+                rtspUrl: camera.rtspUrl, mjpegUrl: camera.mjpegUrl, snapshotUrl: camera.snapshotUrl,
+                username: camera.username, isEnabled: camera.isEnabled, sortOrder: camera.sortOrder, settings: camera.settings,
+              },
+            );
             result.imported.cameras++;
-          } catch (err) {
-            result.errors.push(`Failed to import camera "${camera.name}"`);
-          }
+          } catch (err) { result.errors.push(`Failed to import camera "${camera.name}": ${err instanceof Error ? err.message : String(err)}`); }
         }
 
-        // Import IPTV servers by name match (note: will need credentials re-entered)
+        // ── IPTV servers ──
         for (const server of settings.serverSettings?.iptvServers ?? []) {
           try {
-            const [existing] = await fastify.db
-              .select()
-              .from(iptvServers)
-              .where(and(eq(iptvServers.userId, user.id), eq(iptvServers.name, server.name)))
-              .limit(1);
-
+            const [existing] = await fastify.db.select().from(iptvServers)
+              .where(and(eq(iptvServers.userId, user.id), eq(iptvServers.name, server.name))).limit(1);
             if (existing) {
-              await fastify.db
-                .update(iptvServers)
-                .set({
-                  serverUrl: server.serverUrl,
-                  isActive: server.isActive,
-                  updatedAt: new Date(),
-                })
+              await fastify.db.update(iptvServers).set({ serverUrl: server.serverUrl, isActive: server.isActive, updatedAt: new Date() })
                 .where(eq(iptvServers.id, existing.id));
               result.imported.iptvServers++;
             }
-            // Don't create new IPTV servers as they require credentials
-          } catch (err) {
-            result.errors.push(`Failed to import IPTV server "${server.name}"`);
-          }
+          } catch (err) { result.errors.push(`Failed to import IPTV server "${server.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
         }
 
-        // Import Home Assistant rooms by name match
+        // ── HA rooms ──
         for (const room of settings.serverSettings?.homeAssistant?.rooms ?? []) {
           try {
-            const [existing] = await fastify.db
-              .select()
-              .from(homeAssistantRooms)
-              .where(and(eq(homeAssistantRooms.userId, user.id), eq(homeAssistantRooms.name, room.name)))
-              .limit(1);
-
-            if (existing) {
-              await fastify.db
-                .update(homeAssistantRooms)
-                .set({
-                  sortOrder: room.sortOrder,
-                  temperatureSensorId: room.temperatureSensorId,
-                  humiditySensorId: room.humiditySensorId,
-                  windowSensorId: room.windowSensorId,
-                })
-                .where(eq(homeAssistantRooms.id, existing.id));
-            } else {
-              await fastify.db.insert(homeAssistantRooms).values({
-                userId: user.id,
-                name: room.name,
-                sortOrder: room.sortOrder,
-                temperatureSensorId: room.temperatureSensorId,
-                humiditySensorId: room.humiditySensorId,
-                windowSensorId: room.windowSensorId,
-              });
-            }
+            await upsert(homeAssistantRooms,
+              and(eq(homeAssistantRooms.userId, user.id), eq(homeAssistantRooms.name, room.name)),
+              { userId: user.id, name: room.name, sortOrder: room.sortOrder, temperatureSensorId: room.temperatureSensorId, humiditySensorId: room.humiditySensorId, windowSensorId: room.windowSensorId },
+              { sortOrder: room.sortOrder, temperatureSensorId: room.temperatureSensorId, humiditySensorId: room.humiditySensorId, windowSensorId: room.windowSensorId },
+            );
             result.imported.homeAssistantRooms++;
-          } catch (err) {
-            result.errors.push(`Failed to import HA room "${room.name}"`);
-          }
+          } catch (err) { result.errors.push(`Failed to import HA room "${room.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
         }
 
-        // Import Home Assistant entities by entityId match
+        // ── HA entities ──
         for (const entity of settings.serverSettings?.homeAssistant?.entities ?? []) {
           try {
-            const [existing] = await fastify.db
-              .select()
-              .from(homeAssistantEntities)
-              .where(and(eq(homeAssistantEntities.userId, user.id), eq(homeAssistantEntities.entityId, entity.entityId)))
-              .limit(1);
-
-            if (existing) {
-              await fastify.db
-                .update(homeAssistantEntities)
-                .set({
-                  displayName: entity.displayName,
-                  sortOrder: entity.sortOrder,
-                  showInDashboard: entity.showInDashboard,
-                  settings: entity.settings,
-                })
-                .where(eq(homeAssistantEntities.id, existing.id));
-            } else {
-              await fastify.db.insert(homeAssistantEntities).values({
-                userId: user.id,
-                entityId: entity.entityId,
-                displayName: entity.displayName,
-                sortOrder: entity.sortOrder,
-                showInDashboard: entity.showInDashboard,
-                settings: entity.settings,
-              });
-            }
+            await upsert(homeAssistantEntities,
+              and(eq(homeAssistantEntities.userId, user.id), eq(homeAssistantEntities.entityId, entity.entityId)),
+              { userId: user.id, entityId: entity.entityId, displayName: entity.displayName, sortOrder: entity.sortOrder, showInDashboard: entity.showInDashboard, settings: entity.settings },
+              { displayName: entity.displayName, sortOrder: entity.sortOrder, showInDashboard: entity.showInDashboard, settings: entity.settings },
+            );
             result.imported.homeAssistantEntities++;
-          } catch (err) {
-            result.errors.push(`Failed to import HA entity "${entity.entityId}"`);
-          }
+          } catch (err) { result.errors.push(`Failed to import HA entity "${entity.entityId}"` + ": " + (err instanceof Error ? err.message : String(err))); }
         }
 
-        // Import favorite teams by teamId match
+        // ── HA automations (v2) ──
+        for (const auto of settings.serverSettings?.homeAssistant?.automations ?? []) {
+          try {
+            await upsert(haAutomations,
+              and(eq(haAutomations.userId, user.id), eq(haAutomations.name, auto.name)),
+              { userId: user.id, name: auto.name, description: auto.description, enabled: auto.enabled, triggerType: auto.triggerType as any, triggerConfig: auto.triggerConfig, actionType: auto.actionType as any, actionConfig: auto.actionConfig },
+              { description: auto.description, enabled: auto.enabled, triggerType: auto.triggerType as any, triggerConfig: auto.triggerConfig, actionType: auto.actionType as any, actionConfig: auto.actionConfig },
+            );
+            result.imported.haAutomations++;
+          } catch (err) { result.errors.push(`Failed to import HA automation "${auto.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+        }
+
+        // ── Favorite teams ──
         for (const team of settings.serverSettings?.favoriteTeams ?? []) {
           try {
-            const [existing] = await fastify.db
-              .select()
-              .from(favoriteSportsTeams)
-              .where(
-                and(
-                  eq(favoriteSportsTeams.userId, user.id),
-                  eq(favoriteSportsTeams.league, team.league),
-                  eq(favoriteSportsTeams.teamId, team.teamId)
-                )
-              )
-              .limit(1);
-
-            if (existing) {
-              await fastify.db
-                .update(favoriteSportsTeams)
-                .set({
-                  teamName: team.teamName,
-                  teamAbbreviation: team.teamAbbreviation,
-                  teamLogo: team.teamLogo,
-                  teamColor: team.teamColor,
-                  isVisible: team.isVisible,
-                  showOnDashboard: team.showOnDashboard,
-                  visibility: team.visibility,
-                })
-                .where(eq(favoriteSportsTeams.id, existing.id));
-            } else {
-              await fastify.db.insert(favoriteSportsTeams).values({
-                userId: user.id,
-                sport: team.sport,
-                league: team.league,
-                teamId: team.teamId,
-                teamName: team.teamName,
-                teamAbbreviation: team.teamAbbreviation,
-                teamLogo: team.teamLogo,
-                teamColor: team.teamColor,
-                isVisible: team.isVisible,
-                showOnDashboard: team.showOnDashboard,
-                visibility: team.visibility,
-              });
-            }
+            await upsert(favoriteSportsTeams,
+              and(eq(favoriteSportsTeams.userId, user.id), eq(favoriteSportsTeams.league, team.league), eq(favoriteSportsTeams.teamId, team.teamId)),
+              { userId: user.id, sport: team.sport, league: team.league, teamId: team.teamId, teamName: team.teamName, teamAbbreviation: team.teamAbbreviation, teamLogo: team.teamLogo, teamColor: team.teamColor, isVisible: team.isVisible, showOnDashboard: team.showOnDashboard, visibility: team.visibility },
+              { teamName: team.teamName, teamAbbreviation: team.teamAbbreviation, teamLogo: team.teamLogo, teamColor: team.teamColor, isVisible: team.isVisible, showOnDashboard: team.showOnDashboard, visibility: team.visibility },
+            );
             result.imported.favoriteTeams++;
-          } catch (err) {
-            result.errors.push(`Failed to import favorite team "${team.teamName}"`);
-          }
+          } catch (err) { result.errors.push(`Failed to import team "${team.teamName}"` + ": " + (err instanceof Error ? err.message : String(err))); }
         }
 
-        // Import news feeds by feedUrl match
+        // ── News feeds ──
         for (const feed of settings.serverSettings?.newsFeeds ?? []) {
           try {
-            const [existing] = await fastify.db
-              .select()
-              .from(newsFeeds)
-              .where(and(eq(newsFeeds.userId, user.id), eq(newsFeeds.feedUrl, feed.feedUrl)))
-              .limit(1);
-
-            if (existing) {
-              await fastify.db
-                .update(newsFeeds)
-                .set({
-                  name: feed.name,
-                  category: feed.category,
-                  isActive: feed.isActive,
-                })
-                .where(eq(newsFeeds.id, existing.id));
-            } else {
-              await fastify.db.insert(newsFeeds).values({
-                userId: user.id,
-                name: feed.name,
-                feedUrl: feed.feedUrl,
-                category: feed.category,
-                isActive: feed.isActive,
-              });
-            }
+            await upsert(newsFeeds,
+              and(eq(newsFeeds.userId, user.id), eq(newsFeeds.feedUrl, feed.feedUrl)),
+              { userId: user.id, name: feed.name, feedUrl: feed.feedUrl, category: feed.category, source: feed.source ?? null, isActive: feed.isActive },
+              { name: feed.name, category: feed.category, source: feed.source ?? null, isActive: feed.isActive },
+            );
             result.imported.newsFeeds++;
-          } catch (err) {
-            result.errors.push(`Failed to import news feed "${feed.name}"`);
+          } catch (err) { result.errors.push(`Failed to import news feed "${feed.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+        }
+
+        // ── Shopping items (v2) ──
+        for (const item of settings.serverSettings?.shoppingItems ?? []) {
+          try {
+            await upsert(shoppingItems,
+              and(eq(shoppingItems.userId, user.id), eq(shoppingItems.name, item.name)),
+              { userId: user.id, name: item.name, amazonUrl: item.amazonUrl, checked: item.checked, sortOrder: item.sortOrder },
+              { amazonUrl: item.amazonUrl, checked: item.checked, sortOrder: item.sortOrder },
+            );
+            result.imported.shoppingItems++;
+          } catch (err) { result.errors.push(`Failed to import shopping item "${item.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+        }
+
+        // ── Recipes (v2) ──
+        for (const recipe of settings.serverSettings?.recipes ?? []) {
+          try {
+            await upsert(recipes,
+              and(eq(recipes.userId, user.id), eq(recipes.title, recipe.title)),
+              { userId: user.id, title: recipe.title, description: recipe.description, servings: recipe.servings as any, prepTime: recipe.prepTime as any, cookTime: recipe.cookTime as any, ingredients: recipe.ingredients, instructions: recipe.instructions, tags: recipe.tags, notes: recipe.notes, isFavorite: recipe.isFavorite },
+              { description: recipe.description, servings: recipe.servings as any, prepTime: recipe.prepTime as any, cookTime: recipe.cookTime as any, ingredients: recipe.ingredients, instructions: recipe.instructions, tags: recipe.tags, notes: recipe.notes, isFavorite: recipe.isFavorite },
+            );
+            result.imported.recipes++;
+          } catch (err) { result.errors.push(`Failed to import recipe "${recipe.title}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+        }
+
+        // ── Family profiles (v2) ──
+        for (const profile of settings.serverSettings?.familyProfiles ?? []) {
+          try {
+            await upsert(familyProfiles,
+              and(eq(familyProfiles.userId, user.id), eq(familyProfiles.name, profile.name)),
+              { userId: user.id, name: profile.name, icon: profile.icon, color: profile.color, isDefault: profile.isDefault },
+              { icon: profile.icon, color: profile.color, isDefault: profile.isDefault },
+            );
+            result.imported.familyProfiles++;
+          } catch (err) { result.errors.push(`Failed to import profile "${profile.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+        }
+
+        // ── Routines (v2) ──
+        for (const routine of settings.serverSettings?.routines ?? []) {
+          try {
+            await upsert(routines,
+              and(eq(routines.userId, user.id), eq(routines.title, routine.title)),
+              { userId: user.id, title: routine.title, icon: routine.icon, category: routine.category, frequency: routine.frequency as any, daysOfWeek: routine.daysOfWeek, sortOrder: routine.sortOrder, isActive: routine.isActive },
+              { icon: routine.icon, category: routine.category, frequency: routine.frequency as any, daysOfWeek: routine.daysOfWeek, sortOrder: routine.sortOrder, isActive: routine.isActive },
+            );
+            result.imported.routines++;
+          } catch (err) { result.errors.push(`Failed to import routine "${routine.title}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+        }
+
+        // ── Custom screens (v2) ──
+        for (const screen of settings.serverSettings?.customScreens ?? []) {
+          try {
+            await upsert(customScreens,
+              and(eq(customScreens.userId, user.id), eq(customScreens.slug, screen.slug)),
+              { userId: user.id, name: screen.name, icon: screen.icon, slug: screen.slug, layoutConfig: screen.layoutConfig, sortOrder: screen.sortOrder },
+              { name: screen.name, icon: screen.icon, layoutConfig: screen.layoutConfig, sortOrder: screen.sortOrder },
+            );
+            result.imported.customScreens++;
+          } catch (err) { result.errors.push(`Failed to import screen "${screen.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+        }
+
+        // ── Display configs (v2) ──
+        for (const config of settings.serverSettings?.displayConfigs ?? []) {
+          try {
+            await upsert(displayConfigs,
+              and(eq(displayConfigs.userId, user.id), eq(displayConfigs.name, config.name)),
+              { userId: user.id, name: config.name, isActive: config.isActive, layout: config.layout, screenSettings: config.screenSettings },
+              { isActive: config.isActive, layout: config.layout, screenSettings: config.screenSettings },
+            );
+            result.imported.displayConfigs++;
+          } catch (err) { result.errors.push(`Failed to import display config "${config.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+        }
+
+        // ── Kitchen timer presets (v2) ──
+        for (const preset of settings.serverSettings?.kitchenTimerPresets ?? []) {
+          try {
+            await upsert(kitchenTimerPresets,
+              and(eq(kitchenTimerPresets.userId, user.id), eq(kitchenTimerPresets.name, preset.name)),
+              { userId: user.id, name: preset.name, durationSeconds: preset.durationSeconds },
+              { durationSeconds: preset.durationSeconds },
+            );
+            result.imported.kitchenTimerPresets++;
+          } catch (err) { result.errors.push(`Failed to import timer preset "${preset.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+        }
+
+        // ── YouTube bookmarks (v2) ──
+        for (const bm of settings.serverSettings?.youtubeBookmarks ?? []) {
+          try {
+            await upsert(youtubeBookmarks,
+              and(eq(youtubeBookmarks.userId, user.id), eq(youtubeBookmarks.youtubeId, bm.youtubeId)),
+              { userId: user.id, youtubeId: bm.youtubeId, type: bm.type as any, title: bm.title, thumbnailUrl: bm.thumbnailUrl, channelTitle: bm.channelTitle, channelId: bm.channelId, duration: bm.duration, isLive: bm.isLive },
+              { title: bm.title, thumbnailUrl: bm.thumbnailUrl, channelTitle: bm.channelTitle },
+            );
+            result.imported.youtubeBookmarks++;
+          } catch (err) { result.errors.push(`Failed to import bookmark "${bm.title}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+        }
+
+        // ── Assumptions (v2) ──
+        for (const a of settings.serverSettings?.assumptions ?? []) {
+          try {
+            await upsert(assumptions,
+              and(eq(assumptions.userId, user.id), eq(assumptions.text, a.text)),
+              { userId: user.id, text: a.text, enabled: a.enabled, sortOrder: a.sortOrder },
+              { enabled: a.enabled, sortOrder: a.sortOrder },
+            );
+            result.imported.assumptions++;
+          } catch (err) { result.errors.push(`Failed to import assumption` + ": " + (err instanceof Error ? err.message : String(err))); }
+        }
+
+        // ── Photos (v2) ──
+        if (settings.photos) {
+          // Import albums first
+          const albumNameToId = new Map<string, string>();
+          for (const album of settings.photos.albums) {
+            try {
+              const [existing] = await fastify.db.select().from(photoAlbums)
+                .where(and(eq(photoAlbums.userId, user.id), eq(photoAlbums.name, album.name))).limit(1);
+              if (existing) {
+                await fastify.db.update(photoAlbums).set({ description: album.description, isActive: album.isActive, slideshowInterval: album.slideshowInterval, updatedAt: new Date() })
+                  .where(eq(photoAlbums.id, existing.id));
+                albumNameToId.set(album.name, existing.id);
+              } else {
+                const [inserted] = await fastify.db.insert(photoAlbums).values({ userId: user.id, name: album.name, description: album.description, isActive: album.isActive, slideshowInterval: album.slideshowInterval }).returning({ id: photoAlbums.id });
+                if (inserted) albumNameToId.set(album.name, inserted.id);
+              }
+              result.imported.photoAlbums++;
+            } catch (err) { result.errors.push(`Failed to import album "${album.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+          }
+
+          // Import photo metadata + files (references albums by name)
+          const importUploadDir = process.env.UPLOAD_DIR ?? "./uploads";
+          for (const photo of settings.photos.photos) {
+            try {
+              const albumId = albumNameToId.get(photo.albumName);
+              if (!albumId) { result.errors.push(`Album "${photo.albumName}" not found for photo "${photo.filename}"`); continue; }
+              const [existing] = await fastify.db.select().from(photos)
+                .where(and(eq(photos.albumId, albumId), eq(photos.filename, photo.filename))).limit(1);
+              if (!existing) {
+                let originalPath = "";
+                let thumbnailPath: string | null = null;
+                let mediumPath: string | null = null;
+                let fileSize = 0;
+                let width = photo.width ?? 0;
+                let height = photo.height ?? 0;
+                // Process photo file if included (generates original + thumbnail + medium)
+                if (photo.fileData) {
+                  const buffer = Buffer.from(photo.fileData, "base64");
+                  fileSize = buffer.length;
+                  const userDir = join(importUploadDir, user.id);
+                  await mkdir(join(userDir, "original"), { recursive: true });
+                  await mkdir(join(userDir, "thumbnails"), { recursive: true });
+                  await mkdir(join(userDir, "medium"), { recursive: true });
+                  const result = await processImage(buffer, {
+                    userDir,
+                    filename: photo.filename,
+                    generateThumbnail: true,
+                    generateMedium: true,
+                  });
+                  originalPath = join(user.id, result.originalPath);
+                  thumbnailPath = result.thumbnailPath ? join(user.id, result.thumbnailPath) : null;
+                  mediumPath = result.mediumPath ? join(user.id, result.mediumPath) : null;
+                  width = result.width;
+                  height = result.height;
+                }
+                await fastify.db.insert(photos).values({
+                  albumId, filename: photo.filename, originalFilename: photo.originalFilename ?? photo.filename,
+                  mimeType: photo.mimeType, width, height,
+                  size: fileSize, originalPath, thumbnailPath, mediumPath,
+                  takenAt: photo.takenAt ? new Date(photo.takenAt) : null,
+                  sortOrder: photo.sortOrder, sourceType: photo.sourceType as any,
+                });
+              }
+              result.imported.photos++;
+            } catch (err) { result.errors.push(`Failed to import photo "${photo.filename}"` + ": " + (err instanceof Error ? err.message : String(err))); }
           }
         }
+
+        // ── Events (v2) ──
+        if (settings.events) {
+          // Import calendars
+          const calExternalIdToId = new Map<string, string>();
+          for (const cal of settings.events.calendars) {
+            try {
+              const [existing] = await fastify.db.select().from(calendars)
+                .where(and(eq(calendars.userId, user.id), eq(calendars.externalId, cal.externalId))).limit(1);
+              if (existing) {
+                await fastify.db.update(calendars).set({
+                  name: cal.name, displayName: cal.displayName, color: cal.color, icon: cal.icon,
+                  isVisible: cal.isVisible, isPrimary: cal.isPrimary, isFavorite: cal.isFavorite,
+                  syncEnabled: cal.syncEnabled, showOnDashboard: cal.showOnDashboard,
+                  kioskEnabled: cal.kioskEnabled, visibility: cal.visibility, updatedAt: new Date(),
+                }).where(eq(calendars.id, existing.id));
+                calExternalIdToId.set(cal.externalId, existing.id);
+              } else {
+                const [inserted] = await fastify.db.insert(calendars).values({
+                  userId: user.id, provider: cal.provider as any, externalId: cal.externalId,
+                  name: cal.name, displayName: cal.displayName, description: cal.description,
+                  color: cal.color, icon: cal.icon, isVisible: cal.isVisible, isPrimary: cal.isPrimary,
+                  isFavorite: cal.isFavorite, isReadOnly: cal.isReadOnly, syncEnabled: cal.syncEnabled,
+                  showOnDashboard: cal.showOnDashboard, kioskEnabled: cal.kioskEnabled,
+                  visibility: cal.visibility, sourceUrl: cal.sourceUrl,
+                }).returning({ id: calendars.id });
+                if (inserted) calExternalIdToId.set(cal.externalId, inserted.id);
+              }
+              result.imported.calendars++;
+            } catch (err) { result.errors.push(`Failed to import calendar "${cal.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+          }
+
+          // Import events (encrypt sensitive fields with this instance's key)
+          for (const evt of settings.events.events) {
+            try {
+              const calId = calExternalIdToId.get(evt.calendarExternalId);
+              if (!calId) continue;
+              const encTitle = encryptField(evt.title) ?? evt.title;
+              const encDescription = evt.description ? (encryptField(evt.description) ?? evt.description) : null;
+              const encLocation = evt.location ? (encryptField(evt.location) ?? evt.location) : null;
+              const [existing] = await fastify.db.select().from(events)
+                .where(and(eq(events.calendarId, calId), eq(events.externalId, evt.externalId))).limit(1);
+              if (existing) {
+                await fastify.db.update(events).set({
+                  title: encTitle, description: encDescription, location: encLocation,
+                  startTime: new Date(evt.startTime), endTime: new Date(evt.endTime),
+                  isAllDay: evt.isAllDay, status: evt.status as any, recurrenceRule: evt.recurrenceRule,
+                  attendees: evt.attendees as any, reminders: evt.reminders as any, metadata: evt.metadata as any,
+                  updatedAt: new Date(),
+                }).where(eq(events.id, existing.id));
+              } else {
+                await fastify.db.insert(events).values({
+                  calendarId: calId, externalId: evt.externalId, title: encTitle,
+                  description: encDescription, location: encLocation,
+                  startTime: new Date(evt.startTime), endTime: new Date(evt.endTime),
+                  isAllDay: evt.isAllDay, status: evt.status as any, recurrenceRule: evt.recurrenceRule,
+                  recurringEventId: evt.recurringEventId, attendees: evt.attendees as any,
+                  reminders: evt.reminders as any, metadata: evt.metadata as any,
+                });
+              }
+              result.imported.calendarEvents++;
+            } catch (err) { result.errors.push(`Failed to import event "${evt.title}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+          }
+
+          // Import task lists
+          const tlExternalIdToId = new Map<string, string>();
+          for (const tl of settings.events.taskLists) {
+            try {
+              const [existing] = await fastify.db.select().from(taskLists)
+                .where(and(eq(taskLists.userId, user.id), eq(taskLists.externalId, tl.externalId))).limit(1);
+              if (existing) {
+                await fastify.db.update(taskLists).set({ name: tl.name, isVisible: tl.isVisible, updatedAt: new Date() })
+                  .where(eq(taskLists.id, existing.id));
+                tlExternalIdToId.set(tl.externalId, existing.id);
+              } else {
+                const [inserted] = await fastify.db.insert(taskLists).values({
+                  userId: user.id, provider: tl.provider as any, externalId: tl.externalId,
+                  name: tl.name, isVisible: tl.isVisible,
+                }).returning({ id: taskLists.id });
+                if (inserted) tlExternalIdToId.set(tl.externalId, inserted.id);
+              }
+              result.imported.taskLists++;
+            } catch (err) { result.errors.push(`Failed to import task list "${tl.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+          }
+
+          // Import tasks
+          for (const task of settings.events.tasks) {
+            try {
+              const tlId = tlExternalIdToId.get(task.taskListExternalId);
+              if (!tlId) continue;
+              const [existing] = await fastify.db.select().from(tasks)
+                .where(and(eq(tasks.taskListId, tlId), eq(tasks.externalId, task.externalId))).limit(1);
+              if (existing) {
+                await fastify.db.update(tasks).set({
+                  title: task.title, notes: task.notes, status: task.status as any,
+                  dueDate: task.dueDate ? new Date(task.dueDate) : null,
+                  completedAt: task.completedAt ? new Date(task.completedAt) : null,
+                  position: task.position, updatedAt: new Date(),
+                }).where(eq(tasks.id, existing.id));
+              } else {
+                await fastify.db.insert(tasks).values({
+                  taskListId: tlId, externalId: task.externalId, title: task.title,
+                  notes: task.notes, status: task.status as any,
+                  dueDate: task.dueDate ? new Date(task.dueDate) : null,
+                  completedAt: task.completedAt ? new Date(task.completedAt) : null,
+                  position: task.position,
+                });
+              }
+              result.imported.tasks++;
+            } catch (err) { result.errors.push(`Failed to import task "${task.title}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+          }
+        }
+
+        // ── Connections (v2, credentials) ──
+        if (settings.connections && settings.includesCredentials) {
+          // OAuth tokens
+          for (const token of settings.connections.oauthTokens ?? []) {
+            try {
+              // Match by provider + externalAccountId, or provider + accountName if no externalAccountId
+              const matchCondition = token.externalAccountId
+                ? and(eq(oauthTokens.userId, user.id), eq(oauthTokens.provider, token.provider as any), eq(oauthTokens.externalAccountId, token.externalAccountId))
+                : token.accountName
+                  ? and(eq(oauthTokens.userId, user.id), eq(oauthTokens.provider, token.provider as any), eq(oauthTokens.accountName, token.accountName))
+                  : and(eq(oauthTokens.userId, user.id), eq(oauthTokens.provider, token.provider as any));
+              const [existing] = await fastify.db.select().from(oauthTokens)
+                .where(matchCondition).limit(1);
+              const encAccessToken = encrypt(token.accessToken);
+              const encRefreshToken = token.refreshToken ? encrypt(token.refreshToken) : null;
+              if (existing) {
+                await fastify.db.update(oauthTokens).set({
+                  accessToken: encAccessToken, refreshToken: encRefreshToken,
+                  tokenType: token.tokenType, scope: token.scope,
+                  expiresAt: token.expiresAt ? new Date(token.expiresAt) : null,
+                  accountName: token.accountName, isPrimary: token.isPrimary, icon: token.icon,
+                  updatedAt: new Date(),
+                }).where(eq(oauthTokens.id, existing.id));
+              } else {
+                await fastify.db.insert(oauthTokens).values({
+                  userId: user.id, provider: token.provider as any,
+                  accessToken: encAccessToken, refreshToken: encRefreshToken,
+                  tokenType: token.tokenType, scope: token.scope,
+                  expiresAt: token.expiresAt ? new Date(token.expiresAt) : null,
+                  accountName: token.accountName, externalAccountId: token.externalAccountId,
+                  isPrimary: token.isPrimary, icon: token.icon,
+                });
+              }
+              result.imported.oauthTokens++;
+            } catch (err) { result.errors.push(`Failed to import OAuth token for ${token.provider}` + ": " + (err instanceof Error ? err.message : String(err))); }
+          }
+
+          // HA config
+          if (settings.connections.homeAssistantConfig) {
+            try {
+              const haCfg = settings.connections.homeAssistantConfig;
+              const encToken = encrypt(haCfg.accessToken);
+              const [existing] = await fastify.db.select().from(homeAssistantConfig)
+                .where(eq(homeAssistantConfig.userId, user.id)).limit(1);
+              if (existing) {
+                await fastify.db.update(homeAssistantConfig).set({ url: haCfg.url, accessToken: encToken, updatedAt: new Date() })
+                  .where(eq(homeAssistantConfig.id, existing.id));
+              } else {
+                await fastify.db.insert(homeAssistantConfig).values({ userId: user.id, url: haCfg.url, accessToken: encToken });
+              }
+              result.imported.connections++;
+            } catch (err) { result.errors.push("Failed to import HA config"); }
+          }
+
+          // Camera passwords
+          for (const cred of settings.connections.cameraCredentials ?? []) {
+            try {
+              const [cam] = await fastify.db.select().from(cameras)
+                .where(and(eq(cameras.userId, user.id), eq(cameras.name, cred.name))).limit(1);
+              if (cam) {
+                await fastify.db.update(cameras).set({ password: cred.password, updatedAt: new Date() })
+                  .where(eq(cameras.id, cam.id));
+                result.imported.connections++;
+              }
+            } catch (err) { result.errors.push(`Failed to import camera password for "${cred.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+          }
+
+          // IPTV credentials
+          for (const cred of settings.connections.iptvCredentials ?? []) {
+            try {
+              const [srv] = await fastify.db.select().from(iptvServers)
+                .where(and(eq(iptvServers.userId, user.id), eq(iptvServers.name, cred.name))).limit(1);
+              if (srv) {
+                await fastify.db.update(iptvServers).set({ username: cred.username ?? "", password: cred.password, updatedAt: new Date() })
+                  .where(eq(iptvServers.id, srv.id));
+                result.imported.connections++;
+              }
+            } catch (err) { result.errors.push(`Failed to import IPTV creds for "${cred.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+          }
+
+          // Plex servers
+          for (const srv of settings.connections.plexServers ?? []) {
+            try {
+              await upsert(plexServers,
+                and(eq(plexServers.userId, user.id), eq(plexServers.name, srv.name)),
+                { userId: user.id, name: srv.name, serverUrl: srv.serverUrl, accessToken: srv.accessToken, isActive: srv.isActive },
+                { serverUrl: srv.serverUrl, accessToken: srv.accessToken, isActive: srv.isActive },
+              );
+              result.imported.connections++;
+            } catch (err) { result.errors.push(`Failed to import Plex server "${srv.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+          }
+
+          // Audiobookshelf servers
+          for (const srv of settings.connections.audiobookshelfServers ?? []) {
+            try {
+              await upsert(audiobookshelfServers,
+                and(eq(audiobookshelfServers.userId, user.id), eq(audiobookshelfServers.name, srv.name)),
+                { userId: user.id, name: srv.name, serverUrl: srv.serverUrl, accessToken: srv.accessToken, isActive: srv.isActive },
+                { serverUrl: srv.serverUrl, accessToken: srv.accessToken, isActive: srv.isActive },
+              );
+              result.imported.connections++;
+            } catch (err) { result.errors.push(`Failed to import Audiobookshelf server "${srv.name}"` + ": " + (err instanceof Error ? err.message : String(err))); }
+          }
+        }
+
       } catch (error) {
         fastify.log.error({ err: error }, "Settings import error");
         result.success = false;

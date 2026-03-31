@@ -12,7 +12,7 @@
       },
       "skillInfrastructure": {
         "userConfig": {
-          "runtime": "nodejs18.x",
+          "runtime": "nodejs20.x",
           "handler": "index.handler"
         },
         "type": "@ask-cli/hosted-skill-deployer"

@@ -7,6 +7,18 @@ export const DEFAULT_PLANNER_CONFIG: PlannerLayoutConfig = {
   orientation: "portrait",
   widgets: [],
   backgroundColor: "#ffffff",
+  layoutMode: "columns",
+  columns: {
+    sections: [
+      {
+        id: "main",
+        direction: "vertical",
+        children: [
+          { id: "slot-1", type: "widget", flex: 1, widgetId: undefined },
+        ],
+      },
+    ],
+  },
 };
 
 export const PLANNER_TEMPLATES: Record<string, PlannerTemplate> = {
@@ -21,6 +33,7 @@ export const PLANNER_TEMPLATES: Record<string, PlannerTemplate> = {
       pageSize: "remarkable2",
       orientation: "portrait",
       backgroundColor: "#ffffff",
+      layoutMode: "columns",
       widgets: [
         // Left column - Date and Tasks
         {
@@ -143,6 +156,65 @@ export const PLANNER_TEMPLATES: Record<string, PlannerTemplate> = {
           config: { title: "Notes", lineStyle: "ruled" },
         },
       ],
+      columns: {
+        sections: [
+          {
+            id: "main",
+            direction: "horizontal",
+            children: [
+              // Left column
+              {
+                id: "left-col",
+                type: "section",
+                flex: 1,
+                section: {
+                  id: "left-section",
+                  direction: "vertical",
+                  children: [
+                    { id: "s-date", type: "widget", flex: 0.08, widgetId: "text-date" },
+                    { id: "s-week", type: "widget", flex: 0.08, widgetId: "calendar-week-mini" },
+                    { id: "s-top3", type: "widget", flex: 0.18, widgetId: "tasks-top3" },
+                    { id: "s-todo", type: "widget", flex: 0.24, widgetId: "tasks-todo" },
+                    { id: "s-personal", type: "widget", flex: 0.24, widgetId: "tasks-personal" },
+                    { id: "s-habits", type: "widget", flex: 0.18, widgetId: "habits-tracker" },
+                  ],
+                },
+              },
+              // Center column
+              {
+                id: "center-col",
+                type: "section",
+                flex: 1,
+                section: {
+                  id: "center-section",
+                  direction: "vertical",
+                  children: [
+                    { id: "s-sched-header", type: "widget", flex: 0.08, widgetId: "text-schedule" },
+                    { id: "s-schedule", type: "widget", flex: 0.92, widgetId: "calendar-day-schedule" },
+                  ],
+                },
+              },
+              // Right column
+              {
+                id: "right-col",
+                type: "section",
+                flex: 1,
+                section: {
+                  id: "right-section",
+                  direction: "vertical",
+                  children: [
+                    { id: "s-grat-header", type: "widget", flex: 0.08, widgetId: "text-gratitude-header" },
+                    { id: "s-gratitude", type: "widget", flex: 0.18, widgetId: "notes-gratitude" },
+                    { id: "s-affirm", type: "widget", flex: 0.18, widgetId: "notes-affirmation" },
+                    { id: "s-wins", type: "widget", flex: 0.24, widgetId: "notes-wins" },
+                    { id: "s-notes", type: "widget", flex: 0.32, widgetId: "notes-general" },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      } as ColumnLayout,
     },
   },
   "adhd-planner": {
@@ -156,6 +228,7 @@ export const PLANNER_TEMPLATES: Record<string, PlannerTemplate> = {
       pageSize: "remarkable2",
       orientation: "portrait",
       backgroundColor: "#ffffff",
+      layoutMode: "columns",
       widgets: [
         // Header - Date banner and meta
         {
@@ -243,6 +316,74 @@ export const PLANNER_TEMPLATES: Record<string, PlannerTemplate> = {
           config: { showTime: true, startHour: 7, endHour: 21 },
         },
       ],
+      columns: {
+        sections: [
+          {
+            id: "main",
+            direction: "vertical",
+            children: [
+              // Header row
+              {
+                id: "header-row",
+                type: "section",
+                flex: 0.08,
+                section: {
+                  id: "header-section",
+                  direction: "horizontal",
+                  children: [
+                    { id: "s-date", type: "widget", flex: 1, widgetId: "text-date" },
+                    { id: "s-month", type: "widget", flex: 2, widgetId: "text-week-month" },
+                  ],
+                },
+              },
+              // Body - 3 columns
+              {
+                id: "body",
+                type: "section",
+                flex: 0.92,
+                section: {
+                  id: "body-section",
+                  direction: "horizontal",
+                  children: [
+                    // Left column
+                    {
+                      id: "col1",
+                      type: "section",
+                      flex: 1,
+                      section: {
+                        id: "col1-section",
+                        direction: "vertical",
+                        children: [
+                          { id: "s-updates", type: "widget", flex: 0.64, widgetId: "news-updates" },
+                          { id: "s-braindump", type: "widget", flex: 0.36, widgetId: "notes-brain-dump" },
+                        ],
+                      },
+                    },
+                    // Center column
+                    {
+                      id: "col2",
+                      type: "section",
+                      flex: 1,
+                      section: {
+                        id: "col2-section",
+                        direction: "vertical",
+                        children: [
+                          { id: "s-focus", type: "widget", flex: 0.2, widgetId: "tasks-focus" },
+                          { id: "s-reward", type: "widget", flex: 0.1, widgetId: "notes-reward" },
+                          { id: "s-less", type: "widget", flex: 0.28, widgetId: "tasks-less-important" },
+                          { id: "s-habits", type: "widget", flex: 0.42, widgetId: "habits-tracker" },
+                        ],
+                      },
+                    },
+                    // Right column
+                    { id: "col3", type: "widget", flex: 1, widgetId: "calendar-day-schedule" },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      } as ColumnLayout,
     },
   },
   "weekly-planner": {
@@ -256,6 +397,7 @@ export const PLANNER_TEMPLATES: Record<string, PlannerTemplate> = {
       pageSize: "remarkable2",
       orientation: "landscape",
       backgroundColor: "#ffffff",
+      layoutMode: "columns",
       widgets: [
         {
           id: "text-week",
@@ -294,6 +436,31 @@ export const PLANNER_TEMPLATES: Record<string, PlannerTemplate> = {
           config: { lineSpacing: 20, showTitle: false, lineStyle: "ruled" },
         },
       ],
+      columns: {
+        sections: [
+          {
+            id: "main",
+            direction: "vertical",
+            children: [
+              { id: "s-header", type: "widget", flex: 0.1, widgetId: "text-week" },
+              {
+                id: "body",
+                type: "section",
+                flex: 0.8,
+                section: {
+                  id: "body-section",
+                  direction: "horizontal",
+                  children: [
+                    { id: "s-week", type: "widget", flex: 5, widgetId: "calendar-week-main" },
+                    { id: "s-tasks", type: "widget", flex: 1, widgetId: "tasks-sidebar" },
+                  ],
+                },
+              },
+              { id: "s-footer", type: "widget", flex: 0.1, widgetId: "notes-footer" },
+            ],
+          },
+        ],
+      } as ColumnLayout,
     },
   },
   "information-dashboard": {
@@ -307,6 +474,7 @@ export const PLANNER_TEMPLATES: Record<string, PlannerTemplate> = {
       pageSize: "remarkable2",
       orientation: "portrait",
       backgroundColor: "#ffffff",
+      layoutMode: "columns",
       widgets: [
         {
           id: "text-title",
@@ -363,6 +531,57 @@ export const PLANNER_TEMPLATES: Record<string, PlannerTemplate> = {
           config: { maxItems: 10, showCheckboxes: true },
         },
       ],
+      columns: {
+        sections: [
+          {
+            id: "main",
+            direction: "vertical",
+            children: [
+              { id: "s-title", type: "widget", flex: 0.1, widgetId: "text-title" },
+              // Top row: weather + calendar
+              {
+                id: "top-row",
+                type: "section",
+                flex: 0.35,
+                section: {
+                  id: "top-section",
+                  direction: "horizontal",
+                  children: [
+                    {
+                      id: "top-left",
+                      type: "section",
+                      flex: 1,
+                      section: {
+                        id: "top-left-section",
+                        direction: "vertical",
+                        children: [
+                          { id: "s-weather", type: "widget", flex: 0.7, widgetId: "weather-top" },
+                          { id: "s-divider", type: "widget", flex: 0.3, widgetId: "divider-1" },
+                        ],
+                      },
+                    },
+                    { id: "s-calendar", type: "widget", flex: 1, widgetId: "calendar-day-events" },
+                  ],
+                },
+              },
+              // Bottom row: news + tasks
+              {
+                id: "bottom-row",
+                type: "section",
+                flex: 0.55,
+                section: {
+                  id: "bottom-section",
+                  direction: "horizontal",
+                  children: [
+                    { id: "s-news", type: "widget", flex: 1, widgetId: "news-left" },
+                    { id: "s-tasks", type: "widget", flex: 1, widgetId: "tasks-right" },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      } as ColumnLayout,
     },
   },
   "habit-tracker": {
@@ -376,6 +595,7 @@ export const PLANNER_TEMPLATES: Record<string, PlannerTemplate> = {
       pageSize: "remarkable2",
       orientation: "landscape",
       backgroundColor: "#ffffff",
+      layoutMode: "columns",
       widgets: [
         {
           id: "text-month",
@@ -418,6 +638,20 @@ export const PLANNER_TEMPLATES: Record<string, PlannerTemplate> = {
           config: { lineSpacing: 20, showTitle: false, lineStyle: "ruled" },
         },
       ],
+      columns: {
+        sections: [
+          {
+            id: "main",
+            direction: "vertical",
+            children: [
+              { id: "s-title", type: "widget", flex: 0.1, widgetId: "text-month" },
+              { id: "s-habits", type: "widget", flex: 0.65, widgetId: "habits-grid" },
+              { id: "s-divider", type: "widget", flex: 0.05, widgetId: "divider-bottom" },
+              { id: "s-notes", type: "widget", flex: 0.2, widgetId: "notes-bottom" },
+            ],
+          },
+        ],
+      } as ColumnLayout,
     },
   },
   "month-at-glance": {
@@ -431,6 +665,7 @@ export const PLANNER_TEMPLATES: Record<string, PlannerTemplate> = {
       pageSize: "remarkable2",
       orientation: "landscape",
       backgroundColor: "#ffffff",
+      layoutMode: "columns",
       widgets: [
         {
           id: "text-month",
@@ -469,6 +704,42 @@ export const PLANNER_TEMPLATES: Record<string, PlannerTemplate> = {
           config: { lineSpacing: 18, title: "Notes", lineStyle: "ruled" },
         },
       ],
+      columns: {
+        sections: [
+          {
+            id: "main",
+            direction: "vertical",
+            children: [
+              { id: "s-title", type: "widget", flex: 0.1, widgetId: "text-month" },
+              {
+                id: "body",
+                type: "section",
+                flex: 0.9,
+                section: {
+                  id: "body-section",
+                  direction: "horizontal",
+                  children: [
+                    { id: "s-month", type: "widget", flex: 3, widgetId: "calendar-month-main" },
+                    {
+                      id: "sidebar",
+                      type: "section",
+                      flex: 1,
+                      section: {
+                        id: "sidebar-section",
+                        direction: "vertical",
+                        children: [
+                          { id: "s-tasks", type: "widget", flex: 0.57, widgetId: "tasks-sidebar" },
+                          { id: "s-notes", type: "widget", flex: 0.43, widgetId: "notes-sidebar" },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      } as ColumnLayout,
     },
   },
   blank: {
@@ -482,7 +753,19 @@ export const PLANNER_TEMPLATES: Record<string, PlannerTemplate> = {
       pageSize: "remarkable2",
       orientation: "portrait",
       backgroundColor: "#ffffff",
+      layoutMode: "columns",
       widgets: [],
+      columns: {
+        sections: [
+          {
+            id: "main",
+            direction: "vertical",
+            children: [
+              { id: "slot-1", type: "widget", flex: 1, widgetId: undefined },
+            ],
+          },
+        ],
+      } as ColumnLayout,
     },
   },
   "adhd-live-planner": {

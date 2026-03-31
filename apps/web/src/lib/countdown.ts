@@ -14,10 +14,24 @@ export function calculateTimeRemaining(targetDate: Date): TimeRemaining {
     return { days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: true };
   }
 
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-  const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+  // Count calendar days (midnights) between now and the event, so that an
+  // event on Friday shows "2d" on Wednesday regardless of time-of-day.
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const targetMidnight = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+  const days = Math.max(0, Math.round((targetMidnight.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24)));
+
+  // Hours/minutes/seconds use the exact time-of-day difference so the
+  // sub-day portion counts down naturally toward the event start time.
+  const nowTod = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+  const targetTod = targetDate.getHours() * 3600 + targetDate.getMinutes() * 60 + targetDate.getSeconds();
+  // If the event time-of-day hasn't passed yet today, show remaining time
+  // toward that time. If it has, the hours/minutes/seconds are 0 since the
+  // calendar-day count already covers the full gap.
+  const todDiff = Math.max(0, targetTod - nowTod);
+
+  const hours = Math.floor(todDiff / 3600);
+  const minutes = Math.floor((todDiff % 3600) / 60);
+  const seconds = todDiff % 60;
 
   return { days, hours, minutes, seconds, isExpired: false };
 }

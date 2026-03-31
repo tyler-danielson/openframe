@@ -192,9 +192,19 @@ function AlbumItem({
           />
         </div>
         <div>
-          <p className="font-medium">{album.name}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="font-medium">{album.name}</p>
+            {(album as any).source === "google" && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                Google
+              </span>
+            )}
+          </div>
           <p className="text-sm text-muted-foreground">
             {album.photoCount ?? 0} photo{album.photoCount !== 1 ? "s" : ""}
+            {(album as any).lastSyncedAt && (
+              <> · Synced {new Date((album as any).lastSyncedAt).toLocaleDateString()}</>
+            )}
           </p>
         </div>
       </button>

@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Calendar, Clock, MapPin, Plus, ChevronDown, ChevronUp } from "lucide-react";
+import { X, Calendar, Clock, MapPin, Plus, ChevronDown, ChevronUp, Thermometer, Droplets, Wind } from "lucide-react";
 import { format, isSameDay } from "date-fns";
 import type { CalendarEvent } from "@openframe/shared";
+import type { WeatherData, WeatherForecast, HourlyForecast } from "../../services/api";
 
 interface DaySummaryModalProps {
   date: Date | null;
@@ -11,9 +12,28 @@ interface DaySummaryModalProps {
   onClose: () => void;
   onSelectEvent: (event: CalendarEvent) => void;
   onAddEvent?: () => void;
+  currentWeather?: WeatherData;
+  dayForecast?: WeatherForecast;
+  hourlyForecast?: HourlyForecast[];
 }
 
-export function DaySummaryModal({ date, events, open, onClose, onSelectEvent, onAddEvent }: DaySummaryModalProps) {
+// Weather icon mapping
+function getWeatherIcon(iconCode: string): string {
+  const iconMap: Record<string, string> = {
+    "01d": "\u2600\uFE0F", "01n": "\uD83C\uDF19",
+    "02d": "\u26C5", "02n": "\u26C5",
+    "03d": "\u2601\uFE0F", "03n": "\u2601\uFE0F",
+    "04d": "\u2601\uFE0F", "04n": "\u2601\uFE0F",
+    "09d": "\uD83C\uDF27\uFE0F", "09n": "\uD83C\uDF27\uFE0F",
+    "10d": "\uD83C\uDF26\uFE0F", "10n": "\uD83C\uDF26\uFE0F",
+    "11d": "\u26C8\uFE0F", "11n": "\u26C8\uFE0F",
+    "13d": "\u2744\uFE0F", "13n": "\u2744\uFE0F",
+    "50d": "\uD83C\uDF2B\uFE0F", "50n": "\uD83C\uDF2B\uFE0F",
+  };
+  return iconMap[iconCode] || "\uD83C\uDF24\uFE0F";
+}
+
+export function DaySummaryModal({ date, events, open, onClose, onSelectEvent, onAddEvent, currentWeather, dayForecast, hourlyForecast }: DaySummaryModalProps) {
   if (!date) return null;
 
   // Filter events for this specific day, then deduplicate
@@ -146,6 +166,60 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent, on
               </button>
             </Dialog.Close>
           </div>
+
+          {/* Weather section */}
+          {(currentWeather || dayForecast) && (
+            <div className="px-4 py-3 border-b border-border">
+              {currentWeather ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl">{getWeatherIcon(currentWeather.icon)}</span>
+                    <div>
+                      <p className="text-2xl font-bold">{currentWeather.temp}°</p>
+                      <p className="text-sm text-muted-foreground capitalize">{currentWeather.description}</p>
+                    </div>
+                    <div className="ml-auto text-right text-sm text-muted-foreground">
+                      <p>H: {currentWeather.temp_max}° L: {currentWeather.temp_min}°</p>
+                      <p>Feels {currentWeather.feels_like}°</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                    <span className="flex items-center gap-1"><Droplets className="h-3.5 w-3.5" /> {currentWeather.humidity}%</span>
+                    <span className="flex items-center gap-1"><Wind className="h-3.5 w-3.5" /> {currentWeather.wind_speed} mph</span>
+                    {hourlyForecast && hourlyForecast.length > 0 && (
+                      <span className="flex items-center gap-1">
+                        <Droplets className="h-3.5 w-3.5 text-blue-500" />
+                        {Math.max(...hourlyForecast.map(h => h.pop))}% precip
+                      </span>
+                    )}
+                  </div>
+                  {/* Compact hourly strip */}
+                  {hourlyForecast && hourlyForecast.length > 0 && (
+                    <div className="flex gap-3 overflow-x-auto scrollbar-none pt-1">
+                      {hourlyForecast.slice(0, 8).map((hour, i) => (
+                        <div key={i} className="flex flex-col items-center text-xs text-muted-foreground shrink-0">
+                          <span>{hour.time}</span>
+                          <span className="text-base">{getWeatherIcon(hour.icon)}</span>
+                          <span className="font-medium text-foreground">{hour.temp}°</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : dayForecast ? (
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">{getWeatherIcon(dayForecast.icon)}</span>
+                  <div>
+                    <p className="text-2xl font-bold">{dayForecast.temp_max}°</p>
+                    <p className="text-sm text-muted-foreground capitalize">{dayForecast.description}</p>
+                  </div>
+                  <div className="ml-auto text-right text-sm text-muted-foreground">
+                    <p>H: {dayForecast.temp_max}° L: {dayForecast.temp_min}°</p>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
 
           {/* Scroll container wrapper */}
           <div className="relative">

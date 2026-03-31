@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuthStore } from "./stores/auth";
 import { useScreensaverStore } from "./stores/screensaver";
 import { Layout } from "./components/ui/Layout";
@@ -12,6 +12,7 @@ import { PhotosPage } from "./pages/PhotosPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { IptvPage } from "./pages/IptvPage";
 import { IptvChannelManagerPage } from "./pages/IptvChannelManagerPage";
+import { SiriusXMPage } from "./pages/SiriusXMPage";
 import { CamerasPage } from "./pages/CamerasPage";
 import { MultiViewPage } from "./pages/MultiViewPage";
 import { HomeAssistantPage } from "./pages/HomeAssistantPage";
@@ -30,6 +31,8 @@ import { RoutinesPage } from "./pages/RoutinesPage";
 import { SetupPage } from "./pages/SetupPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { TvSetupPage } from "./pages/TvSetupPage";
+import { DeviceLinkPage } from "./pages/DeviceLinkPage";
+import { GetStartedPage } from "./pages/GetStartedPage";
 import { InviteAcceptPage } from "./pages/InviteAcceptPage";
 import { JoinPage } from "./pages/JoinPage";
 import { CompanionInviteAcceptPage } from "./pages/CompanionInviteAcceptPage";
@@ -37,6 +40,7 @@ import { CompanionJoinRequestsPage } from "./pages/companion/CompanionJoinReques
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { PlannerBuilderPage } from "./pages/PlannerBuilderPage";
 import { CustomScreenPage } from "./pages/CustomScreenPage";
+import { FilesPage } from "./pages/FilesPage";
 import { CustomScreenBuilderPage } from "./pages/CustomScreenBuilderPage";
 import { ProfileSettingsPage } from "./pages/ProfileSettingsPage";
 import { DemoProvider } from "./contexts/DemoContext";
@@ -124,7 +128,6 @@ function MobileAwareIndex() {
 function SettingsProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
-  // Settings always requires authentication, even in kiosk mode
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
@@ -146,6 +149,14 @@ function CompanionProtectedRoute({ children }: { children: React.ReactNode }) {
 function DurationAlertMonitor() {
   useDurationAlertMonitor();
   return null;
+}
+
+// Wrapper that keys CustomScreenPage on the slug param so React fully
+// unmounts/remounts when navigating between screens or away from the page.
+// Prevents BuilderProvider/Canvas state from leaking across navigations.
+function KeyedCustomScreenPage() {
+  const { slug } = useParams<{ slug: string }>();
+  return <CustomScreenPage key={slug} />;
 }
 
 export default function App() {
@@ -175,6 +186,7 @@ export default function App() {
         path.startsWith("/upload") ||
         path.startsWith("/auth/callback") ||
         path.startsWith("/setup") ||
+        path.startsWith("/get-started") ||
         path.startsWith("/tv-setup") ||
         path.startsWith("/companion") ||
         path.startsWith("/demo") ||
@@ -206,6 +218,7 @@ export default function App() {
         path.startsWith("/upload") ||
         path.startsWith("/auth/callback") ||
         path.startsWith("/setup") ||
+        path.startsWith("/get-started") ||
         path.startsWith("/tv-setup") ||
         path.startsWith("/companion") ||
         path.startsWith("/demo") ||
@@ -321,6 +334,7 @@ export default function App() {
     <Toaster>
       <Routes>
         <Route path="/setup" element={<SetupPage />} />
+        <Route path="/get-started" element={<GetStartedPage />} />
         <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
@@ -336,6 +350,8 @@ export default function App() {
         <Route path="/upload-recipe/:token" element={<MobileRecipeUploadPage />} />
         {/* Public device login page (QR code flow) */}
         <Route path="/device-login" element={<DeviceLoginPage />} />
+        {/* Public device link page — displays QR for pairing (used on Echo Show, etc.) */}
+        <Route path="/link" element={<DeviceLinkPage />} />
         {/* TV setup page — phone visits this after scanning QR from TV */}
         <Route path="/tv-setup" element={<TvSetupPage />} />
         {/* Public kiosk display page (accessed via unique token URL) */}
@@ -364,8 +380,10 @@ export default function App() {
           <Route path="tasks" element={<TasksPage />} />
           <Route path="routines" element={<ModuleGate moduleId="routines"><RoutinesPage /></ModuleGate>} />
           <Route path="photos" element={<ModuleGate moduleId="photos"><PhotosPage /></ModuleGate>} />
+          <Route path="files" element={<FilesPage />} />
           <Route path="iptv" element={<ModuleGate moduleId="iptv"><IptvPage /></ModuleGate>} />
           <Route path="iptv/channels" element={<ModuleGate moduleId="iptv"><IptvChannelManagerPage /></ModuleGate>} />
+          <Route path="siriusxm" element={<ModuleGate moduleId="siriusxm"><SiriusXMPage /></ModuleGate>} />
           <Route path="cameras" element={<ModuleGate moduleId="cameras"><CamerasPage /></ModuleGate>} />
           <Route path="multiview" element={<ModuleGate moduleId="cameras"><MultiViewPage /></ModuleGate>} />
           <Route path="homeassistant" element={<ModuleGate moduleId="homeassistant"><HomeAssistantPage /></ModuleGate>} />
@@ -375,7 +393,7 @@ export default function App() {
           <Route path="kitchen" element={<ModuleGate moduleId="recipes"><KitchenPage /></ModuleGate>} />
           <Route path="recipes" element={<Navigate to="/kitchen" replace />} />
           <Route path="chat" element={<ModuleGate moduleId="ai-chat"><ChatPage /></ModuleGate>} />
-          <Route path="screen/:slug" element={<CustomScreenPage />} />
+          <Route path="screen/:slug" element={<KeyedCustomScreenPage />} />
           <Route path="screen/:slug/edit" element={<CustomScreenBuilderPage />} />
           <Route
             path="remarkable"
@@ -527,6 +545,12 @@ function ModuleAwareOverlays({
 /** Renders the connection status indicator for non-kiosk authenticated users. */
 function AppConnectionStatus() {
   const { connectionStatus, lastOnlineAt } = useConnection();
+  const location = useLocation();
+
+  // Hide on settings/account page — that page already shows auth status
+  // and the indicator covers the "sign in again" button
+  if (location.pathname.startsWith("/settings/account")) return null;
+
   return (
     <ConnectionStatusIndicator
       status={connectionStatus}

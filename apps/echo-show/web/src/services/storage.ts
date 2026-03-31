@@ -2,8 +2,8 @@
  * Dual-mode storage service for Echo Show.
  *
  * - Alexa mode: Config comes from the Start directive and persists via
- *   sendMessage → Lambda → S3. No localStorage available.
- * - Silk/browser mode: Falls back to localStorage (same pattern as Tizen app).
+ *   sendMessage -> Lambda -> S3. No localStorage available.
+ * - Silk/browser mode: Falls back to localStorage.
  */
 
 import { isRunningInAlexa, sendMessage, getStartData } from "./alexa";
@@ -18,17 +18,10 @@ export interface KioskConfig {
 // In-memory cache for Alexa mode (no localStorage available)
 let memoryConfig: KioskConfig | null = null;
 
-/**
- * Get kiosk configuration.
- * In Alexa mode, reads from Start directive data or memory cache.
- * In Silk mode, reads from localStorage.
- */
 export function getKioskConfig(): KioskConfig | null {
   if (isRunningInAlexa()) {
-    // Check memory cache first
     if (memoryConfig) return memoryConfig;
 
-    // Try to get from Alexa Start directive data
     const startData = getStartData();
     if (startData?.serverUrl && startData?.kioskToken) {
       memoryConfig = {
@@ -37,11 +30,10 @@ export function getKioskConfig(): KioskConfig | null {
       };
       return memoryConfig;
     }
-
     return null;
   }
 
-  // Silk/browser mode — use localStorage
+  // Silk/browser mode — localStorage
   try {
     const serverUrl = localStorage.getItem(`${STORAGE_PREFIX}server_url`);
     const kioskToken = localStorage.getItem(`${STORAGE_PREFIX}kiosk_token`);
@@ -54,11 +46,6 @@ export function getKioskConfig(): KioskConfig | null {
   return null;
 }
 
-/**
- * Save kiosk configuration.
- * In Alexa mode, sends to Lambda for S3 persistence.
- * In Silk mode, saves to localStorage.
- */
 export function saveKioskConfig(config: KioskConfig): boolean {
   if (isRunningInAlexa()) {
     memoryConfig = config;
@@ -70,7 +57,6 @@ export function saveKioskConfig(config: KioskConfig): boolean {
     return true;
   }
 
-  // Silk/browser mode
   try {
     localStorage.setItem(`${STORAGE_PREFIX}server_url`, config.serverUrl);
     localStorage.setItem(`${STORAGE_PREFIX}kiosk_token`, config.kioskToken);
@@ -81,9 +67,6 @@ export function saveKioskConfig(config: KioskConfig): boolean {
   }
 }
 
-/**
- * Clear kiosk configuration.
- */
 export function clearKioskConfig(): boolean {
   if (isRunningInAlexa()) {
     memoryConfig = null;
@@ -101,10 +84,6 @@ export function clearKioskConfig(): boolean {
   }
 }
 
-/**
- * Check if initial setup is needed.
- * In Alexa mode, checks the Start directive's needsSetup flag.
- */
 export function needsSetup(): boolean {
   if (isRunningInAlexa()) {
     const startData = getStartData();

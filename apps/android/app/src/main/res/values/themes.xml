@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.OpenFrame" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="Theme.OpenFrame.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#0A0A0A</item>
+        <item name="postSplashScreenTheme">@style/Theme.OpenFrame</item>
+    </style>
+</resources>

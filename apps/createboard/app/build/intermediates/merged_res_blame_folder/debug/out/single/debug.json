@@ -1,0 +1,50 @@
+[
+    {
+        "merged": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-merged_res-4:\\mipmap-mdpi_ic_launcher.png.flat",
+        "source": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-main-6:\\mipmap-mdpi\\ic_launcher.png"
+    },
+    {
+        "merged": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-merged_res-4:\\mipmap-hdpi_ic_launcher.png.flat",
+        "source": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-main-6:\\mipmap-hdpi\\ic_launcher.png"
+    },
+    {
+        "merged": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-merged_res-4:\\mipmap-xhdpi_ic_launcher.png.flat",
+        "source": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-main-6:\\mipmap-xhdpi\\ic_launcher.png"
+    },
+    {
+        "merged": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-merged_res-4:\\drawable_qr_background.xml.flat",
+        "source": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-main-6:\\drawable\\qr_background.xml"
+    },
+    {
+        "merged": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-merged_res-4:\\drawable_button_background.xml.flat",
+        "source": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-main-6:\\drawable\\button_background.xml"
+    },
+    {
+        "merged": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-merged_res-4:\\layout_activity_setup.xml.flat",
+        "source": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-main-6:\\layout\\activity_setup.xml"
+    },
+    {
+        "merged": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-merged_res-4:\\layout_activity_kiosk.xml.flat",
+        "source": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-main-6:\\layout\\activity_kiosk.xml"
+    },
+    {
+        "merged": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-merged_res-4:\\drawable_banner.png.flat",
+        "source": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-main-6:\\drawable\\banner.png"
+    },
+    {
+        "merged": "com.openframe.createboard.app-merged_res-4:/layout_activity_setup.xml.flat",
+        "source": "com.openframe.createboard.app-main-6:/layout/activity_setup.xml"
+    },
+    {
+        "merged": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-merged_res-4:\\drawable_input_background.xml.flat",
+        "source": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-main-6:\\drawable\\input_background.xml"
+    },
+    {
+        "merged": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-merged_res-4:\\mipmap-xxxhdpi_ic_launcher.png.flat",
+        "source": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-main-6:\\mipmap-xxxhdpi\\ic_launcher.png"
+    },
+    {
+        "merged": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-merged_res-4:\\mipmap-xxhdpi_ic_launcher.png.flat",
+        "source": "C:\\Users\\tyler\\.gradle\\daemon\\8.2\\com.openframe.createboard.app-main-6:\\mipmap-xxhdpi\\ic_launcher.png"
+    }
+]

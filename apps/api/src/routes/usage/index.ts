@@ -171,4 +171,91 @@ export const usageRoutes: FastifyPluginAsync = async (fastify) => {
       return { success: true, enabled };
     }
   );
+
+  // POST /api/v1/usage/service-consent
+  // Protected by provisioning secret — called by Cloud to enable/disable premium service features
+  fastify.post(
+    "/service-consent",
+    {
+      schema: {
+        description: "Enable or disable premium service features for a user",
+        tags: ["Usage"],
+        body: {
+          type: "object",
+          properties: {
+            features: {
+              type: "array",
+              items: { type: "string" },
+            },
+            enabled: { type: "boolean" },
+          },
+          required: ["features", "enabled"],
+        },
+      },
+    },
+    async (request, reply) => {
+      // Verify provisioning secret (timing-safe)
+      const secret = request.headers["x-provisioning-secret"];
+      if (
+        !fastify.provisioningSecret ||
+        !secret ||
+        typeof secret !== "string" ||
+        secret.length !== fastify.provisioningSecret.length ||
+        !timingSafeEqual(
+          Buffer.from(secret),
+          Buffer.from(fastify.provisioningSecret)
+        )
+      ) {
+        return reply.forbidden("Invalid provisioning secret");
+      }
+
+      // Get user ID from relay header
+      const userId = request.headers["x-relay-user-id"] as string;
+      if (!userId) {
+        return reply.badRequest("Missing x-relay-user-id header");
+      }
+
+      const { features, enabled } = request.body as {
+        features: string[];
+        enabled: boolean;
+      };
+
+      for (const feature of features) {
+        if (enabled) {
+          await fastify.db
+            .insert(systemSettings)
+            .values({
+              userId,
+              category: "services",
+              key: feature,
+              value: "true",
+              isSecret: false,
+            })
+            .onConflictDoUpdate({
+              target: [
+                systemSettings.userId,
+                systemSettings.category,
+                systemSettings.key,
+              ],
+              set: {
+                value: "true",
+                updatedAt: new Date(),
+              },
+            });
+        } else {
+          await fastify.db
+            .delete(systemSettings)
+            .where(
+              and(
+                eq(systemSettings.userId, userId),
+                eq(systemSettings.category, "services"),
+                eq(systemSettings.key, feature)
+              )
+            );
+        }
+      }
+
+      return { success: true, features, enabled };
+    }
+  );
 };

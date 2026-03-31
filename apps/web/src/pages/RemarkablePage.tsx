@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
@@ -22,6 +23,7 @@ import {
   Folder,
   FileCheck,
   AlertCircle,
+  Pencil,
 } from "lucide-react";
 import { api, type RemarkableNote, type RemarkableAgendaSettings, type RemarkableRecentDocument } from "../services/api";
 import { Button } from "../components/ui/Button";
@@ -29,6 +31,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../co
 import { ConnectionWizard } from "../components/remarkable/ConnectionWizard";
 import { RemarkableSettings } from "../components/remarkable/RemarkableSettings";
 import { AgendaPreview } from "../components/remarkable/AgendaPreview";
+import { DocumentViewer } from "../components/remarkable/DocumentViewer";
 import { TemplateManager } from "../components/remarkable/TemplateManager";
 import { ScheduleManager } from "../components/remarkable/ScheduleManager";
 import { FolderBrowser } from "../components/remarkable/FolderBrowser";
@@ -36,7 +39,9 @@ import { ConfirmationSettings } from "../components/remarkable/ConfirmationSetti
 
 export function RemarkablePage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [showSettings, setShowSettings] = useState(false);
+  const [viewingDoc, setViewingDoc] = useState<{ name: string; path: string } | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showSchedules, setShowSchedules] = useState(false);
@@ -223,94 +228,6 @@ export function RemarkablePage() {
         )}
       </Card>
 
-      {/* Recent Files Section - Shows after connection to verify it's working */}
-      {isConnected && (
-        <Card className="mb-6">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <FileCheck className="h-5 w-5" />
-                  Recent Files on Device
-                </CardTitle>
-                <CardDescription>
-                  Your most recently edited files on reMarkable
-                </CardDescription>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => refetchRecentDocs()}
-                disabled={isLoadingRecentDocs}
-              >
-                {isLoadingRecentDocs ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {isLoadingRecentDocs ? (
-              <div className="flex items-center justify-center py-6">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : recentDocsError ? (
-              <div className="text-center py-6">
-                <AlertCircle className="h-10 w-10 mx-auto mb-2 text-amber-500" />
-                <p className="text-amber-600 font-medium">File listing temporarily unavailable</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  reMarkable's servers returned an error. Your connection is still valid -
-                  push and sync features should work normally.
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Try again later or check{" "}
-                  <a href="https://status.remarkable.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">
-                    reMarkable's status page
-                  </a>
-                </p>
-              </div>
-            ) : recentDocs.length === 0 ? (
-              <div className="text-center py-6 text-muted-foreground">
-                <FileText className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                <p>No documents found on your device</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {recentDocs.map((doc: RemarkableRecentDocument) => (
-                  <div
-                    key={doc.id}
-                    className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                      <div className="min-w-0">
-                        <p className="font-medium truncate">{doc.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {doc.folderPath}
-                          {doc.lastModified && (
-                            <> &middot; {format(new Date(doc.lastModified), "PPp")}</>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                    {doc.pinned && (
-                      <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded flex-shrink-0">
-                        Pinned
-                      </span>
-                    )}
-                  </div>
-                ))}
-                <p className="text-xs text-muted-foreground text-center pt-2">
-                  Showing your {recentDocs.length} most recently edited files
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
       {/* Main Content - Only show when connected */}
       {isConnected && (
         <>
@@ -369,6 +286,13 @@ export function RemarkablePage() {
                 >
                   <Eye className="h-4 w-4 mr-2" />
                   Preview
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => navigate("/settings/planner")}
+                >
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Edit Layout
                 </Button>
               </div>
 
@@ -440,7 +364,7 @@ export function RemarkablePage() {
           </div>
 
           {/* Handwritten Notes Section */}
-          <Card>
+          <Card className="mb-6">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
@@ -560,6 +484,93 @@ export function RemarkablePage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Recent Files Section */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileCheck className="h-5 w-5" />
+                    Recent Files on Device
+                  </CardTitle>
+                  <CardDescription>
+                    Your most recently edited files on reMarkable
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => refetchRecentDocs()}
+                  disabled={isLoadingRecentDocs}
+                >
+                  {isLoadingRecentDocs ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isLoadingRecentDocs ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : recentDocsError ? (
+                <div className="text-center py-6">
+                  <AlertCircle className="h-10 w-10 mx-auto mb-2 text-amber-500" />
+                  <p className="text-amber-600 font-medium">File listing temporarily unavailable</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    reMarkable's servers returned an error. Your connection is still valid -
+                    push and sync features should work normally.
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Try again later or check{" "}
+                    <a href="https://status.remarkable.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                      reMarkable's status page
+                    </a>
+                  </p>
+                </div>
+              ) : recentDocs.length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground">
+                  <FileText className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                  <p>No documents found on your device</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {recentDocs.map((doc: RemarkableRecentDocument) => (
+                    <button
+                      key={doc.id}
+                      onClick={() => setViewingDoc({ name: doc.name, path: doc.folderPath === "/" ? `/${doc.name}` : `${doc.folderPath}/${doc.name}` })}
+                      className="flex items-center justify-between p-3 bg-muted/50 rounded-lg w-full text-left hover:bg-muted transition-colors"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{doc.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {doc.folderPath}
+                            {doc.lastModified && (
+                              <> &middot; {format(new Date(doc.lastModified), "PPp")}</>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      {doc.pinned && (
+                        <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded flex-shrink-0">
+                          Pinned
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                  <p className="text-xs text-muted-foreground text-center pt-2">
+                    Showing your {recentDocs.length} most recently edited files
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </>
       )}
 
@@ -581,6 +592,15 @@ export function RemarkablePage() {
           date={previewDate}
           onDateChange={setPreviewDate}
           onClose={() => setShowPreview(false)}
+        />
+      )}
+
+      {/* Document Viewer Modal */}
+      {viewingDoc && (
+        <DocumentViewer
+          docName={viewingDoc.name}
+          docPath={viewingDoc.path}
+          onClose={() => setViewingDoc(null)}
         />
       )}
 

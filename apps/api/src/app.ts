@@ -25,6 +25,7 @@ import { photoRoutes } from "./routes/photos/index.js";
 import { botRoutes } from "./routes/bot/index.js";
 import { mapsRoutes } from "./routes/maps/index.js";
 import { iptvRoutes } from "./routes/iptv/index.js";
+import { siriusxmRoutes } from "./routes/siriusxm/index.js";
 import { cameraRoutes } from "./routes/cameras/index.js";
 import { homeAssistantRoutes } from "./routes/homeassistant/index.js";
 import { spotifyRoutes } from "./routes/spotify/index.js";
@@ -32,11 +33,14 @@ import { weatherRoutes } from "./routes/weather/index.js";
 import { settingsRoutes } from "./routes/settings/index.js";
 import { handwritingRoutes } from "./routes/handwriting/index.js";
 import { sportsRoutes } from "./routes/sports/index.js";
+import { financeRoutes } from "./routes/finance/index.js";
 import { automationRoutes } from "./routes/automations/index.js";
 import { newsRoutes } from "./routes/news/index.js";
 import { remarkableRoutes } from "./routes/remarkable/index.js";
 import { capacitiesRoutes } from "./routes/capacities/index.js";
 import { telegramRoutes } from "./routes/telegram/index.js";
+import { whatsappRoutes } from "./routes/whatsapp/index.js";
+import { WhatsAppService } from "./services/whatsapp.js";
 import { kiosksRoutes } from "./routes/kiosks/index.js";
 import { recipeRoutes } from "./routes/recipes/index.js";
 import { kitchenRoutes } from "./routes/kitchen/index.js";
@@ -68,6 +72,11 @@ import { fileshareRoutes } from "./routes/fileshare/index.js";
 import { iconRoutes } from "./routes/icons/index.js";
 import { joinRequestRoutes } from "./routes/join-requests/index.js";
 import { companionInviteRoutes } from "./routes/companion-invites/index.js";
+import { storageRoutes } from "./routes/storage/index.js";
+import { householdRoutes } from "./routes/households/index.js";
+import { noteRoutes } from "./routes/notes/index.js";
+import { choreRoutes } from "./routes/chores/index.js";
+import { packageRoutes } from "./routes/packages/index.js";
 import { cloudPlugin } from "./plugins/cloud.js";
 import { matterPlugin } from "./plugins/matter.js";
 import { planLimitsPlugin } from "./plugins/plan-limits.js";
@@ -103,6 +112,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
       level: config.logLevel,
       stream: logStream,
     },
+    bodyLimit: 200 * 1024 * 1024, // 200MB for backup imports with photos
   });
 
   // Register core plugins
@@ -232,6 +242,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(botRoutes, { prefix: "/api/v1/bot" });
   await app.register(mapsRoutes, { prefix: "/api/v1/maps" });
   await app.register(iptvRoutes, { prefix: "/api/v1/iptv" });
+  await app.register(siriusxmRoutes, { prefix: "/api/v1/siriusxm" });
   await app.register(cameraRoutes, { prefix: "/api/v1/cameras" });
   await app.register(homeAssistantRoutes, { prefix: "/api/v1/homeassistant" });
   await app.register(spotifyRoutes, { prefix: "/api/v1/spotify" });
@@ -239,11 +250,13 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(settingsRoutes, { prefix: "/api/v1/settings" });
   await app.register(handwritingRoutes, { prefix: "/api/v1/handwriting" });
   await app.register(sportsRoutes, { prefix: "/api/v1/sports" });
+  await app.register(financeRoutes, { prefix: "/api/v1/finance" });
   await app.register(automationRoutes, { prefix: "/api/v1/automations" });
   await app.register(newsRoutes, { prefix: "/api/v1/news" });
   await app.register(remarkableRoutes, { prefix: "/api/v1/remarkable" });
   await app.register(capacitiesRoutes, { prefix: "/api/v1/capacities" });
   await app.register(telegramRoutes, { prefix: "/api/v1/telegram" });
+  await app.register(whatsappRoutes, { prefix: "/api/v1/whatsapp" });
   await app.register(kiosksRoutes, { prefix: "/api/v1/kiosks" });
   await app.register(recipeRoutes, { prefix: "/api/v1/recipes" });
   await app.register(kitchenRoutes, { prefix: "/api/v1/kitchen" });
@@ -274,6 +287,11 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(iconRoutes, { prefix: "/api/v1/icons" });
   await app.register(joinRequestRoutes, { prefix: "/api/v1/join-requests" });
   await app.register(companionInviteRoutes, { prefix: "/api/v1/companion-invites" });
+  await app.register(storageRoutes, { prefix: "/api/v1/storage" });
+  await app.register(householdRoutes, { prefix: "/api/v1/households" });
+  await app.register(noteRoutes, { prefix: "/api/v1/notes" });
+  await app.register(choreRoutes, { prefix: "/api/v1/chores" });
+  await app.register(packageRoutes, { prefix: "/api/v1/packages" });
 
   // --- Static file serving (combined container mode) ---
   const publicDir = path.join(process.cwd(), "public");
@@ -353,6 +371,15 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
     };
 
     reply.status(statusCode).send(response);
+  });
+
+  // Reconnect existing WhatsApp sessions on startup
+  app.addHook("onReady", async () => {
+    try {
+      await WhatsAppService.initializeExisting(app);
+    } catch (err) {
+      app.log.error({ err }, "Failed to initialize WhatsApp sessions");
+    }
   });
 
   return app;

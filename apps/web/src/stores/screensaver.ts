@@ -41,7 +41,19 @@ export type BuilderWidgetType =
   | "plexamp"
   | "audiobookshelf"
   | "support"
-  | "countdown-holder";
+  | "countdown-holder"
+  | "multi-clock"
+  | "notes"
+  | "stock-quote"
+  | "exchange-rate"
+  | "atmospheric-map"
+  | "weather-alerts"
+  | "ocean-tides"
+  | "air-quality"
+  | "ha"
+  | "chores"
+  | "sticky-notes"
+  | "package-tracking";
 
 export type FontSizePreset = "xs" | "sm" | "md" | "lg" | "xl" | "custom";
 
@@ -50,6 +62,7 @@ export interface WidgetStyle {
   textColor?: string;
   fontSize?: FontSizePreset;
   customFontSize?: string; // e.g., "24px" or "150%"
+  textAlign?: "left" | "center" | "right";
   opacity?: number;
 }
 

@@ -8,20 +8,23 @@ interface PdfViewerProps {
   fileUrl: string;
   currentPage: number;
   pageCount?: number;
+  onLoaded?: () => void;
 }
 
 export default function FileSharePdfViewer({
   fileUrl,
   currentPage,
   pageCount,
+  onLoaded,
 }: PdfViewerProps) {
   const [numPages, setNumPages] = useState<number>(pageCount ?? 0);
 
   const onDocumentLoadSuccess = useCallback(
     ({ numPages: n }: { numPages: number }) => {
       setNumPages(n);
+      onLoaded?.();
     },
-    []
+    [onLoaded]
   );
 
   return (

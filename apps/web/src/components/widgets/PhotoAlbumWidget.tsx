@@ -76,8 +76,11 @@ export function PhotoAlbumWidget({ config, style, isBuilder, widgetId }: PhotoAl
   const transition = (config.transition as Transition) ?? "fade";
   const transitionDuration = (config.transitionDuration as number) ?? 1000;
   const cropStyle = (config.cropStyle as CropStyle) ?? "crop";
+  const fitStyle = (config.fitStyle as string) ?? ""; // "fit-blur" | "circle" | "" (use cropStyle)
   const slideDirection = (config.slideDirection as SlideDirection) ?? "left";
   const shuffle = (config.shuffle as boolean) ?? true;
+  const brightness = (config.brightness as number) ?? 100;
+  const vignette = (config.vignette as boolean) ?? false;
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -419,20 +422,47 @@ export function PhotoAlbumWidget({ config, style, isBuilder, widgetId }: PhotoAl
     }
   }
 
+  const brightnessFilter = brightness < 100 ? { filter: `brightness(${brightness / 100})` } : {};
+  const isCircle = fitStyle === "circle";
+  const isFitBlur = fitStyle === "fit-blur";
+
   return (
-    <div className="h-full w-full rounded-lg overflow-hidden bg-black/40" {...swipeHandlers}>
+    <div
+      className={cn("h-full w-full rounded-lg overflow-hidden bg-black/40 relative", isCircle && "flex items-center justify-center")}
+      {...swipeHandlers}
+      style={brightnessFilter}
+    >
+      {/* Fit & Blur: blurred background fill */}
+      {isFitBlur && currentPhoto?.url && (
+        <img
+          src={currentPhoto.url}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 opacity-60"
+          aria-hidden
+        />
+      )}
       <img
         src={currentPhoto?.url}
         alt={currentPhoto?.title || "Photo"}
-        className={cn("w-full h-full", cropStyles.className)}
-        style={mergedStyles}
+        className={cn(
+          isFitBlur ? "relative z-10 w-full h-full object-contain" :
+          isCircle ? "w-3/4 h-3/4 object-cover rounded-full" :
+          cn("w-full h-full", cropStyles.className)
+        )}
+        style={isFitBlur || isCircle ? getTransitionStyles() : mergedStyles}
         onError={(e) => {
-          // Skip to next photo on error
           if (photos.length > 1) {
             setCurrentIndex((prev) => (prev + 1) % photos.length);
           }
         }}
       />
+      {/* Vignette overlay */}
+      {vignette && (
+        <div
+          className="absolute inset-0 pointer-events-none z-20"
+          style={{ background: "radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.6) 100%)" }}
+        />
+      )}
       {/* Hidden preload image */}
       {preloadedImage && (
         <img

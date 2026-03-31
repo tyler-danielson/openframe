@@ -36,14 +36,15 @@ export function RecipesSection({
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
-  // Fetch recipes
-  const { data: recipes = [], isLoading } = useQuery({
+  // Fetch recipes - treat errors as empty (e.g. module not enabled, no recipes table)
+  const { data: recipes = [], isLoading, isError } = useQuery({
     queryKey: ["recipes", showFavoritesOnly, selectedTag],
     queryFn: () =>
       api.getRecipes({
         favorite: showFavoritesOnly || undefined,
         tag: selectedTag || undefined,
       }),
+    retry: false,
   });
 
   // Fetch tags
@@ -192,7 +193,7 @@ export function RecipesSection({
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
-      ) : filteredRecipes.length === 0 ? (
+      ) : isError || filteredRecipes.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="text-6xl mb-4">🍽️</div>
           <h2 className="text-xl font-semibold text-foreground mb-2">

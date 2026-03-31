@@ -214,8 +214,8 @@ export function WeekGridView({
       return { icon: currentWeather.icon, temp: currentWeather.temp };
     }
     if (weatherForecast) {
-      const dayName = format(day, "EEE");
-      const forecast = weatherForecast.find(f => f.date === dayName);
+      const dateKey = format(day, "yyyy-MM-dd");
+      const forecast = weatherForecast.find(f => f.date === dateKey);
       if (forecast) {
         // For forecast days, show high temp
         return { icon: forecast.icon, temp: forecast.temp_max };
@@ -306,7 +306,8 @@ export function WeekGridView({
 
   const nextEventId = nextEvent?.id ?? null;
 
-  // Fetch drive time for next event if enabled and event has location
+  // Smart traffic polling: only fetch when event is within 2 hours,
+  // with exponential backoff (2h, 1h, 30min before event = ~3 checks)
   useEffect(() => {
     if (!showDriveTimeOnNext || !homeAddress || !nextEvent?.location) {
       setNextEventDriveTime(null);
@@ -314,6 +315,7 @@ export function WeekGridView({
     }
 
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
     async function fetchDriveTime() {
       try {
@@ -332,12 +334,39 @@ export function WeekGridView({
       }
     }
 
-    fetchDriveTime();
+    function scheduleNextPoll() {
+      if (cancelled) return;
+      const eventStart = getEventStartDate(nextEvent!);
+      const msUntilEvent = eventStart.getTime() - Date.now();
+
+      // Don't poll if event is more than 2 hours away
+      if (msUntilEvent > 2 * 60 * 60 * 1000) {
+        // Schedule a check for when we're 2 hours out
+        timer = setTimeout(() => {
+          fetchDriveTime();
+          scheduleNextPoll();
+        }, msUntilEvent - 2 * 60 * 60 * 1000);
+        return;
+      }
+
+      // Event is within 2 hours — fetch now, then schedule next check
+      fetchDriveTime();
+
+      // Exponential backoff: poll at half the remaining time, minimum 10 min
+      if (msUntilEvent > 10 * 60 * 1000) {
+        const nextPollIn = Math.max(msUntilEvent / 2, 10 * 60 * 1000);
+        timer = setTimeout(scheduleNextPoll, nextPollIn);
+      }
+      // If <10 min out, no more polls — we already have fresh data
+    }
+
+    scheduleNextPoll();
 
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
-  }, [showDriveTimeOnNext, homeAddress, nextEvent?.id, nextEvent?.location]);
+  }, [showDriveTimeOnNext, homeAddress, nextEventId, nextEvent?.location]);
 
   // Calculate next week's date range and events
   const nextWeekData = useMemo(() => {

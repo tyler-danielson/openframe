@@ -1,7 +1,7 @@
 {
   "interactionModel": {
     "languageModel": {
-      "invocationName": "open frame",
+      "invocationName": "my calendar",
       "intents": [
         {
           "name": "NavigateIntent",

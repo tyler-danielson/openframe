@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="QRSetupScreen" extends="Group">
+    <interface>
+        <field id="serverUrl" type="string" />
+        <field id="configReady" type="assocarray" alwaysNotify="true" />
+        <field id="goBack" type="boolean" alwaysNotify="true" value="false" />
+    </interface>
+    <script type="text/brightscript" uri="QRSetupScreen.brs" />
+    <script type="text/brightscript" uri="pkg:/components/utils/Registry.brs" />
+    <children>
+        <Rectangle
+            id="background"
+            width="1920"
+            height="1080"
+            color="0x0f172aFF">
+
+            <LayoutGroup
+                id="mainLayout"
+                layoutDirection="vert"
+                horizAlignment="center"
+                vertAlignment="center"
+                translation="[960, 150]"
+                itemSpacings="[30]">
+
+                <Label
+                    id="titleLabel"
+                    text="Link Your Device"
+                    font="font:LargeBoldSystemFont"
+                    color="0x60a5faFF"
+                    horizAlign="center"
+                    width="800" />
+
+                <Label
+                    id="step1Label"
+                    text="1. On your phone or computer, go to:"
+                    font="font:MediumSystemFont"
+                    color="0xe2e8f0FF"
+                    horizAlign="center"
+                    width="800" />
+
+                <Label
+                    id="urlLabel"
+                    text=""
+                    font="font:LargeBoldSystemFont"
+                    color="0xf8fafcFF"
+                    horizAlign="center"
+                    width="800" />
+
+                <Label
+                    id="step2Label"
+                    text="2. Enter this code:"
+                    font="font:MediumSystemFont"
+                    color="0xe2e8f0FF"
+                    horizAlign="center"
+                    width="800" />
+
+                <Label
+                    id="userCodeLabel"
+                    text=""
+                    font="font:LargeBoldSystemFont"
+                    color="0xfbbf24FF"
+                    horizAlign="center"
+                    width="800" />
+
+                <Label
+                    id="statusLabel"
+                    text="Waiting for authorization..."
+                    font="font:MediumSystemFont"
+                    color="0x94a3b8FF"
+                    horizAlign="center"
+                    width="800" />
+
+                <Label
+                    id="countdownLabel"
+                    text=""
+                    font="font:SmallSystemFont"
+                    color="0x64748bFF"
+                    horizAlign="center"
+                    width="800" />
+
+                <Poster
+                    id="qrImage"
+                    width="250"
+                    height="250"
+                    translation="[-125, 0]" />
+            </LayoutGroup>
+
+            <ButtonGroup
+                id="buttonGroup"
+                translation="[810, 950]"
+                buttons="[Back]"
+                visible="false" />
+
+            <Label
+                id="hintLabel"
+                text="Press Back to return to setup"
+                font="font:SmallSystemFont"
+                color="0x64748bFF"
+                horizAlign="center"
+                width="1920"
+                translation="[0, 1020]" />
+        </Rectangle>
+
+        <ApiTask id="authTask" />
+
+        <Timer id="pollTimer" duration="5" repeat="true" />
+        <Timer id="countdownTimer" duration="1" repeat="true" />
+    </children>
+</component>

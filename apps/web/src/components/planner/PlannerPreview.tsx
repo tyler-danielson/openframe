@@ -1,20 +1,48 @@
-import { useEffect } from "react";
-import { X, Printer } from "lucide-react";
+import { useEffect, useState } from "react";
+import { X, Printer, Loader2 } from "lucide-react";
 import type { PlannerLayoutConfig, LayoutSection, PlannerWidgetInstance } from "@openframe/shared";
 import { Button } from "../ui/Button";
 import { getPresetById } from "../../lib/planner/device-presets";
 import { renderEditableWidget, plannerColors } from "./editable-widgets";
+import { api } from "../../services/api";
 
 interface PlannerPreviewProps {
   layoutConfig: PlannerLayoutConfig;
+  profileId?: string;
   onClose: () => void;
 }
 
 // Use shared planner colors
 const colors = plannerColors;
 
-export function PlannerPreview({ layoutConfig, onClose }: PlannerPreviewProps) {
+export function PlannerPreview({ layoutConfig, profileId, onClose }: PlannerPreviewProps) {
   const { widgets, pageSize, orientation, columns } = layoutConfig;
+  const usePdfPreview = layoutConfig.enableDetailPages && profileId;
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+
+  // Fetch PDF preview when detail pages are enabled
+  useEffect(() => {
+    if (!usePdfPreview) return;
+    let cancelled = false;
+    setPdfLoading(true);
+    setPdfError(null);
+    api.fetchPlannerPreviewBlob(profileId).then((blob) => {
+      if (cancelled) return;
+      const url = URL.createObjectURL(blob);
+      setPdfUrl(url);
+      setPdfLoading(false);
+    }).catch((err) => {
+      if (cancelled) return;
+      setPdfError(err instanceof Error ? err.message : "Failed to generate preview");
+      setPdfLoading(false);
+    });
+    return () => {
+      cancelled = true;
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    };
+  }, [usePdfPreview, profileId]);
 
   // Load Google Fonts
   useEffect(() => {
@@ -94,40 +122,74 @@ export function PlannerPreview({ layoutConfig, onClose }: PlannerPreviewProps) {
       </div>
 
       {/* Planner frame */}
-      <div
-        className="relative overflow-hidden print:shadow-none"
-        style={{
-          width: previewWidth,
-          height: previewHeight,
-          backgroundColor: plannerColors.paper,
-          borderRadius: 4,
-          boxShadow: `0 1px 3px rgba(44,42,39,0.06), 0 8px 24px rgba(44,42,39,0.1), inset 0 0 0 1px rgba(44,42,39,0.05)`,
-          fontFamily: "'DM Sans', sans-serif",
-          color: plannerColors.ink,
-        }}
-      >
-        {/* Render using columns layout */}
-        {rootSection ? (
-          <PreviewSection section={rootSection} widgets={widgets} />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <p style={{ color: colors.inkFaint }} className="text-center">
-              No layout defined.<br />
-              Create a layout in the editor.
-            </p>
-          </div>
-        )}
+      {usePdfPreview ? (
+        /* PDF-based preview for multi-page detail pages */
+        <div
+          className="relative overflow-hidden print:shadow-none"
+          style={{
+            width: previewWidth,
+            height: previewHeight,
+            backgroundColor: "#fff",
+            borderRadius: 4,
+            boxShadow: `0 1px 3px rgba(44,42,39,0.06), 0 8px 24px rgba(44,42,39,0.1)`,
+          }}
+        >
+          {pdfLoading && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin" style={{ color: colors.inkLight }} />
+              <span className="ml-3 text-sm" style={{ color: colors.inkLight }}>Generating PDF preview...</span>
+            </div>
+          )}
+          {pdfError && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <p className="text-sm text-red-500">{pdfError}</p>
+            </div>
+          )}
+          {pdfUrl && (
+            <iframe
+              src={pdfUrl}
+              className="w-full h-full border-0"
+              title="Planner PDF Preview"
+            />
+          )}
+        </div>
+      ) : (
+        /* HTML-based preview for single-page layouts */
+        <div
+          className="relative overflow-hidden print:shadow-none"
+          style={{
+            width: previewWidth,
+            height: previewHeight,
+            backgroundColor: plannerColors.paper,
+            borderRadius: 4,
+            boxShadow: `0 1px 3px rgba(44,42,39,0.06), 0 8px 24px rgba(44,42,39,0.1), inset 0 0 0 1px rgba(44,42,39,0.05)`,
+            fontFamily: "'DM Sans', sans-serif",
+            color: plannerColors.ink,
+          }}
+        >
+          {/* Render using columns layout */}
+          {rootSection ? (
+            <PreviewSection section={rootSection} widgets={widgets} />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <p style={{ color: colors.inkFaint }} className="text-center">
+                No layout defined.<br />
+                Create a layout in the editor.
+              </p>
+            </div>
+          )}
 
-        {/* Empty state - no widgets assigned */}
-        {rootSection && !hasAssignedWidgets && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/5">
-            <p style={{ color: colors.inkFaint }} className="text-center">
-              No widgets added yet.<br />
-              Add widgets from the palette to build your planner.
-            </p>
-          </div>
-        )}
-      </div>
+          {/* Empty state - no widgets assigned */}
+          {rootSection && !hasAssignedWidgets && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/5">
+              <p style={{ color: colors.inkFaint }} className="text-center">
+                No widgets added yet.<br />
+                Add widgets from the palette to build your planner.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Instructions */}
       <div

@@ -22,6 +22,7 @@ import { api } from "../services/api";
 import { Button } from "../components/ui/Button";
 import { HandwritingCanvas } from "../components/ui/HandwritingCanvas";
 import { cn } from "../lib/utils";
+import { offlineCache, CACHE_KEYS } from "../lib/offlineCache";
 import { useTasksStore, type TasksLayout } from "../stores/tasks";
 import { useAuthStore } from "../stores/auth";
 import { buildOAuthUrl } from "../utils/oauth-scopes";
@@ -42,23 +43,43 @@ export function TasksPage() {
 
   const { layout, setLayout, showCompleted, setShowCompleted, expandAllLists } = useTasksStore();
 
-  // Fetch task lists
+  // Fetch task lists (with offline cache fallback)
   const { data: taskLists = [], isLoading: loadingLists } = useQuery({
     queryKey: ["task-lists"],
-    queryFn: () => api.getTaskLists(),
+    queryFn: async () => {
+      try {
+        const data = await api.getTaskLists();
+        offlineCache.set(CACHE_KEYS.TASK_LISTS, data);
+        return data;
+      } catch (error) {
+        const cached = offlineCache.getStale<TaskList[]>(CACHE_KEYS.TASK_LISTS);
+        if (cached) return cached.data;
+        throw error;
+      }
+    },
   });
 
-  // Fetch tasks
+  // Fetch tasks (with offline cache fallback)
   const { data: tasks = [], isLoading: loadingTasks } = useQuery({
     queryKey: ["tasks", selectedListId],
-    queryFn: () => api.getTasks({ listId: selectedListId || undefined }),
+    queryFn: async () => {
+      try {
+        const data = await api.getTasks({ listId: selectedListId || undefined });
+        offlineCache.set(CACHE_KEYS.TASKS, data);
+        return data;
+      } catch (error) {
+        const cached = offlineCache.getStale<Task[]>(CACHE_KEYS.TASKS);
+        if (cached) return cached.data;
+        throw error;
+      }
+    },
     enabled: taskLists.length > 0,
   });
 
   // Auto-expand all lists when expandAllLists is enabled
   useEffect(() => {
     if (expandAllLists && taskLists.length > 0) {
-      setExpandedLists(new Set(taskLists.map((l) => l.id)));
+      setExpandedLists(new Set(taskLists.map((l: TaskList) => l.id)));
     }
   }, [expandAllLists, taskLists]);
 
@@ -193,7 +214,7 @@ export function TasksPage() {
   };
 
   // Group tasks by list
-  const tasksByList = tasks.reduce((acc, task) => {
+  const tasksByList = tasks.reduce((acc: Record<string, Task[]>, task: Task) => {
     const listId = task.taskListId;
     if (!acc[listId]) acc[listId] = [];
     acc[listId].push(task);
@@ -262,7 +283,7 @@ export function TasksPage() {
 
   // Task item component
   const TaskItem = ({ task, showList = false }: { task: Task; showList?: boolean }) => {
-    const list = taskLists.find((l) => l.id === task.taskListId);
+    const list = taskLists.find((l: TaskList) => l.id === task.taskListId);
     return (
       <div
         className={cn(
@@ -317,11 +338,11 @@ export function TasksPage() {
   // Render Lists Layout (default)
   const renderListsLayout = () => (
     <div className="space-y-4">
-      {taskLists.map((list) => {
+      {taskLists.map((list: TaskList) => {
         const listTasks = filterTasks(tasksByList[list.id] || []);
         const isExpanded = expandedLists.has(list.id);
         const pendingCount = (tasksByList[list.id] || []).filter(
-          (t) => t.status !== "completed"
+          (t: Task) => t.status !== "completed"
         ).length;
 
         return (

@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="SetupScreen" extends="Group">
+    <interface>
+        <field id="configReady" type="assocarray" alwaysNotify="true" />
+        <field id="startQRSetup" type="boolean" alwaysNotify="true" value="false" />
+        <field id="errorMessage" type="string" value="" onChange="onErrorChanged" />
+    </interface>
+    <script type="text/brightscript" uri="SetupScreen.brs" />
+    <script type="text/brightscript" uri="pkg:/components/utils/Registry.brs" />
+    <children>
+        <Rectangle
+            id="background"
+            width="1920"
+            height="1080"
+            color="0x0f172aFF">
+
+            <LayoutGroup
+                id="mainLayout"
+                layoutDirection="vert"
+                horizAlignment="center"
+                vertAlignment="center"
+                translation="[960, 200]"
+                itemSpacings="[30]">
+
+                <Label
+                    id="titleLabel"
+                    text="OpenFrame Setup"
+                    font="font:LargeBoldSystemFont"
+                    color="0x60a5faFF"
+                    horizAlign="center"
+                    width="800" />
+
+                <Label
+                    id="subtitleLabel"
+                    text="Connect to your OpenFrame server"
+                    font="font:MediumSystemFont"
+                    color="0x94a3b8FF"
+                    horizAlign="center"
+                    width="800" />
+
+                <Label
+                    id="errorLabel"
+                    text=""
+                    font="font:SmallSystemFont"
+                    color="0xef4444FF"
+                    horizAlign="center"
+                    width="800"
+                    visible="false" />
+
+                <Label
+                    id="urlLabel"
+                    text="Server URL:"
+                    font="font:SmallBoldSystemFont"
+                    color="0xe2e8f0FF"
+                    width="800" />
+
+                <Keyboard
+                    id="urlKeyboard"
+                    visible="false" />
+
+                <Label
+                    id="urlValue"
+                    text="Press OK to enter server URL"
+                    font="font:MediumSystemFont"
+                    color="0x94a3b8FF"
+                    width="800" />
+
+                <Label
+                    id="tokenLabel"
+                    text="Kiosk Token:"
+                    font="font:SmallBoldSystemFont"
+                    color="0xe2e8f0FF"
+                    width="800" />
+
+                <Label
+                    id="tokenValue"
+                    text="Press OK to enter kiosk token"
+                    font="font:MediumSystemFont"
+                    color="0x94a3b8FF"
+                    width="800" />
+            </LayoutGroup>
+
+            <ButtonGroup
+                id="buttonGroup"
+                translation="[710, 750]"
+                buttons="[Connect, QR Code Setup]"
+                focusedFont="font:MediumBoldSystemFont"
+                focusFootprintBitmapUri="" />
+
+            <Label
+                id="hintLabel"
+                text="Use arrow keys to navigate, OK to select"
+                font="font:SmallSystemFont"
+                color="0x64748bFF"
+                horizAlign="center"
+                width="1920"
+                translation="[0, 1000]" />
+        </Rectangle>
+    </children>
+</component>

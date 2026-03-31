@@ -1,12 +1,17 @@
 import { useEffect, useRef, useCallback } from "react";
 
+// Tiny silent WAV as a data URI (44 bytes of silence) — no external file needed
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+
 /**
- * Silent audio keep-alive component.
+ * Keeps the Echo Show's Silk browser tab active and prevents
+ * the device from going to the Alexa home screen / sleep.
  *
- * Plays a silent MP3 in a loop to prevent the Echo Show from
- * timing out the Alexa skill session or the Silk browser tab.
- *
- * Must be activated after a user interaction (autoplay policy).
+ * Uses three complementary strategies:
+ * 1. Silent audio loop (prevents tab suspension)
+ * 2. Web Audio API oscillator at zero gain (backup)
+ * 3. Periodic activity ping (prevents idle detection)
  */
 export function KeepAlive() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -17,17 +22,14 @@ export function KeepAlive() {
     if (activatedRef.current) return;
     activatedRef.current = true;
 
-    // Method 1: Silent MP3 loop
-    const audio = new Audio("/silent.mp3");
+    // Method 1: Silent audio loop
+    const audio = new Audio(SILENT_WAV);
     audio.loop = true;
-    audio.volume = 0.01; // Near-silent but not zero (some browsers ignore volume=0)
+    audio.volume = 0.01;
     audioRef.current = audio;
+    audio.play().catch(() => {});
 
-    audio.play().catch((err) => {
-      console.warn("[KeepAlive] Audio play failed:", err);
-    });
-
-    // Method 2: Web Audio API oscillator at zero gain (backup)
+    // Method 2: Web Audio API oscillator at zero gain
     try {
       const ctx = new AudioContext();
       const oscillator = ctx.createOscillator();
@@ -37,32 +39,32 @@ export function KeepAlive() {
       gain.connect(ctx.destination);
       oscillator.start();
     } catch {
-      // Web Audio API not available — silent MP3 is the primary method
+      // Not available — silent audio is the primary method
     }
 
-    // Method 3: Periodic re-trigger to handle audio element being garbage collected
+    // Method 3: Periodic re-trigger
     intervalRef.current = setInterval(() => {
       if (audioRef.current?.paused) {
         audioRef.current.play().catch(() => {});
       }
-    }, 30000); // Check every 30 seconds
+      // Touch the DOM to prevent idle
+      document.title = "OpenFrame Kiosk";
+    }, 30000);
   }, []);
 
   useEffect(() => {
-    // Activate on first user interaction
-    const activateOnInteraction = () => {
+    const activate = () => {
       startKeepAlive();
-      document.removeEventListener("touchstart", activateOnInteraction);
-      document.removeEventListener("click", activateOnInteraction);
+      document.removeEventListener("touchstart", activate);
+      document.removeEventListener("click", activate);
     };
 
-    document.addEventListener("touchstart", activateOnInteraction, { once: true });
-    document.addEventListener("click", activateOnInteraction, { once: true });
+    document.addEventListener("touchstart", activate, { once: true });
+    document.addEventListener("click", activate, { once: true });
 
     return () => {
-      document.removeEventListener("touchstart", activateOnInteraction);
-      document.removeEventListener("click", activateOnInteraction);
-
+      document.removeEventListener("touchstart", activate);
+      document.removeEventListener("click", activate);
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
@@ -74,13 +76,5 @@ export function KeepAlive() {
     };
   }, [startKeepAlive]);
 
-  // Hidden audio element as fallback
-  return (
-    <audio
-      src="/silent.mp3"
-      loop
-      style={{ display: "none" }}
-      aria-hidden="true"
-    />
-  );
+  return null;
 }

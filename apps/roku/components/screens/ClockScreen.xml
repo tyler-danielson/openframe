@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="ClockScreen" extends="Group">
+    <interface>
+        <field id="use24Hour" type="boolean" value="false" />
+    </interface>
+    <script type="text/brightscript" uri="ClockScreen.brs" />
+    <script type="text/brightscript" uri="pkg:/components/utils/DateUtils.brs" />
+    <children>
+        <Rectangle width="1920" height="1080" color="0x0f172aFF">
+
+            <Label
+                id="timeLabel"
+                text=""
+                color="0xf8fafcFF"
+                horizAlign="center"
+                vertAlign="center"
+                width="1920"
+                height="600"
+                translation="[0, 150]" />
+
+            <Label
+                id="dateLabel"
+                text=""
+                font="font:LargeBoldSystemFont"
+                color="0x60a5faFF"
+                horizAlign="center"
+                width="1920"
+                translation="[0, 680]" />
+
+            <Label
+                id="secondsLabel"
+                text=""
+                font="font:MediumSystemFont"
+                color="0x475569FF"
+                horizAlign="center"
+                width="1920"
+                translation="[0, 760]" />
+        </Rectangle>
+
+        <Timer id="clockTimer" duration="1" repeat="true" />
+    </children>
+</component>

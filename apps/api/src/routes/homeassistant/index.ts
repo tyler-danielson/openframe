@@ -81,10 +81,11 @@ async function fetchFromHA(
 export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
   // ==================== DISCOVERY ====================
 
-  // Discover Home Assistant instances on the network (public - doesn't access user data)
+  // Discover Home Assistant instances on the network
   fastify.get(
     "/discover",
     {
+      onRequest: [fastify.authenticate],
       schema: {
         description: "Discover Home Assistant instances on the local network",
         tags: ["Home Assistant"],

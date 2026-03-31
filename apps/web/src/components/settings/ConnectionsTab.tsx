@@ -15,9 +15,12 @@ import {
 import { useNavigate } from "react-router-dom";
 import { api } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
-import { appUrl } from "../../lib/cloud";
+import { appUrl, isCloudMode } from "../../lib/cloud";
 import { buildOAuthUrl, hasFeatureScope } from "../../utils/oauth-scopes";
 import { Button } from "../ui/Button";
+import { WhatsAppSettings } from "../whatsapp/WhatsAppSettings";
+import { StorageServerConfig } from "./StorageServerConfig";
+import { ServicePricingModal } from "./ServicePricingModal";
 import type { SettingsTab } from "./SettingsSidebar";
 
 interface ConnectionsTabProps {
@@ -34,7 +37,8 @@ type ServiceCategory =
   | "smarthome"
   | "productivity"
   | "communication"
-  | "information";
+  | "information"
+  | "storage";
 
 interface ServiceDef {
   id: string;
@@ -56,6 +60,7 @@ const CATEGORY_LABELS: Record<ServiceCategory, string> = {
   productivity: "Productivity",
   communication: "Communication",
   information: "Information",
+  storage: "Storage & Files",
 };
 
 const CATEGORY_ORDER: ServiceCategory[] = [
@@ -66,6 +71,7 @@ const CATEGORY_ORDER: ServiceCategory[] = [
   "productivity",
   "communication",
   "information",
+  "storage",
 ];
 
 // Google SVG icon
@@ -246,6 +252,15 @@ const SERVICES: ServiceDef[] = [
     configService: "photos",
   },
   {
+    id: "google-photos",
+    name: "Google Photos",
+    description: "Album sync from Google Photos",
+    icon: <span className="text-lg">📸</span>,
+    bgColor: "bg-primary/10",
+    category: "media",
+    configService: "google-photos",
+  },
+  {
     id: "youtube",
     name: "YouTube",
     description: "Video search & bookmarks",
@@ -292,6 +307,14 @@ const SERVICES: ServiceDef[] = [
     category: "communication",
     configTab: "ai",
   },
+  {
+    id: "whatsapp",
+    name: "WhatsApp",
+    description: "Commands & notifications",
+    icon: <span className="text-lg">📱</span>,
+    bgColor: "bg-primary/10",
+    category: "communication",
+  },
   // Information
   {
     id: "weather",
@@ -302,15 +325,7 @@ const SERVICES: ServiceDef[] = [
     category: "information",
     configService: "weather",
   },
-  {
-    id: "news",
-    name: "News & RSS",
-    description: "Feed subscriptions",
-    icon: <span className="text-lg">📰</span>,
-    bgColor: "bg-primary/10",
-    category: "information",
-    configService: "news",
-  },
+  // News sources are dynamically generated from API — see newsSourceServices below
   {
     id: "sports",
     name: "Sports",
@@ -319,6 +334,34 @@ const SERVICES: ServiceDef[] = [
     bgColor: "bg-primary/10",
     category: "information",
     configService: "sports",
+  },
+  // Storage & Files
+  {
+    id: "storage-ftp",
+    name: "FTP / SFTP",
+    description: "FTP & SFTP file servers",
+    icon: <span className="text-lg">📂</span>,
+    bgColor: "bg-primary/10",
+    category: "storage",
+    configService: "storage-ftp",
+  },
+  {
+    id: "storage-smb",
+    name: "SMB / NAS",
+    description: "Windows shares & NAS devices",
+    icon: <span className="text-lg">🗄️</span>,
+    bgColor: "bg-primary/10",
+    category: "storage",
+    configService: "storage-smb",
+  },
+  {
+    id: "storage-webdav",
+    name: "WebDAV",
+    description: "Nextcloud, Synology, etc.",
+    icon: <span className="text-lg">☁️</span>,
+    bgColor: "bg-primary/10",
+    category: "storage",
+    configService: "storage-webdav",
   },
 ];
 
@@ -330,6 +373,10 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
   const [showAddModal, setShowAddModal] = useState(false);
   const [addModalCategory, setAddModalCategory] = useState<ServiceCategory | "all">("all");
   const [addModalSearch, setAddModalSearch] = useState("");
+  const [premiumServiceModal, setPremiumServiceModal] = useState<"weather" | "traffic" | "ai" | null>(null);
+  const [showWhatsApp, setShowWhatsApp] = useState(false);
+  const [showStorageConfig, setShowStorageConfig] = useState<"ftp" | "sftp" | "smb" | "webdav" | null>(null);
+  const [editingStorageServer, setEditingStorageServer] = useState<string | null>(null);
 
   // --- Data fetching (all in parallel, no module gating) ---
   const { data: user } = useQuery({
@@ -373,9 +420,19 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
     queryFn: () => api.getTelegramStatus(),
   });
 
+  const { data: whatsappStatus } = useQuery({
+    queryKey: ["whatsapp-status"],
+    queryFn: () => api.getWhatsAppStatus(),
+  });
+
   const { data: remarkableStatus } = useQuery({
     queryKey: ["remarkable-status"],
     queryFn: () => api.getRemarkableStatus(),
+  });
+
+  const { data: storageServers = [] } = useQuery({
+    queryKey: ["storage-servers"],
+    queryFn: () => api.getStorageServers(),
   });
 
   const { data: capacitiesStatus } = useQuery({
@@ -386,6 +443,11 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
   const { data: newsFeeds = [] } = useQuery({
     queryKey: ["news-feeds"],
     queryFn: () => api.getNewsFeeds(),
+  });
+
+  const { data: newsSources = [] } = useQuery({
+    queryKey: ["news-sources"],
+    queryFn: () => api.getNewsSources(),
   });
 
   const { data: photoAlbums = [] } = useQuery({
@@ -448,6 +510,15 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
     mutationFn: () => api.disconnectTelegram(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["telegram-status"] });
+      setConfirmDisconnect(null);
+      setDisconnecting(null);
+    },
+  });
+
+  const disconnectWhatsApp = useMutation({
+    mutationFn: () => api.disconnectWhatsApp(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["whatsapp-status"] });
       setConfirmDisconnect(null);
       setDisconnecting(null);
     },
@@ -590,6 +661,13 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
             ? `@${telegramStatus.botUsername}`
             : "Not connected",
         };
+      case "whatsapp":
+        return {
+          connected: !!whatsappStatus?.connected,
+          detail: whatsappStatus?.connected
+            ? whatsappStatus.phoneNumber || "Connected"
+            : "Not connected",
+        };
       case "remarkable":
         return {
           connected: !!remarkableStatus?.connected,
@@ -622,12 +700,16 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
           detail: `${photoAlbums.length} album${photoAlbums.length !== 1 ? "s" : ""}`,
           count: photoAlbums.length,
         };
-      case "news":
+      case "google-photos": {
+        const hasPhotosScope = hasFeatureScope(user?.grantedScopes, "google", "photos");
+        const googleAlbumCount = (photoAlbums as any[]).filter((a: any) => a.googleAlbumId).length;
         return {
-          connected: newsFeeds.length > 0,
-          detail: `${newsFeeds.length} feed${newsFeeds.length !== 1 ? "s" : ""}`,
-          count: newsFeeds.length,
+          connected: hasPhotosScope && googleAlbumCount > 0,
+          detail: hasPhotosScope
+            ? `${googleAlbumCount} album${googleAlbumCount !== 1 ? "s" : ""} linked`
+            : "Not connected",
         };
+      }
       case "sports":
         return {
           connected: favoriteTeams.length > 0,
@@ -688,14 +770,64 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
           detail: hasLocalUrl ? "Server configured" : "Not connected",
         };
       }
-      default:
+      case "storage-ftp": {
+        const ftpServers = storageServers.filter((s) => s.protocol === "ftp" || s.protocol === "sftp");
+        return {
+          connected: ftpServers.length > 0,
+          detail: `${ftpServers.length} server${ftpServers.length !== 1 ? "s" : ""}`,
+          count: ftpServers.length,
+        };
+      }
+      case "storage-smb": {
+        const smbServers = storageServers.filter((s) => s.protocol === "smb");
+        return {
+          connected: smbServers.length > 0,
+          detail: `${smbServers.length} server${smbServers.length !== 1 ? "s" : ""}`,
+          count: smbServers.length,
+        };
+      }
+      case "storage-webdav": {
+        const webdavServers = storageServers.filter((s) => s.protocol === "webdav");
+        return {
+          connected: webdavServers.length > 0,
+          detail: `${webdavServers.length} server${webdavServers.length !== 1 ? "s" : ""}`,
+          count: webdavServers.length,
+        };
+      }
+      default: {
+        // Dynamic news-* source entries
+        if (service.id.startsWith("news-")) {
+          const sourceSlug = service.id.replace("news-", "");
+          if (sourceSlug === "custom") {
+            const customFeeds = newsFeeds.filter((f) => !f.source);
+            return {
+              connected: customFeeds.length > 0,
+              detail: `${customFeeds.length} feed${customFeeds.length !== 1 ? "s" : ""}`,
+              count: customFeeds.length,
+            };
+          }
+          const sourceFeeds = newsFeeds.filter((f) => f.source === sourceSlug);
+          return {
+            connected: sourceFeeds.length > 0,
+            detail: `${sourceFeeds.length} feed${sourceFeeds.length !== 1 ? "s" : ""}`,
+            count: sourceFeeds.length,
+          };
+        }
         return { connected: false, detail: "Not connected" };
+      }
     }
   }
 
   function handleConnect(service: ServiceDef) {
     setShowAddModal(false);
     const token = useAuthStore.getState().accessToken;
+
+    // For premium-eligible services, show the pricing modal first
+    if (service.id === "weather") {
+      setPremiumServiceModal("weather");
+      return;
+    }
+
     switch (service.id) {
       case "google":
         window.location.href = buildOAuthUrl("google", "calendar", token, appUrl("/settings/connections?connected=1"));
@@ -706,7 +838,33 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
       case "spotify":
         window.location.href = api.getSpotifyAuthUrl();
         return;
+      case "google-photos": {
+        const hasPhotos = hasFeatureScope(user?.grantedScopes, "google", "photos");
+        if (hasPhotos) {
+          onNavigateToService("google-photos");
+        } else {
+          window.location.href = buildOAuthUrl("google", "photos", token, appUrl("/settings/connections?service=google-photos&connected=1"));
+        }
+        return;
+      }
+      case "whatsapp":
+        setShowWhatsApp(true);
+        return;
+      case "storage-ftp":
+        setShowStorageConfig("ftp");
+        return;
+      case "storage-smb":
+        setShowStorageConfig("smb");
+        return;
+      case "storage-webdav":
+        setShowStorageConfig("webdav");
+        return;
       default:
+        // Check if this is an AI service that could use premium
+        if (service.id.startsWith("ai-")) {
+          setPremiumServiceModal("ai");
+          return;
+        }
         // For services with a connection detail view, navigate within connections
         if (service.configRoute) {
           navigate(service.configRoute);
@@ -723,6 +881,9 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
     switch (serviceId) {
       case "telegram":
         disconnectTelegram.mutate();
+        break;
+      case "whatsapp":
+        disconnectWhatsApp.mutate();
         break;
       case "remarkable":
         disconnectRemarkable.mutate();
@@ -749,7 +910,7 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
         break;
       default: {
         // For multi-resource services, navigate to config
-        const service = SERVICES.find((s) => s.id === serviceId);
+        const service = allServices.find((s) => s.id === serviceId);
         if (service?.configService) {
           onNavigateToService(service.configService);
         } else if (service?.configTab) {
@@ -812,10 +973,33 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
     return Array.from(map.values());
   }, [calendars, user]);
 
+  // Dynamic news source ServiceDefs
+  const allServices = useMemo(() => {
+    const newsEntries: ServiceDef[] = newsSources.map((src) => ({
+      id: `news-${src.id}`,
+      name: src.name,
+      description: src.description,
+      icon: <span className="text-lg">{src.icon}</span>,
+      bgColor: "bg-primary/10",
+      category: "information" as ServiceCategory,
+      configService: `news-${src.id}`,
+    }));
+    newsEntries.push({
+      id: "news-custom",
+      name: "Custom RSS",
+      description: "Manually-added feed URLs",
+      icon: <span className="text-lg">📰</span>,
+      bgColor: "bg-primary/10",
+      category: "information" as ServiceCategory,
+      configService: "news-custom",
+    });
+    return [...SERVICES, ...newsEntries];
+  }, [newsSources]);
+
   // Split services into connected vs unconnected (exclude calendar category from static list)
-  const connectedServices = SERVICES.filter((s) => s.category !== "calendar" && getServiceStatus(s).connected);
+  const connectedServices = allServices.filter((s) => s.category !== "calendar" && getServiceStatus(s).connected);
   // Always include Google & Microsoft in the add modal (for reconnect / add account)
-  const unconnectedServices = SERVICES.filter(
+  const unconnectedServices = allServices.filter(
     (s) => !getServiceStatus(s).connected || s.id === "google" || s.id === "microsoft"
   );
 
@@ -1029,9 +1213,11 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
                   return (
                     <div
                       key={service.id}
-                      className={`flex items-center justify-between rounded-lg border border-primary/20 p-4 transition-colors hover:bg-muted/30 hover:border-primary/35 ${service.configRoute || service.configService || service.configTab ? "cursor-pointer" : ""}`}
+                      className={`flex items-center justify-between rounded-lg border border-primary/20 p-4 transition-colors hover:bg-muted/30 hover:border-primary/35 ${service.configRoute || service.configService || service.configTab || service.id === "whatsapp" ? "cursor-pointer" : ""}`}
                       onClick={() => {
-                        if (service.configRoute) {
+                        if (service.id === "whatsapp") {
+                          setShowWhatsApp(true);
+                        } else if (service.configRoute) {
                           navigate(service.configRoute);
                         } else if (service.configService) {
                           onNavigateToService(service.configService);
@@ -1109,7 +1295,7 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
                                 Configure
                               </Button>
                             )}
-                            {["telegram", "remarkable", "capacities", "homeassistant", "spotify", "ai-claude", "ai-openai", "ai-gemini", "ai-grok", "ai-azure", "ai-openrouter", "ai-local"].includes(service.id) && (
+                            {["telegram", "whatsapp", "remarkable", "capacities", "homeassistant", "spotify", "ai-claude", "ai-openai", "ai-gemini", "ai-grok", "ai-azure", "ai-openrouter", "ai-local"].includes(service.id) && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -1258,6 +1444,49 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
             </div>
           </div>
         </div>
+      )}
+
+      {/* WhatsApp Settings Modal */}
+      {showWhatsApp && (
+        <WhatsAppSettings
+          onClose={() => {
+            setShowWhatsApp(false);
+            queryClient.invalidateQueries({ queryKey: ["whatsapp-status"] });
+          }}
+        />
+      )}
+
+      {/* Storage Server Config Modal */}
+      {showStorageConfig && (
+        <StorageServerConfig
+          protocol={showStorageConfig}
+          serverId={editingStorageServer}
+          onClose={() => {
+            setShowStorageConfig(null);
+            setEditingStorageServer(null);
+            queryClient.invalidateQueries({ queryKey: ["storage-servers"] });
+          }}
+        />
+      )}
+
+      {/* Premium Service Pricing Modal */}
+      {premiumServiceModal && (
+        <ServicePricingModal
+          serviceType={premiumServiceModal}
+          onClose={() => setPremiumServiceModal(null)}
+          onUseOwnKey={() => {
+            const serviceType = premiumServiceModal;
+            setPremiumServiceModal(null);
+            // Navigate to the manual configuration for this service
+            if (serviceType === "weather") {
+              onNavigateToService("weather");
+            } else if (serviceType === "traffic") {
+              onNavigateToService("maps");
+            } else if (serviceType === "ai") {
+              onNavigateToService("ai-openframeai");
+            }
+          }}
+        />
       )}
     </div>
   );

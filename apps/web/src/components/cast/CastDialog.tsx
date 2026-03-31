@@ -7,11 +7,12 @@ import { cn } from "../../lib/utils";
 interface CastDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  contentType: "iptv" | "camera" | "multiview";
+  contentType: "iptv" | "camera" | "multiview" | "webpage";
   channelId?: string;
   cameraId?: string;
   cameraEntityId?: string;
   multiviewItems?: unknown[];
+  webpageUrl?: string;
 }
 
 export function CastDialog({
@@ -22,6 +23,7 @@ export function CastDialog({
   cameraId,
   cameraEntityId,
   multiviewItems,
+  webpageUrl,
 }: CastDialogProps) {
   const [castingTo, setCastingTo] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -61,14 +63,17 @@ export function CastDialog({
       cameraId,
       cameraEntityId,
       multiviewItems,
+      webpageUrl,
     });
   };
 
   // Filter targets by capability
   const capabilityKey = contentType === "camera" ? "cameras" : contentType;
-  const filteredTargets = targets.filter((t) =>
-    t.capabilities.includes(capabilityKey as "iptv" | "cameras" | "multiview")
-  );
+  const filteredTargets = contentType === "webpage"
+    ? targets.filter((t) => t.type === "kiosk") // All kiosks can display webpages
+    : targets.filter((t) =>
+        t.capabilities.includes(capabilityKey as "iptv" | "cameras" | "multiview" | "webpage")
+      );
 
   const kioskTargets = filteredTargets.filter((t) => t.type === "kiosk");
   const mediaPlayerTargets = filteredTargets.filter((t) => t.type === "media_player");

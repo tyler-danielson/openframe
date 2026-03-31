@@ -58,6 +58,7 @@ import type {
   MatterCommandRequest,
   ShoppingItem,
   CustomScreen,
+  SiriusXMChannel,
 } from "@openframe/shared";
 
 // API Key types
@@ -112,6 +113,29 @@ export interface TelegramStatus {
     eventReminderMinutes: number;
   };
   chats: TelegramChatInfo[];
+}
+
+export interface WhatsAppStatus {
+  connected: boolean;
+  phoneNumber?: string;
+  displayName?: string;
+  settings: {
+    dailyAgendaEnabled: boolean;
+    dailyAgendaTime: string;
+    eventRemindersEnabled: boolean;
+    eventReminderMinutes: number;
+  };
+  chats: WhatsAppChatInfo[];
+}
+
+export interface WhatsAppChatInfo {
+  id: string;
+  jid: string;
+  chatType: string;
+  name: string;
+  isActive: boolean;
+  linkedAt: string;
+  lastMessageAt: string | null;
 }
 
 export interface TelegramWebhookInfo {
@@ -276,10 +300,10 @@ class ApiClient {
     );
   }
 
-  async approveDeviceCode(userCode: string, kioskName?: string): Promise<{ kioskId: string; kioskToken: string; kioskName: string }> {
+  async approveDeviceCode(userCode: string, kioskName?: string, kioskId?: string): Promise<{ kioskId: string; kioskToken: string; kioskName: string }> {
     return this.fetch<{ kioskId: string; kioskToken: string; kioskName: string }>("/auth/device-code/approve", {
       method: "POST",
-      body: JSON.stringify({ userCode, kioskName }),
+      body: JSON.stringify({ userCode, kioskName, kioskId }),
     });
   }
 
@@ -656,6 +680,67 @@ class ApiClient {
   async deleteGooglePhotosPickerSession(sessionId: string): Promise<void> {
     await this.fetch(`/photos/google/picker/session/${sessionId}`, {
       method: "DELETE",
+    });
+  }
+
+  // Google Photos Library API (album browsing & linking)
+  async getGooglePhotosLibraryStatus(): Promise<{
+    connected: boolean;
+    reason: string | null;
+  }> {
+    return this.fetch("/photos/google/albums/status");
+  }
+
+  async getGoogleAlbums(): Promise<
+    Array<{
+      id: string;
+      title: string;
+      mediaItemsCount: string;
+      coverPhotoBaseUrl: string | null;
+      isLinked: boolean;
+      localAlbumId: string | null;
+      lastSyncedAt: string | null;
+      autoSync: boolean;
+    }>
+  > {
+    return this.fetch("/photos/google/albums");
+  }
+
+  async linkGoogleAlbum(
+    googleAlbumId: string,
+    albumTitle: string
+  ): Promise<{ albumId: string; imported: number; skipped: number }> {
+    return this.fetch("/photos/google/albums/link", {
+      method: "POST",
+      body: JSON.stringify({ googleAlbumId, albumTitle }),
+    });
+  }
+
+  async syncGoogleAlbum(
+    albumId: string
+  ): Promise<{ imported: number; skipped: number; total: number }> {
+    return this.fetch(`/photos/google/albums/${albumId}/sync`, {
+      method: "POST",
+    });
+  }
+
+  async unlinkGoogleAlbum(
+    albumId: string,
+    deletePhotos = false
+  ): Promise<void> {
+    await this.fetch(
+      `/photos/google/albums/${albumId}/unlink?deletePhotos=${deletePhotos}`,
+      { method: "DELETE" }
+    );
+  }
+
+  async updateGoogleAlbumSettings(
+    albumId: string,
+    data: { autoSync?: boolean }
+  ): Promise<void> {
+    await this.fetch(`/photos/google/albums/${albumId}/settings`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
     });
   }
 
@@ -1108,6 +1193,105 @@ class ApiClient {
     lastUpdated: string | null;
   }> {
     return this.fetch("/iptv/cache/status");
+  }
+
+  // SiriusXM
+  async getSiriusXMAccount(): Promise<{
+    connected: boolean;
+    id?: string;
+    username?: string;
+    isActive?: boolean;
+    lastAuthenticatedAt?: string;
+  }> {
+    return this.fetch("/siriusxm/account");
+  }
+
+  async connectSiriusXM(data: {
+    username: string;
+    password: string;
+  }): Promise<{ id: string; username: string; connected: boolean }> {
+    return this.fetch("/siriusxm/account", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async disconnectSiriusXM(): Promise<void> {
+    await this.fetch("/siriusxm/account", { method: "DELETE" });
+  }
+
+  async getSiriusXMChannels(params?: {
+    category?: string;
+    search?: string;
+    refresh?: boolean;
+  }): Promise<{
+    channels: SiriusXMChannel[];
+    categories: string[];
+  }> {
+    const searchParams = new URLSearchParams();
+    if (params?.category) searchParams.set("category", params.category);
+    if (params?.search) searchParams.set("search", params.search);
+    if (params?.refresh) searchParams.set("refresh", "true");
+    return this.fetch(`/siriusxm/channels?${searchParams}`);
+  }
+
+  async getSiriusXMStreamUrl(channelId: string): Promise<{
+    streamUrl: string;
+    channelId: string;
+  }> {
+    return this.fetch(`/siriusxm/channels/${channelId}/stream`);
+  }
+
+  async getSiriusXMFavorites(): Promise<
+    Array<{
+      id: string;
+      channelId: string;
+      channelName: string;
+      createdAt: string;
+    }>
+  > {
+    return this.fetch("/siriusxm/favorites");
+  }
+
+  async addSiriusXMFavorite(
+    channelId: string,
+    channelName: string
+  ): Promise<void> {
+    await this.fetch(`/siriusxm/favorites/${channelId}`, {
+      method: "POST",
+      body: JSON.stringify({ channelName }),
+    });
+  }
+
+  async removeSiriusXMFavorite(channelId: string): Promise<void> {
+    await this.fetch(`/siriusxm/favorites/${channelId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async getSiriusXMHistory(
+    limit?: number
+  ): Promise<
+    Array<{
+      id: string;
+      channelId: string;
+      channelName: string;
+      listenedAt: string;
+    }>
+  > {
+    const params = new URLSearchParams();
+    if (limit) params.set("limit", limit.toString());
+    return this.fetch(`/siriusxm/history?${params}`);
+  }
+
+  async recordSiriusXMListen(
+    channelId: string,
+    channelName: string
+  ): Promise<void> {
+    await this.fetch(`/siriusxm/history/${channelId}`, {
+      method: "POST",
+      body: JSON.stringify({ channelName }),
+    });
   }
 
   // Cameras
@@ -1892,17 +2076,79 @@ class ApiClient {
     });
   }
 
-  async exportSettings(): Promise<ExportedSettings> {
-    return this.fetch<ExportedSettings>("/settings/export");
+  async exportSettings(options?: {
+    categories?: string[];
+    includeCredentials?: boolean;
+    includePhotoFiles?: boolean;
+  }): Promise<ExportedSettings> {
+    const params = new URLSearchParams();
+    if (options?.categories?.length) {
+      params.set("categories", options.categories.join(","));
+    }
+    if (options?.includeCredentials) {
+      params.set("includeCredentials", "true");
+    }
+    if (options?.includePhotoFiles) {
+      params.set("includePhotoFiles", "true");
+    }
+    const qs = params.toString();
+    return this.fetch<ExportedSettings>(`/settings/export${qs ? `?${qs}` : ""}`);
   }
 
   async importSettings(
     settings: ExportedSettings,
-    mode: "merge" | "replace" = "merge"
+    mode: "merge" | "replace" = "merge",
+    onUploadProgress?: (percent: number) => void,
   ): Promise<ImportResult> {
-    return this.fetch<ImportResult>("/settings/import", {
-      method: "POST",
-      body: JSON.stringify({ settings, mode }),
+    if (!onUploadProgress) {
+      return this.fetch<ImportResult>("/settings/import", {
+        method: "POST",
+        body: JSON.stringify({ settings, mode }),
+      });
+    }
+
+    // Use XMLHttpRequest for upload progress tracking
+    const { accessToken, apiKey } = useAuthStore.getState();
+    const body = JSON.stringify({ settings, mode });
+
+    return new Promise<ImportResult>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${API_BASE}/settings/import`);
+      xhr.setRequestHeader("Content-Type", "application/json");
+      if (apiKey) {
+        xhr.setRequestHeader("x-api-key", apiKey);
+      } else if (accessToken) {
+        xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`);
+      }
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          onUploadProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const result = JSON.parse(xhr.responseText);
+            resolve(result.data ?? result);
+          } catch {
+            reject(new Error("Failed to parse server response"));
+          }
+        } else {
+          try {
+            const err = JSON.parse(xhr.responseText);
+            reject(new Error(err.message ?? err.error ?? "Import failed"));
+          } catch {
+            reject(new Error(`Import failed (${xhr.status})`));
+          }
+        }
+      };
+
+      xhr.onerror = () => reject(new Error("Network error during upload"));
+      xhr.ontimeout = () => reject(new Error("Upload timed out"));
+      xhr.timeout = 600000; // 10 minute timeout for large backups
+      xhr.send(body);
     });
   }
 
@@ -1999,6 +2245,33 @@ class ApiClient {
 
   async getTodaySportsScores(): Promise<SportsGame[]> {
     return this.fetch<SportsGame[]>("/sports/scores/today");
+  }
+
+  // Finance
+  async getStockQuotes(symbols: string[]): Promise<{ symbol: string; name: string; price: number; change: number; changePercent: number; previousClose: number; currency: string; exchange: string; updatedAt: string }[]> {
+    const res = await this.fetch<{ success: boolean; data: any[] }>(`/finance/stocks?symbols=${symbols.join(",")}`);
+    return res.data;
+  }
+
+  async getExchangeRates(base: string, targets: string[]): Promise<{ base: string; target: string; rate: number; updatedAt: string }[]> {
+    const res = await this.fetch<{ success: boolean; data: any[] }>(`/finance/exchange-rates?base=${base}&targets=${targets.join(",")}`);
+    return res.data;
+  }
+
+  // Weather extensions
+  async getWeatherAlerts(): Promise<{ event: string; sender: string; start: string; end: string; description: string; tags: string[] }[]> {
+    const res = await this.fetch<{ success: boolean; data: any[] }>("/weather/alerts");
+    return res.data;
+  }
+
+  async getAirQuality(): Promise<{ aqi: number; label: string; components: Record<string, number>; updatedAt: string }> {
+    const res = await this.fetch<{ success: boolean; data: any }>("/weather/air-quality");
+    return res.data;
+  }
+
+  async getOceanTides(): Promise<{ station: { id: string; name: string } | null; tides: { time: string; height: number; type: string }[]; source: string; message?: string }> {
+    const res = await this.fetch<{ success: boolean; data: any }>("/weather/tides");
+    return res.data;
   }
 
   async getSportsEvents(start: Date, end: Date, teamIds?: string[]): Promise<CalendarEvent[]> {
@@ -2287,6 +2560,10 @@ class ApiClient {
     return this.fetch<PresetFeed[]>("/news/presets");
   }
 
+  async getNewsSources(): Promise<import("@openframe/shared").NewsSource[]> {
+    return this.fetch<import("@openframe/shared").NewsSource[]>("/news/sources");
+  }
+
   async getNewsFeeds(): Promise<NewsFeed[]> {
     return this.fetch<NewsFeed[]>("/news/feeds");
   }
@@ -2295,6 +2572,7 @@ class ApiClient {
     name: string;
     feedUrl: string;
     category?: string;
+    source?: string;
   }): Promise<NewsFeed> {
     return this.fetch<NewsFeed>("/news/feeds", {
       method: "POST",
@@ -2390,8 +2668,111 @@ class ApiClient {
   }
 
   getRemarkableAgendaPreviewUrl(date?: string): string {
+    const { accessToken } = useAuthStore.getState();
+    const params = new URLSearchParams();
+    if (date) params.set("date", date);
+    if (accessToken) params.set("token", accessToken);
+    const qs = params.toString();
+    return `${API_BASE}/remarkable/agenda/preview${qs ? `?${qs}` : ""}`;
+  }
+
+  async fetchAgendaPreviewBlob(date?: string): Promise<Blob> {
+    const { accessToken, apiKey, refreshToken } = useAuthStore.getState();
     const params = date ? `?date=${date}` : "";
-    return `${API_BASE}/remarkable/agenda/preview${params}`;
+    const headers: Record<string, string> = {};
+    if (apiKey) {
+      headers["x-api-key"] = apiKey;
+    } else if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+
+    let response = await fetch(`${API_BASE}/remarkable/agenda/preview${params}`, { headers });
+
+    // Handle token refresh
+    if (response.status === 401 && refreshToken) {
+      const refreshed = await this.ensureValidTokens();
+      if (refreshed) {
+        const { accessToken: newToken } = useAuthStore.getState();
+        headers.Authorization = `Bearer ${newToken}`;
+        response = await fetch(`${API_BASE}/remarkable/agenda/preview${params}`, { headers });
+      }
+    }
+
+    if (!response.ok) {
+      throw new Error(`Preview failed (${response.status})`);
+    }
+    return response.blob();
+  }
+
+  async fetchPlannerPreviewBlob(profileId: string, date?: string): Promise<Blob> {
+    const { accessToken, apiKey, refreshToken } = useAuthStore.getState();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (apiKey) {
+      headers["x-api-key"] = apiKey;
+    } else if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+
+    const body = JSON.stringify({ date: date || new Date().toISOString().split("T")[0] });
+
+    let response = await fetch(`${API_BASE}/profiles/${profileId}/preview`, {
+      method: "POST",
+      headers,
+      body,
+    });
+
+    if (response.status === 401 && refreshToken) {
+      const refreshed = await this.ensureValidTokens();
+      if (refreshed) {
+        const { accessToken: newToken } = useAuthStore.getState();
+        headers.Authorization = `Bearer ${newToken}`;
+        response = await fetch(`${API_BASE}/profiles/${profileId}/preview`, {
+          method: "POST",
+          headers,
+          body,
+        });
+      }
+    }
+
+    if (!response.ok) {
+      throw new Error(`Planner preview failed (${response.status})`);
+    }
+    return response.blob();
+  }
+
+  async fetchDocumentViewBlob(docPath: string): Promise<Blob> {
+    const { accessToken, apiKey, refreshToken } = useAuthStore.getState();
+    const headers: Record<string, string> = {};
+    if (apiKey) {
+      headers["x-api-key"] = apiKey;
+    } else if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+
+    const rawPath = docPath.startsWith("/") ? docPath.slice(1) : docPath;
+    const encodedPath = rawPath.split("/").map(encodeURIComponent).join("/");
+    let response = await fetch(`${API_BASE}/remarkable/documents/view/${encodedPath}`, { headers });
+
+    if (response.status === 401 && refreshToken) {
+      const refreshed = await this.ensureValidTokens();
+      if (refreshed) {
+        const { accessToken: newToken } = useAuthStore.getState();
+        headers.Authorization = `Bearer ${newToken}`;
+        response = await fetch(`${API_BASE}/remarkable/documents/view/${encodedPath}`, { headers });
+      }
+    }
+
+    if (!response.ok) {
+      // Try to get error message from JSON response
+      try {
+        const errData = await response.json();
+        throw new Error(errData?.error?.message || `Failed to load document (${response.status})`);
+      } catch (e) {
+        if (e instanceof Error && !e.message.startsWith("Failed to load")) throw e;
+        throw new Error(`Failed to load document (${response.status})`);
+      }
+    }
+    return response.blob();
   }
 
   async updateRemarkableSettings(settings: Partial<RemarkableAgendaSettings>): Promise<RemarkableAgendaSettings> {
@@ -2702,6 +3083,54 @@ class ApiClient {
 
   async deleteTelegramWebhook(): Promise<{ message: string }> {
     return this.fetch("/telegram/webhook", { method: "DELETE" });
+  }
+
+  // WhatsApp
+
+  getWhatsAppConnectUrl(token: string): string {
+    return `${API_BASE}/whatsapp/connect?token=${encodeURIComponent(token)}`;
+  }
+
+  async disconnectWhatsApp(): Promise<{ message: string }> {
+    return this.fetch("/whatsapp/disconnect", { method: "DELETE" });
+  }
+
+  async getWhatsAppStatus(): Promise<WhatsAppStatus> {
+    return this.fetch("/whatsapp/status");
+  }
+
+  async testWhatsAppConnection(): Promise<{ connected: boolean; message: string }> {
+    return this.fetch("/whatsapp/test", { method: "POST" });
+  }
+
+  async getWhatsAppChats(): Promise<WhatsAppChatInfo[]> {
+    return this.fetch("/whatsapp/chats");
+  }
+
+  async unlinkWhatsAppChat(chatId: string): Promise<{ message: string }> {
+    return this.fetch(`/whatsapp/chats/${chatId}`, { method: "DELETE" });
+  }
+
+  async updateWhatsAppSettings(settings: {
+    dailyAgendaEnabled?: boolean;
+    dailyAgendaTime?: string;
+    eventRemindersEnabled?: boolean;
+    eventReminderMinutes?: number;
+  }): Promise<{ message: string }> {
+    return this.fetch("/whatsapp/settings", {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    });
+  }
+
+  async sendWhatsAppMessage(
+    message: string,
+    chatId?: string
+  ): Promise<{ sent: number; failed: number }> {
+    return this.fetch("/whatsapp/send", {
+      method: "POST",
+      body: JSON.stringify({ message, chatId }),
+    });
   }
 
   // Capacities
@@ -3031,11 +3460,12 @@ class ApiClient {
 
   async pushProfilePlanner(
     profileId: string,
-    date?: string
+    date?: string,
+    folderPath?: string
   ): Promise<{ message: string; profileId: string; folderPath: string }> {
     return this.fetch(`/profiles/${profileId}/push`, {
       method: "POST",
-      body: JSON.stringify({ date }),
+      body: JSON.stringify({ date, folderPath }),
     });
   }
 
@@ -3382,6 +3812,117 @@ class ApiClient {
     return `/api/v1/audiobookshelf/servers/${serverId}/cover?${params}`;
   }
 
+  // ============ Storage Servers ============
+
+  async getStorageServers(): Promise<StorageServerInfo[]> {
+    const resp = await this.fetch<{ data: StorageServerInfo[] }>("/storage/servers");
+    return (resp as any).data ?? resp;
+  }
+
+  async addStorageServer(data: {
+    name: string;
+    protocol: string;
+    host: string;
+    port?: number | null;
+    basePath?: string;
+    username?: string | null;
+    password?: string | null;
+    shareName?: string | null;
+  }): Promise<StorageServerInfo> {
+    const resp = await this.fetch<{ data: StorageServerInfo }>("/storage/servers", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return (resp as any).data ?? resp;
+  }
+
+  async updateStorageServer(id: string, data: Partial<{
+    name: string;
+    protocol: string;
+    host: string;
+    port: number | null;
+    basePath: string;
+    username: string | null;
+    password: string | null;
+    shareName: string | null;
+    isActive: boolean;
+  }>): Promise<StorageServerInfo> {
+    const resp = await this.fetch<{ data: StorageServerInfo }>(`/storage/servers/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+    return (resp as any).data ?? resp;
+  }
+
+  async deleteStorageServer(id: string): Promise<void> {
+    await this.fetch(`/storage/servers/${id}`, { method: "DELETE" });
+  }
+
+  async testStorageConnection(id: string): Promise<{ success: boolean; message: string }> {
+    const resp = await this.fetch<{ data: { success: boolean; message: string } }>(`/storage/servers/${id}/test`, {
+      method: "POST",
+    });
+    return (resp as any).data ?? resp;
+  }
+
+  async browseStorageFiles(serverId: string, browsePath?: string): Promise<{ serverName: string; path: string; files: StorageFileInfo[] }> {
+    const params = new URLSearchParams();
+    if (browsePath) params.set("path", browsePath);
+    const resp = await this.fetch<{ data: { serverName: string; path: string; files: StorageFileInfo[] } }>(`/storage/servers/${serverId}/browse?${params}`);
+    return (resp as any).data ?? resp;
+  }
+
+  getStorageDownloadUrl(serverId: string, filePath: string): string {
+    const params = new URLSearchParams({ path: filePath });
+    return `/api/v1/storage/servers/${serverId}/download?${params}`;
+  }
+
+  async uploadStorageFile(serverId: string, destPath: string, file: File): Promise<{ path: string }> {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("path", destPath);
+    const resp = await this.fetch<{ data: { path: string } }>(`/storage/servers/${serverId}/upload`, {
+      method: "POST",
+      body: formData,
+      headers: {}, // let browser set content-type with boundary
+    });
+    return (resp as any).data ?? resp;
+  }
+
+  async createStorageDir(serverId: string, dirPath: string): Promise<void> {
+    await this.fetch(`/storage/servers/${serverId}/mkdir`, {
+      method: "POST",
+      body: JSON.stringify({ path: dirPath }),
+    });
+  }
+
+  async deleteStorageFile(serverId: string, filePath: string): Promise<void> {
+    const params = new URLSearchParams({ path: filePath });
+    await this.fetch(`/storage/servers/${serverId}/file?${params}`, {
+      method: "DELETE",
+    });
+  }
+
+  async getAutoBackupConfig(): Promise<AutoBackupInfo | null> {
+    const resp = await this.fetch<{ data: AutoBackupInfo | null }>("/storage/auto-backup");
+    return (resp as any).data ?? null;
+  }
+
+  async updateAutoBackupConfig(data: Partial<AutoBackupInfo>): Promise<AutoBackupInfo> {
+    const resp = await this.fetch<{ data: AutoBackupInfo }>("/storage/auto-backup", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+    return (resp as any).data ?? resp;
+  }
+
+  async triggerAutoBackup(): Promise<{ message: string; path: string; size: number }> {
+    const resp = await this.fetch<{ data: { message: string; path: string; size: number } }>("/storage/auto-backup/run-now", {
+      method: "POST",
+    });
+    return (resp as any).data ?? resp;
+  }
+
   // ============ Companion Access ============
 
   async getCompanionAccessMe(): Promise<CompanionContext> {
@@ -3607,6 +4148,35 @@ class ApiClient {
   async getCloudBillingInfo(): Promise<CloudBillingInfo> {
     const response = await fetch("/api/billing/info");
     if (!response.ok) throw new Error("Failed to fetch billing info");
+    return response.json();
+  }
+
+  async getServiceProducts(): Promise<ServiceProductsResponse> {
+    const response = await fetch("/api/billing/services");
+    if (!response.ok) throw new Error("Failed to fetch service products");
+    return response.json();
+  }
+
+  async subscribeToService(serviceProductId: string): Promise<{ success: boolean; alreadySubscribed?: boolean; data?: { checkoutUrl: string } }> {
+    const response = await fetch("/api/billing/subscribe-service", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ serviceProductId }),
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || "Failed to subscribe");
+    }
+    return response.json();
+  }
+
+  async unsubscribeFromService(serviceProductId: string): Promise<{ success: boolean }> {
+    const response = await fetch("/api/billing/unsubscribe-service", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ serviceProductId }),
+    });
+    if (!response.ok) throw new Error("Failed to unsubscribe");
     return response.json();
   }
 
@@ -3908,6 +4478,18 @@ class ApiClient {
     return res.data;
   }
 
+  // ============ Households ============
+
+  async getHousehold(): Promise<{
+    id: string;
+    name: string;
+    role: string;
+    members: { userId: string; role: string; createdAt: string }[];
+  } | null> {
+    const res = await this.fetch<{ household: any }>("/households");
+    return res.household;
+  }
+
   async acceptCompanionInvite(token: string, data: { email: string; name?: string; password: string }): Promise<{
     user: { id: string; email: string; name: string | null; role: string };
     accessToken: string;
@@ -3924,6 +4506,95 @@ class ApiClient {
       body: JSON.stringify(data),
     });
     return res.data;
+  }
+
+  async createHousehold(name: string): Promise<{ id: string; name: string }> {
+    const res = await this.fetch<{ household: { id: string; name: string } }>("/households", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    return res.household;
+  }
+
+  // ============ Sticky Notes ============
+
+  async getStickyNotes(): Promise<{ notes: any[] }> {
+    return this.fetch<{ notes: any[] }>("/notes");
+  }
+
+  async createStickyNote(data: { content: string; color?: string; pinned?: boolean }): Promise<{ note: any }> {
+    return this.fetch<{ note: any }>("/notes", { method: "POST", body: JSON.stringify(data) });
+  }
+
+  async updateStickyNote(id: string, data: { content?: string; color?: string; pinned?: boolean }): Promise<{ note: any }> {
+    return this.fetch<{ note: any }>(`/notes/${id}`, { method: "PUT", body: JSON.stringify(data) });
+  }
+
+  async deleteStickyNote(id: string): Promise<void> {
+    await this.fetch(`/notes/${id}`, { method: "DELETE" });
+  }
+
+  async toggleStickyNotePin(id: string): Promise<{ note: any }> {
+    return this.fetch<{ note: any }>(`/notes/${id}/pin`, { method: "POST" });
+  }
+
+  // ============ Chores ============
+
+  async getChores(): Promise<{ chores: any[] }> {
+    return this.fetch<{ chores: any[] }>("/chores");
+  }
+
+  async createChore(data: { name: string; icon?: string; frequency?: string; rotateDay?: number; profileIds?: string[] }): Promise<{ chore: any }> {
+    return this.fetch<{ chore: any }>("/chores", { method: "POST", body: JSON.stringify(data) });
+  }
+
+  async updateChore(id: string, data: Record<string, unknown>): Promise<void> {
+    await this.fetch(`/chores/${id}`, { method: "PUT", body: JSON.stringify(data) });
+  }
+
+  async deleteChore(id: string): Promise<void> {
+    await this.fetch(`/chores/${id}`, { method: "DELETE" });
+  }
+
+  async completeChore(id: string): Promise<void> {
+    await this.fetch(`/chores/${id}/complete`, { method: "POST" });
+  }
+
+  async assignChore(id: string, profileId: string): Promise<{ assignment: any }> {
+    return this.fetch<{ assignment: any }>(`/chores/${id}/assign`, { method: "POST", body: JSON.stringify({ profileId }) });
+  }
+
+  async rotateChores(): Promise<{ rotated: number }> {
+    return this.fetch<{ rotated: number }>("/chores/rotate", { method: "POST" });
+  }
+
+  // ============ Package Tracking ============
+
+  async getPackages(params?: { status?: string; includeArchived?: boolean }): Promise<{ packages: any[] }> {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.set("status", params.status);
+    if (params?.includeArchived) searchParams.set("includeArchived", "true");
+    return this.fetch<{ packages: any[] }>(`/packages?${searchParams}`);
+  }
+
+  async getPackageSummary(): Promise<{ summary: Record<string, number>; total: number }> {
+    return this.fetch<{ summary: Record<string, number>; total: number }>("/packages/summary");
+  }
+
+  async addPackage(data: { trackingNumber: string; carrier: string; label?: string; expectedDelivery?: string }): Promise<{ package: any }> {
+    return this.fetch<{ package: any }>("/packages", { method: "POST", body: JSON.stringify(data) });
+  }
+
+  async updatePackage(id: string, data: Record<string, unknown>): Promise<{ package: any }> {
+    return this.fetch<{ package: any }>(`/packages/${id}`, { method: "PUT", body: JSON.stringify(data) });
+  }
+
+  async deletePackage(id: string): Promise<void> {
+    await this.fetch(`/packages/${id}`, { method: "DELETE" });
+  }
+
+  async refreshPackage(id: string): Promise<void> {
+    await this.fetch(`/packages/${id}/refresh`, { method: "POST" });
   }
 }
 
@@ -3948,16 +4619,17 @@ export interface CastTarget {
   id: string;
   name: string;
   type: "kiosk" | "media_player";
-  capabilities: ("iptv" | "cameras" | "multiview")[];
+  capabilities: ("iptv" | "cameras" | "multiview" | "webpage")[];
   state?: string;
 }
 
 export interface CastRequest {
   targetId: string;
   targetType: "kiosk" | "media_player";
-  contentType: "iptv" | "camera" | "multiview";
+  contentType: "iptv" | "camera" | "multiview" | "webpage";
   channelId?: string;
   cameraId?: string;
+  webpageUrl?: string;
   cameraEntityId?: string;
   multiviewItems?: unknown[];
 }
@@ -4011,7 +4683,9 @@ export type KioskCommandType =
   | "file-share-dismiss"
   | "file-share-page"
   | "split-screen"
-  | "exit-split-screen";
+  | "exit-split-screen"
+  | "display-webpage"
+  | "dismiss-webpage";
 
 export interface FileShareResult {
   shareId: string;
@@ -4499,6 +5173,48 @@ export interface YouTubeWatchHistoryEntry {
   watchedAt: string;
 }
 
+// Storage types
+export interface StorageServerInfo {
+  id: string;
+  userId: string;
+  name: string;
+  protocol: "ftp" | "sftp" | "smb" | "webdav";
+  host: string;
+  port: number | null;
+  basePath: string;
+  username: string | null;
+  shareName: string | null;
+  isActive: boolean;
+  hasPassword: boolean;
+  lastConnectedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StorageFileInfo {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number | null;
+  modifiedAt: string | null;
+  mimeType: string | null;
+}
+
+export interface AutoBackupInfo {
+  id: string;
+  userId: string;
+  storageServerId: string | null;
+  enabled: boolean;
+  intervalHours: number;
+  lastBackupAt: string | null;
+  categories: string[];
+  includePhotos: boolean;
+  includeCredentials: boolean;
+  backupPath: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // Plex types
 export interface PlexServer {
   id: string;
@@ -4642,7 +5358,38 @@ export interface CloudBillingInfo {
     calendars: { current: number; limit: number };
     cameras: { current: number; limit: number };
   };
+  activeServices?: Array<{
+    id: string;
+    name: string;
+    type: string;
+    monthlyPrice: number;
+    includedServices: string[];
+    features: string[];
+    status: string;
+  }>;
   stripePortalUrl?: string;
+}
+
+export interface ServiceProduct {
+  id: string;
+  name: string;
+  type: "individual" | "bundle" | "metered";
+  monthlyPrice: number;
+  includedServices: string[];
+  features: string[];
+  description: string;
+}
+
+export interface ServiceSubscription {
+  id: string;
+  serviceProductId: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface ServiceProductsResponse {
+  products: ServiceProduct[];
+  subscriptions: ServiceSubscription[];
 }
 
 export interface PlanLimits {

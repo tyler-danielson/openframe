@@ -134,6 +134,10 @@ export interface PhotoAlbum {
   isActive: boolean;
   slideshowInterval: number;
   photoCount?: number;
+  googleAlbumId?: string | null;
+  lastSyncedAt?: string | null;
+  autoSync?: boolean;
+  source?: string;
 }
 
 export interface Photo {
@@ -277,6 +281,38 @@ export interface IptvWatchHistoryEntry {
   channelId: string;
   watchedAt: Date;
   channel?: IptvChannel;
+}
+
+// SiriusXM types
+export interface SiriusXMChannel {
+  channelId: string;
+  name: string;
+  shortName: string;
+  channelNumber: number;
+  category: string;
+  genre: string;
+  logoUrl?: string;
+  description?: string;
+  nowPlaying?: {
+    title: string;
+    artist?: string;
+    album?: string;
+    albumArt?: string;
+  };
+}
+
+export interface SiriusXMFavorite {
+  id: string;
+  channelId: string;
+  channelName: string;
+  createdAt: string;
+}
+
+export interface SiriusXMHistoryEntry {
+  id: string;
+  channelId: string;
+  channelName: string;
+  listenedAt: string;
 }
 
 // Camera types
@@ -507,6 +543,7 @@ export interface NewsFeed {
   name: string;
   feedUrl: string;
   category: string | null;
+  source?: string | null;
   isActive: boolean;
   lastFetchedAt: Date | null;
   createdAt: Date;
@@ -542,6 +579,15 @@ export interface PresetFeed {
   name: string;
   url: string;
   category: string;
+  source: string;
+}
+
+export interface NewsSource {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  presetCount: number;
 }
 
 // AI Briefing types
@@ -722,9 +768,27 @@ export interface TelegramWebhookInfo {
 }
 
 // Settings Export/Import types
+
+export type ExportCategory = "settings" | "photos" | "events" | "connections";
+
+// Encrypted backup wrapper (the actual file format)
+export interface EncryptedBackup {
+  format: "openframe-backup";
+  version: "2.0";
+  encrypted: true;
+  categories: ExportCategory[];
+  includesCredentials: boolean;
+  exportedAt: string;
+  salt: string; // base64
+  iv: string; // base64
+  data: string; // base64 encrypted JSON of ExportedSettings
+}
+
 export interface ExportedSettings {
-  version: "1.0";
+  version: "1.0" | "2.0";
   exportedAt: string; // ISO timestamp
+  categories?: ExportCategory[];
+  includesCredentials?: boolean;
 
   clientSettings: {
     calendar: Record<string, unknown> | null;
@@ -741,9 +805,42 @@ export interface ExportedSettings {
     homeAssistant: {
       rooms: Array<ExportedHomeAssistantRoom>;
       entities: Array<ExportedHomeAssistantEntity>;
+      automations?: Array<ExportedHaAutomation>;
     };
     favoriteTeams: Array<ExportedFavoriteSportsTeam>;
     newsFeeds: Array<ExportedNewsFeed>;
+    // v2 additions
+    shoppingItems?: Array<ExportedShoppingItem>;
+    recipes?: Array<ExportedRecipe>;
+    familyProfiles?: Array<ExportedFamilyProfile>;
+    routines?: Array<ExportedRoutine>;
+    customScreens?: Array<ExportedCustomScreen>;
+    displayConfigs?: Array<ExportedDisplayConfig>;
+    kitchenTimerPresets?: Array<ExportedKitchenTimerPreset>;
+    youtubeBookmarks?: Array<ExportedYoutubeBookmark>;
+    assumptions?: Array<ExportedAssumption>;
+  };
+
+  // v2 category data
+  photos?: {
+    albums: Array<ExportedPhotoAlbum>;
+    photos: Array<ExportedPhotoMeta>;
+  };
+
+  events?: {
+    calendars: Array<ExportedCalendar>;
+    events: Array<ExportedCalendarEvent>;
+    taskLists: Array<ExportedTaskList>;
+    tasks: Array<ExportedTask>;
+  };
+
+  connections?: {
+    oauthTokens?: Array<ExportedOAuthToken>;
+    homeAssistantConfig?: ExportedHaConfig | null;
+    cameraCredentials?: Array<{ name: string; password: string }>;
+    iptvCredentials?: Array<{ name: string; username: string | null; password: string }>;
+    plexServers?: Array<ExportedMediaServer>;
+    audiobookshelfServers?: Array<ExportedMediaServer>;
   };
 }
 
@@ -791,6 +888,16 @@ export interface ExportedHomeAssistantEntity {
   settings: HomeAssistantEntitySettings;
 }
 
+export interface ExportedHaAutomation {
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  triggerType: string;
+  triggerConfig: Record<string, unknown>;
+  actionType: string;
+  actionConfig: Record<string, unknown>;
+}
+
 export interface ExportedFavoriteSportsTeam {
   sport: string;
   league: string;
@@ -808,6 +915,181 @@ export interface ExportedNewsFeed {
   name: string;
   feedUrl: string;
   category: string | null;
+  source?: string | null;
+  isActive: boolean;
+}
+
+export interface ExportedShoppingItem {
+  name: string;
+  amazonUrl: string | null;
+  checked: boolean;
+  sortOrder: number;
+}
+
+export interface ExportedRecipe {
+  title: string;
+  description: string | null;
+  servings: string | null;
+  prepTime: string | null;
+  cookTime: string | null;
+  ingredients: Record<string, unknown>[];
+  instructions: Record<string, unknown>[];
+  tags: string[];
+  notes: string | null;
+  isFavorite: boolean;
+}
+
+export interface ExportedFamilyProfile {
+  name: string;
+  icon: string | null;
+  color: string | null;
+  isDefault: boolean;
+}
+
+export interface ExportedRoutine {
+  title: string;
+  icon: string | null;
+  category: string | null;
+  frequency: string;
+  daysOfWeek: number[];
+  sortOrder: number;
+  isActive: boolean;
+}
+
+export interface ExportedCustomScreen {
+  name: string;
+  icon: string | null;
+  slug: string;
+  layoutConfig: Record<string, unknown> | null;
+  sortOrder: number;
+}
+
+export interface ExportedDisplayConfig {
+  name: string;
+  isActive: boolean;
+  layout: Record<string, unknown> | null;
+  screenSettings: Record<string, unknown> | null;
+}
+
+export interface ExportedKitchenTimerPreset {
+  name: string;
+  durationSeconds: number;
+}
+
+export interface ExportedYoutubeBookmark {
+  youtubeId: string;
+  type: string;
+  title: string;
+  thumbnailUrl: string | null;
+  channelTitle: string | null;
+  channelId: string | null;
+  duration: string | null;
+  isLive: boolean;
+}
+
+export interface ExportedAssumption {
+  text: string;
+  enabled: boolean;
+  sortOrder: number;
+}
+
+export interface ExportedPhotoAlbum {
+  name: string;
+  description: string | null;
+  isActive: boolean;
+  slideshowInterval: number | null;
+}
+
+export interface ExportedPhotoMeta {
+  albumName: string; // reference by name
+  filename: string;
+  originalFilename: string | null;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
+  takenAt: string | null;
+  sortOrder: number;
+  sourceType: string | null;
+  fileData?: string; // base64-encoded photo file (when includePhotoFiles=true)
+}
+
+export interface ExportedCalendar {
+  provider: string;
+  externalId: string;
+  name: string;
+  displayName: string | null;
+  description: string | null;
+  color: string;
+  icon: string | null;
+  isVisible: boolean;
+  isPrimary: boolean;
+  isFavorite: boolean;
+  isReadOnly: boolean;
+  syncEnabled: boolean;
+  showOnDashboard: boolean;
+  kioskEnabled: boolean;
+  visibility: CalendarVisibility;
+  sourceUrl: string | null;
+  accountLabel: string | null;
+}
+
+export interface ExportedCalendarEvent {
+  calendarExternalId: string; // reference by calendar externalId
+  externalId: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  startTime: string;
+  endTime: string;
+  isAllDay: boolean;
+  status: string;
+  recurrenceRule: string | null;
+  recurringEventId: string | null;
+  attendees: Record<string, unknown>[];
+  reminders: Record<string, unknown>[];
+  metadata: Record<string, unknown> | null;
+}
+
+export interface ExportedTaskList {
+  provider: string;
+  externalId: string;
+  name: string;
+  isVisible: boolean;
+}
+
+export interface ExportedTask {
+  taskListExternalId: string; // reference by task list externalId
+  externalId: string;
+  title: string;
+  notes: string | null;
+  status: string;
+  dueDate: string | null;
+  completedAt: string | null;
+  position: string | null;
+}
+
+export interface ExportedOAuthToken {
+  provider: string;
+  accessToken: string;
+  refreshToken: string | null;
+  tokenType: string | null;
+  scope: string | null;
+  expiresAt: string | null;
+  accountName: string | null;
+  externalAccountId: string | null;
+  isPrimary: boolean;
+  icon: string | null;
+}
+
+export interface ExportedHaConfig {
+  url: string;
+  accessToken: string;
+}
+
+export interface ExportedMediaServer {
+  name: string;
+  serverUrl: string;
+  accessToken: string;
   isActive: boolean;
 }
 
@@ -822,6 +1104,24 @@ export interface ImportResult {
     homeAssistantEntities: number;
     favoriteTeams: number;
     newsFeeds: number;
+    shoppingItems: number;
+    recipes: number;
+    familyProfiles: number;
+    routines: number;
+    customScreens: number;
+    displayConfigs: number;
+    kitchenTimerPresets: number;
+    youtubeBookmarks: number;
+    assumptions: number;
+    haAutomations: number;
+    photoAlbums: number;
+    photos: number;
+    calendars: number;
+    calendarEvents: number;
+    taskLists: number;
+    tasks: number;
+    oauthTokens: number;
+    connections: number;
   };
   errors: string[];
 }
@@ -908,6 +1208,12 @@ export interface PlannerLayoutConfig {
 
   // Column-based layout structure (used when layoutMode === "columns")
   columns?: ColumnLayout;
+
+  // Destination folder for push-to-device (e.g., "/Planners")
+  pushFolderPath?: string;
+
+  // Generate detail pages after the summary page with expanded content
+  enableDetailPages?: boolean;
 }
 
 // Column-based layout types for the live editor
@@ -1061,6 +1367,51 @@ export interface YouTubeWatchHistoryEntry {
 // ============ AI Chat Types ============
 
 export type AIChatProvider = "claude" | "openai" | "gemini" | "azure_openai" | "grok" | "openrouter" | "local_llm" | "openframe";
+
+// ============ Storage Servers ============
+
+export type StorageProtocol = "ftp" | "sftp" | "smb" | "webdav";
+
+export interface StorageServer {
+  id: string;
+  userId: string;
+  name: string;
+  protocol: StorageProtocol;
+  host: string;
+  port: number | null;
+  basePath: string;
+  username: string | null;
+  shareName: string | null;
+  isActive: boolean;
+  hasPassword: boolean;
+  lastConnectedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface StorageFileEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number | null;
+  modifiedAt: Date | null;
+  mimeType: string | null;
+}
+
+export interface AutoBackupConfig {
+  id: string;
+  userId: string;
+  storageServerId: string | null;
+  enabled: boolean;
+  intervalHours: number;
+  lastBackupAt: Date | null;
+  categories: ExportCategory[];
+  includePhotos: boolean;
+  includeCredentials: boolean;
+  backupPath: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 export interface ChatConversation {
   id: string;
@@ -1297,6 +1648,107 @@ export interface MatterCommandRequest {
 export type TicketStatus = "open" | "in_progress" | "waiting_on_user" | "resolved" | "closed";
 export type TicketPriority = "low" | "normal" | "high" | "urgent";
 export type TicketCategory = "billing" | "bug" | "feature_request" | "account" | "general";
+
+// ============ Household Types ============
+
+export interface Household {
+  id: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface HouseholdMember {
+  id: string;
+  householdId: string;
+  userId: string;
+  role: "owner" | "admin" | "member";
+  createdAt: Date;
+}
+
+// ============ Sticky Notes Types ============
+
+export interface StickyNote {
+  id: string;
+  householdId: string;
+  authorUserId: string;
+  content: string;
+  color: string;
+  pinned: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============ Chore Types ============
+
+export type ChoreFrequency = "daily" | "weekly" | "biweekly" | "monthly";
+
+export interface Chore {
+  id: string;
+  householdId: string;
+  name: string;
+  icon: string | null;
+  frequency: ChoreFrequency;
+  rotateDay: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ChoreAssignment {
+  id: string;
+  choreId: string;
+  profileId: string;
+  assignedAt: Date;
+  completedAt: Date | null;
+  dueDate: string;
+  autoAssigned: boolean;
+}
+
+export interface ChoreWithAssignments extends Chore {
+  assignments: (ChoreAssignment & {
+    profileName: string;
+    profileColor: string | null;
+    profileIcon: string | null;
+  })[];
+  currentAssignment?: ChoreAssignment & {
+    profileName: string;
+    profileColor: string | null;
+    profileIcon: string | null;
+  };
+  rotationOrder: {
+    choreId: string;
+    profileId: string;
+    position: number;
+    profileName: string;
+    profileColor: string | null;
+  }[];
+}
+
+// ============ Package Tracking Types ============
+
+export type Carrier = "usps" | "ups" | "fedex" | "amazon" | "dhl" | "other";
+export type PackageStatus = "pre_transit" | "in_transit" | "out_for_delivery" | "delivered" | "exception" | "unknown";
+
+export interface TrackedPackage {
+  id: string;
+  householdId: string;
+  carrier: Carrier;
+  trackingNumber: string;
+  label: string | null;
+  status: PackageStatus;
+  statusDetail: string | null;
+  expectedDelivery: string | null;
+  deliveredAt: Date | null;
+  source: "informed_delivery" | "manual";
+  isArchived: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface PackageSummary {
+  summary: Record<string, number>;
+  total: number;
+}
 
 // Custom Screen types
 export interface CustomScreen {

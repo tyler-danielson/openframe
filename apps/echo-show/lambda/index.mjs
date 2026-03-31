@@ -76,8 +76,8 @@ const LaunchRequestHandler = {
     return handlerInput.responseBuilder
       .speak(
         config.serverUrl
-          ? "Opening OpenFrame."
-          : "Welcome to OpenFrame. Please set up your server connection."
+          ? "Opening your calendar."
+          : "Welcome. Please set up your server connection."
       )
       .addDirective(buildStartDirective(webAppUrl, data))
       .getResponse();

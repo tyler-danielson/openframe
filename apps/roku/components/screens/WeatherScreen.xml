@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="WeatherScreen" extends="Group">
+    <interface>
+        <field id="currentWeather" type="assocarray" alwaysNotify="true" onChange="onCurrentChanged" />
+        <field id="forecastData" type="array" alwaysNotify="true" onChange="onForecastChanged" />
+    </interface>
+    <script type="text/brightscript" uri="WeatherScreen.brs" />
+    <children>
+        <Rectangle width="1920" height="1080" color="0x0f172aFF">
+
+            <!-- Current weather section -->
+            <LayoutGroup
+                id="currentSection"
+                layoutDirection="horiz"
+                vertAlignment="center"
+                translation="[200, 150]"
+                itemSpacings="[40]">
+
+                <Poster
+                    id="weatherIcon"
+                    width="150"
+                    height="150" />
+
+                <LayoutGroup layoutDirection="vert" itemSpacings="[5]">
+                    <Label
+                        id="tempLabel"
+                        text="--"
+                        color="0xf8fafcFF"
+                        width="600" />
+
+                    <Label
+                        id="descLabel"
+                        text=""
+                        font="font:MediumSystemFont"
+                        color="0x94a3b8FF"
+                        width="600" />
+
+                    <Label
+                        id="feelsLikeLabel"
+                        text=""
+                        font="font:SmallSystemFont"
+                        color="0x64748bFF"
+                        width="600" />
+                </LayoutGroup>
+
+                <LayoutGroup layoutDirection="vert" itemSpacings="[10]" translation="[200, 0]">
+                    <Label
+                        id="cityLabel"
+                        text=""
+                        font="font:MediumBoldSystemFont"
+                        color="0x60a5faFF"
+                        width="500" />
+
+                    <Label
+                        id="humidityLabel"
+                        text=""
+                        font="font:SmallSystemFont"
+                        color="0x94a3b8FF"
+                        width="500" />
+
+                    <Label
+                        id="windLabel"
+                        text=""
+                        font="font:SmallSystemFont"
+                        color="0x94a3b8FF"
+                        width="500" />
+                </LayoutGroup>
+            </LayoutGroup>
+
+            <!-- Divider -->
+            <Rectangle
+                width="1520"
+                height="2"
+                color="0x334155FF"
+                translation="[200, 450]" />
+
+            <!-- Forecast section -->
+            <Label
+                id="forecastTitle"
+                text="5-Day Forecast"
+                font="font:MediumBoldSystemFont"
+                color="0xe2e8f0FF"
+                translation="[200, 490]"
+                width="500" />
+
+            <LayoutGroup
+                id="forecastRow"
+                layoutDirection="horiz"
+                translation="[200, 560]"
+                itemSpacings="[30]" />
+
+            <!-- No data label -->
+            <Label
+                id="noDataLabel"
+                text="Weather not configured"
+                font="font:LargeBoldSystemFont"
+                color="0x475569FF"
+                horizAlign="center"
+                vertAlign="center"
+                width="1920"
+                height="1080"
+                visible="false" />
+        </Rectangle>
+    </children>
+</component>

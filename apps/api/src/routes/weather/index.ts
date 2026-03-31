@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getCategorySettings } from "../settings/index.js";
+import { getCurrentUser } from "../../plugins/auth.js";
 
 interface WeatherData {
   temp: number;
@@ -123,10 +124,14 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       // Get weather settings and home location settings
-      const weatherSettings = await getCategorySettings(fastify.db, "weather");
-      const homeSettings = await getCategorySettings(fastify.db, "home");
+      const userId = request.user?.userId;
+      const weatherSettings = await getCategorySettings(fastify.db, "weather", userId);
+      const homeSettings = await getCategorySettings(fastify.db, "home", userId);
 
-      const apiKey = weatherSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
+      // Check for premium weather service
+      const serviceSettings = await getCategorySettings(fastify.db, "services", userId);
+      const hasPremiumWeather = serviceSettings.weather_premium === "true";
+      const apiKey = weatherSettings.api_key || (hasPremiumWeather ? process.env.OPENWEATHERMAP_PLATFORM_KEY : null) || process.env.OPENWEATHERMAP_API_KEY;
       const lat = homeSettings.latitude || process.env.OPENWEATHERMAP_LAT;
       const lon = homeSettings.longitude || process.env.OPENWEATHERMAP_LON;
       const units = weatherSettings.units || "imperial";
@@ -214,10 +219,13 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       // Get weather settings and home location settings
-      const weatherSettings = await getCategorySettings(fastify.db, "weather");
-      const homeSettings = await getCategorySettings(fastify.db, "home");
+      const userId = request.user?.userId;
+      const weatherSettings = await getCategorySettings(fastify.db, "weather", userId);
+      const homeSettings = await getCategorySettings(fastify.db, "home", userId);
 
-      const apiKey = weatherSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
+      const serviceSettings = await getCategorySettings(fastify.db, "services", userId);
+      const hasPremiumWeather = serviceSettings.weather_premium === "true";
+      const apiKey = weatherSettings.api_key || (hasPremiumWeather ? process.env.OPENWEATHERMAP_PLATFORM_KEY : null) || process.env.OPENWEATHERMAP_API_KEY;
       const lat = homeSettings.latitude || process.env.OPENWEATHERMAP_LAT;
       const lon = homeSettings.longitude || process.env.OPENWEATHERMAP_LON;
       const units = (weatherSettings.units || "imperial") as "imperial" | "metric";
@@ -246,13 +254,12 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
 
         const data = (await response.json()) as OpenWeatherForecastResponse;
 
-        // Group by day and get min/max temps
+        // Group by day (ISO date YYYY-MM-DD) and get min/max temps
         const dailyData = new Map<string, ForecastDay>();
 
         for (const item of data.list) {
-          const date = new Date(item.dt * 1000).toLocaleDateString("en-US", {
-            weekday: "short",
-          });
+          const d = new Date(item.dt * 1000);
+          const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
           const existing = dailyData.get(date);
           if (existing) {
@@ -322,10 +329,13 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       // Get weather settings and home location settings
-      const weatherSettings = await getCategorySettings(fastify.db, "weather");
-      const homeSettings = await getCategorySettings(fastify.db, "home");
+      const userId = request.user?.userId;
+      const weatherSettings = await getCategorySettings(fastify.db, "weather", userId);
+      const homeSettings = await getCategorySettings(fastify.db, "home", userId);
 
-      const apiKey = weatherSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
+      const serviceSettings = await getCategorySettings(fastify.db, "services", userId);
+      const hasPremiumWeather = serviceSettings.weather_premium === "true";
+      const apiKey = weatherSettings.api_key || (hasPremiumWeather ? process.env.OPENWEATHERMAP_PLATFORM_KEY : null) || process.env.OPENWEATHERMAP_API_KEY;
       const lat = homeSettings.latitude || process.env.OPENWEATHERMAP_LAT;
       const lon = homeSettings.longitude || process.env.OPENWEATHERMAP_LON;
       const units = (weatherSettings.units || "imperial") as "imperial" | "metric";
@@ -464,19 +474,223 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
         security: [{ bearerAuth: [] }, { apiKey: [] }],
       },
     },
-    async () => {
+    async (request) => {
       // Check weather settings and home location settings
-      const weatherSettings = await getCategorySettings(fastify.db, "weather");
-      const homeSettings = await getCategorySettings(fastify.db, "home");
+      const userId = request.user?.userId;
+      const weatherSettings = await getCategorySettings(fastify.db, "weather", userId);
+      const homeSettings = await getCategorySettings(fastify.db, "home", userId);
 
-      const apiKey = weatherSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
+      const serviceSettings = await getCategorySettings(fastify.db, "services", userId);
+      const hasPremiumWeather = serviceSettings.weather_premium === "true";
+      const apiKey = weatherSettings.api_key || (hasPremiumWeather ? process.env.OPENWEATHERMAP_PLATFORM_KEY : null) || process.env.OPENWEATHERMAP_API_KEY;
       const lat = homeSettings.latitude || process.env.OPENWEATHERMAP_LAT;
       const lon = homeSettings.longitude || process.env.OPENWEATHERMAP_LON;
 
       return {
         success: true,
         configured: !!(apiKey && lat && lon),
+        premiumWeather: hasPremiumWeather,
       };
+    }
+  );
+
+  // ─── Weather Alerts (via OWM One Call API 3.0 or free alerts endpoint) ────
+
+  let alertsCache: { data: any[]; timestamp: number } | null = null;
+  const ALERTS_CACHE_MS = 10 * 60 * 1000;
+
+  fastify.get(
+    "/alerts",
+    { onRequest: [fastify.authenticateKioskOrAny] },
+    async (request) => {
+      const userId = (request as any).user?.userId;
+      const weatherSettings = await getCategorySettings(fastify.db, "weather", userId);
+      const homeSettings = await getCategorySettings(fastify.db, "home", userId);
+      const serviceSettings = await getCategorySettings(fastify.db, "services", userId);
+      const hasPremium = serviceSettings.weather_premium === "true";
+      const apiKey = weatherSettings.api_key || (hasPremium ? process.env.OPENWEATHERMAP_PLATFORM_KEY : null) || process.env.OPENWEATHERMAP_API_KEY;
+      const lat = homeSettings.latitude;
+      const lon = homeSettings.longitude;
+
+      if (!apiKey || !lat || !lon) {
+        return { success: true, data: [] };
+      }
+
+      if (alertsCache && Date.now() - alertsCache.timestamp < ALERTS_CACHE_MS) {
+        return { success: true, data: alertsCache.data };
+      }
+
+      try {
+        // Try One Call API for alerts
+        const res = await fetch(
+          `https://api.openweathermap.org/data/3.0/onecall?lat=${lat}&lon=${lon}&exclude=minutely,hourly,daily,current&appid=${apiKey}`
+        );
+        if (res.ok) {
+          const json = (await res.json()) as { alerts?: any[] };
+          const alerts = (json.alerts || []).map((a: any) => ({
+            event: a.event,
+            sender: a.sender_name,
+            start: new Date(a.start * 1000).toISOString(),
+            end: new Date(a.end * 1000).toISOString(),
+            description: a.description,
+            tags: a.tags || [],
+          }));
+          alertsCache = { data: alerts, timestamp: Date.now() };
+          return { success: true, data: alerts };
+        }
+        // If One Call fails (may need subscription), return empty
+        alertsCache = { data: [], timestamp: Date.now() };
+        return { success: true, data: [] };
+      } catch {
+        return { success: true, data: [] };
+      }
+    }
+  );
+
+  // ─── Air Quality (OWM Air Pollution API - free) ────
+
+  let aqiCache: { data: any; timestamp: number } | null = null;
+  const AQI_CACHE_MS = 30 * 60 * 1000;
+
+  fastify.get(
+    "/air-quality",
+    { onRequest: [fastify.authenticateKioskOrAny] },
+    async (request) => {
+      const userId = (request as any).user?.userId;
+      const weatherSettings = await getCategorySettings(fastify.db, "weather", userId);
+      const homeSettings = await getCategorySettings(fastify.db, "home", userId);
+      const serviceSettings = await getCategorySettings(fastify.db, "services", userId);
+      const hasPremium = serviceSettings.weather_premium === "true";
+      const apiKey = weatherSettings.api_key || (hasPremium ? process.env.OPENWEATHERMAP_PLATFORM_KEY : null) || process.env.OPENWEATHERMAP_API_KEY;
+      const lat = homeSettings.latitude;
+      const lon = homeSettings.longitude;
+
+      if (!apiKey || !lat || !lon) {
+        throw fastify.httpErrors.badRequest("Weather not configured");
+      }
+
+      if (aqiCache && Date.now() - aqiCache.timestamp < AQI_CACHE_MS) {
+        return { success: true, data: aqiCache.data };
+      }
+
+      try {
+        const res = await fetch(
+          `https://api.openweathermap.org/data/2.5/air_pollution?lat=${lat}&lon=${lon}&appid=${apiKey}`
+        );
+        if (!res.ok) throw new Error(`AQI API error: ${res.status}`);
+
+        const json = (await res.json()) as { list: { main: { aqi: number }; components: Record<string, number>; dt: number }[] };
+        const item = json.list[0];
+        if (!item) throw new Error("No AQI data");
+
+        // AQI levels: 1=Good, 2=Fair, 3=Moderate, 4=Poor, 5=Very Poor
+        const aqiLabels = ["", "Good", "Fair", "Moderate", "Poor", "Very Poor"];
+        const data = {
+          aqi: item.main.aqi,
+          label: aqiLabels[item.main.aqi] || "Unknown",
+          components: {
+            co: item.components.co,
+            no: item.components.no,
+            no2: item.components.no2,
+            o3: item.components.o3,
+            so2: item.components.so2,
+            pm2_5: item.components.pm2_5,
+            pm10: item.components.pm10,
+            nh3: item.components.nh3,
+          },
+          updatedAt: new Date(item.dt * 1000).toISOString(),
+        };
+
+        aqiCache = { data, timestamp: Date.now() };
+        return { success: true, data };
+      } catch (err: any) {
+        throw fastify.httpErrors.serviceUnavailable(err.message);
+      }
+    }
+  );
+
+  // ─── Ocean Tides (WorldTides API - free for basic) ────
+
+  let tidesCache: { data: any; timestamp: number; lat: string; lon: string } | null = null;
+  const TIDES_CACHE_MS = 60 * 60 * 1000; // 1 hour
+
+  fastify.get(
+    "/tides",
+    { onRequest: [fastify.authenticateKioskOrAny] },
+    async (request) => {
+      const userId = (request as any).user?.userId;
+      const homeSettings = await getCategorySettings(fastify.db, "home", userId);
+      const lat = homeSettings.latitude;
+      const lon = homeSettings.longitude;
+
+      if (!lat || !lon) {
+        throw fastify.httpErrors.badRequest("Location not configured");
+      }
+
+      if (tidesCache && tidesCache.lat === lat && tidesCache.lon === lon && Date.now() - tidesCache.timestamp < TIDES_CACHE_MS) {
+        return { success: true, data: tidesCache.data };
+      }
+
+      try {
+        // Use free NOAA CO-OPS API for US locations, or worldtides for global
+        // Try NOAA first (free, no key needed) - find nearest station
+        const stationRes = await fetch(
+          `https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions&units=english`
+        );
+
+        if (stationRes.ok) {
+          const stationsJson = (await stationRes.json()) as { stations: { id: string; name: string; lat: number; lng: number }[] };
+          const stations = stationsJson.stations || [];
+
+          // Find nearest station
+          const latNum = parseFloat(lat);
+          const lonNum = parseFloat(lon);
+          let nearest = stations[0];
+          let minDist = Infinity;
+
+          for (const s of stations) {
+            const d = Math.pow(s.lat - latNum, 2) + Math.pow(s.lng - lonNum, 2);
+            if (d < minDist) { minDist = d; nearest = s; }
+          }
+
+          if (nearest && minDist < 25) { // Within ~5 degrees
+            // Get predictions for next 48 hours
+            const now = new Date();
+            const begin = now.toISOString().slice(0, 10).replace(/-/g, "");
+            const end = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, "");
+
+            const tideRes = await fetch(
+              `https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?begin_date=${begin}&end_date=${end}&station=${nearest.id}&product=predictions&datum=MLLW&time_zone=lst_ldt&interval=hilo&units=english&format=json`
+            );
+
+            if (tideRes.ok) {
+              const tideJson = (await tideRes.json()) as { predictions: { t: string; v: string; type: string }[] };
+              const tides = (tideJson.predictions || []).map((p) => ({
+                time: p.t,
+                height: parseFloat(p.v),
+                type: p.type === "H" ? "high" : "low",
+              }));
+
+              const data = {
+                station: { id: nearest.id, name: nearest.name, lat: nearest.lat, lon: nearest.lng },
+                tides,
+                source: "NOAA",
+              };
+
+              tidesCache = { data, timestamp: Date.now(), lat, lon };
+              return { success: true, data };
+            }
+          }
+        }
+
+        // No NOAA station found nearby
+        return {
+          success: true,
+          data: { station: null, tides: [], source: "none", message: "No tide station found near your location" },
+        };
+      } catch (err: any) {
+        return { success: true, data: { station: null, tides: [], source: "error", message: err.message } };
+      }
     }
   );
 };

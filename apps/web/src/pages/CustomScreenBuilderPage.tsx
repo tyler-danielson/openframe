@@ -56,7 +56,7 @@ function BuilderInner({
 }) {
   const { addWidget } = useBuilderContext();
 
-  const handleAddWidget = useCallback((type: BuilderWidgetType) => {
+  const handleAddWidget = useCallback((type: BuilderWidgetType, configOverrides?: Record<string, unknown>) => {
     const definition = WIDGET_REGISTRY[type];
     const baseColumns = 16;
     const baseRows = 9;
@@ -71,7 +71,7 @@ function BuilderInner({
       y: 0,
       width: scaledWidth,
       height: scaledHeight,
-      config: { ...definition.defaultConfig },
+      config: { ...definition.defaultConfig, ...configOverrides },
     });
     setShowAddBlockModal(false);
   }, [addWidget, layoutConfig.gridColumns, layoutConfig.gridRows, setShowAddBlockModal]);

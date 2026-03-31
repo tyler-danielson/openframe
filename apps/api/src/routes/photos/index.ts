@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and } from "drizzle-orm";
-import { photoAlbums, photos, oauthTokens, companionAccess } from "@openframe/database/schema";
+import { eq, and, count } from "drizzle-orm";
+import { photoAlbums, photos, oauthTokens, companionAccess, userPlans } from "@openframe/database/schema";
 
 // Upload token type
 export interface UploadTokenData {
@@ -27,6 +27,8 @@ import {
   getPhotoUrl,
   getAccessToken,
   setGoogleOAuthCredentials,
+  listAlbums,
+  listAlbumPhotos,
 } from "../../services/google-photos.js";
 import { fetchSubredditPhotos } from "../../services/reddit-photos.js";
 import { decryptOAuthToken } from "../../lib/encryption.js";
@@ -59,6 +61,48 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       clientSecret: googleSettings.client_secret || undefined,
     });
   }
+
+  // Photo usage stats (for showing plan limits in UI)
+  fastify.get(
+    "/usage",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Get photo storage usage and plan limits",
+        tags: ["Photos"],
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) return reply.unauthorized();
+
+      const [plan] = await fastify.db
+        .select()
+        .from(userPlans)
+        .where(eq(userPlans.userId, user.id))
+        .limit(1);
+
+      const [{ total }] = await fastify.db
+        .select({ total: count() })
+        .from(photos)
+        .innerJoin(photoAlbums, eq(photos.albumId, photoAlbums.id))
+        .where(eq(photoAlbums.userId, user.id));
+
+      const maxPhotos = plan?.limits?.maxPhotos ?? null;
+      const maxResolution = plan?.limits?.maxPhotoResolution ?? null;
+
+      return {
+        success: true,
+        data: {
+          photoCount: total,
+          maxPhotos,
+          maxResolution,
+          remaining: maxPhotos ? Math.max(0, maxPhotos - total) : null,
+          upgradeUrl: maxPhotos ? "https://openframe.us/pricing" : null,
+        },
+      };
+    }
+  );
 
   // List albums
   fastify.get(
@@ -294,6 +338,43 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.notFound("Album not found");
       }
 
+      // Remote storage album: list photos from storage server
+      if ((album as any).storageServerId && (album as any).storagePath) {
+        try {
+          const { getStorageClient } = await import("../../services/storage-client.js");
+          const { client } = await getStorageClient(fastify.db, (album as any).storageServerId, user.id);
+          try {
+            const files = await client.list((album as any).storagePath);
+            const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"];
+            const imageFiles = files.filter((f) => {
+              if (f.isDirectory) return false;
+              const ext = (f.name.split(".").pop() || "").toLowerCase();
+              return imageExts.includes(`.${ext}`);
+            });
+            const remotePhotos = imageFiles.map((f, i) => ({
+              id: `remote-${Buffer.from(f.path).toString("base64url")}`,
+              filename: f.name,
+              originalFilename: f.name,
+              mimeType: f.mimeType || "image/jpeg",
+              width: null,
+              height: null,
+              thumbnailUrl: `/api/v1/storage/servers/${(album as any).storageServerId}/download?path=${encodeURIComponent(f.path)}`,
+              mediumUrl: `/api/v1/storage/servers/${(album as any).storageServerId}/download?path=${encodeURIComponent(f.path)}`,
+              originalUrl: `/api/v1/storage/servers/${(album as any).storageServerId}/download?path=${encodeURIComponent(f.path)}`,
+              takenAt: f.modifiedAt,
+              sortOrder: i,
+              sourceType: "remote_storage",
+              externalId: f.path,
+            }));
+            return { success: true, data: remotePhotos };
+          } finally {
+            await client.disconnect();
+          }
+        } catch (err: any) {
+          return { success: false, error: err.message || "Failed to list remote photos" };
+        }
+      }
+
       const albumPhotos = await fastify.db
         .select()
         .from(photos)
@@ -366,6 +447,37 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.notFound("Album not found");
       }
 
+      // Check plan photo limit
+      const [plan] = await fastify.db
+        .select()
+        .from(userPlans)
+        .where(eq(userPlans.userId, user.id))
+        .limit(1);
+
+      let photoCount = 0;
+      const maxPhotos = plan?.limits?.maxPhotos;
+
+      if (maxPhotos) {
+        const [{ total }] = await fastify.db
+          .select({ total: count() })
+          .from(photos)
+          .innerJoin(photoAlbums, eq(photos.albumId, photoAlbums.id))
+          .where(eq(photoAlbums.userId, user.id));
+
+        photoCount = total;
+
+        if (photoCount >= maxPhotos) {
+          return reply.code(403).send({
+            success: false,
+            error: {
+              code: "photo_limit_reached",
+              message: `You've reached the ${maxPhotos} photo limit on your free plan.`,
+              upgradeUrl: "https://openframe.us/pricing",
+            },
+          });
+        }
+      }
+
       const data = await request.file();
       if (!data) {
         return reply.badRequest("No file uploaded");
@@ -388,13 +500,14 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       const ext = data.filename.split(".").pop() ?? "jpg";
       const filename = `${fileId}.${ext}`;
 
-      // Process and save image
+      // Process and save image (respect plan resolution limit)
       const buffer = await data.toBuffer();
       const result = await processImage(buffer, {
         userDir,
         filename,
         generateThumbnail: true,
         generateMedium: true,
+        maxResolution: plan?.limits?.maxPhotoResolution ?? undefined,
       });
 
       // Get next sort order
@@ -424,6 +537,43 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         })
         .returning();
 
+      // Build warnings for plan limits
+      const warnings: Array<{ code: string; message: string; upgradeUrl: string }> = [];
+      const upgradeUrl = "https://openframe.us/pricing";
+      const newCount = photoCount + 1;
+
+      if (maxPhotos) {
+        const remaining = maxPhotos - newCount;
+        if (remaining <= 0) {
+          warnings.push({
+            code: "photo_limit_reached",
+            message: `You've used all ${maxPhotos} photos on your free plan. Upgrade for unlimited photos.`,
+            upgradeUrl,
+          });
+        } else if (remaining <= 5) {
+          warnings.push({
+            code: "photo_limit_approaching",
+            message: `${remaining} photo${remaining === 1 ? "" : "s"} remaining on your free plan (${newCount}/${maxPhotos}).`,
+            upgradeUrl,
+          });
+        } else if (remaining <= 10) {
+          warnings.push({
+            code: "photo_limit_notice",
+            message: `You've used ${newCount} of ${maxPhotos} photos on your free plan.`,
+            upgradeUrl,
+          });
+        }
+      }
+
+      const maxRes = plan?.limits?.maxPhotoResolution;
+      if (maxRes && (result.width === maxRes || result.height === maxRes)) {
+        warnings.push({
+          code: "photo_downscaled",
+          message: `Photo was resized to ${maxRes}p (free plan limit). Upgrade for full 4K resolution.`,
+          upgradeUrl,
+        });
+      }
+
       return reply.status(201).send({
         success: true,
         data: {
@@ -433,6 +583,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
           width: photo!.width,
           height: photo!.height,
         },
+        ...(warnings.length > 0 ? { warnings } : {}),
       });
     }
   );
@@ -654,8 +805,8 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("Google account not connected");
       }
 
-      const hasPickerScope = token.scope?.includes("photospicker");
-      if (!hasPickerScope) {
+      const hasPhotosScope = token.scope?.includes("photospicker") || token.scope?.includes("photoslibrary");
+      if (!hasPhotosScope) {
         return reply.code(403).send({
           success: false,
           error: {
@@ -874,12 +1025,12 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         };
       }
 
-      const hasPickerScope = token.scope?.includes("photospicker");
+      const hasPhotosScope = token.scope?.includes("photospicker") || token.scope?.includes("photoslibrary");
       return {
         success: true,
         data: {
-          connected: hasPickerScope,
-          reason: hasPickerScope ? null : "Google Photos Picker scope not granted. Please reconnect.",
+          connected: hasPhotosScope,
+          reason: hasPhotosScope ? null : "Google Photos scope not granted. Please reconnect.",
         },
       };
     }
@@ -1100,6 +1251,466 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         success: true,
         data: { imported, skipped },
       };
+    }
+  );
+
+  // ============ Google Photos Album Endpoints ============
+
+  // Helper: get user's Google OAuth token with photos scope
+  async function getGooglePhotosToken(userId: string) {
+    const [rawToken] = await fastify.db
+      .select()
+      .from(oauthTokens)
+      .where(and(eq(oauthTokens.userId, userId), eq(oauthTokens.provider, "google")))
+      .limit(1);
+    if (!rawToken) return null;
+    const token = decryptOAuthToken(rawToken);
+    const hasScope = token.scope?.includes("photoslibrary") || token.scope?.includes("photospicker");
+    return hasScope ? token : null;
+  }
+
+  // Helper: import photos from a Google album into a local album
+  async function importGoogleAlbumPhotos(
+    userId: string,
+    albumId: string,
+    googleAlbumId: string,
+    token: NonNullable<Awaited<ReturnType<typeof getGooglePhotosToken>>>
+  ): Promise<{ imported: number; skipped: number }> {
+    const userDir = join(uploadDir, userId);
+    await mkdir(userDir, { recursive: true });
+    await mkdir(join(userDir, "thumbnails"), { recursive: true });
+    await mkdir(join(userDir, "medium"), { recursive: true });
+    await mkdir(join(userDir, "original"), { recursive: true });
+
+    // Get existing external IDs for dedup
+    const existingPhotos = await fastify.db
+      .select({ externalId: photos.externalId })
+      .from(photos)
+      .where(and(eq(photos.albumId, albumId), eq(photos.sourceType, "google")));
+    const existingIds = new Set(existingPhotos.map((p) => p.externalId));
+
+    // Get max sort order
+    const allPhotos = await fastify.db
+      .select({ sortOrder: photos.sortOrder })
+      .from(photos)
+      .where(eq(photos.albumId, albumId));
+    let maxOrder = Math.max(0, ...allPhotos.map((p) => p.sortOrder));
+
+    let imported = 0;
+    let skipped = 0;
+    let pageToken: string | undefined;
+    let accessToken = await getAccessToken(token);
+    let photoCount = 0;
+
+    do {
+      const page = await listAlbumPhotos(token, googleAlbumId, pageToken);
+
+      for (const item of page.photos) {
+        if (existingIds.has(item.id)) {
+          skipped++;
+          continue;
+        }
+
+        // Refresh token every 50 photos
+        photoCount++;
+        if (photoCount % 50 === 0) {
+          accessToken = await getAccessToken(token);
+        }
+
+        try {
+          const downloadUrl = `${item.baseUrl}=d`;
+          let response = await fetch(downloadUrl, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+
+          if (!response.ok) {
+            const sizedUrl = getPhotoUrl(item.baseUrl, 2048, 1536);
+            response = await fetch(sizedUrl, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+          }
+
+          if (!response.ok) {
+            skipped++;
+            continue;
+          }
+
+          const buffer = Buffer.from(await response.arrayBuffer());
+          const fileId = randomUUID();
+          const ext = item.filename.split(".").pop() ?? "jpg";
+          const filename = `${fileId}.${ext}`;
+
+          const result = await processImage(buffer, {
+            userDir,
+            filename,
+            generateThumbnail: true,
+            generateMedium: true,
+          });
+
+          maxOrder++;
+          await fastify.db.insert(photos).values({
+            albumId,
+            filename,
+            originalFilename: item.filename,
+            mimeType: item.mimeType,
+            width: result.width,
+            height: result.height,
+            size: buffer.length,
+            thumbnailPath: result.thumbnailPath ? join(userId, result.thumbnailPath) : null,
+            mediumPath: result.mediumPath ? join(userId, result.mediumPath) : null,
+            originalPath: join(userId, result.originalPath),
+            metadata: result.metadata,
+            sortOrder: maxOrder,
+            sourceType: "google",
+            externalId: item.id,
+          });
+
+          imported++;
+        } catch (error) {
+          console.error(`Failed to import photo ${item.id}:`, error);
+          skipped++;
+        }
+      }
+
+      pageToken = page.nextPageToken;
+    } while (pageToken);
+
+    // Update lastSyncedAt
+    await fastify.db
+      .update(photoAlbums)
+      .set({ lastSyncedAt: new Date(), updatedAt: new Date() })
+      .where(eq(photoAlbums.id, albumId));
+
+    return { imported, skipped };
+  }
+
+  // Check Google Photos Library API status
+  fastify.get(
+    "/google/albums/status",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Check if Google Photos Library API is available",
+        tags: ["Photos", "Google"],
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request) => {
+      const user = await getCurrentUser(request);
+      if (!user) throw fastify.httpErrors.unauthorized("Not authenticated");
+
+      const token = await getGooglePhotosToken(user.id);
+      return {
+        success: true,
+        data: {
+          connected: !!token,
+          reason: !token
+            ? "No Google account connected. Please connect Google with Photos access."
+            : null,
+        },
+      };
+    }
+  );
+
+  // List user's Google Photo albums
+  fastify.get(
+    "/google/albums",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "List Google Photo albums with linked status",
+        tags: ["Photos", "Google"],
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) throw fastify.httpErrors.unauthorized("Not authenticated");
+
+      const token = await getGooglePhotosToken(user.id);
+      if (!token) {
+        return reply.code(403).send({
+          success: false,
+          error: { code: "MISSING_SCOPE", message: "Google Photos access not granted. Please reconnect Google." },
+        });
+      }
+
+      const googleAlbums = await listAlbums(token);
+
+      // Get linked albums from DB
+      const linkedAlbums = await fastify.db
+        .select({
+          id: photoAlbums.id,
+          googleAlbumId: photoAlbums.googleAlbumId,
+          lastSyncedAt: photoAlbums.lastSyncedAt,
+          autoSync: photoAlbums.autoSync,
+        })
+        .from(photoAlbums)
+        .where(
+          and(
+            eq(photoAlbums.userId, user.id),
+            eq(photoAlbums.source, "google")
+          )
+        );
+      const linkedMap = new Map(linkedAlbums.map((a) => [a.googleAlbumId, a]));
+
+      return {
+        success: true,
+        data: googleAlbums.map((album) => {
+          const linked = linkedMap.get(album.id);
+          return {
+            id: album.id,
+            title: album.title,
+            mediaItemsCount: album.mediaItemsCount ?? "0",
+            coverPhotoBaseUrl: album.coverPhotoBaseUrl,
+            isLinked: !!linked,
+            localAlbumId: linked?.id ?? null,
+            lastSyncedAt: linked?.lastSyncedAt ?? null,
+            autoSync: linked?.autoSync ?? false,
+          };
+        }),
+      };
+    }
+  );
+
+  // Link a Google Photo album
+  fastify.post(
+    "/google/albums/link",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Link a Google Photo album and import its photos",
+        tags: ["Photos", "Google"],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: "object",
+          properties: {
+            googleAlbumId: { type: "string" },
+            albumTitle: { type: "string" },
+          },
+          required: ["googleAlbumId", "albumTitle"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) throw fastify.httpErrors.unauthorized("Not authenticated");
+
+      const { googleAlbumId, albumTitle } = request.body as {
+        googleAlbumId: string;
+        albumTitle: string;
+      };
+
+      const token = await getGooglePhotosToken(user.id);
+      if (!token) {
+        return reply.code(403).send({
+          success: false,
+          error: { code: "MISSING_SCOPE", message: "Google Photos access not granted. Please reconnect Google." },
+        });
+      }
+
+      // Check if already linked
+      const [existing] = await fastify.db
+        .select()
+        .from(photoAlbums)
+        .where(
+          and(
+            eq(photoAlbums.userId, user.id),
+            eq(photoAlbums.googleAlbumId, googleAlbumId)
+          )
+        )
+        .limit(1);
+
+      if (existing) {
+        return reply.conflict("This Google album is already linked");
+      }
+
+      // Create local album
+      const [album] = await fastify.db
+        .insert(photoAlbums)
+        .values({
+          userId: user.id,
+          name: albumTitle,
+          googleAlbumId,
+          source: "google",
+          autoSync: true,
+        })
+        .returning();
+
+      // Import photos
+      const result = await importGoogleAlbumPhotos(user.id, album!.id, googleAlbumId, token);
+
+      return {
+        success: true,
+        data: {
+          albumId: album!.id,
+          imported: result.imported,
+          skipped: result.skipped,
+        },
+      };
+    }
+  );
+
+  // Sync a linked Google album
+  fastify.post(
+    "/google/albums/:id/sync",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Sync new photos from a linked Google Photo album",
+        tags: ["Photos", "Google"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: { id: { type: "string", format: "uuid" } },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) throw fastify.httpErrors.unauthorized("Not authenticated");
+
+      const { id } = request.params as { id: string };
+
+      const [album] = await fastify.db
+        .select()
+        .from(photoAlbums)
+        .where(and(eq(photoAlbums.id, id), eq(photoAlbums.userId, user.id)))
+        .limit(1);
+
+      if (!album) return reply.notFound("Album not found");
+      if (!album.googleAlbumId) return reply.badRequest("Album is not linked to Google Photos");
+
+      const token = await getGooglePhotosToken(user.id);
+      if (!token) return reply.badRequest("Google account not connected");
+
+      const result = await importGoogleAlbumPhotos(user.id, id, album.googleAlbumId, token);
+
+      // Get total photo count
+      const albumPhotos = await fastify.db
+        .select({ id: photos.id })
+        .from(photos)
+        .where(eq(photos.albumId, id));
+
+      return {
+        success: true,
+        data: { imported: result.imported, skipped: result.skipped, total: albumPhotos.length },
+      };
+    }
+  );
+
+  // Unlink a Google album
+  fastify.delete(
+    "/google/albums/:id/unlink",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Unlink a Google Photo album",
+        tags: ["Photos", "Google"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: { id: { type: "string", format: "uuid" } },
+          required: ["id"],
+        },
+        querystring: {
+          type: "object",
+          properties: { deletePhotos: { type: "string" } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) throw fastify.httpErrors.unauthorized("Not authenticated");
+
+      const { id } = request.params as { id: string };
+      const query = request.query as { deletePhotos?: string };
+      const shouldDelete = query.deletePhotos === "true";
+
+      const [album] = await fastify.db
+        .select()
+        .from(photoAlbums)
+        .where(and(eq(photoAlbums.id, id), eq(photoAlbums.userId, user.id)))
+        .limit(1);
+
+      if (!album) return reply.notFound("Album not found");
+
+      if (shouldDelete) {
+        // Delete photos from disk
+        const albumPhotos = await fastify.db
+          .select()
+          .from(photos)
+          .where(eq(photos.albumId, id));
+
+        for (const photo of albumPhotos) {
+          try {
+            await unlink(join(uploadDir, photo.originalPath));
+            if (photo.thumbnailPath) await unlink(join(uploadDir, photo.thumbnailPath));
+            if (photo.mediumPath) await unlink(join(uploadDir, photo.mediumPath));
+          } catch {
+            // Ignore file deletion errors
+          }
+        }
+
+        // Delete album (cascade deletes photos)
+        await fastify.db.delete(photoAlbums).where(eq(photoAlbums.id, id));
+      } else {
+        // Keep photos but disconnect from Google
+        await fastify.db
+          .update(photoAlbums)
+          .set({
+            googleAlbumId: null,
+            autoSync: false,
+            source: "local",
+            updatedAt: new Date(),
+          })
+          .where(eq(photoAlbums.id, id));
+      }
+
+      return { success: true };
+    }
+  );
+
+  // Update Google album sync settings
+  fastify.patch(
+    "/google/albums/:id/settings",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Update sync settings for a linked Google Photo album",
+        tags: ["Photos", "Google"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: { id: { type: "string", format: "uuid" } },
+          required: ["id"],
+        },
+        body: {
+          type: "object",
+          properties: { autoSync: { type: "boolean" } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) throw fastify.httpErrors.unauthorized("Not authenticated");
+
+      const { id } = request.params as { id: string };
+      const { autoSync } = request.body as { autoSync?: boolean };
+
+      const [album] = await fastify.db
+        .update(photoAlbums)
+        .set({
+          ...(autoSync !== undefined ? { autoSync } : {}),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(photoAlbums.id, id), eq(photoAlbums.userId, user.id)))
+        .returning();
+
+      if (!album) return reply.notFound("Album not found");
+
+      return { success: true, data: album };
     }
   );
 

@@ -1,0 +1,136 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.openframe.createboard"
+4    android:versionCode="1"
+5    android:versionName="1.0.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="26"
+9        android:targetSdkVersion="34" />
+10
+11    <uses-permission android:name="android.permission.INTERNET" />
+11-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:5:5-67
+11-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:5:22-64
+12    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+12-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:6:5-79
+12-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:6:22-76
+13    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+13-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:7:5-81
+13-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:7:22-78
+14
+15    <!-- Touchscreen required (this is a touch panel) -->
+16    <uses-feature
+16-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:10:5-12:35
+17        android:name="android.hardware.touchscreen"
+17-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:11:9-52
+18        android:required="true" />
+18-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:12:9-32
+19
+20    <permission
+20-->[androidx.core:core:1.12.0] C:\Users\tyler\.gradle\caches\transforms-3\2ccd268e0ca2e1cd10ec650ac8067a3e\transformed\core-1.12.0\AndroidManifest.xml:22:5-24:47
+21        android:name="com.openframe.createboard.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+21-->[androidx.core:core:1.12.0] C:\Users\tyler\.gradle\caches\transforms-3\2ccd268e0ca2e1cd10ec650ac8067a3e\transformed\core-1.12.0\AndroidManifest.xml:23:9-81
+22        android:protectionLevel="signature" />
+22-->[androidx.core:core:1.12.0] C:\Users\tyler\.gradle\caches\transforms-3\2ccd268e0ca2e1cd10ec650ac8067a3e\transformed\core-1.12.0\AndroidManifest.xml:24:9-44
+23
+24    <uses-permission android:name="com.openframe.createboard.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+24-->[androidx.core:core:1.12.0] C:\Users\tyler\.gradle\caches\transforms-3\2ccd268e0ca2e1cd10ec650ac8067a3e\transformed\core-1.12.0\AndroidManifest.xml:26:5-97
+24-->[androidx.core:core:1.12.0] C:\Users\tyler\.gradle\caches\transforms-3\2ccd268e0ca2e1cd10ec650ac8067a3e\transformed\core-1.12.0\AndroidManifest.xml:26:22-94
+25
+26    <application
+26-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:14:5-52:19
+27        android:allowBackup="true"
+27-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:15:9-35
+28        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+28-->[androidx.core:core:1.12.0] C:\Users\tyler\.gradle\caches\transforms-3\2ccd268e0ca2e1cd10ec650ac8067a3e\transformed\core-1.12.0\AndroidManifest.xml:28:18-86
+29        android:debuggable="true"
+30        android:extractNativeLibs="false"
+31        android:hardwareAccelerated="true"
+31-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:16:9-43
+32        android:icon="@mipmap/ic_launcher"
+32-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:17:9-43
+33        android:label="@string/app_name"
+33-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:18:9-41
+34        android:supportsRtl="true"
+34-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:19:9-35
+35        android:theme="@style/Theme.OpenFrameCreateBoard" >
+35-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:20:9-58
+36
+37        <!-- Main Kiosk Activity -->
+38        <activity
+38-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:24:9-35:20
+39            android:name="com.openframe.createboard.KioskActivity"
+39-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:25:13-42
+40            android:configChanges="orientation|screenSize|keyboardHidden"
+40-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:29:13-74
+41            android:exported="true"
+41-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:26:13-36
+42            android:launchMode="singleTask"
+42-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:27:13-44
+43            android:screenOrientation="landscape"
+43-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:28:13-50
+44            android:theme="@style/Theme.OpenFrameCreateBoard.Fullscreen" >
+44-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:30:13-73
+45            <intent-filter>
+45-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:31:13-34:29
+46                <action android:name="android.intent.action.MAIN" />
+46-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:32:17-69
+46-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:32:25-66
+47
+48                <category android:name="android.intent.category.LAUNCHER" />
+48-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:33:17-77
+48-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:33:27-74
+49            </intent-filter>
+50        </activity>
+51
+52        <!-- Setup Activity -->
+53        <activity
+53-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:38:9-41:65
+54            android:name="com.openframe.createboard.SetupActivity"
+54-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:39:13-42
+55            android:exported="false"
+55-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:40:13-37
+56            android:theme="@style/Theme.OpenFrameCreateBoard" />
+56-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:41:13-62
+57
+58        <!-- Boot Receiver for auto-start -->
+59        <receiver
+59-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:44:9-51:20
+60            android:name="com.openframe.createboard.BootReceiver"
+60-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:45:13-41
+61            android:enabled="true"
+61-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:46:13-35
+62            android:exported="true" >
+62-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:47:13-36
+63            <intent-filter>
+63-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:48:13-50:29
+64                <action android:name="android.intent.action.BOOT_COMPLETED" />
+64-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:49:17-79
+64-->C:\Claude Projects\My Calendar\openframe\apps\createboard\app\src\main\AndroidManifest.xml:49:25-76
+65            </intent-filter>
+66        </receiver>
+67
+68        <provider
+68-->[androidx.emoji2:emoji2:1.2.0] C:\Users\tyler\.gradle\caches\transforms-3\5bd09d469f39497674f99ddfe48d0ff2\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:24:9-32:20
+69            android:name="androidx.startup.InitializationProvider"
+69-->[androidx.emoji2:emoji2:1.2.0] C:\Users\tyler\.gradle\caches\transforms-3\5bd09d469f39497674f99ddfe48d0ff2\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:25:13-67
+70            android:authorities="com.openframe.createboard.androidx-startup"
+70-->[androidx.emoji2:emoji2:1.2.0] C:\Users\tyler\.gradle\caches\transforms-3\5bd09d469f39497674f99ddfe48d0ff2\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:26:13-68
+71            android:exported="false" >
+71-->[androidx.emoji2:emoji2:1.2.0] C:\Users\tyler\.gradle\caches\transforms-3\5bd09d469f39497674f99ddfe48d0ff2\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:27:13-37
+72            <meta-data
+72-->[androidx.emoji2:emoji2:1.2.0] C:\Users\tyler\.gradle\caches\transforms-3\5bd09d469f39497674f99ddfe48d0ff2\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:29:13-31:52
+73                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+73-->[androidx.emoji2:emoji2:1.2.0] C:\Users\tyler\.gradle\caches\transforms-3\5bd09d469f39497674f99ddfe48d0ff2\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:30:17-75
+74                android:value="androidx.startup" />
+74-->[androidx.emoji2:emoji2:1.2.0] C:\Users\tyler\.gradle\caches\transforms-3\5bd09d469f39497674f99ddfe48d0ff2\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:31:17-49
+75            <meta-data
+75-->[androidx.lifecycle:lifecycle-process:2.4.1] C:\Users\tyler\.gradle\caches\transforms-3\570ac59e589bb91f39723216e8992bc3\transformed\jetified-lifecycle-process-2.4.1\AndroidManifest.xml:31:13-33:52
+76                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+76-->[androidx.lifecycle:lifecycle-process:2.4.1] C:\Users\tyler\.gradle\caches\transforms-3\570ac59e589bb91f39723216e8992bc3\transformed\jetified-lifecycle-process-2.4.1\AndroidManifest.xml:32:17-78
+77                android:value="androidx.startup" />
+77-->[androidx.lifecycle:lifecycle-process:2.4.1] C:\Users\tyler\.gradle\caches\transforms-3\570ac59e589bb91f39723216e8992bc3\transformed\jetified-lifecycle-process-2.4.1\AndroidManifest.xml:33:17-49
+78        </provider>
+79    </application>
+80
+81</manifest>

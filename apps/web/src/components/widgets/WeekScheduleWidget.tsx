@@ -432,17 +432,27 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
       >
         {/* Day headers */}
         {showDayHeaders && (
-          <div className="flex mb-1" style={{ paddingLeft: showHourLabels ? "2rem" : 0 }}>
-            {displayDays.map((day) => (
-              <div key={day.toISOString()} className="flex-1 text-center">
-                <div className={cn(sizeClasses?.header || "text-[10px]", "font-medium opacity-70")}>
-                  {format(day, "EEE")}
-                </div>
-                <div className={cn(sizeClasses?.header || "text-[10px]", "opacity-50")}>
-                  {format(day, "M/d")}
-                </div>
+          <div className="flex mb-1">
+            {showHourLabels && (
+              <div className="flex-shrink-0 flex items-center justify-center" style={{ width: "2rem" }}>
+                <span className={cn(sizeClasses?.header || "text-[10px]", "font-medium opacity-50")}>
+                  {format(now, "MMM")}
+                </span>
               </div>
-            ))}
+            )}
+            {displayDays.map((day) => {
+              const isToday = isSameDay(day, now);
+              return (
+                <div key={day.toISOString()} className="flex-1 text-center">
+                  <div className={cn(sizeClasses?.header || "text-[10px]", "font-medium flex items-center justify-center gap-0.5", isToday ? "opacity-100" : "opacity-70")}>
+                    <span>{format(day, "EEE")}</span>
+                    <span className={cn(isToday && "bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[8px]")}>
+                      {format(day, "d")}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -529,7 +539,16 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
       {/* Day headers */}
       {showDayHeaders && (
         <div className="flex flex-shrink-0">
-          {showHourLabels && <div className="flex-shrink-0" style={{ width: "2rem" }} />}
+          {showHourLabels && (
+            <div className="flex-shrink-0 flex items-center justify-center" style={{ width: "2rem" }}>
+              <span
+                className={cn(sizeClasses?.header || "text-[10px]", "font-medium opacity-50")}
+                style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.header) } : undefined}
+              >
+                {format(now, "MMM")}
+              </span>
+            </div>
+          )}
           {displayDays.map((day) => {
             const isToday = isSameDay(day, now);
             return (
@@ -537,21 +556,15 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
                 <div
                   className={cn(
                     sizeClasses?.header || "text-[10px]",
-                    "font-medium",
+                    "font-medium flex items-center justify-center gap-0.5",
                     isToday ? "opacity-100" : "opacity-70"
                   )}
                   style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.header) } : undefined}
                 >
-                  {format(day, "EEE")}
-                </div>
-                <div
-                  className={cn(
-                    sizeClasses?.header || "text-[10px]",
-                    isToday ? "opacity-80" : "opacity-50"
-                  )}
-                  style={isCustom ? { fontSize: getCustomFontSize(CUSTOM_SCALE.header) } : undefined}
-                >
-                  {format(day, "M/d")}
+                  <span>{format(day, "EEE")}</span>
+                  <span className={cn(isToday && "bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[8px]")}>
+                    {format(day, "d")}
+                  </span>
                 </div>
               </div>
             );
@@ -560,7 +573,7 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
       )}
 
       {/* Time grid area */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 relative">
         {/* Hour labels gutter */}
         {showHourLabels && (
           <div className="flex flex-col flex-shrink-0" style={{ width: "2rem" }}>
@@ -675,20 +688,39 @@ export function WeekScheduleWidget({ config, style, isBuilder }: WeekScheduleWid
                   );
                 })}
 
-                {/* Current time marker - today only */}
-                {showMarker && (
-                  <div
-                    className="absolute left-0 right-0 flex items-center z-10"
-                    style={{ top: `${timePos}%` }}
-                  >
-                    <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                    <div className="flex-1 h-0.5 bg-red-500" />
-                  </div>
-                )}
               </div>
             </div>
           );
         })}
+
+        {/* Current time indicator - spans full width with time label */}
+        {(() => {
+          const todayIdx = displayDays.findIndex((d) => isSameDay(d, now));
+          if (todayIdx === -1 || !showCurrentTime) return null;
+          const timePos = getCurrentTimePosition(displayDays[todayIdx]!);
+          if (timePos < 0 || timePos > 100) return null;
+
+          // Calculate top offset to account for all-day events section
+          const allDayOffset = hasAllDayEvents ? maxAllDayCount * 20 : 0;
+
+          return (
+            <div
+              className="absolute left-0 right-0 z-20 pointer-events-none flex items-center"
+              style={{
+                top: `calc(${allDayOffset}px + (100% - ${allDayOffset}px) * ${timePos / 100})`,
+              }}
+            >
+              {showHourLabels && (
+                <div className="flex-shrink-0 flex items-center justify-end pr-0.5" style={{ width: "2rem" }}>
+                  <span className="bg-red-500 text-white font-bold px-0.5 rounded text-[7px] leading-none py-0.5">
+                    {format(now, "HH:mm")}
+                  </span>
+                </div>
+              )}
+              <div className="flex-1 h-0.5 bg-red-500" />
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

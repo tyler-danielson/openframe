@@ -23,16 +23,30 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
 import java.util.concurrent.Executors
 
 class SetupActivity : AppCompatActivity() {
 
     companion object {
-        private const val STEP_URL = 0
-        private const val STEP_QR = 1
-        private const val STEP_MANUAL = 2
+        private const val STEP_CLOUD = 0
+        private const val STEP_URL = 1
+        private const val STEP_QR = 2
+        private const val STEP_MANUAL = 3
         private const val POLL_INTERVAL_MS = 5000L
+        private const val CLOUD_URL = "https://openframe.us"
+        private const val CLOUD_POLL_INTERVAL_MS = 3000L
+        private const val CLOUD_TTL_SECONDS = 15 * 60 // 15 minutes
     }
+
+    // Views — Step 0 (Cloud QR)
+    private lateinit var cloudStatusText: TextView
+    private lateinit var cloudQrContainer: FrameLayout
+    private lateinit var cloudQrCodeImage: ImageView
+    private lateinit var cloudCodeText: TextView
+    private lateinit var cloudTimerText: TextView
+    private lateinit var cloudRetryButton: Button
+    private lateinit var enterUrlLink: TextView
 
     // Views — Step 1
     private lateinit var viewFlipper: ViewFlipper
@@ -71,6 +85,12 @@ class SetupActivity : AppCompatActivity() {
     private var polling = false
     private var qrBitmap: Bitmap? = null
 
+    // Cloud QR state
+    private var cloudCode = ""
+    private var cloudQrBitmap: Bitmap? = null
+    private var cloudSecondsRemaining = 0
+    private var cloudPolling = false
+
     private val countdownRunnable = object : Runnable {
         override fun run() {
             secondsRemaining--
@@ -91,6 +111,26 @@ class SetupActivity : AppCompatActivity() {
         }
     }
 
+    private val cloudCountdownRunnable = object : Runnable {
+        override fun run() {
+            cloudSecondsRemaining--
+            if (cloudSecondsRemaining <= 0) {
+                showCloudExpired()
+                return
+            }
+            updateCloudTimerDisplay()
+            handler.postDelayed(this, 1000)
+        }
+    }
+
+    private val cloudPollRunnable = object : Runnable {
+        override fun run() {
+            if (!cloudPolling) return
+            pollCloudSetup()
+            handler.postDelayed(this, CLOUD_POLL_INTERVAL_MS)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_setup)
@@ -103,12 +143,23 @@ class SetupActivity : AppCompatActivity() {
         serverUrlInput.setText(existingUrl)
         manualServerUrlInput.setText(existingUrl)
 
-        updateInstructions(STEP_URL)
+        // Start with cloud QR code
+        updateInstructions(STEP_CLOUD)
+        startCloudSetup()
     }
 
     private fun bindViews() {
         viewFlipper = findViewById(R.id.viewFlipper)
         instructionsText = findViewById(R.id.instructionsText)
+
+        // Step 0 (Cloud)
+        cloudStatusText = findViewById(R.id.cloudStatusText)
+        cloudQrContainer = findViewById(R.id.cloudQrContainer)
+        cloudQrCodeImage = findViewById(R.id.cloudQrCodeImage)
+        cloudCodeText = findViewById(R.id.cloudCodeText)
+        cloudTimerText = findViewById(R.id.cloudTimerText)
+        cloudRetryButton = findViewById(R.id.cloudRetryButton)
+        enterUrlLink = findViewById(R.id.enterUrlLink)
 
         // Step 1
         serverUrlInput = findViewById(R.id.serverUrlInput)
@@ -134,6 +185,13 @@ class SetupActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
+        // Step 0: Cloud
+        enterUrlLink.setOnClickListener {
+            stopCloudPolling()
+            showStep(STEP_URL)
+        }
+        cloudRetryButton.setOnClickListener { startCloudSetup() }
+
         // Step 1: Connect
         connectButton.setOnClickListener { onConnectClicked() }
         serverUrlInput.setOnEditorActionListener { _, actionId, _ ->
@@ -181,6 +239,17 @@ class SetupActivity : AppCompatActivity() {
 
     private fun updateInstructions(step: Int) {
         instructionsText.text = when (step) {
+            STEP_CLOUD -> """
+                OpenFrame TV Setup
+
+                Scan the QR code with your phone to pair this TV with your OpenFrame account.
+
+                1. Scan the QR code with your phone's camera
+                2. Select your OpenFrame server
+                3. Choose a kiosk to assign
+
+                The TV will connect automatically once paired.
+            """.trimIndent()
             STEP_QR -> """
                 QR Code Pairing
 
@@ -208,15 +277,131 @@ class SetupActivity : AppCompatActivity() {
                 • Back: Go back / Open setup
             """.trimIndent()
             else -> """
-                OpenFrame TV Kiosk Setup
+                Server URL Setup
 
-                Enter your OpenFrame server URL to get started. You'll be able to pair this TV by scanning a QR code with your phone — no need to type a long token with the remote!
+                Enter your OpenFrame server URL, then pair via QR code.
 
                 Remote Controls:
                 • Menu/Settings: Open this setup
                 • Play/Pause: Refresh the display
                 • Back: Go back / Open setup
             """.trimIndent()
+        }
+    }
+
+    // ── Step 0: Cloud Setup ─────────────────────────────────────
+
+    private fun startCloudSetup() {
+        cloudCode = UUID.randomUUID().toString()
+        cloudSecondsRemaining = CLOUD_TTL_SECONDS
+
+        // Generate QR code pointing to cloud setup URL
+        val qrUrl = "$CLOUD_URL/tv-setup/$cloudCode"
+        executor.execute {
+            val bitmap = QRCodeGenerator.generate(qrUrl)
+            handler.post {
+                cloudQrBitmap?.recycle()
+                cloudQrBitmap = bitmap
+                cloudQrCodeImage.setImageBitmap(bitmap)
+
+                // Show short code (first 8 chars)
+                cloudCodeText.text = cloudCode.substring(0, 8).uppercase()
+                cloudCodeText.visibility = View.VISIBLE
+
+                cloudStatusText.text = "Scan with your phone to pair"
+                cloudStatusText.setTextColor(getColor(R.color.text_secondary))
+                cloudTimerText.visibility = View.VISIBLE
+                cloudRetryButton.visibility = View.GONE
+                updateCloudTimerDisplay()
+
+                // Start countdown and polling
+                handler.removeCallbacks(cloudCountdownRunnable)
+                handler.postDelayed(cloudCountdownRunnable, 1000)
+                startCloudPolling()
+            }
+        }
+    }
+
+    private fun startCloudPolling() {
+        cloudPolling = true
+        handler.postDelayed(cloudPollRunnable, CLOUD_POLL_INTERVAL_MS)
+    }
+
+    private fun stopCloudPolling() {
+        cloudPolling = false
+        handler.removeCallbacks(cloudPollRunnable)
+        handler.removeCallbacks(cloudCountdownRunnable)
+    }
+
+    private fun pollCloudSetup() {
+        executor.execute {
+            try {
+                val url = URL("$CLOUD_URL/api/tv-setup?code=$cloudCode")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "GET"
+                conn.connectTimeout = 10000
+                conn.readTimeout = 10000
+
+                val responseCode = conn.responseCode
+                if (responseCode == 200) {
+                    val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                    val body = reader.readText()
+                    reader.close()
+
+                    val json = JSONObject(body)
+                    val status = json.optString("status", "pending")
+
+                    if (status == "completed") {
+                        val receivedServerUrl = json.getString("serverUrl")
+                        val kioskToken = json.optString("kioskToken", "")
+                        handler.post { onCloudApproved(receivedServerUrl, kioskToken) }
+                    }
+                    // "pending" — keep polling
+                }
+                conn.disconnect()
+            } catch (_: Exception) {
+                // Silent failure — will retry on next poll
+            }
+        }
+    }
+
+    private fun onCloudApproved(receivedServerUrl: String, kioskToken: String) {
+        stopCloudPolling()
+
+        cloudStatusText.text = "Device Paired!"
+        cloudStatusText.setTextColor(getColor(R.color.success))
+        cloudCodeText.visibility = View.GONE
+        cloudTimerText.visibility = View.GONE
+        cloudRetryButton.visibility = View.GONE
+        enterUrlLink.visibility = View.GONE
+
+        // Save to prefs
+        prefs.edit()
+            .putString(KioskActivity.PREF_KIOSK_URL, receivedServerUrl)
+            .putString(KioskActivity.PREF_KIOSK_TOKEN, kioskToken)
+            .apply()
+
+        handler.postDelayed({ finish() }, 1500)
+    }
+
+    private fun showCloudExpired() {
+        stopCloudPolling()
+        cloudStatusText.text = "Code Expired"
+        cloudStatusText.setTextColor(getColor(R.color.warning))
+        cloudCodeText.visibility = View.GONE
+        cloudTimerText.visibility = View.GONE
+        cloudRetryButton.visibility = View.VISIBLE
+        cloudRetryButton.requestFocus()
+    }
+
+    private fun updateCloudTimerDisplay() {
+        val min = cloudSecondsRemaining / 60
+        val sec = cloudSecondsRemaining % 60
+        cloudTimerText.text = "Expires in ${min}:%02d".format(sec)
+        if (cloudSecondsRemaining < 60) {
+            cloudTimerText.setTextColor(getColor(R.color.warning))
+        } else {
+            cloudTimerText.setTextColor(getColor(R.color.text_secondary))
         }
     }
 
@@ -510,13 +695,25 @@ class SetupActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         stopPolling()
+        stopCloudPolling()
         handler.removeCallbacks(countdownRunnable)
         qrBitmap?.recycle()
+        cloudQrBitmap?.recycle()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             when (viewFlipper.displayedChild) {
+                STEP_CLOUD -> {
+                    val hasUrl = !prefs.getString(KioskActivity.PREF_KIOSK_URL, null).isNullOrBlank()
+                    if (hasUrl) {
+                        stopCloudPolling()
+                        finish()
+                        return true
+                    }
+                    Toast.makeText(this, "Please pair this device first", Toast.LENGTH_SHORT).show()
+                    return true
+                }
                 STEP_QR -> {
                     stopPolling()
                     handler.removeCallbacks(countdownRunnable)
@@ -528,11 +725,10 @@ class SetupActivity : AppCompatActivity() {
                     return true
                 }
                 STEP_URL -> {
-                    val hasUrl = !prefs.getString(KioskActivity.PREF_KIOSK_URL, null).isNullOrBlank()
-                    if (!hasUrl) {
-                        Toast.makeText(this, "Please configure a server URL first", Toast.LENGTH_SHORT).show()
-                        return true
-                    }
+                    // Go back to cloud setup
+                    showStep(STEP_CLOUD)
+                    startCloudSetup()
+                    return true
                 }
             }
         }

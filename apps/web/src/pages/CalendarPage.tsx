@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, addWeeks, addDays, format, isSameDay } from "date-fns";
-import { ChevronLeft, ChevronRight, Plus, X, Droplets, Wind, Thermometer, PenTool, WifiOff, PanelRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, X, PenTool, WifiOff, PanelRight } from "lucide-react";
 import { api, type WeatherData, type WeatherForecast, type HourlyForecast } from "../services/api";
 import { useCalendarStore } from "../stores/calendar";
 import { CalendarView, EventModal, CreateEventModal, HandwritingOverlay, DaySummaryModal, CountdownBar } from "../components/calendar";
@@ -16,13 +16,6 @@ import { useKiosk } from "../contexts/KioskContext";
 import { useDemoGuard } from "../hooks/useDemoGuard";
 import type { CalendarEvent, SportsGame, FavoriteSportsTeam, CalendarVisibility } from "@openframe/shared";
 
-// Weather detail info for popup
-interface WeatherPopupData {
-  date: Date;
-  isToday: boolean;
-  current?: WeatherData;
-  forecast?: WeatherForecast;
-}
 
 // Sports game detail modal
 function SportsGameModal({
@@ -150,181 +143,6 @@ function SportsGameModal({
   );
 }
 
-// Weather popup component
-function WeatherPopup({
-  data,
-  onClose
-}: {
-  data: WeatherPopupData;
-  onClose: () => void;
-}) {
-  const weather = data.isToday && data.current ? data.current : null;
-  const forecast = data.forecast;
-
-  // Fetch hourly forecast for today
-  const { data: hourlyForecast } = useQuery({
-    queryKey: ["weather-hourly"],
-    queryFn: () => api.getHourlyForecast(),
-    enabled: data.isToday,
-    staleTime: 10 * 60 * 1000,
-  });
-
-  // Helper to format precipitation
-  const formatPrecip = (rain?: number, snow?: number) => {
-    if (snow && snow > 0) {
-      // Convert mm to inches for snow
-      const inches = (snow / 25.4).toFixed(1);
-      return `${inches}"`;
-    }
-    if (rain && rain > 0) {
-      // Convert mm to inches for rain
-      const inches = (rain / 25.4).toFixed(2);
-      return `${inches}"`;
-    }
-    return null;
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-      <div
-        className="bg-card border border-border rounded-lg shadow-xl p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold">
-            {format(data.date, "EEEE, MMMM d")}
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-muted rounded-full transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {weather ? (
-          // Current weather details for today
-          <div className="space-y-4">
-            <div className="flex items-center gap-4">
-              <span className="text-5xl">{getWeatherIcon(weather.icon)}</span>
-              <div>
-                <p className="text-4xl font-bold">{weather.temp}°</p>
-                <p className="text-muted-foreground capitalize">{weather.description}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-4 border-t border-border">
-              <div className="flex items-center gap-2">
-                <Thermometer className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Feels Like</p>
-                  <p className="font-medium">{weather.feels_like}°</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Thermometer className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs text-muted-foreground">High / Low</p>
-                  <p className="font-medium">{weather.temp_max}° / {weather.temp_min}°</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Droplets className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Humidity</p>
-                  <p className="font-medium">{weather.humidity}%</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Wind className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Wind</p>
-                  <p className="font-medium">{weather.wind_speed} mph</p>
-                </div>
-              </div>
-              {hourlyForecast && (
-                <div className="flex items-center gap-2 col-span-2">
-                  <Droplets className="h-4 w-4 text-blue-500" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Precipitation</p>
-                    <p className="font-medium">
-                      {Math.max(...hourlyForecast.map(h => h.pop))}% chance
-                      {(() => {
-                        const totalRain = hourlyForecast.reduce((sum, h) => sum + (h.rain || 0), 0);
-                        const totalSnow = hourlyForecast.reduce((sum, h) => sum + (h.snow || 0), 0);
-                        if (totalSnow > 0) return ` / ${(totalSnow / 25.4).toFixed(1)}" snow`;
-                        if (totalRain > 0) return ` / ${(totalRain / 25.4).toFixed(2)}" rain`;
-                        return "";
-                      })()}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Hourly forecast */}
-            {hourlyForecast && hourlyForecast.length > 0 && (
-              <div className="pt-4 border-t border-border">
-                <h4 className="text-sm font-semibold mb-3">Hourly Forecast</h4>
-                <div className="space-y-2">
-                  {hourlyForecast.map((hour, i) => {
-                    const precip = formatPrecip(hour.rain, hour.snow);
-                    return (
-                      <div key={i} className="flex items-center gap-3 text-sm">
-                        <span className="w-12 text-muted-foreground">{hour.time}</span>
-                        <span className="text-lg">{getWeatherIcon(hour.icon)}</span>
-                        <span className="w-10 font-medium">{hour.temp}°</span>
-                        <span className="w-16 flex items-center gap-1 text-muted-foreground">
-                          <Droplets className="h-3 w-3" />
-                          {hour.pop}%
-                          {precip && <span className="text-blue-500 ml-1">{precip}</span>}
-                        </span>
-                        <span className="text-xs text-muted-foreground">{hour.wind_speed} mph</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : forecast ? (
-          // Forecast details for future days
-          <div className="space-y-4">
-            <div className="flex items-center gap-4">
-              <span className="text-5xl">{getWeatherIcon(forecast.icon)}</span>
-              <div>
-                <p className="text-4xl font-bold">{forecast.temp_max}°</p>
-                <p className="text-muted-foreground capitalize">{forecast.description}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-4 border-t border-border">
-              <div className="flex items-center gap-2">
-                <Thermometer className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs text-muted-foreground">High</p>
-                  <p className="font-medium">{forecast.temp_max}°</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Thermometer className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Low</p>
-                  <p className="font-medium">{forecast.temp_min}°</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <p className="text-muted-foreground text-center py-4">
-            No weather data available for this day
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // Weather icon mapping
 function getWeatherIcon(iconCode: string): string {
   const iconMap: Record<string, string> = {
@@ -385,7 +203,7 @@ export function CalendarPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [timeFade, setTimeFade] = useState(true);
-  const [weatherPopup, setWeatherPopup] = useState<WeatherPopupData | null>(null);
+
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [drawingTargetDate, setDrawingTargetDate] = useState<Date | null>(null);
   const [daySummaryDate, setDaySummaryDate] = useState<Date | null>(null);
@@ -423,6 +241,9 @@ export function CalendarPage() {
   const { data: forecast } = useQuery({
     queryKey: ["weather-forecast"],
     queryFn: async () => {
+      // Helper: validate forecast dates are ISO format (YYYY-MM-DD), not old day-of-week format
+      const isValidFormat = (data: WeatherForecast[]) =>
+        data.length === 0 || /^\d{4}-\d{2}-\d{2}$/.test(data[0]?.date ?? "");
       try {
         const data = await api.getWeatherForecast();
         // Cache for offline use
@@ -431,9 +252,11 @@ export function CalendarPage() {
       } catch (error) {
         // Try to use cached data when fetch fails
         const cached = offlineCache.getStale<WeatherForecast[]>(CACHE_KEYS.WEATHER_FORECAST);
-        if (cached) {
+        if (cached && isValidFormat(cached.data)) {
           return cached.data;
         }
+        // Clear stale cache with old format
+        offlineCache.clear(CACHE_KEYS.WEATHER_FORECAST);
         throw error;
       }
     },
@@ -550,11 +373,21 @@ export function CalendarPage() {
     return { start, end };
   }, [currentDate, view, weekStartsOn, weekMode, monthMode]);
 
-  // Fetch calendars
+  // Fetch calendars (with offline cache fallback)
   const { data: calendarsData } = useQuery({
     queryKey: ["calendars"],
-    queryFn: () => api.getCalendars(),
-    refetchInterval: autoRefreshInterval > 0 ? autoRefreshInterval * 60 * 1000 : false,
+    queryFn: async () => {
+      try {
+        const data = await api.getCalendars();
+        offlineCache.set(CACHE_KEYS.CALENDARS, data);
+        return data;
+      } catch (error) {
+        const cached = offlineCache.getStale<Awaited<ReturnType<typeof api.getCalendars>>>(CACHE_KEYS.CALENDARS);
+        if (cached) return cached.data;
+        throw error;
+      }
+    },
+    refetchInterval: isOfflineMode ? false : (autoRefreshInterval > 0 ? autoRefreshInterval * 60 * 1000 : false),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -564,12 +397,22 @@ export function CalendarPage() {
     }
   }, [calendarsData, setCalendars]);
 
-  // Fetch events (refresh based on autoRefreshInterval setting, 0 = disabled)
+  // Fetch events (with offline cache fallback)
   const { data: rawCalendarEvents = [] } = useQuery({
     queryKey: ["events", dateRange.start.toISOString(), dateRange.end.toISOString(), selectedCalendarIds],
-    queryFn: () => api.getEvents(dateRange.start, dateRange.end, selectedCalendarIds),
+    queryFn: async () => {
+      try {
+        const data = await api.getEvents(dateRange.start, dateRange.end, selectedCalendarIds);
+        offlineCache.set(CACHE_KEYS.EVENTS, data);
+        return data;
+      } catch (error) {
+        const cached = offlineCache.getStale<CalendarEvent[]>(CACHE_KEYS.EVENTS);
+        if (cached) return cached.data;
+        throw error;
+      }
+    },
     enabled: selectedCalendarIds.length > 0,
-    refetchInterval: autoRefreshInterval > 0 ? autoRefreshInterval * 60 * 1000 : false,
+    refetchInterval: isOfflineMode ? false : (autoRefreshInterval > 0 ? autoRefreshInterval * 60 * 1000 : false),
     staleTime: autoRefreshInterval > 0 ? Math.min(autoRefreshInterval * 60 * 1000 / 2, 60 * 1000) : 60 * 1000,
   });
 
@@ -797,22 +640,9 @@ export function CalendarPage() {
     setDrawingTargetDate(null);
   };
 
-  // Handle weather click to show popup
+  // Handle weather click — just open the day summary (which now includes weather)
   const handleWeatherClick = (date: Date) => {
-    const isToday = isSameDay(date, new Date());
-    let forecastData: WeatherForecast | undefined;
-
-    if (forecast) {
-      const dayName = format(date, "EEE");
-      forecastData = forecast.find(f => f.date === dayName);
-    }
-
-    setWeatherPopup({
-      date,
-      isToday,
-      current: isToday ? weather : undefined,
-      forecast: forecastData,
-    });
+    setDaySummaryDate(date);
   };
 
   // Format time based on selected format
@@ -926,13 +756,9 @@ export function CalendarPage() {
             </button>
           </div>
 
-          {/* Row 2, Left: Date range */}
-          <div className="flex items-center">
-            <p className="text-sm text-muted-foreground whitespace-nowrap">{headerText}</p>
-          </div>
-
-          {/* Row 2, Right: Ticker + Navigation */}
-          <div className="flex items-center gap-2 min-w-0">
+          {/* Row 2: Date range + Ticker + Navigation (spans full width) */}
+          <div className="col-span-2 flex items-center gap-2 min-w-0">
+            <p className="text-sm text-muted-foreground whitespace-nowrap shrink-0">{headerText}</p>
             {/* Ticker area - fills available space, or spacer when no games */}
             {todaysGames.length > 0 ? (
               <div className="flex-1 overflow-hidden relative min-w-0">
@@ -1062,7 +888,7 @@ export function CalendarPage() {
                   setMonthMode(monthMode === "current" ? "rolling" : "current");
                 }
               }}
-              className="absolute bottom-6 left-6 px-4 py-2 text-sm font-medium rounded-full shadow-md bg-card border-2 border-primary/40 hover:bg-muted hover:border-primary/60 transition-colors"
+              className="absolute bottom-6 left-6 z-20 px-4 py-2 text-sm font-medium rounded-full shadow-md bg-card border-2 border-primary/40 hover:bg-muted hover:border-primary/60 transition-colors"
               title={
                 view === "week"
                   ? weekMode === "current" ? "Switch to rolling week (Today+7)" : "Switch to current week (Mon-Sun)"
@@ -1077,7 +903,7 @@ export function CalendarPage() {
           )}
 
           {/* FAB buttons */}
-          <div className="absolute bottom-6 right-6 flex flex-col gap-3">
+          <div className="absolute bottom-6 right-6 z-20 flex flex-col gap-3">
             {/* Pen/Handwriting button */}
             <button
               onClick={toggleDrawingMode}
@@ -1130,12 +956,7 @@ export function CalendarPage() {
         calendars={calendars}
       />
 
-      {weatherPopup && (
-        <WeatherPopup
-          data={weatherPopup}
-          onClose={() => setWeatherPopup(null)}
-        />
-      )}
+
 
       {drawingTargetDate && (
         <HandwritingOverlay
@@ -1152,6 +973,9 @@ export function CalendarPage() {
         onClose={() => setDaySummaryDate(null)}
         onSelectEvent={handleSelectEvent}
         onAddEvent={() => { if (!guard("Create event")) setIsCreateModalOpen(true); }}
+        currentWeather={daySummaryDate && isSameDay(daySummaryDate, new Date()) ? weather : undefined}
+        dayForecast={daySummaryDate && forecast ? forecast.find(f => f.date === format(daySummaryDate, "yyyy-MM-dd")) : undefined}
+        hourlyForecast={daySummaryDate && isSameDay(daySummaryDate, new Date()) ? hourlyForecast : undefined}
       />
 
       {selectedGame && (

@@ -19,6 +19,7 @@ import {
   newsArticles,
   remarkableConfig,
   remarkableDocuments,
+  users,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { decryptEventFields } from "../../lib/encryption.js";
@@ -38,8 +39,27 @@ async function gatherPlannerData(
   date: Date,
   layoutConfig: PlannerLayoutConfig
 ): Promise<PlannerGeneratorOptions> {
-  const dayStart = startOfDay(date);
-  const dayEnd = endOfDay(date);
+  // Get user timezone for correct day boundaries
+  const [userRow] = await fastify.db
+    .select({ timezone: users.timezone })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  const tz = userRow?.timezone || "UTC";
+
+  // Calculate day boundaries in the user's timezone
+  // The incoming `date` is typically midnight UTC from `new Date("2026-03-23")`.
+  // We need "start of March 23 in Denver" and "end of March 23 in Denver" in UTC.
+  const dateStr = date.toISOString().split("T")[0]; // "2026-03-23"
+  // Create midnight in the user's timezone by formatting as a locale-aware string
+  const midnightLocal = new Date(new Date(`${dateStr}T12:00:00Z`).toLocaleString("en-US", { timeZone: tz }));
+  // Get the UTC offset by comparing: midnight local vs what UTC time corresponds to midnight in that tz
+  const sampleUtc = new Date(`${dateStr}T12:00:00Z`);
+  const sampleLocal = new Date(sampleUtc.toLocaleString("en-US", { timeZone: tz }));
+  const offsetMs = sampleUtc.getTime() - sampleLocal.getTime();
+  // Day boundaries: midnight in user's tz converted to UTC
+  const dayStart = new Date(new Date(`${dateStr}T00:00:00Z`).getTime() + offsetMs);
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000 - 1);
 
   // Check which widget types are in the layout
   const widgetTypes = new Set(layoutConfig.widgets.map(w => w.type));
@@ -94,6 +114,7 @@ async function gatherPlannerData(
         description: e.description ?? undefined,
         calendarName: calendarMap.get(e.calendarId)?.name,
         color: calendarMap.get(e.calendarId)?.color ?? undefined,
+        attendees: (e.attendees as any[]) ?? [],
       }));
     }
   }
@@ -119,6 +140,7 @@ async function gatherPlannerData(
         );
 
       // Filter to tasks due today/before or without due date
+      const taskListMap = new Map(userTaskLists.map(l => [l.id, l]));
       taskItems = allTasks
         .filter(t => !t.dueDate || t.dueDate <= dayEnd)
         .map(t => ({
@@ -126,6 +148,8 @@ async function gatherPlannerData(
           title: t.title,
           dueDate: t.dueDate ?? undefined,
           completed: t.status === "completed",
+          notes: (t as any).notes ?? undefined,
+          taskListName: taskListMap.get(t.taskListId)?.name,
         }));
     }
   }
@@ -165,6 +189,9 @@ async function gatherPlannerData(
         title: a.title,
         source: feedMap.get(a.feedId)?.name,
         publishedAt: a.publishedAt ?? undefined,
+        description: a.description ?? undefined,
+        link: a.link ?? undefined,
+        author: a.author ?? undefined,
       }));
     }
   }
@@ -246,12 +273,14 @@ async function gatherPlannerData(
     }
   }
 
+  // Use the day start (midnight in user's tz) as the canonical date for display
   return {
-    date,
+    date: dayStart,
     events: calendarEvents,
     tasks: taskItems,
     news: newsItems,
     weather: weatherData,
+    timezone: tz,
   };
 }
 
@@ -1130,6 +1159,7 @@ export const profileRoutes: FastifyPluginAsync = async (fastify) => {
     Params: { id: string };
     Body: {
       date?: string; // ISO date string, defaults to today
+      folderPath?: string; // Override destination folder
     };
   }>("/:id/push", {
     onRequest: [fastify.authenticateKioskOrAny],
@@ -1166,12 +1196,17 @@ export const profileRoutes: FastifyPluginAsync = async (fastify) => {
       .where(eq(profileRemarkableSettings.profileId, id))
       .limit(1);
 
-    if (!settings?.enabled) {
-      return reply.status(400).send({
-        success: false,
-        error: { message: "reMarkable delivery is disabled for this profile" },
-      });
-    }
+    // Get planner config early to read pushFolderPath
+    const [plannerCfg] = await fastify.db
+      .select()
+      .from(profilePlannerConfig)
+      .where(eq(profilePlannerConfig.profileId, id))
+      .limit(1);
+    const savedFolder = (plannerCfg?.layoutConfig as any)?.pushFolderPath;
+
+    // Priority: request body > layout config > remarkable settings > default
+    const folderPath = request.body.folderPath || savedFolder || settings?.folderPath || "/Planners";
+    const isEnabled = settings ? settings.enabled : true;
 
     // Check if reMarkable is connected for this user
     const [rmConfig] = await fastify.db
@@ -1230,8 +1265,8 @@ export const profileRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Upload the PDF
-      const folderPath = settings.folderPath || "/Calendar";
-      const documentId = await client.uploadPdf(buffer, filename, folderPath);
+      const uploadFolder = folderPath;
+      const documentId = await client.uploadPdf(buffer, filename, uploadFolder);
 
       // Track the document in our database
       await fastify.db.insert(remarkableDocuments).values({
@@ -1240,19 +1275,21 @@ export const profileRoutes: FastifyPluginAsync = async (fastify) => {
         documentVersion: 1,
         documentName: filename,
         documentType: "pdf",
-        folderPath,
+        folderPath: uploadFolder,
         isAgenda: true,
         isProcessed: false,
       });
 
-      // Update lastPushAt timestamp
-      await fastify.db
-        .update(profileRemarkableSettings)
-        .set({
-          lastPushAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(profileRemarkableSettings.profileId, id));
+      // Update lastPushAt timestamp (only if settings row exists)
+      if (settings) {
+        await fastify.db
+          .update(profileRemarkableSettings)
+          .set({
+            lastPushAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(profileRemarkableSettings.profileId, id));
+      }
 
       fastify.log.info(
         { profileId: id, documentId, filename, folderPath },
@@ -1264,7 +1301,7 @@ export const profileRoutes: FastifyPluginAsync = async (fastify) => {
         data: {
           documentId,
           filename,
-          folderPath,
+          folderPath: uploadFolder,
           pushedAt: new Date().toISOString(),
         },
       });

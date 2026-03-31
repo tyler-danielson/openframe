@@ -15,26 +15,26 @@ interface LocationMapProps {
   showZones?: boolean;
 }
 
-// OpenStreetMap tile style
-const OSM_STYLE = {
+// CartoDB tile style (kiosk-friendly, no rate limiting)
+const MAP_STYLE = {
   version: 8 as const,
   sources: {
-    osm: {
+    carto: {
       type: "raster" as const,
       tiles: [
-        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
       ],
       tileSize: 256,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
     },
   },
   layers: [
     {
-      id: "osm",
+      id: "carto",
       type: "raster" as const,
-      source: "osm",
+      source: "carto",
       minzoom: 0,
       maxzoom: 19,
     },
@@ -251,7 +251,7 @@ export function LocationMap({
           zoom: 13,
         }}
         style={{ width: "100%", height: "100%" }}
-        mapStyle={OSM_STYLE}
+        mapStyle={MAP_STYLE}
         onLoad={() => {
           console.log("LocationMap: Map loaded successfully");
           setMapLoaded(true);

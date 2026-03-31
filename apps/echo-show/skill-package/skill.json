@@ -9,9 +9,9 @@
           "summary": "Digital art frame and smart display kiosk for Echo Show",
           "description": "Turn your Echo Show into a digital art frame, smart calendar, and kiosk display. Connect to your OpenFrame server to display photos, calendars, dashboards, and more.",
           "examplePhrases": [
-            "Alexa open OpenFrame",
-            "Alexa next page",
-            "Alexa show calendar"
+            "Alexa open my calendar",
+            "Alexa show calendar",
+            "Alexa next page"
           ],
           "keywords": [
             "kiosk",

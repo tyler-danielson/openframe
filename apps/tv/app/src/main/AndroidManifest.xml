@@ -20,6 +20,7 @@
         android:banner="@drawable/banner"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:resizeableActivity="false"
         android:theme="@style/Theme.OpenFrameTV"
         tools:targetApi="31">
 
@@ -46,7 +47,8 @@
         <activity
             android:name=".SetupActivity"
             android:exported="false"
-            android:theme="@style/Theme.OpenFrameTV" />
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.OpenFrameTV.Fullscreen" />
 
         <!-- Boot Receiver for auto-start -->
         <receiver

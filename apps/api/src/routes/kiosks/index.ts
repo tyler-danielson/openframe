@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { eq, and } from "drizzle-orm";
 import {
   kiosks,
+  kioskSavedFiles,
   photoAlbums,
   photos,
   calendars,
@@ -12,9 +13,14 @@ import {
   type KioskEnabledFeatures,
   type KioskSettings,
 } from "@openframe/database/schema";
+import { desc } from "drizzle-orm";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { decryptEventFields } from "../../lib/encryption.js";
 import { randomUUID } from "crypto";
+import fs from "fs/promises";
+import { createReadStream } from "fs";
+import path from "path";
+import { PDFDocument } from "pdf-lib";
 import type { UploadTokenData } from "../photos/index.js";
 import { getSystemSetting } from "../settings/index.js";
 
@@ -157,7 +163,9 @@ type KioskCommandType =
   | "file-share-dismiss"
   | "file-share-page"
   | "split-screen"
-  | "exit-split-screen";
+  | "exit-split-screen"
+  | "display-webpage"
+  | "dismiss-webpage";
 
 export interface KioskCommand {
   type: KioskCommandType;
@@ -185,6 +193,8 @@ const VALID_COMMAND_TYPES: KioskCommandType[] = [
   "file-share-page",
   "split-screen",
   "exit-split-screen",
+  "display-webpage",
+  "dismiss-webpage",
 ];
 
 // In-memory widget state store (kioskId -> widgetId -> state)
@@ -1497,6 +1507,207 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
           uploadUrl,
         },
       };
+    }
+  );
+
+  // ═══ Kiosk Saved Files ═══
+
+  const uploadDir = process.env.UPLOAD_DIR ?? "./uploads";
+
+  // Upload and save a file to a kiosk
+  fastify.post(
+    "/:id/files",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Upload and save a file (image/PDF) to a kiosk for later recall",
+        tags: ["Kiosks"],
+        consumes: ["multipart/form-data"],
+        params: {
+          type: "object",
+          properties: { id: { type: "string", format: "uuid" } },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) return reply.unauthorized();
+
+      const { id: kioskId } = request.params as { id: string };
+
+      // Verify kiosk ownership
+      const [kiosk] = await fastify.db
+        .select()
+        .from(kiosks)
+        .where(and(eq(kiosks.id, kioskId), eq(kiosks.userId, user.id)))
+        .limit(1);
+      if (!kiosk) return reply.notFound("Kiosk not found");
+
+      const data = await request.file();
+      if (!data) return reply.badRequest("No file uploaded");
+
+      const mimeType = data.mimetype;
+      const isImage = ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(mimeType);
+      const isPdf = mimeType === "application/pdf";
+      if (!isImage && !isPdf) {
+        return reply.unsupportedMediaType("Only images and PDFs are supported");
+      }
+
+      const buffer = await data.toBuffer();
+      const fileType = isPdf ? "pdf" : "image";
+
+      let pageCount: number | undefined;
+      if (isPdf) {
+        try {
+          const pdfDoc = await PDFDocument.load(buffer);
+          pageCount = pdfDoc.getPageCount();
+        } catch {
+          return reply.badRequest("Could not parse PDF");
+        }
+      }
+
+      const fileId = randomUUID();
+      const saveDir = path.join(uploadDir, "kiosk-files", kioskId);
+      await fs.mkdir(saveDir, { recursive: true });
+      const safeName = data.filename?.replace(/[^a-zA-Z0-9._-]/g, "_") || `file.${isPdf ? "pdf" : "jpg"}`;
+      const storedPath = path.join(saveDir, `${fileId}_${safeName}`);
+      await fs.writeFile(storedPath, buffer);
+
+      const [saved] = await fastify.db
+        .insert(kioskSavedFiles)
+        .values({
+          kioskId,
+          userId: user.id,
+          name: data.filename || safeName,
+          fileType,
+          mimeType,
+          storedPath,
+          pageCount,
+          fileSize: buffer.length,
+        })
+        .returning();
+
+      return {
+        success: true,
+        data: {
+          id: saved!.id,
+          name: saved!.name,
+          fileType: saved!.fileType,
+          mimeType: saved!.mimeType,
+          pageCount: saved!.pageCount,
+          fileSize: saved!.fileSize,
+          createdAt: saved!.createdAt,
+        },
+      };
+    }
+  );
+
+  // List saved files for a kiosk
+  fastify.get(
+    "/:id/files",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "List saved files for a kiosk",
+        tags: ["Kiosks"],
+        params: {
+          type: "object",
+          properties: { id: { type: "string", format: "uuid" } },
+          required: ["id"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) return reply.unauthorized();
+
+      const { id: kioskId } = request.params as { id: string };
+
+      const files = await fastify.db
+        .select({
+          id: kioskSavedFiles.id,
+          name: kioskSavedFiles.name,
+          fileType: kioskSavedFiles.fileType,
+          mimeType: kioskSavedFiles.mimeType,
+          pageCount: kioskSavedFiles.pageCount,
+          fileSize: kioskSavedFiles.fileSize,
+          createdAt: kioskSavedFiles.createdAt,
+        })
+        .from(kioskSavedFiles)
+        .where(eq(kioskSavedFiles.kioskId, kioskId))
+        .orderBy(desc(kioskSavedFiles.createdAt));
+
+      return { success: true, data: files };
+    }
+  );
+
+  // Serve a saved kiosk file
+  fastify.get(
+    "/:id/files/:fileId/serve",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Serve a saved kiosk file",
+        tags: ["Kiosks"],
+      },
+    },
+    async (request, reply) => {
+      const { id: kioskId, fileId } = request.params as { id: string; fileId: string };
+
+      const [file] = await fastify.db
+        .select()
+        .from(kioskSavedFiles)
+        .where(and(eq(kioskSavedFiles.id, fileId), eq(kioskSavedFiles.kioskId, kioskId)))
+        .limit(1);
+
+      if (!file) return reply.notFound("File not found");
+
+      try {
+        const stream = createReadStream(file.storedPath);
+        return reply
+          .type(file.mimeType)
+          .header("Cache-Control", "private, max-age=3600")
+          .send(stream);
+      } catch {
+        return reply.notFound("File no longer available");
+      }
+    }
+  );
+
+  // Delete a saved file
+  fastify.delete(
+    "/:id/files/:fileId",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Delete a saved kiosk file",
+        tags: ["Kiosks"],
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) return reply.unauthorized();
+
+      const { id: kioskId, fileId } = request.params as { id: string; fileId: string };
+
+      const [file] = await fastify.db
+        .select()
+        .from(kioskSavedFiles)
+        .where(
+          and(
+            eq(kioskSavedFiles.id, fileId),
+            eq(kioskSavedFiles.kioskId, kioskId)
+          )
+        )
+        .limit(1);
+
+      if (!file) return reply.notFound();
+
+      await fastify.db.delete(kioskSavedFiles).where(eq(kioskSavedFiles.id, fileId));
+      try { await fs.unlink(file.storedPath); } catch { /* ok */ }
+
+      return { success: true };
     }
   );
 };

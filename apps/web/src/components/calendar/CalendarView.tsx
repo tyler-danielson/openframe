@@ -289,8 +289,8 @@ export function CalendarView({
           temp: currentWeather.temp,
         };
       } else if (weatherForecast) {
-        const dayName = format(date, "EEE");
-        const forecast = weatherForecast.find(f => f.date === dayName);
+        const dateKey = format(date, "yyyy-MM-dd");
+        const forecast = weatherForecast.find(f => f.date === dateKey);
         if (forecast) {
           // For forecast days, show high temp
           dayWeather = {
@@ -335,8 +335,8 @@ export function CalendarView({
       if (isTodayDate && currentWeather) {
         dayWeather = { icon: currentWeather.icon, temp: currentWeather.temp };
       } else if (weatherForecast) {
-        const dayName = format(date, "EEE");
-        const forecast = weatherForecast.find(f => f.date === dayName);
+        const dateKey = format(date, "yyyy-MM-dd");
+        const forecast = weatherForecast.find(f => f.date === dateKey);
         if (forecast) {
           dayWeather = { icon: forecast.icon, temp: forecast.temp_max };
         }
@@ -375,8 +375,8 @@ export function CalendarView({
           if (isSameDay(day, new Date()) && currentWeather) {
             dayWeather = { icon: currentWeather.icon, temp: currentWeather.temp };
           } else if (weatherForecast) {
-            const dayName = format(day, "EEE");
-            const forecast = weatherForecast.find(f => f.date === dayName);
+            const dateKey = format(day, "yyyy-MM-dd");
+            const forecast = weatherForecast.find(f => f.date === dateKey);
             if (forecast) dayWeather = { icon: forecast.icon, temp: forecast.temp_max };
           }
           return (

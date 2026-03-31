@@ -31,8 +31,9 @@ export function initAlexa(): Promise<boolean> {
   if (initPromise) return initPromise;
 
   initPromise = new Promise((resolve) => {
-    // Check if the Alexa HTML SDK is available
-    const win = window as unknown as { Alexa?: { create(opts: { version: string }): Promise<AlexaClient> } };
+    const win = window as unknown as {
+      Alexa?: { create(opts: { version: string }): Promise<AlexaClient> };
+    };
 
     if (!win.Alexa?.create) {
       console.log("[Alexa] SDK not available — running in Silk/browser mode");
@@ -58,19 +59,12 @@ export function initAlexa(): Promise<boolean> {
   return initPromise;
 }
 
-/**
- * Check if running in Alexa context
- */
 export function isRunningInAlexa(): boolean {
   return isAlexaMode;
 }
 
-/**
- * Get the initial data passed by the Alexa Start directive
- */
 export function getStartData(): AlexaStartData | null {
   if (!alexaClient?.performance) return null;
-
   try {
     const args = alexaClient.performance.getInitArguments();
     return (args?.data as AlexaStartData) || null;
@@ -79,15 +73,8 @@ export function getStartData(): AlexaStartData | null {
   }
 }
 
-/**
- * Send a message to the Alexa skill Lambda handler
- */
 export function sendMessage(message: Record<string, unknown>): void {
-  if (!alexaClient) {
-    console.warn("[Alexa] Cannot send message — not in Alexa mode");
-    return;
-  }
-
+  if (!alexaClient) return;
   try {
     alexaClient.sendMessage(message);
   } catch (err) {
@@ -95,23 +82,13 @@ export function sendMessage(message: Record<string, unknown>): void {
   }
 }
 
-/**
- * Register a handler for messages from the Alexa skill Lambda
- */
 export function onMessage(handler: AlexaMessageHandler): void {
-  if (!alexaClient) {
-    console.warn("[Alexa] Cannot register message handler — not in Alexa mode");
-    return;
-  }
-
+  if (!alexaClient) return;
   alexaClient.onMessage((msg) => {
     handler(msg as Record<string, unknown>);
   });
 }
 
-/**
- * Detect if running in Amazon Silk browser (Echo Show's built-in browser)
- */
 export function isSilkBrowser(): boolean {
   return /\bSilk\b/i.test(navigator.userAgent);
 }

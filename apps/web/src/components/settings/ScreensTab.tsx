@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -13,6 +13,11 @@ import {
   PanelLeft,
   Settings,
   X,
+  Upload,
+  Download,
+  CheckCircle2,
+  AlertCircle,
+  ChevronDown,
 } from "lucide-react";
 import { resolveLucideIcon as sharedResolveLucideIcon } from "../../lib/icon-utils";
 import {
@@ -41,6 +46,11 @@ import {
 import { useCalendarStore, type WeekCellWidget } from "../../stores/calendar";
 import { useTasksStore, type TasksLayout } from "../../stores/tasks";
 import { cn } from "../../lib/utils";
+import { parseDakExport, convertDakboardToLayout } from "../../lib/dakboard-import";
+import { parseMagicMirrorConfig, convertMagicMirrorToLayout } from "../../lib/magicmirror-import";
+import { parseLovelaceConfig, convertLovelaceToLayout } from "../../lib/homeassistant-import";
+import { parseOpenFrameScreen, downloadScreenExport } from "../../lib/openframe-screen-io";
+import { DEFAULT_LAYOUT_CONFIG, type ScreensaverLayoutConfig } from "../../stores/screensaver";
 import { Button } from "../ui/Button";
 import { Card, CardContent } from "../ui/Card";
 import { Toggle } from "../ui/Toggle";
@@ -422,6 +432,7 @@ function SortableScreenItem({
   onToggleEnable,
   onOpenSettings,
   onEdit,
+  onExport,
   onDelete,
 }: {
   item: ScreenItem;
@@ -432,6 +443,7 @@ function SortableScreenItem({
   onToggleEnable: () => void;
   onOpenSettings?: () => void;
   onEdit?: () => void;
+  onExport?: () => void;
   onDelete?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -515,6 +527,16 @@ function SortableScreenItem({
           </button>
         )}
 
+        {item.isCustom && onExport && (
+          <button
+            onClick={onExport}
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+            title="Export screen"
+          >
+            <Download className="h-3.5 w-3.5" />
+          </button>
+        )}
+
         {item.isCustom && onDelete && (
           <button
             onClick={onDelete}
@@ -552,6 +574,104 @@ export function ScreensTab() {
     queryKey: ["custom-screens"],
     queryFn: () => api.getCustomScreens(),
   });
+
+  // Screen import state
+  type ImportSource = "openframe" | "dakboard" | "magicmirror" | "homeassistant";
+  const [importSource, setImportSource] = useState<ImportSource>("openframe");
+  const [importStatus, setImportStatus] = useState<
+    | { type: "idle" }
+    | { type: "importing" }
+    | { type: "success"; name: string; widgetCount: number; details?: string }
+    | { type: "error"; message: string }
+  >({ type: "idle" });
+
+  const IMPORT_SOURCES: { id: ImportSource; label: string; accept: string; description: string }[] = [
+    { id: "openframe", label: "OpenFrame", accept: ".ofscreen", description: "OpenFrame screen export (.ofscreen)" },
+    { id: "dakboard", label: "DAKboard", accept: ".dakexport", description: "DAKboard backup (.dakexport)" },
+    { id: "magicmirror", label: "MagicMirror", accept: ".js,.json", description: "MagicMirror config.js" },
+    { id: "homeassistant", label: "Home Assistant", accept: ".json", description: "Lovelace dashboard JSON" },
+  ];
+
+  const handleImport = useCallback(
+    async (file: File, source: ImportSource) => {
+      setImportStatus({ type: "importing" });
+      try {
+        const text = await file.text();
+        let name: string;
+        let layoutConfig: ScreensaverLayoutConfig;
+        let widgetCount: number;
+        let details: string | undefined;
+
+        switch (source) {
+          case "openframe": {
+            const result = parseOpenFrameScreen(text);
+            name = result.name;
+            layoutConfig = result.layoutConfig;
+            widgetCount = result.stats.widgetCount;
+            break;
+          }
+          case "dakboard": {
+            const data = parseDakExport(text);
+            const result = convertDakboardToLayout(data);
+            name = result.name;
+            layoutConfig = result.layoutConfig;
+            widgetCount = result.stats.importedWidgets;
+            const parts: string[] = [];
+            if (result.stats.skippedDisabled > 0) parts.push(`${result.stats.skippedDisabled} disabled skipped`);
+            if (result.stats.skippedUnsupported > 0) parts.push(`${result.stats.skippedUnsupported} unsupported`);
+            if (result.stats.unsupportedTypes.length > 0) parts.push(result.stats.unsupportedTypes.join(", "));
+            details = parts.length > 0 ? parts.join(" · ") : undefined;
+            break;
+          }
+          case "magicmirror": {
+            const config = parseMagicMirrorConfig(text);
+            const result = convertMagicMirrorToLayout(config);
+            name = result.name;
+            layoutConfig = result.layoutConfig;
+            widgetCount = result.stats.importedWidgets;
+            const parts: string[] = [];
+            if (result.stats.skippedDisabled > 0) parts.push(`${result.stats.skippedDisabled} disabled skipped`);
+            if (result.stats.skippedUnsupported > 0) parts.push(`${result.stats.skippedUnsupported} unsupported`);
+            if (result.stats.unsupportedTypes.length > 0) parts.push(result.stats.unsupportedTypes.join(", "));
+            details = parts.length > 0 ? parts.join(" · ") : undefined;
+            break;
+          }
+          case "homeassistant": {
+            const config = parseLovelaceConfig(text);
+            const result = convertLovelaceToLayout(config);
+            name = result.name;
+            layoutConfig = result.layoutConfig;
+            widgetCount = result.stats.importedWidgets;
+            const parts: string[] = [];
+            if (result.stats.skippedUnsupported > 0) parts.push(`${result.stats.skippedUnsupported} unsupported`);
+            if (result.stats.unsupportedTypes.length > 0) parts.push(result.stats.unsupportedTypes.join(", "));
+            if (result.stats.viewsFound > 1) parts.push(`${result.stats.viewsFound} views merged`);
+            details = parts.length > 0 ? parts.join(" · ") : undefined;
+            break;
+          }
+        }
+
+        const screen = await api.createCustomScreen({
+          name,
+          layoutConfig: layoutConfig as unknown as Record<string, unknown>,
+        });
+
+        queryClient.invalidateQueries({ queryKey: ["custom-screens"] });
+        addCustomScreenToStore(screen.id);
+        setImportStatus({ type: "success", name, widgetCount, details });
+
+        setTimeout(() => {
+          navigate(`/screen/${screen.slug}/edit`);
+        }, 2000);
+      } catch (err) {
+        setImportStatus({
+          type: "error",
+          message: err instanceof Error ? err.message : "Import failed",
+        });
+      }
+    },
+    [queryClient, addCustomScreenToStore, navigate]
+  );
 
   const createScreen = useMutation({
     mutationFn: (data: { name: string; icon?: string }) => api.createCustomScreen(data),
@@ -681,6 +801,20 @@ export function ScreensTab() {
                           ? () => navigate(`/screen/${item.customScreen!.slug}/edit`)
                           : undefined
                       }
+                      onExport={
+                        item.isCustom && item.customScreen
+                          ? () => {
+                              const cs = item.customScreen!;
+                              downloadScreenExport(
+                                cs.name,
+                                {
+                                  ...DEFAULT_LAYOUT_CONFIG,
+                                  ...(cs.layoutConfig as Partial<ScreensaverLayoutConfig>),
+                                } as ScreensaverLayoutConfig
+                              );
+                            }
+                          : undefined
+                      }
                       onDelete={
                         item.isCustom
                           ? () => {
@@ -709,6 +843,7 @@ export function ScreensTab() {
           <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-lg">
             <h3 className="text-lg font-semibold mb-4">New Custom Screen</h3>
             <div className="space-y-4">
+              {/* Create blank screen */}
               <div>
                 <label className="text-sm font-medium text-muted-foreground">Screen Name</label>
                 <input
@@ -725,17 +860,8 @@ export function ScreensTab() {
                   }}
                 />
               </div>
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setShowAddModal(false);
-                    setNewScreenName("");
-                  }}
-                >
-                  Cancel
-                </Button>
+
+              <div className="flex items-center gap-3">
                 <Button
                   size="sm"
                   disabled={!newScreenName.trim() || createScreen.isPending}
@@ -744,10 +870,104 @@ export function ScreensTab() {
                   {createScreen.isPending ? "Creating..." : "Create & Edit"}
                 </Button>
               </div>
+
+              {/* Divider */}
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs text-muted-foreground">or import from</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+
+              {/* Import section */}
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <select
+                    value={importSource}
+                    onChange={(e) => {
+                      setImportSource(e.target.value as ImportSource);
+                      setImportStatus({ type: "idle" });
+                    }}
+                    className="w-full appearance-none rounded-md border border-border bg-background px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  >
+                    {IMPORT_SOURCES.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={importStatus.type === "importing"}
+                  onClick={() => {
+                    const source = IMPORT_SOURCES.find((s) => s.id === importSource)!;
+                    const input = document.createElement("input");
+                    input.type = "file";
+                    input.accept = source.accept;
+                    input.onchange = (e) => {
+                      const file = (e.target as HTMLInputElement).files?.[0];
+                      if (file) handleImport(file, importSource);
+                    };
+                    input.click();
+                  }}
+                >
+                  <Upload className="h-3.5 w-3.5 mr-1.5" />
+                  Import
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground -mt-2">
+                {IMPORT_SOURCES.find((s) => s.id === importSource)?.description}
+              </p>
+
+              {/* Import status */}
+              {importStatus.type === "importing" && (
+                <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                  Importing...
+                </div>
+              )}
+              {importStatus.type === "success" && (
+                <div className="rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2 text-sm">
+                  <div className="flex items-center gap-2 text-green-500 font-medium">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Imported "{importStatus.name}"
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {importStatus.widgetCount} widgets{importStatus.details && ` · ${importStatus.details}`}
+                  </p>
+                  <p className="text-xs text-primary mt-1">Opening builder...</p>
+                </div>
+              )}
+              {importStatus.type === "error" && (
+                <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
+                  <div className="flex items-center gap-2 text-destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    {importStatus.message}
+                  </div>
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="flex justify-end">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setNewScreenName("");
+                    setImportStatus({ type: "idle" });
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 }

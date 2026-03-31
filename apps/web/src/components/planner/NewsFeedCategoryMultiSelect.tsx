@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Newspaper } from "lucide-react";
+import { Loader2, Newspaper, Settings } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../../services/api";
 
 interface NewsFeedCategoryMultiSelectProps {
@@ -11,6 +12,7 @@ export function NewsFeedCategoryMultiSelect({
   selectedCategories,
   onChange,
 }: NewsFeedCategoryMultiSelectProps) {
+  const navigate = useNavigate();
   const {
     data: feeds,
     isLoading,
@@ -59,9 +61,19 @@ export function NewsFeedCategoryMultiSelect({
 
   if (activeFeeds.length === 0) {
     return (
-      <div className="text-xs text-muted-foreground py-2 flex items-center gap-2">
-        <Newspaper className="h-3 w-3" />
-        No active news feeds found
+      <div className="space-y-1.5 py-2">
+        <div className="text-xs text-muted-foreground flex items-center gap-2">
+          <Newspaper className="h-3 w-3" />
+          No active news feeds found
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate("/settings/connections")}
+          className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+        >
+          <Settings className="h-3 w-3" />
+          Add RSS feeds in Settings
+        </button>
       </div>
     );
   }

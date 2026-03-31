@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, useNavigate, useLocation, Link } from "react-router-dom";
-import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat, CreditCard, Server, Puzzle, LifeBuoy, Send, Lightbulb, Menu, Shield } from "lucide-react";
+import { RefreshCw, Key, Plus, ExternalLink, User, Calendar, Monitor, Image as ImageIcon, Tv, FolderOpen, CheckCircle, XCircle, LogIn, Video, Home, Trash2, Loader2, Star, Search, ListTodo, List, LayoutGrid, Columns3, Kanban, Music, Pencil, Speaker, Smartphone, ChevronDown, ChevronUp, ChevronRight, Settings, Sparkles, Crown, Trophy, Eye, EyeOff, Play, Zap, Clock, Power, Bell, ToggleLeft, ToggleRight, Newspaper, Rss, Globe, Palette, MapPin, Cloud, MessageCircle, PenTool, X, Download, Upload, HardDrive, AlertTriangle, Check, Link2, Unlink, QrCode, Copy, ArrowLeft, PanelLeft, Camera as CameraIcon, LayoutDashboard, ChefHat, CreditCard, Server, Puzzle, LifeBuoy, Send, Lightbulb, Menu, Shield, FileText, Undo, Redo, LayoutTemplate } from "lucide-react";
 import { Users, UserPlus } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { Camera, Invitation, Calendar as CalendarType } from "@openframe/shared";
@@ -25,6 +25,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../co
 import { LocalPhotoAlbums } from "../components/photos/LocalPhotoAlbums";
 import { AlbumPhotoGrid } from "../components/photos/AlbumPhotoGrid";
 import { ManageAllPhotos } from "../components/photos/ManageAllPhotos";
+import { GooglePhotoAlbums } from "../components/photos/GooglePhotoAlbums";
 import { EntityPicker } from "../components/homeassistant/EntityPicker";
 import { TeamSelector, FavoriteTeamCard } from "../components/sports";
 import { CalendarConnectionsView } from "../components/settings/CalendarListForAccount";
@@ -32,6 +33,7 @@ import { AddAccountModal } from "../components/settings/AddAccountModal";
 import { HACalendarModal } from "../components/settings/HACalendarModal";
 import { SupportButton } from "../components/settings/SupportButton";
 import { ConnectionsTab } from "../components/settings/ConnectionsTab";
+import { NewsSourceSettings } from "../components/settings/NewsSourceSettings";
 import { AIProviderConfig } from "../components/settings/AIProviderConfig";
 import { SettingsSidebar, type SidebarGroup, type SettingsTab } from "../components/settings/SettingsSidebar";
 import { KioskConfigPage } from "../components/settings/KioskConfigPage";
@@ -45,10 +47,18 @@ import { MODULE_REGISTRY, MODULE_CATEGORIES, type ModuleId } from "@openframe/sh
 import type { CalendarProvider } from "@openframe/shared";
 import { CameraFeed } from "../components/cameras/CameraFeed";
 import { buildOAuthUrl } from "../utils/oauth-scopes";
-import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings } from "@openframe/shared";
+import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings, ExportCategory, EncryptedBackup, PlannerLayoutConfig, PlannerWidgetInstance, FamilyProfile } from "@openframe/shared";
+import { TemplateGallery } from "../components/planner/TemplateGallery";
+import { LayoutSettings } from "../components/planner/LayoutSettings";
+import { PlannerPreview } from "../components/planner/PlannerPreview";
+import { PlannerLiveEditor } from "../components/planner/PlannerLiveEditor";
+import { CalendarMultiSelect } from "../components/planner/CalendarMultiSelect";
+import { TaskListMultiSelect } from "../components/planner/TaskListMultiSelect";
+import { NewsFeedCategoryMultiSelect } from "../components/planner/NewsFeedCategoryMultiSelect";
+import { DEFAULT_PLANNER_CONFIG } from "../lib/planner/templates";
 
 // SettingsTab type re-exported from SettingsSidebar
-const STATIC_TAB_IDS: SettingsTab[] = ["account", "connections", "modules", "screens", "kiosks", "ai", "assumptions", "automations", "companion", "users", "cloud", "system", "billing", "instances", "support", "cameras", "todos", "sports", "photos", "custom-screens"];
+const STATIC_TAB_IDS: SettingsTab[] = ["account", "connections", "modules", "screens", "kiosks", "ai", "assumptions", "automations", "companion", "users", "cloud", "system", "billing", "instances", "support", "cameras", "todos", "sports", "photos", "custom-screens", "planner"];
 
 function isValidTab(tab: string): tab is SettingsTab {
   return STATIC_TAB_IDS.includes(tab as SettingsTab);
@@ -66,7 +76,7 @@ const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; descript
   { id: "companion", label: "Companion", icon: <Smartphone className="h-4 w-4" />, description: "Mobile app access" },
   { id: "users", label: "Users", icon: <Users className="h-4 w-4" />, description: "Members & invites", selfHostedOnly: true },
   { id: "cloud", label: "Cloud", icon: <Cloud className="h-4 w-4" />, description: "Remote management", selfHostedOnly: true },
-  { id: "system", label: "System", icon: <Settings className="h-4 w-4" />, description: "Backup & advanced", selfHostedOnly: true },
+  { id: "system", label: "System", icon: <Settings className="h-4 w-4" />, description: "Backup & advanced" },
   { id: "billing", label: "Billing", icon: <CreditCard className="h-4 w-4" />, description: "Plan & subscription", cloudOnly: true },
   { id: "instances", label: "Instances", icon: <Server className="h-4 w-4" />, description: "Linked instances", cloudOnly: true },
   { id: "support", label: "Support", icon: <LifeBuoy className="h-4 w-4" />, description: "Help & tickets", cloudOnly: true, moduleId: null },
@@ -75,11 +85,12 @@ const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; descript
   { id: "sports", label: "Sports", icon: <Trophy className="h-4 w-4" />, description: "Favorite teams & scores", moduleId: "sports" },
   { id: "photos", label: "Photo Albums", icon: <ImageIcon className="h-4 w-4" />, description: "Upload & manage photos" },
   { id: "custom-screens", label: "Custom Screens", icon: <LayoutDashboard className="h-4 w-4" />, description: "Create & edit custom screens" },
+  { id: "planner", label: "Planner", icon: <FileText className="h-4 w-4" />, description: "Printable planner layout" },
 ];
 
 const SIDEBAR_GROUPS: SidebarGroup[] = [
   { label: "General", tabIds: ["account", "connections", "modules", "screens"] },
-  { label: "Manage", tabIds: ["cameras", "todos", "sports", "photos", "custom-screens"] },
+  { label: "Manage", tabIds: ["cameras", "todos", "sports", "photos", "custom-screens", "planner"] },
   { label: "AI & More", tabIds: ["ai", "assumptions", "automations"] },
   { label: "Devices", tabIds: ["kiosks", "companion"] },
   { label: "Admin", tabIds: ["users", "cloud", "system", "billing", "instances", "support"] },
@@ -1702,20 +1713,130 @@ function CompanionSettings() {
   );
 }
 
+// Encryption helpers using Web Crypto API
+function uint8ToBase64(bytes: Uint8Array): string {
+  const chunks: string[] = [];
+  const chunkSize = 0x8000; // 32KB chunks to avoid call stack limits
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    chunks.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)));
+  }
+  return btoa(chunks.join(""));
+}
+
+function base64ToUint8(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function deriveEncryptionKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", encoder.encode(passphrase), "PBKDF2", false, ["deriveKey"],
+  );
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: salt as BufferSource, iterations: 100000, hash: "SHA-256" },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+async function encryptBackup(data: ExportedSettings, passphrase: string): Promise<EncryptedBackup> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveEncryptionKey(passphrase, salt);
+  const encoded = new TextEncoder().encode(JSON.stringify(data));
+  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv as BufferSource }, key, encoded as BufferSource);
+  return {
+    format: "openframe-backup",
+    version: "2.0",
+    encrypted: true,
+    categories: data.categories ?? ["settings"],
+    includesCredentials: data.includesCredentials ?? false,
+    exportedAt: data.exportedAt,
+    salt: uint8ToBase64(salt),
+    iv: uint8ToBase64(iv),
+    data: uint8ToBase64(new Uint8Array(encrypted)),
+  };
+}
+
+async function decryptBackup(backup: EncryptedBackup, passphrase: string): Promise<ExportedSettings> {
+  const salt = base64ToUint8(backup.salt);
+  const iv = base64ToUint8(backup.iv);
+  const encryptedData = base64ToUint8(backup.data);
+  const key = await deriveEncryptionKey(passphrase, salt);
+  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv as BufferSource }, key, encryptedData as BufferSource);
+  const text = new TextDecoder().decode(decrypted);
+  return JSON.parse(text);
+}
+
+const EXPORT_CATEGORIES: { id: ExportCategory; label: string; description: string; icon: React.ReactNode }[] = [
+  { id: "settings", label: "Settings", description: "System settings, kiosk configs, cameras, integrations, recipes, routines, and all preferences", icon: <Settings className="h-4 w-4" /> },
+  { id: "photos", label: "Photos", description: "Photo albums and metadata, with optional photo file export", icon: <ImageIcon className="h-4 w-4" /> },
+  { id: "events", label: "Events", description: "Calendar configurations, events, task lists, and tasks", icon: <Calendar className="h-4 w-4" /> },
+  { id: "connections", label: "Connections", description: "OAuth tokens, API keys, and service credentials (requires 'Include Credentials')", icon: <Link2 className="h-4 w-4" /> },
+];
+
 function BackupRestoreCard() {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isCollapsed, setIsCollapsed] = useState(true);
-  const [importStatus, setImportStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [importStatus, setImportStatus] = useState<{ type: "success" | "error"; message: string; errors?: string[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleExport = async () => {
-    setIsExporting(true);
-    try {
-      const response = await api.exportSettings();
+  // Export options
+  const [selectedCategories, setSelectedCategories] = useState<Set<ExportCategory>>(new Set(["settings"]));
+  const [includeCredentials, setIncludeCredentials] = useState(false);
+  const [includePhotoFiles, setIncludePhotoFiles] = useState(true);
+  const [exportPassphrase, setExportPassphrase] = useState("");
+  const [exportPassphraseConfirm, setExportPassphraseConfirm] = useState("");
+  const [showExportPassphrase, setShowExportPassphrase] = useState(false);
 
-      // Add client-side settings from localStorage
+  // Import options
+  const [importPassphrase, setImportPassphrase] = useState("");
+  const [showImportPassphrase, setShowImportPassphrase] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ step: string; percent: number } | null>(null);
+  const [exportProgress, setExportProgress] = useState<{ step: string; percent: number } | null>(null);
+
+  const toggleCategory = (cat: ExportCategory) => {
+    setSelectedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      // If connections is selected, must include credentials
+      if (cat === "connections" && next.has("connections")) setIncludeCredentials(true);
+      return next;
+    });
+  };
+
+  const passphrasesMatch = exportPassphrase === exportPassphraseConfirm;
+  const passphraseValid = exportPassphrase.length >= 8;
+  const canExport = selectedCategories.size > 0 && passphraseValid && passphrasesMatch;
+
+  const handleExport = async () => {
+    if (!canExport) return;
+    setIsExporting(true);
+    setImportStatus(null);
+    setExportProgress({ step: "Fetching data from server...", percent: 10 });
+    try {
+      const cats = Array.from(selectedCategories);
+      const hasPhotos = includePhotoFiles && selectedCategories.has("photos");
+      setExportProgress({
+        step: hasPhotos ? "Fetching settings & photos from server..." : "Fetching settings from server...",
+        percent: 15,
+      });
+
+      const response = await api.exportSettings({
+        categories: cats,
+        includeCredentials,
+        includePhotoFiles: hasPhotos,
+      });
+
+      setExportProgress({ step: "Adding local preferences...", percent: 50 });
+
       const exportData: ExportedSettings = {
         ...response,
         clientSettings: {
@@ -1726,40 +1847,93 @@ function BackupRestoreCard() {
         },
       };
 
-      // Download file
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+      setExportProgress({ step: "Encrypting backup...", percent: 60 });
+
+      const encrypted = await encryptBackup(exportData, exportPassphrase);
+
+      setExportProgress({ step: "Preparing download...", percent: 90 });
+
+      const blob = new Blob([JSON.stringify(encrypted, null, 2)], { type: "application/json" });
+      const sizeMB = (blob.size / 1024 / 1024).toFixed(1);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `openframe-settings-${new Date().toISOString().split("T")[0]}.json`;
+      a.download = `openframe-backup-${new Date().toISOString().split("T")[0]}.ofbackup`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+
+      setExportProgress({ step: "Done!", percent: 100 });
+      setImportStatus({ type: "success", message: `Backup exported successfully (${sizeMB} MB).` });
+      setExportPassphrase("");
+      setExportPassphraseConfirm("");
     } catch (error) {
       console.error("Export failed:", error);
-      setImportStatus({ type: "error", message: "Failed to export settings" });
+      setImportStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to export backup" });
     } finally {
       setIsExporting(false);
+      setExportProgress(null);
     }
   };
 
   const handleImport = async () => {
-    if (!selectedFile) return;
+    if (!selectedFile || importPassphrase.length < 8) return;
     setIsImporting(true);
     setImportStatus(null);
+    setImportProgress({ step: "Reading file...", percent: 5 });
 
     try {
       const text = await selectedFile.text();
-      const settings: ExportedSettings = JSON.parse(text);
+      setImportProgress({ step: "Parsing backup...", percent: 10 });
+      const parsed = JSON.parse(text);
 
-      // Validate version
-      if (settings.version !== "1.0") {
-        throw new Error("Unsupported export file version");
+      let settings: ExportedSettings;
+
+      if (parsed.format === "openframe-backup" && parsed.encrypted) {
+        setImportProgress({ step: "Decrypting backup...", percent: 15 });
+        try {
+          settings = await decryptBackup(parsed as EncryptedBackup, importPassphrase);
+        } catch {
+          throw new Error("Incorrect passphrase or corrupted backup file");
+        }
+      } else if (parsed.version === "1.0" || parsed.version === "2.0") {
+        settings = parsed as ExportedSettings;
+      } else {
+        throw new Error("Unsupported backup file format");
       }
 
-      // Import server settings
-      const result = await api.importSettings(settings);
+      setImportProgress({ step: "Decryption complete. Preparing upload...", percent: 25 });
+
+      // Calculate what's being imported for progress messages
+      const hasPhotos = (settings.photos?.photos?.length ?? 0) > 0;
+      const photoCount = settings.photos?.photos?.length ?? 0;
+      const hasPhotoFiles = hasPhotos && !!settings.photos?.photos?.[0]?.fileData;
+      const fileSizeMB = (text.length / 1024 / 1024).toFixed(1);
+
+      const hasLargePayload = hasPhotoFiles || text.length > 1024 * 1024;
+
+      setImportProgress({
+        step: hasPhotoFiles
+          ? `Uploading ${photoCount} photos + settings (${fileSizeMB} MB)...`
+          : "Uploading settings to server...",
+        percent: 30,
+      });
+
+      // Import server settings with upload progress
+      const result = await api.importSettings(settings, "merge", hasLargePayload ? (uploadPct) => {
+        // Map upload 0-100% to our progress range 30-85%
+        const mappedPct = 30 + Math.round(uploadPct * 0.55);
+        const uploadedMB = ((uploadPct / 100) * text.length / 1024 / 1024).toFixed(1);
+        setImportProgress({
+          step: hasPhotoFiles
+            ? `Uploading... ${uploadedMB} / ${fileSizeMB} MB (${uploadPct}%)`
+            : `Uploading settings... ${uploadPct}%`,
+          percent: mappedPct,
+        });
+      } : undefined);
+
+      setImportProgress({ step: "Applying local preferences...", percent: 90 });
 
       // Apply client settings to localStorage
       if (settings.clientSettings?.calendar) {
@@ -1775,14 +1949,16 @@ function BackupRestoreCard() {
         setLocalStorageState(CLIENT_STORE_KEYS.durationAlerts, settings.clientSettings.durationAlerts);
       }
 
-      // Calculate total imported
+      setImportProgress({ step: "Done!", percent: 100 });
+
       const total = Object.values(result.imported).reduce((a, b) => a + b, 0);
       const errorCount = result.errors.length;
 
       if (errorCount > 0) {
         setImportStatus({
           type: "success",
-          message: `Imported ${total} items with ${errorCount} errors. Refresh to apply changes.`,
+          message: `Imported ${total} items with ${errorCount} error${errorCount !== 1 ? "s" : ""}. Refresh to apply changes.`,
+          errors: result.errors,
         });
       } else {
         setImportStatus({
@@ -1794,11 +1970,13 @@ function BackupRestoreCard() {
       console.error("Import failed:", error);
       setImportStatus({
         type: "error",
-        message: error instanceof Error ? error.message : "Failed to import settings",
+        message: error instanceof Error ? error.message : "Failed to import backup",
       });
     } finally {
       setIsImporting(false);
+      setImportProgress(null);
       setSelectedFile(null);
+      setImportPassphrase("");
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -1807,107 +1985,492 @@ function BackupRestoreCard() {
 
   return (
     <div>
-      <button
-        type="button"
-        onClick={() => setIsCollapsed(!isCollapsed)}
-        className="group flex w-full items-center justify-between py-3 text-left"
-      >
-        <div className="flex items-center gap-2.5">
-          <span className="text-muted-foreground group-hover:text-primary transition-colors">
-            <HardDrive className="h-5 w-5" />
-          </span>
-          <span className="font-medium">Backup & Restore</span>
-        </div>
-        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${!isCollapsed ? "rotate-180" : ""}`} />
-      </button>
+      <div className="flex items-center gap-2.5 mb-1">
+        <span className="text-primary">
+          <HardDrive className="h-5 w-5" />
+        </span>
+        <h3 className="font-semibold text-lg">Backup & Restore</h3>
+      </div>
+      <p className="text-sm text-muted-foreground mb-4">Export and import your settings, events, photos, and connections.</p>
 
-      {!isCollapsed && (
-        <div className="pb-4">
-          <p className="text-xs text-muted-foreground mb-4">
-            Passwords and API keys are never included in exports.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-6">
-            {/* Export Section */}
-            <div className="flex-1">
-              <p className="text-sm text-muted-foreground mb-3">
-                Download all display settings, kiosk configs, camera settings, and other configurations.
-              </p>
-              <Button onClick={handleExport} disabled={isExporting}>
-                {isExporting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Exporting...
-                  </>
-                ) : (
-                  <>
-                    <Download className="h-4 w-4 mr-2" />
-                    Export Settings
-                  </>
-                )}
-              </Button>
+        <div className="space-y-6">
+          {/* ── Export Section ── */}
+          <div>
+            <h4 className="text-sm font-medium text-primary mb-3 flex items-center gap-2">
+              <Download className="h-4 w-4" />
+              Export Backup
+            </h4>
+
+            {/* Category selection */}
+            <p className="text-xs text-muted-foreground mb-2">Select what to include:</p>
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {EXPORT_CATEGORIES.map(cat => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => toggleCategory(cat.id)}
+                  className={cn(
+                    "flex items-start gap-2.5 p-3 rounded-lg border text-left transition-colors",
+                    selectedCategories.has(cat.id)
+                      ? "border-primary/40 bg-primary/5"
+                      : "border-border hover:border-primary/20",
+                  )}
+                >
+                  <div className={cn(
+                    "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                    selectedCategories.has(cat.id) ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/30",
+                  )}>
+                    {selectedCategories.has(cat.id) && <Check className="h-3 w-3" />}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-primary">{cat.icon}</span>
+                      <span className="text-sm font-medium">{cat.label}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{cat.description}</p>
+                  </div>
+                </button>
+              ))}
             </div>
 
-            {/* Divider */}
-            <div className="hidden sm:block w-px bg-border" />
-            <div className="sm:hidden h-px bg-border" />
+            {/* Include photo files toggle */}
+            {selectedCategories.has("photos") && (
+              <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={() => setIncludePhotoFiles(!includePhotoFiles)}
+                  className={cn(
+                    "flex items-center gap-3 w-full p-3 rounded-lg border text-left transition-colors",
+                    includePhotoFiles
+                      ? "border-primary/40 bg-primary/5"
+                      : "border-border hover:border-primary/20",
+                  )}
+                >
+                  <div className={cn(
+                    "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                    includePhotoFiles ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/30",
+                  )}>
+                    {includePhotoFiles && <Check className="h-3 w-3" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <ImageIcon className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-medium">Include Photo Files</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
+                      Embeds the actual photo images in the backup. Without this, only album configs and metadata are exported.
+                    </p>
+                  </div>
+                </button>
+              </div>
+            )}
 
-            {/* Import Section */}
-            <div className="flex-1">
-              <p className="text-sm text-muted-foreground mb-3">
-                Restore settings from a previously exported file. Existing settings with matching names will be updated.
-              </p>
-              <input
-                type="file"
-                accept=".json"
-                ref={fileInputRef}
-                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                className="hidden"
-              />
-              <div className="flex gap-2 flex-wrap">
+            {/* Include credentials toggle */}
+            <div className="mb-4">
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !includeCredentials;
+                  setIncludeCredentials(next);
+                  // Auto-select connections when enabling credentials
+                  if (next && !selectedCategories.has("connections")) {
+                    setSelectedCategories(prev => new Set([...prev, "connections"]));
+                  }
+                }}
+                className={cn(
+                  "flex items-center gap-3 w-full p-3 rounded-lg border text-left transition-colors",
+                  includeCredentials
+                    ? "border-yellow-500/40 bg-yellow-500/5"
+                    : "border-border hover:border-primary/20",
+                )}
+              >
+                <div className={cn(
+                  "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                  includeCredentials ? "border-yellow-500 bg-yellow-500 text-white" : "border-muted-foreground/30",
+                )}>
+                  {includeCredentials && <Check className="h-3 w-3" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <Key className="h-4 w-4 text-yellow-500" />
+                    <span className="text-sm font-medium">Include Credentials</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
+                    Includes OAuth tokens, API keys, and passwords in the export
+                  </p>
+                </div>
+              </button>
+              {includeCredentials && (
+                <div className="mt-2 p-2.5 rounded-md bg-yellow-500/10 border border-yellow-500/20 flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-yellow-700 dark:text-yellow-400 leading-snug">
+                    The backup will contain sensitive credentials. Only share this file with people you trust.
+                    The file is encrypted with your passphrase, but treat it like a password vault export.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Passphrase */}
+            <div className="space-y-2 mb-4">
+              <label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Shield className="h-3.5 w-3.5" />
+                Encryption Passphrase (min. 8 characters)
+              </label>
+              <div className="flex gap-2">
+                <div className="flex-1 relative">
+                  <input
+                    type={showExportPassphrase ? "text" : "password"}
+                    value={exportPassphrase}
+                    onChange={(e) => setExportPassphrase(e.target.value)}
+                    placeholder="Enter passphrase..."
+                    className="w-full px-3 py-2 pr-9 text-sm rounded-md border border-border bg-background focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowExportPassphrase(!showExportPassphrase)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary"
+                  >
+                    {showExportPassphrase ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <div className="flex-1 relative">
+                  <input
+                    type={showExportPassphrase ? "text" : "password"}
+                    value={exportPassphraseConfirm}
+                    onChange={(e) => setExportPassphraseConfirm(e.target.value)}
+                    placeholder="Confirm passphrase..."
+                    className={cn(
+                      "w-full px-3 py-2 text-sm rounded-md border bg-background focus:outline-none focus:ring-1",
+                      exportPassphraseConfirm && !passphrasesMatch
+                        ? "border-destructive focus:border-destructive focus:ring-destructive/30"
+                        : "border-border focus:border-primary focus:ring-primary/30",
+                    )}
+                  />
+                </div>
+              </div>
+              {exportPassphrase && !passphraseValid && (
+                <p className="text-xs text-destructive">Passphrase must be at least 8 characters</p>
+              )}
+              {exportPassphraseConfirm && !passphrasesMatch && (
+                <p className="text-xs text-destructive">Passphrases do not match</p>
+              )}
+            </div>
+
+            <Button onClick={handleExport} disabled={isExporting || !canExport}>
+              {isExporting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Encrypting & Exporting...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export Encrypted Backup
+                </>
+              )}
+            </Button>
+
+            {/* Export Progress */}
+            {exportProgress && (
+              <div className="space-y-2 mt-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground flex items-center gap-1.5">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    {exportProgress.step}
+                  </span>
+                  <span className="text-muted-foreground">{exportProgress.percent}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all duration-500 ease-out"
+                    style={{ width: `${exportProgress.percent}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Divider */}
+          <div className="h-px bg-border" />
+
+          {/* ── Import Section ── */}
+          <div>
+            <h4 className="text-sm font-medium text-primary mb-3 flex items-center gap-2">
+              <Upload className="h-4 w-4" />
+              Import Backup
+            </h4>
+            <p className="text-xs text-muted-foreground mb-3">
+              Restore from an encrypted backup file. You will need the passphrase used during export.
+              Existing items with matching names will be updated.
+            </p>
+
+            <input
+              type="file"
+              accept=".ofbackup,.json"
+              ref={fileInputRef}
+              onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+              className="hidden"
+            />
+
+            <div className="space-y-3">
+              <div className="flex gap-2 flex-wrap items-center">
                 <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
                   <Upload className="h-4 w-4 mr-2" />
                   Select File
                 </Button>
                 {selectedFile && (
-                  <>
-                    <span className="text-sm text-muted-foreground self-center truncate max-w-[150px]">
-                      {selectedFile.name}
-                    </span>
-                    <Button onClick={handleImport} disabled={isImporting}>
-                      {isImporting ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Importing...
-                        </>
-                      ) : (
-                        "Import"
-                      )}
-                    </Button>
-                  </>
+                  <span className="text-sm text-muted-foreground truncate max-w-[200px]">
+                    {selectedFile.name}
+                  </span>
                 )}
               </div>
+
+              {selectedFile && (
+                <>
+                  <div className="relative">
+                    <input
+                      type={showImportPassphrase ? "text" : "password"}
+                      value={importPassphrase}
+                      onChange={(e) => setImportPassphrase(e.target.value)}
+                      placeholder="Enter backup passphrase..."
+                      className="w-full px-3 py-2 pr-9 text-sm rounded-md border border-border bg-background focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowImportPassphrase(!showImportPassphrase)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary"
+                    >
+                      {showImportPassphrase ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  <Button onClick={handleImport} disabled={isImporting || importPassphrase.length < 8}>
+                    {isImporting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Decrypting & Importing...
+                      </>
+                    ) : (
+                      <>
+                        <Shield className="h-4 w-4 mr-2" />
+                        Decrypt & Import
+                      </>
+                    )}
+                  </Button>
+                </>
+              )}
             </div>
           </div>
+
+          {/* Import Progress */}
+          {importProgress && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground flex items-center gap-1.5">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {importProgress.step}
+                </span>
+                <span className="text-muted-foreground">{importProgress.percent}%</span>
+              </div>
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-primary transition-all duration-500 ease-out"
+                  style={{ width: `${importProgress.percent}%` }}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Status Message */}
           {importStatus && (
             <div
-              className={`mt-4 p-3 rounded-md flex items-center gap-2 ${
+              className={`p-3 rounded-md space-y-2 ${
                 importStatus.type === "success"
                   ? "bg-primary/10 text-primary"
                   : "bg-destructive/10 text-destructive"
               }`}
             >
-              {importStatus.type === "success" ? (
-                <CheckCircle className="h-4 w-4 flex-shrink-0" />
-              ) : (
-                <XCircle className="h-4 w-4 flex-shrink-0" />
+              <div className="flex items-center gap-2">
+                {importStatus.type === "success" ? (
+                  <CheckCircle className="h-4 w-4 flex-shrink-0" />
+                ) : (
+                  <XCircle className="h-4 w-4 flex-shrink-0" />
+                )}
+                <span className="text-sm">{importStatus.message}</span>
+              </div>
+              {importStatus.errors && importStatus.errors.length > 0 && (
+                <ul className="text-xs space-y-0.5 ml-6 list-disc text-muted-foreground">
+                  {importStatus.errors.map((err, i) => (
+                    <li key={i}>{err}</li>
+                  ))}
+                </ul>
               )}
-              <span className="text-sm">{importStatus.message}</span>
             </div>
           )}
         </div>
-      )}
+
+        {/* ── Auto-Backup Section ── */}
+        <AutoBackupSection />
+    </div>
+  );
+}
+
+function AutoBackupSection() {
+  const queryClient = useQueryClient();
+
+  const { data: storageServers = [] } = useQuery({
+    queryKey: ["storage-servers"],
+    queryFn: () => api.getStorageServers(),
+  });
+
+  const { data: backupConfig, isLoading } = useQuery({
+    queryKey: ["auto-backup-config"],
+    queryFn: () => api.getAutoBackupConfig(),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (data: Partial<any>) => api.updateAutoBackupConfig(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["auto-backup-config"] }),
+  });
+
+  const runNowMutation = useMutation({
+    mutationFn: () => api.triggerAutoBackup(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["auto-backup-config"] }),
+  });
+
+  const enabled = backupConfig?.enabled ?? false;
+  const storageServerId = backupConfig?.storageServerId ?? "";
+  const intervalHours = backupConfig?.intervalHours ?? 24;
+  const backupPath = backupConfig?.backupPath ?? "/openframe-backups";
+  const includePhotos = backupConfig?.includePhotos ?? false;
+  const includeCredentials = backupConfig?.includeCredentials ?? false;
+
+  if (storageServers.length === 0) return null;
+
+  return (
+    <div className="mt-8 border-t border-primary/10 pt-6">
+      <h4 className="text-sm font-medium text-primary mb-3 flex items-center gap-2">
+        <Clock className="h-4 w-4" />
+        Automatic Backup
+      </h4>
+      <p className="text-xs text-muted-foreground mb-4">
+        Automatically back up to a connected storage server on a schedule.
+      </p>
+
+      <div className="space-y-4">
+        {/* Enable toggle */}
+        <div className="flex items-center justify-between">
+          <span className="text-sm">Enabled</span>
+          <button
+            onClick={() => updateMutation.mutate({ enabled: !enabled })}
+            className={cn(
+              "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+              enabled ? "bg-primary" : "bg-muted"
+            )}
+          >
+            <span
+              className={cn(
+                "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                enabled ? "translate-x-6" : "translate-x-1"
+              )}
+            />
+          </button>
+        </div>
+
+        {/* Destination */}
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">Destination</label>
+          <select
+            value={storageServerId}
+            onChange={(e) => updateMutation.mutate({ storageServerId: e.target.value || null })}
+            className="w-full rounded-lg border border-primary/30 bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
+          >
+            <option value="">Select a server...</option>
+            {storageServers.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.protocol.toUpperCase()} - {s.host})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Interval */}
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">Frequency</label>
+          <select
+            value={intervalHours}
+            onChange={(e) => updateMutation.mutate({ intervalHours: parseInt(e.target.value) })}
+            className="w-full rounded-lg border border-primary/30 bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
+          >
+            <option value={6}>Every 6 hours</option>
+            <option value={12}>Every 12 hours</option>
+            <option value={24}>Daily</option>
+            <option value={48}>Every 2 days</option>
+            <option value={168}>Weekly</option>
+          </select>
+        </div>
+
+        {/* Backup path */}
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">Backup folder</label>
+          <input
+            type="text"
+            value={backupPath}
+            onChange={(e) => updateMutation.mutate({ backupPath: e.target.value })}
+            className="w-full rounded-lg border border-primary/30 bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
+          />
+        </div>
+
+        {/* Toggles */}
+        <div className="flex gap-4 text-sm">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={includePhotos}
+              onChange={(e) => updateMutation.mutate({ includePhotos: e.target.checked })}
+              className="rounded border-primary/30"
+            />
+            Include photos
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={includeCredentials}
+              onChange={(e) => updateMutation.mutate({ includeCredentials: e.target.checked })}
+              className="rounded border-primary/30"
+            />
+            Include credentials
+          </label>
+        </div>
+
+        {/* Last backup + run now */}
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">
+            {backupConfig?.lastBackupAt
+              ? `Last backup: ${new Date(backupConfig.lastBackupAt).toLocaleString()}`
+              : "No backups yet"}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => runNowMutation.mutate()}
+            disabled={!storageServerId || runNowMutation.isPending}
+            className="border-primary/30"
+          >
+            {runNowMutation.isPending ? (
+              <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+            ) : null}
+            Backup Now
+          </Button>
+        </div>
+
+        {runNowMutation.isSuccess && (
+          <p className="text-xs text-primary">Backup completed successfully.</p>
+        )}
+        {runNowMutation.isError && (
+          <p className="text-xs text-destructive">Backup failed. Check server connection.</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -1945,27 +2508,12 @@ function setLocalStorageState(key: string, state: Record<string, unknown>): void
 
 function SystemSettings() {
   const queryClient = useQueryClient();
-  // Start with all sections collapsed except "home" (Home Location)
-  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
-    new Set(["handwriting", "server"])
-  );
   const [formValues, setFormValues] = useState<Record<string, Record<string, string>>>({});
   const [saveStatus, setSaveStatus] = useState<Record<string, "idle" | "saving" | "saved" | "error">>({});
   const [locationSearch, setLocationSearch] = useState("");
   const [locationStatus, setLocationStatus] = useState<"idle" | "searching" | "success" | "error">("idle");
   const [locationError, setLocationError] = useState<string | null>(null);
-
-  const toggleCategory = (category: string) => {
-    setCollapsedCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(category)) {
-        next.delete(category);
-      } else {
-        next.add(category);
-      }
-      return next;
-    });
-  };
+  const [activeSection, setActiveSection] = useState<string>("server");
 
   // Fetch setting definitions
   const { data: definitions = [], isLoading: isLoadingDefs, error: defsError } = useQuery({
@@ -2075,8 +2623,12 @@ function SystemSettings() {
     }
   };
 
-  // Categories managed via the Connections tab — filter from System
-  const CONNECTION_CATEGORIES = new Set(["google", "microsoft", "spotify", "telegram", "homeassistant", "weather"]);
+  // Categories managed via the Connections tab or AI tab — filter from System
+  const CONNECTION_CATEGORIES = new Set([
+    "google", "microsoft", "spotify", "telegram", "homeassistant", "weather",
+    "openai", "anthropic", "azure_openai", "grok", "openrouter", "local_llm",
+    "handwriting", "recipes", "chat",
+  ]);
   const systemDefinitions = definitions.filter((d) => !CONNECTION_CATEGORIES.has(d.category));
 
   // Check if a category has any configured values
@@ -2107,31 +2659,25 @@ function SystemSettings() {
 
   const renderSection = (categoryDef: typeof definitions[0]) => {
     const icon = CATEGORY_ICONS[categoryDef.category] || <Settings className="h-5 w-5" />;
-    const isCollapsed = collapsedCategories.has(categoryDef.category);
 
     return (
-      <div key={categoryDef.category} id={`system-section-${categoryDef.category}`} className="scroll-mt-4">
+      <div key={categoryDef.category}>
         {/* Section header */}
-        <button
-          type="button"
-          onClick={() => toggleCategory(categoryDef.category)}
-          className="group flex w-full items-center justify-between py-3 text-left"
-        >
-          <div className="flex items-center gap-2.5">
-            <span className="text-muted-foreground group-hover:text-primary transition-colors">{icon}</span>
-            <span className="font-medium">{categoryDef.label}</span>
-            {isCategoryConfigured(categoryDef) && (
-              <span className="text-xs text-primary flex items-center gap-1">
-                <Check className="h-3 w-3" />
-              </span>
-            )}
-          </div>
-          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${!isCollapsed ? "rotate-180" : ""}`} />
-        </button>
+        <div className="flex items-center gap-2.5 mb-1">
+          <span className="text-primary">{icon}</span>
+          <h3 className="font-semibold text-lg">{categoryDef.label}</h3>
+          {isCategoryConfigured(categoryDef) && (
+            <span className="text-xs text-primary flex items-center gap-1">
+              <Check className="h-3 w-3" />
+            </span>
+          )}
+        </div>
+        {categoryDef.description && (
+          <p className="text-sm text-muted-foreground mb-4">{categoryDef.description}</p>
+        )}
 
-        {/* Expanded content */}
-        {!isCollapsed && (
-          <div className="pb-6 space-y-4">
+        {/* Content */}
+        <div className="space-y-4">
             {/* Location lookup for home category */}
             {categoryDef.category === "home" && (
               <div className="rounded-lg border border-border bg-muted/30 p-4">
@@ -2343,8 +2889,7 @@ function SystemSettings() {
               </Button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
     );
   };
 
@@ -2368,36 +2913,61 @@ function SystemSettings() {
   }
 
   return (
-    <div className="max-w-2xl">
-      {/* Jump-to nav */}
-      <div className="flex flex-wrap gap-1.5 mb-8">
+    <div className="flex gap-6 min-h-0">
+      {/* Left sidebar */}
+      <nav className="w-48 shrink-0 space-y-0.5 sticky top-0 self-start hidden md:block max-h-[calc(100vh-8rem)] overflow-y-auto">
         {allSections.map((s) => (
           <button
             key={s.id}
             type="button"
-            onClick={() => scrollToSection(s.id)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-primary/5 transition-colors"
+            onClick={() => setActiveSection(s.id)}
+            className={cn(
+              "flex items-center gap-2 w-full rounded-md px-3 py-2 text-sm text-left transition-colors",
+              activeSection === s.id
+                ? "bg-primary/10 text-primary font-medium"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+            )}
           >
-            {s.icon}
-            {s.label}
-            {s.configured && <Check className="h-3 w-3 text-primary" />}
+            <span className="shrink-0">{s.icon}</span>
+            <span className="truncate">{s.label}</span>
+            {s.configured && <Check className="h-3 w-3 text-primary ml-auto shrink-0" />}
           </button>
         ))}
+      </nav>
+
+      {/* Mobile section picker */}
+      <div className="md:hidden mb-4 w-full">
+        <select
+          value={activeSection}
+          onChange={(e) => setActiveSection(e.target.value)}
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
+        >
+          {allSections.map((s) => (
+            <option key={s.id} value={s.id}>{s.label}</option>
+          ))}
+        </select>
       </div>
 
-      {/* Setting categories */}
-      <div className="divide-y divide-border">
-        {systemDefinitions.map(renderSection)}
-      </div>
+      {/* Right content area */}
+      <div className="flex-1 min-w-0 max-w-2xl pb-8">
+        {/* Setting category sections */}
+        {systemDefinitions.map((categoryDef) => (
+          activeSection === categoryDef.category && (
+            <div key={categoryDef.category}>
+              {renderSection(categoryDef)}
+            </div>
+          )
+        ))}
 
-      {/* API Keys */}
-      <div id="system-section-api-keys" className="scroll-mt-4 mt-6 pt-6 border-t border-border">
-        <ApiKeysSettings />
-      </div>
+        {/* API Keys */}
+        {activeSection === "api-keys" && (
+          <ApiKeysSettings />
+        )}
 
-      {/* Backup & Restore */}
-      <div id="system-section-backup" className="scroll-mt-4 mt-6 pt-6 border-t border-border">
-        <BackupRestoreCard />
+        {/* Backup & Restore */}
+        {activeSection === "backup" && (
+          <BackupRestoreCard />
+        )}
       </div>
     </div>
   );
@@ -4846,189 +5416,169 @@ function HandwritingSettings() {
   );
 }
 
-function AIProviderKeys() {
+// AI provider definitions for feature dropdowns
+const AI_PROVIDERS = [
+  { value: "claude", label: "Claude (Anthropic)", settingsCategory: "anthropic", settingsKey: "api_key" },
+  { value: "openai", label: "OpenAI", settingsCategory: "openai", settingsKey: "api_key" },
+  { value: "gemini", label: "Google Gemini", settingsCategory: "google", settingsKey: "gemini_api_key" },
+  { value: "grok", label: "Grok (xAI)", settingsCategory: "grok", settingsKey: "api_key" },
+  { value: "openrouter", label: "OpenRouter", settingsCategory: "openrouter", settingsKey: "api_key" },
+  { value: "azure_openai", label: "Azure OpenAI", settingsCategory: "azure_openai", settingsKey: "api_key" },
+  { value: "local", label: "Local LLM", settingsCategory: "local_llm", settingsKey: "base_url" },
+] as const;
+
+function AIFeatureSelectors({ onNavigateToConnections }: { onNavigateToConnections: () => void }) {
   const queryClient = useQueryClient();
-  const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [saveStatus, setSaveStatus] = useState<Record<string, "idle" | "saving" | "saved" | "error">>({});
-  const [testStatus, setTestStatus] = useState<Record<string, "idle" | "testing" | "success" | "error">>({});
-  const [testErrors, setTestErrors] = useState<Record<string, string>>({});
 
-  // Provider config: category and key name for the new location
-  const providers = [
-    { id: "openai", name: "OpenAI", category: "openai", keyName: "api_key", placeholder: "sk-...", color: "purple", testName: "openai", link: "https://platform.openai.com/api-keys" },
-    { id: "anthropic", name: "Anthropic", category: "anthropic", keyName: "api_key", placeholder: "sk-ant-...", color: "orange", testName: "claude", link: "https://console.anthropic.com/settings/keys" },
-    { id: "gemini", name: "Google Gemini", category: "google", keyName: "gemini_api_key", placeholder: "AIza...", color: "blue", testName: "gemini", link: "https://aistudio.google.com/app/apikey" },
-    { id: "google_vision", name: "Google Cloud Vision", category: "google", keyName: "vision_api_key", placeholder: "AIza...", color: "red", testName: "google_vision", link: "https://console.cloud.google.com/apis/credentials" },
-  ];
-
-  // Fetch current settings
+  // Fetch all settings to determine which providers are connected
   const { data: settings = [] } = useQuery({
     queryKey: ["system-settings"],
     queryFn: () => api.getAllSettings(),
   });
 
-  const getSettingValue = (category: string, keyName: string): string => {
-    const formKey = `${category}.${keyName}`;
-    if (formValues[formKey] !== undefined) {
-      return formValues[formKey];
+  // Determine which AI providers have keys configured
+  const connectedProviders = useMemo(() => {
+    const connected = new Set<string>();
+    for (const provider of AI_PROVIDERS) {
+      const setting = settings.find((s) => s.category === provider.settingsCategory && s.key === provider.settingsKey);
+      if (setting?.value) connected.add(provider.value);
     }
-    const setting = settings.find((s) => s.category === category && s.key === keyName);
-    return setting?.value || "";
-  };
+    // Tesseract is always available (local)
+    connected.add("tesseract");
+    // Google Vision check
+    const visionKey = settings.find((s) => s.category === "google" && s.key === "vision_api_key");
+    if (visionKey?.value) connected.add("google_vision");
+    return connected;
+  }, [settings]);
 
-  const handleInputChange = (category: string, keyName: string, value: string) => {
-    const formKey = `${category}.${keyName}`;
-    setFormValues((prev) => ({ ...prev, [formKey]: value }));
-    setSaveStatus((prev) => ({ ...prev, [formKey]: "idle" }));
-  };
+  // Current values for each feature
+  const chatProvider = settings.find((s) => s.category === "chat" && s.key === "provider")?.value || "";
+  const chatModel = settings.find((s) => s.category === "chat" && s.key === "model")?.value || "";
+  const recipeProvider = settings.find((s) => s.category === "recipes" && s.key === "ai_provider")?.value || "";
+  const handwritingProvider = settings.find((s) => s.category === "handwriting" && s.key === "provider")?.value || "";
 
-  const saveKey = useMutation({
-    mutationFn: async ({ category, keyName }: { category: string; keyName: string }) => {
-      const formKey = `${category}.${keyName}`;
-      const value = formValues[formKey];
-      if (value === "••••••••") return;
-      await api.updateCategorySettings(category, { [keyName]: value || null });
-    },
-    onSuccess: (_, { category, keyName }) => {
-      const formKey = `${category}.${keyName}`;
+  const saveFeatureSetting = async (category: string, key: string, value: string) => {
+    const id = `${category}.${key}`;
+    setSaveStatus((prev) => ({ ...prev, [id]: "saving" }));
+    try {
+      await api.updateCategorySettings(category, { [key]: value || null });
       queryClient.invalidateQueries({ queryKey: ["system-settings"] });
       queryClient.invalidateQueries({ queryKey: ["handwriting-provider"] });
-      setSaveStatus((prev) => ({ ...prev, [formKey]: "saved" }));
-      setFormValues((prev) => {
-        const newValues = { ...prev };
-        delete newValues[formKey];
-        return newValues;
-      });
-      setTimeout(() => setSaveStatus((prev) => ({ ...prev, [formKey]: "idle" })), 2000);
-    },
-    onError: (_, { category, keyName }) => {
-      const formKey = `${category}.${keyName}`;
-      setSaveStatus((prev) => ({ ...prev, [formKey]: "error" }));
-    },
-  });
-
-  const handleTest = async (provider: typeof providers[0]) => {
-    setTestStatus((prev) => ({ ...prev, [provider.id]: "testing" }));
-    setTestErrors((prev) => ({ ...prev, [provider.id]: "" }));
-
-    try {
-      await api.testHandwritingProvider(provider.testName);
-      setTestStatus((prev) => ({ ...prev, [provider.id]: "success" }));
-      setTimeout(() => setTestStatus((prev) => ({ ...prev, [provider.id]: "idle" })), 3000);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Connection failed";
-      setTestErrors((prev) => ({ ...prev, [provider.id]: errorMessage }));
-      setTestStatus((prev) => ({ ...prev, [provider.id]: "error" }));
-      setTimeout(() => {
-        setTestStatus((prev) => ({ ...prev, [provider.id]: "idle" }));
-        setTestErrors((prev) => ({ ...prev, [provider.id]: "" }));
-      }, 5000);
+      queryClient.invalidateQueries({ queryKey: ["chat-status"] });
+      setSaveStatus((prev) => ({ ...prev, [id]: "saved" }));
+      setTimeout(() => setSaveStatus((prev) => ({ ...prev, [id]: "idle" })), 2000);
+    } catch {
+      setSaveStatus((prev) => ({ ...prev, [id]: "error" }));
     }
   };
 
-  const getColorClasses = (color: string) => {
-    switch (color) {
-      case "purple": return { dot: "bg-purple-500", border: "border-purple-200 dark:border-purple-800", bg: "bg-purple-50 dark:bg-purple-950" };
-      case "orange": return { dot: "bg-orange-500", border: "border-orange-200 dark:border-orange-800", bg: "bg-orange-50 dark:bg-orange-950" };
-      case "blue": return { dot: "bg-blue-500", border: "border-blue-200 dark:border-blue-800", bg: "bg-blue-50 dark:bg-blue-950" };
-      case "red": return { dot: "bg-red-500", border: "border-red-200 dark:border-red-800", bg: "bg-red-50 dark:bg-red-950" };
-      default: return { dot: "bg-gray-500", border: "border-gray-200 dark:border-gray-700", bg: "bg-gray-50 dark:bg-gray-800" };
-    }
-  };
+  const features = [
+    {
+      id: "chat",
+      label: "AI Chat",
+      icon: <MessageCircle className="h-4 w-4" />,
+      description: "Provider for the chat assistant",
+      category: "chat",
+      key: "provider",
+      value: chatProvider,
+      options: AI_PROVIDERS.filter((p) => connectedProviders.has(p.value)),
+      modelKey: "model",
+      modelValue: chatModel,
+    },
+    {
+      id: "recipes",
+      label: "Recipe Parsing",
+      icon: <ChefHat className="h-4 w-4" />,
+      description: "AI for extracting recipes from images",
+      category: "recipes",
+      key: "ai_provider",
+      value: recipeProvider,
+      options: AI_PROVIDERS.filter((p) => ["claude", "openai", "gemini"].includes(p.value) && connectedProviders.has(p.value)),
+    },
+    {
+      id: "handwriting",
+      label: "Handwriting Recognition",
+      icon: <PenTool className="h-4 w-4" />,
+      description: "How handwritten text is recognized",
+      category: "handwriting",
+      key: "provider",
+      value: handwritingProvider,
+      options: [
+        { value: "tesseract", label: "Tesseract (Free/Local)" },
+        ...AI_PROVIDERS.filter((p) => ["claude", "openai", "gemini"].includes(p.value) && connectedProviders.has(p.value)),
+        ...(connectedProviders.has("google_vision") ? [{ value: "google_vision", label: "Google Cloud Vision" }] : []),
+      ],
+    },
+  ];
+
+  const connectedCount = connectedProviders.size - 1; // subtract tesseract
 
   return (
     <Card className="h-fit border-2 border-primary/40">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Key className="h-5 w-5" />
-          API Keys
+          <Zap className="h-5 w-5" />
+          Active Models
         </CardTitle>
         <CardDescription>
-          Manage API keys for each AI provider
+          {connectedCount > 0
+            ? `${connectedCount} provider${connectedCount !== 1 ? "s" : ""} connected`
+            : "No AI providers connected yet"}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {providers.map((provider) => {
-          const colors = getColorClasses(provider.color);
-          const formKey = `${provider.category}.${provider.keyName}`;
-          const currentValue = getSettingValue(provider.category, provider.keyName);
-          const isConfigured = currentValue && currentValue !== "" && currentValue !== "••••••••";
-          const providerSaveStatus = saveStatus[formKey] || "idle";
-          const providerTestStatus = testStatus[provider.id] || "idle";
-          const providerTestError = testErrors[provider.id] || "";
+        {features.map((feature) => {
+          const statusKey = `${feature.category}.${feature.key}`;
+          const status = saveStatus[statusKey] || "idle";
 
           return (
-            <div
-              key={provider.id}
-              className={`rounded-lg border ${colors.border} ${colors.bg} p-3 space-y-2`}
-            >
-              {/* Provider Header with Actions */}
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${colors.dot}`} />
-                  <span className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">{provider.name}</span>
-                  <a
-                    href={provider.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 flex-shrink-0"
-                  >
-                    Get key
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  {providerTestStatus === "success" && (
-                    <span className="text-xs text-green-600 dark:text-green-400">Connected</span>
-                  )}
-                  {providerTestStatus === "error" && (
-                    <span className="text-xs text-red-600 dark:text-red-400 truncate max-w-[150px]" title={providerTestError}>
-                      {providerTestError || "Failed"}
-                    </span>
-                  )}
-                  {providerSaveStatus === "saved" && (
-                    <span className="text-xs text-green-600 dark:text-green-400">Saved</span>
-                  )}
-                  {isConfigured && !providerSaveStatus.match(/saved/) && !providerTestStatus.match(/success|error/) && (
-                    <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                  )}
-                  <button
-                    onClick={() => handleTest(provider)}
-                    disabled={providerTestStatus === "testing" || !currentValue}
-                    className="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {providerTestStatus === "testing" ? "..." : "Test"}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSaveStatus((prev) => ({ ...prev, [formKey]: "saving" }));
-                      saveKey.mutate({ category: provider.category, keyName: provider.keyName });
-                    }}
-                    disabled={providerSaveStatus === "saving" || formValues[formKey] === undefined}
-                    className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {providerSaveStatus === "saving" ? "..." : "Save"}
-                  </button>
-                </div>
-              </div>
-
-              {/* API Key Input */}
-              <input
-                type="password"
-                value={formValues[formKey] ?? currentValue}
-                onChange={(e) => handleInputChange(provider.category, provider.keyName, e.target.value)}
-                placeholder={provider.placeholder}
-                className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-primary focus:outline-none"
-              />
+            <div key={feature.id} className="space-y-1.5">
+              <label className="flex items-center gap-1.5 text-sm font-medium">
+                <span className="text-primary">{feature.icon}</span>
+                {feature.label}
+                {status === "saved" && <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400 ml-auto" />}
+              </label>
+              <p className="text-xs text-muted-foreground">{feature.description}</p>
+              <select
+                value={feature.value}
+                onChange={(e) => saveFeatureSetting(feature.category, feature.key, e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+              >
+                <option value="">Not configured</option>
+                {feature.options.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              {"modelKey" in feature && feature.modelKey && (
+                <input
+                  type="text"
+                  value={feature.modelValue ?? ""}
+                  onChange={(e) => saveFeatureSetting(feature.category, feature.modelKey!, e.target.value)}
+                  placeholder="Model override (optional)"
+                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+              )}
             </div>
           );
         })}
+
+        <div className="pt-2 border-t border-border">
+          <button
+            type="button"
+            onClick={onNavigateToConnections}
+            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-primary hover:bg-primary/5 rounded-md transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Connect New Model
+          </button>
+        </div>
       </CardContent>
     </Card>
   );
 }
 
-function AISettings() {
+function AISettings({ onNavigateToConnections }: { onNavigateToConnections: () => void }) {
   return (
     <div className="space-y-6">
       {/* AI Settings Header - Full Width */}
@@ -5048,7 +5598,7 @@ function AISettings() {
             <ul className="space-y-1 text-sm text-blue-800 dark:text-blue-200">
               <li className="flex items-start gap-2">
                 <span className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
-                API keys are encrypted and stored securely in the database
+                API keys are managed in the Connections page
               </li>
               <li className="flex items-start gap-2">
                 <span className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
@@ -5063,39 +5613,13 @@ function AISettings() {
         </CardContent>
       </Card>
 
-      {/* Three Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+      {/* Two Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         {/* Column 1 - Handwriting Recognition */}
         <HandwritingSettings />
 
-        {/* Column 2 - Placeholder for future AI features */}
-        <Card className="border-dashed h-fit border-2 border-primary/40">
-          <CardHeader>
-            <CardTitle className="text-muted-foreground">More AI Features Coming Soon</CardTitle>
-            <CardDescription>
-              Future AI-powered features will appear here, such as:
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              <li className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-                Smart event suggestions from natural language
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-                Photo captioning and search
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-                Voice command processing
-              </li>
-            </ul>
-          </CardContent>
-        </Card>
-
-        {/* Column 3 - API Keys Management */}
-        <AIProviderKeys />
+        {/* Column 2 - Active Models / Feature Selectors */}
+        <AIFeatureSelectors onNavigateToConnections={onNavigateToConnections} />
       </div>
     </div>
   );
@@ -7324,7 +7848,6 @@ function HomeAssistantSettings({ mode = "full" }: { mode?: "full" | "rooms-only"
 // API Keys Settings
 function ApiKeysSettings() {
   const queryClient = useQueryClient();
-  const [isCollapsed, setIsCollapsed] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
   const [createdKey, setCreatedKey] = useState<string | null>(null);
@@ -7396,28 +7919,21 @@ function ApiKeysSettings() {
 
   return (
     <div>
-      <button
-        type="button"
-        onClick={() => setIsCollapsed(!isCollapsed)}
-        className="group flex w-full items-center justify-between py-3 text-left"
-      >
-        <div className="flex items-center gap-2.5">
-          <span className="text-muted-foreground group-hover:text-primary transition-colors">
-            <Key className="h-5 w-5" />
+      <div className="flex items-center gap-2.5 mb-1">
+        <span className="text-primary">
+          <Key className="h-5 w-5" />
+        </span>
+        <h3 className="font-semibold text-lg">API Keys</h3>
+        {apiKeys.length > 0 && (
+          <span className="text-xs text-primary flex items-center gap-1">
+            <Check className="h-3 w-3" />
+            {apiKeys.length} {apiKeys.length === 1 ? "key" : "keys"}
           </span>
-          <span className="font-medium">API Keys</span>
-          {apiKeys.length > 0 && (
-            <span className="text-xs text-primary flex items-center gap-1">
-              <Check className="h-3 w-3" />
-              {apiKeys.length} {apiKeys.length === 1 ? "key" : "keys"}
-            </span>
-          )}
-        </div>
-        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${!isCollapsed ? "rotate-180" : ""}`} />
-      </button>
+        )}
+      </div>
+      <p className="text-sm text-muted-foreground mb-4">Create API keys to authenticate kiosk devices without OAuth login.</p>
 
-      {!isCollapsed && (
-        <div className="pb-4 space-y-4">
+        <div className="space-y-4">
         {/* Create button */}
         {!showCreateForm && !createdKey && (
           <Button size="sm" variant="outline" onClick={() => setShowCreateForm(true)}>
@@ -7574,7 +8090,6 @@ function ApiKeysSettings() {
             </ol>
           </div>
         </div>
-      )}
     </div>
   );
 }
@@ -7586,306 +8101,208 @@ const ACCOUNT_ICON_OPTIONS = [
   "❤️", "⭐", "🌟", "🔥", "💜", "💙", "💚", "🧡",
 ];
 
-function NewsSettings() {
+function WeatherSettings() {
   const queryClient = useQueryClient();
-  const [customFeedUrl, setCustomFeedUrl] = useState("");
-  const [customFeedName, setCustomFeedName] = useState("");
-  const [isValidating, setIsValidating] = useState(false);
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [units, setUnits] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle");
+  const [testError, setTestError] = useState("");
+  const [testData, setTestData] = useState<{ current: any; forecast: any[] } | null>(null);
 
-  // Fetch preset feeds
-  const { data: presets = [] } = useQuery({
-    queryKey: ["news-presets"],
-    queryFn: () => api.getNewsPresets(),
+  const { data: settings = [] } = useQuery({
+    queryKey: ["settings", "weather"],
+    queryFn: () => api.getCategorySettings("weather"),
   });
 
-  // Fetch user's feeds
-  const { data: feeds = [], isLoading } = useQuery({
-    queryKey: ["news-feeds"],
-    queryFn: () => api.getNewsFeeds(),
-  });
+  useEffect(() => {
+    if (settings.length > 0 && !loaded) {
+      setApiKey(settings.find((s) => s.key === "api_key")?.value || "");
+      setUnits(settings.find((s) => s.key === "units")?.value || "imperial");
+      setLoaded(true);
+    }
+  }, [settings, loaded]);
 
-  // Add feed mutation
-  const addFeedMutation = useMutation({
-    mutationFn: (data: { name: string; feedUrl: string; category?: string }) =>
-      api.addNewsFeed(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["news-feeds"] });
-      setCustomFeedUrl("");
-      setCustomFeedName("");
-      setValidationError(null);
-    },
-  });
-
-  // Update feed mutation
-  const updateFeedMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<{ name: string; isActive: boolean }> }) =>
-      api.updateNewsFeed(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["news-feeds"] });
-    },
-  });
-
-  // Delete feed mutation
-  const deleteFeedMutation = useMutation({
-    mutationFn: (id: string) => api.deleteNewsFeed(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["news-feeds"] });
-    },
-  });
-
-  // Refresh feeds mutation
-  const refreshMutation = useMutation({
-    mutationFn: () => api.refreshNewsFeeds(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["news-feeds"] });
-      queryClient.invalidateQueries({ queryKey: ["news-headlines"] });
-    },
-  });
-
-  // Check if a preset is already added
-  const isPresetAdded = (url: string) => feeds.some((f) => f.feedUrl === url);
-
-  // Handle adding a custom feed
-  const handleAddCustomFeed = async () => {
-    if (!customFeedUrl) return;
-
-    setIsValidating(true);
-    setValidationError(null);
-
+  const handleSave = async () => {
+    setSaveStatus("saving");
     try {
-      const result = await api.validateNewsFeedUrl(customFeedUrl);
-      if (!result.valid) {
-        setValidationError(result.error || "Invalid feed URL");
-        setIsValidating(false);
-        return;
-      }
-
-      await addFeedMutation.mutateAsync({
-        name: customFeedName || result.title || "Custom Feed",
-        feedUrl: customFeedUrl,
-        category: "custom",
+      await api.updateCategorySettings("weather", {
+        api_key: apiKey || null,
+        units: units || "imperial",
       });
-    } catch (err) {
-      setValidationError(err instanceof Error ? err.message : "Failed to add feed");
-    } finally {
-      setIsValidating(false);
+      queryClient.invalidateQueries({ queryKey: ["settings", "weather"] });
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    } catch {
+      setSaveStatus("error");
     }
   };
 
+  const handleTest = async () => {
+    setTestStatus("testing");
+    setTestError("");
+    setTestData(null);
+    try {
+      const [current, forecast] = await Promise.all([
+        api.getCurrentWeather(),
+        api.getWeatherForecast(),
+      ]);
+      setTestData({ current, forecast });
+      setTestStatus("success");
+    } catch (err) {
+      setTestError(err instanceof Error ? err.message : "Failed to fetch weather data");
+      setTestStatus("error");
+    }
+  };
+
+  const isConfigured = !!settings.find((s) => s.key === "api_key")?.value;
+  const unitLabel = units === "metric" ? "C" : "F";
+
+  const weatherEmoji = (icon: string) => {
+    const map: Record<string, string> = {
+      "01d": "☀️", "01n": "🌙", "02d": "⛅", "02n": "☁️", "03d": "☁️", "03n": "☁️",
+      "04d": "☁️", "04n": "☁️", "09d": "🌧️", "09n": "🌧️", "10d": "🌦️", "10n": "🌧️",
+      "11d": "⛈️", "11n": "⛈️", "13d": "❄️", "13n": "❄️", "50d": "🌫️", "50n": "🌫️",
+    };
+    return map[icon] || "🌡️";
+  };
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-      {/* Preset Feeds */}
+    <div className="space-y-6">
       <Card className="border-2 border-primary/40">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Rss className="h-5 w-5" />
-            NYTimes Feeds
+            <Cloud className="h-5 w-5" />
+            Weather Configuration
           </CardTitle>
           <CardDescription>
-            Quick add popular news feeds
+            Configure weather data for your dashboard. Get a free API key from{" "}
+            <a href="https://openweathermap.org/api" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80">
+              openweathermap.org
+            </a>
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2">
-          {presets.map((preset) => {
-            const isAdded = isPresetAdded(preset.url);
-            return (
-              <div
-                key={preset.url}
-                className="flex items-center justify-between p-3 rounded-lg border border-border"
-              >
-                <div className="flex items-center gap-3">
-                  <Newspaper className="h-5 w-5 text-muted-foreground" />
+        <CardContent className="space-y-4">
+          {isConfigured && (
+            <div className="flex items-center gap-2 text-sm text-primary">
+              <CheckCircle className="h-4 w-4" />
+              API key configured
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium mb-1">API Key</label>
+            <p className="text-xs text-muted-foreground mb-1.5">
+              Your OpenWeatherMap API key (free tier supports 1,000 calls/day)
+            </p>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => { setApiKey(e.target.value); setSaveStatus("idle"); }}
+              placeholder="Enter your API key..."
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Temperature Units</label>
+            <select
+              value={units}
+              onChange={(e) => { setUnits(e.target.value); setSaveStatus("idle"); }}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+            >
+              <option value="imperial">Fahrenheit (imperial)</option>
+              <option value="metric">Celsius (metric)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <Button size="sm" onClick={handleSave} disabled={saveStatus === "saving"}>
+              {saveStatus === "saving" ? (
+                <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Saving...</>
+              ) : "Save"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleTest} disabled={testStatus === "testing" || !isConfigured}>
+              {testStatus === "testing" ? (
+                <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Testing...</>
+              ) : "Test Connection"}
+            </Button>
+            {saveStatus === "saved" && (
+              <span className="text-sm text-primary flex items-center gap-1">
+                <CheckCircle className="h-4 w-4" /> Saved
+              </span>
+            )}
+            {saveStatus === "error" && (
+              <span className="text-sm text-destructive flex items-center gap-1">
+                <XCircle className="h-4 w-4" /> Error saving
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Test error */}
+      {testStatus === "error" && (
+        <div className="p-3 rounded-md bg-destructive/10 text-destructive flex items-center gap-2">
+          <XCircle className="h-4 w-4 shrink-0" />
+          <span className="text-sm">{testError}</span>
+        </div>
+      )}
+
+      {/* Test results */}
+      {testData && (
+        <Card className="border-2 border-primary/40">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-primary" />
+              Connection Successful
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Current weather */}
+            {testData.current && (
+              <div className="rounded-lg border border-border bg-muted/30 p-4">
+                <h4 className="text-sm font-medium mb-2">Current Weather</h4>
+                <div className="flex items-center gap-4">
+                  <span className="text-5xl">{weatherEmoji(testData.current.icon)}</span>
                   <div>
-                    <p className="font-medium text-sm">{preset.name}</p>
-                    <p className="text-xs text-muted-foreground capitalize">{preset.category}</p>
+                    <p className="text-2xl font-bold">{Math.round(testData.current.temp)}&deg;{unitLabel}</p>
+                    <p className="text-sm text-muted-foreground capitalize">{testData.current.description}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Feels like {Math.round(testData.current.feelsLike)}&deg;{unitLabel}
+                      {testData.current.humidity != null && ` · Humidity ${testData.current.humidity}%`}
+                      {testData.current.windSpeed != null && ` · Wind ${Math.round(testData.current.windSpeed)} ${units === "metric" ? "m/s" : "mph"}`}
+                    </p>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant={isAdded ? "outline" : "default"}
-                  disabled={isAdded || addFeedMutation.isPending}
-                  onClick={() => addFeedMutation.mutate({
-                    name: preset.name,
-                    feedUrl: preset.url,
-                    category: preset.category,
-                  })}
-                >
-                  {isAdded ? (
-                    <>
-                      <CheckCircle className="h-4 w-4 mr-1" />
-                      Added
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="h-4 w-4 mr-1" />
-                      Add
-                    </>
-                  )}
-                </Button>
               </div>
-            );
-          })}
-        </CardContent>
-      </Card>
+            )}
 
-      {/* Your Feeds */}
-      <Card className="border-2 border-primary/40">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Your Feeds</CardTitle>
-              <CardDescription>
-                Manage your subscribed feeds
-              </CardDescription>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => refreshMutation.mutate()}
-              disabled={refreshMutation.isPending}
-            >
-              <RefreshCw className={`h-4 w-4 mr-1 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : feeds.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <Newspaper className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No feeds subscribed</p>
-              <p className="text-sm mt-1">Add feeds from the presets or add a custom feed below</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {feeds.map((feed) => (
-                <div
-                  key={feed.id}
-                  className="flex items-center justify-between p-3 rounded-lg border border-border"
-                >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <button
-                      type="button"
-                      onClick={() => updateFeedMutation.mutate({
-                        id: feed.id,
-                        data: { isActive: !feed.isActive },
-                      })}
-                      className="flex-shrink-0"
-                    >
-                      {feed.isActive ? (
-                        <Eye className="h-5 w-5 text-primary" />
-                      ) : (
-                        <EyeOff className="h-5 w-5 text-muted-foreground" />
-                      )}
-                    </button>
-                    <div className="min-w-0 flex-1">
-                      <p className={`font-medium text-sm truncate ${!feed.isActive ? "text-muted-foreground" : ""}`}>
-                        {feed.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {feed.articleCount ?? 0} articles
-                        {feed.lastFetchedAt && ` · Updated ${new Date(feed.lastFetchedAt).toLocaleTimeString()}`}
-                      </p>
+            {/* Forecast */}
+            {testData.forecast?.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium mb-2">5-Day Forecast</h4>
+                <div className="grid grid-cols-5 gap-2">
+                  {testData.forecast.slice(0, 5).map((day: any) => (
+                    <div key={day.date} className="rounded-lg border border-border bg-muted/30 p-2 text-center">
+                      <p className="text-xs font-medium">{new Date(day.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" })}</p>
+                      <span className="text-2xl">{weatherEmoji(day.icon)}</span>
+                      <p className="text-sm font-semibold">{Math.round(day.temp_max)}&deg;</p>
+                      <p className="text-xs text-muted-foreground">{Math.round(day.temp_min)}&deg;</p>
                     </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => deleteFeedMutation.mutate(feed.id)}
-                    disabled={deleteFeedMutation.isPending}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Custom Feed */}
-      <Card className="lg:col-span-2 border-2 border-primary/40">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5" />
-            Add Custom Feed
-          </CardTitle>
-          <CardDescription>
-            Add any RSS or Atom feed URL
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <input
-              type="text"
-              placeholder="Feed name (optional)"
-              value={customFeedName}
-              onChange={(e) => setCustomFeedName(e.target.value)}
-              className="flex-shrink-0 sm:w-48 px-3 py-2 rounded-md border border-input bg-background text-sm"
-            />
-            <input
-              type="url"
-              placeholder="https://example.com/rss.xml"
-              value={customFeedUrl}
-              onChange={(e) => {
-                setCustomFeedUrl(e.target.value);
-                setValidationError(null);
-              }}
-              className="flex-1 px-3 py-2 rounded-md border border-input bg-background text-sm"
-            />
-            <Button
-              onClick={handleAddCustomFeed}
-              disabled={!customFeedUrl || isValidating || addFeedMutation.isPending}
-            >
-              {isValidating ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : (
-                <Plus className="h-4 w-4 mr-1" />
-              )}
-              Add Feed
-            </Button>
-          </div>
-          {validationError && (
-            <p className="mt-2 text-sm text-destructive">{validationError}</p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Info Card */}
-      <Card className="lg:col-span-2 border-2 border-primary/40">
-        <CardContent className="pt-6">
-          <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 p-4">
-            <h4 className="font-medium text-blue-900 dark:text-blue-100">How News Feeds Work</h4>
-            <ul className="mt-2 space-y-1 text-sm text-blue-800 dark:text-blue-200">
-              <li className="flex items-start gap-2">
-                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
-                Headlines from your feeds appear on the Dashboard
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
-                Feeds are automatically refreshed every 30 minutes
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
-                Click a headline to open the full article in a new tab
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
-                Toggle the eye icon to show/hide a feed from your headlines
-              </li>
-            </ul>
-          </div>
-        </CardContent>
-      </Card>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
+
+// NewsSettings removed — replaced by per-source NewsSourceSettings component
 
 function SportsSettings() {
   const queryClient = useQueryClient();
@@ -10362,7 +10779,9 @@ export function SettingsPage() {
                 )}
                 {connectionService === "plex" && <PlexSettings />}
                 {connectionService === "audiobookshelf" && <AudiobookshelfSettings />}
-                {connectionService === "news" && <NewsSettings />}
+                {connectionService?.startsWith("news-") && (
+                  <NewsSourceSettings sourceId={connectionService.replace("news-", "")} />
+                )}
                 {connectionService === "photos" && (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                     <Card className="border-2 border-primary/40">
@@ -10390,6 +10809,7 @@ export function SettingsPage() {
                     </Card>
                   </div>
                 )}
+                {connectionService === "google-photos" && <GooglePhotoAlbums />}
                 {connectionService === "cameras" && (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                     <CamerasSettings />
@@ -10400,6 +10820,7 @@ export function SettingsPage() {
                     <HomeAssistantSettings />
                   </div>
                 )}
+                {connectionService === "weather" && <WeatherSettings />}
                 {connectionService?.startsWith("ai-") && (
                   <AIProviderConfig providerId={connectionService} />
                 )}
@@ -10481,6 +10902,8 @@ export function SettingsPage() {
           )}
           {/* Custom Screens Tab */}
           {activeTab === "custom-screens" && <CustomScreensManagerTab />}
+          {/* Planner Tab */}
+          {activeTab === "planner" && <PlannerSettingsTab />}
           {/* Account Tab */}
           {activeTab === "account" && (
             <div className="max-w-2xl space-y-6">
@@ -10656,7 +11079,7 @@ export function SettingsPage() {
 
           {/* AI Tab */}
           {activeTab === "ai" && (
-            <AISettings />
+            <AISettings onNavigateToConnections={() => handleNavigateToService("ai-claude")} />
           )}
 
           {/* Assumptions Tab */}
@@ -10717,6 +11140,582 @@ export function SettingsPage() {
         </div>
       </div>
       <SupportButton />
+    </div>
+  );
+}
+
+function PlannerSettingsTab() {
+  const navigate = useNavigate();
+
+  // Fetch profiles
+  const { data: profiles = [], isLoading: profilesLoading } = useQuery({
+    queryKey: ["profiles"],
+    queryFn: () => api.getProfiles(),
+  });
+
+  // Select first profile by default (or default profile)
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (profiles.length > 0 && !selectedProfileId) {
+      const defaultProfile = profiles.find((p: FamilyProfile) => p.isDefault) ?? profiles[0];
+      if (defaultProfile) setSelectedProfileId(defaultProfile.id);
+    }
+  }, [profiles, selectedProfileId]);
+
+  // Planner builder state
+  const [layoutConfig, setLayoutConfig] = useState<PlannerLayoutConfig>(DEFAULT_PLANNER_CONFIG);
+  const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
+  const [showTemplateGallery, setShowTemplateGallery] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [history, setHistory] = useState<PlannerLayoutConfig[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
+  const layoutConfigRef = useRef<PlannerLayoutConfig>(DEFAULT_PLANNER_CONFIG);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isInitialLoadRef = useRef(true);
+
+  // Fetch planner config for selected profile
+  const { data: serverConfig, isLoading: configLoading } = useQuery({
+    queryKey: ["profile-planner", selectedProfileId],
+    queryFn: () => api.getProfilePlanner(selectedProfileId!),
+    enabled: !!selectedProfileId,
+  });
+
+  // Update layout config when server data or profile changes
+  useEffect(() => {
+    isInitialLoadRef.current = true;
+    if (serverConfig) {
+      const config = { ...DEFAULT_PLANNER_CONFIG, ...serverConfig };
+      setLayoutConfig(config);
+      layoutConfigRef.current = config;
+      setHistory([config]);
+      setHistoryIndex(0);
+      setSelectedWidgetId(null);
+      setTimeout(() => { isInitialLoadRef.current = false; }, 100);
+    }
+  }, [serverConfig]);
+
+  // Reset when profile changes
+  useEffect(() => {
+    setSelectedWidgetId(null);
+    setSaveStatus("idle");
+  }, [selectedProfileId]);
+
+  // Auto-save with debounce
+  useEffect(() => {
+    if (isInitialLoadRef.current || !selectedProfileId || configLoading) return;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    setSaveStatus("saving");
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        await api.updateProfilePlanner(selectedProfileId, layoutConfigRef.current);
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 2000);
+      } catch (error) {
+        console.error("[PlannerSettings] Failed to auto-save:", error);
+        setSaveStatus("idle");
+      }
+    }, 1000);
+    return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
+  }, [selectedProfileId, configLoading, layoutConfig]);
+
+  // Push history state
+  const pushHistory = useCallback((newConfig: PlannerLayoutConfig) => {
+    setHistory((prev) => {
+      const newHistory = prev.slice(0, historyIndex + 1);
+      newHistory.push(newConfig);
+      return newHistory.slice(-50);
+    });
+    setHistoryIndex((prev) => Math.min(prev + 1, 49));
+  }, [historyIndex]);
+
+  const updateLayout = useCallback((updates: Partial<PlannerLayoutConfig>) => {
+    setLayoutConfig((prev) => {
+      const newConfig = { ...prev, ...updates };
+      pushHistory(newConfig);
+      layoutConfigRef.current = newConfig;
+      return newConfig;
+    });
+  }, [pushHistory]);
+
+  const updateWidget = useCallback((id: string, updates: Partial<PlannerWidgetInstance>) => {
+    const newWidgets = layoutConfig.widgets.map((w) => w.id === id ? { ...w, ...updates } : w);
+    updateLayout({ widgets: newWidgets });
+  }, [layoutConfig.widgets, updateLayout]);
+
+  const deleteWidget = useCallback((id: string) => {
+    const newWidgets = layoutConfig.widgets.filter((w) => w.id !== id);
+    updateLayout({ widgets: newWidgets });
+    if (selectedWidgetId === id) setSelectedWidgetId(null);
+  }, [layoutConfig.widgets, selectedWidgetId, updateLayout]);
+
+  const undo = useCallback(() => {
+    if (historyIndex > 0) {
+      setHistoryIndex((prev) => prev - 1);
+      const prevConfig = history[historyIndex - 1];
+      if (prevConfig) { setLayoutConfig(prevConfig); layoutConfigRef.current = prevConfig; }
+    }
+  }, [history, historyIndex]);
+
+  const redo = useCallback(() => {
+    if (historyIndex < history.length - 1) {
+      setHistoryIndex((prev) => prev + 1);
+      const nextConfig = history[historyIndex + 1];
+      if (nextConfig) { setLayoutConfig(nextConfig); layoutConfigRef.current = nextConfig; }
+    }
+  }, [history, historyIndex]);
+
+  const loadTemplate = useCallback((config: PlannerLayoutConfig) => {
+    setLayoutConfig(config);
+    layoutConfigRef.current = config;
+    pushHistory(config);
+    setShowTemplateGallery(false);
+    setSelectedWidgetId(null);
+  }, [pushHistory]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setShowPreview(false); setShowTemplateGallery(false); return; }
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedWidgetId && document.activeElement?.tagName !== "INPUT") {
+        deleteWidget(selectedWidgetId);
+      }
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+        if (e.key === "s") e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedWidgetId, deleteWidget, undo, redo]);
+
+  // reMarkable connection status
+  const { data: remarkableStatus } = useQuery({
+    queryKey: ["remarkable-status"],
+    queryFn: () => api.getRemarkableStatus(),
+  });
+  const isDeviceConnected = !!remarkableStatus?.connected;
+
+  // Send to device mutation
+  const pushPlanner = useMutation({
+    mutationFn: () => api.pushProfilePlanner(selectedProfileId!, undefined, layoutConfig.pushFolderPath || "/Planners"),
+    onSuccess: () => {
+      setPushStatus("success");
+      setTimeout(() => setPushStatus("idle"), 3000);
+    },
+    onError: () => {
+      setPushStatus("error");
+      setTimeout(() => setPushStatus("idle"), 3000);
+    },
+  });
+  const [pushStatus, setPushStatus] = useState<"idle" | "success" | "error">("idle");
+
+  if (profilesLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (profiles.length === 0) {
+    return (
+      <div className="max-w-2xl space-y-6">
+        <Card>
+          <CardContent className="py-12 text-center">
+            <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+            <h3 className="text-lg font-medium mb-2">No profiles yet</h3>
+            <p className="text-muted-foreground mb-4">
+              Create a family profile first to set up a printable planner.
+            </p>
+            <Button onClick={() => navigate("/profiles")}>
+              <Plus className="h-4 w-4 mr-2" />
+              Go to Profiles
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const selectedProfile = profiles.find((p: FamilyProfile) => p.id === selectedProfileId);
+  const isLoading = configLoading;
+
+  return (
+    <div className="flex flex-col h-full -mx-6 -mt-6 -mb-6">
+      {/* Header toolbar */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
+        <div className="flex items-center gap-4">
+          {/* Profile selector */}
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedProfileId || ""}
+              onChange={(e) => setSelectedProfileId(e.target.value)}
+              className="px-3 py-1.5 border border-border rounded-md bg-background text-sm font-medium"
+            >
+              {profiles.map((p: FamilyProfile) => (
+                <option key={p.id} value={p.id}>
+                  {p.icon || "👤"} {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Save status */}
+          <div className="w-20 flex justify-end">
+            {saveStatus === "saving" && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" /> Saving...
+              </span>
+            )}
+            {saveStatus === "saved" && (
+              <span className="text-xs text-green-600 flex items-center gap-1">
+                <Check className="h-3 w-3" /> Saved
+              </span>
+            )}
+          </div>
+          <Button variant="ghost" size="sm" onClick={undo} disabled={historyIndex <= 0} title="Undo (Ctrl+Z)">
+            <Undo className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={redo} disabled={historyIndex >= history.length - 1} title="Redo (Ctrl+Shift+Z)">
+            <Redo className="h-4 w-4" />
+          </Button>
+          <div className="w-px h-6 bg-border mx-2" />
+          <Button variant="outline" size="sm" onClick={() => setShowTemplateGallery(true)}>
+            <LayoutTemplate className="h-4 w-4 mr-2" /> Templates
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowPreview(true)}>
+            <Eye className="h-4 w-4 mr-2" /> Preview
+          </Button>
+          <div className="w-px h-6 bg-border mx-2" />
+          {isDeviceConnected ? (
+            <div className="flex items-center gap-1">
+              <input
+                type="text"
+                value={layoutConfig.pushFolderPath || "/Planners"}
+                onChange={(e) => updateLayout({ pushFolderPath: e.target.value })}
+                className="w-28 px-2 py-1 text-xs border border-border rounded-md bg-background"
+                title="Destination folder on reMarkable"
+              />
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => { setPushStatus("idle"); pushPlanner.mutate(); }}
+                disabled={pushPlanner.isPending || !selectedProfileId}
+              >
+                {pushPlanner.isPending ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Sending...</>
+                ) : pushStatus === "success" ? (
+                  <><Check className="h-4 w-4 mr-2" /> Sent!</>
+                ) : pushStatus === "error" ? (
+                  <><X className="h-4 w-4 mr-2" /> Failed</>
+                ) : (
+                  <><Send className="h-4 w-4 mr-2" /> Send to Device</>
+                )}
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate("/settings/connections")}
+              title="Connect a reMarkable tablet to send planners"
+            >
+              <Link2 className="h-4 w-4 mr-2" /> Connect Device
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Detail pages toggle */}
+      <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-muted/30">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={layoutConfig.enableDetailPages || false}
+            onChange={(e) => updateLayout({ enableDetailPages: e.target.checked })}
+            className="rounded border-border"
+          />
+          <span className="text-sm font-medium">Include detail pages</span>
+        </label>
+        <span className="text-xs text-muted-foreground">
+          Generates additional pages with event details, task notes, and article descriptions. Items on the front page become tappable links.
+        </span>
+      </div>
+
+      {/* Main builder content */}
+      {isLoading ? (
+        <div className="flex items-center justify-center flex-1">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <div className="flex-1 flex overflow-hidden">
+          {/* Live Editor */}
+          <div className="flex-1 overflow-hidden">
+            <PlannerLiveEditor
+              layoutConfig={layoutConfig}
+              selectedWidgetId={selectedWidgetId}
+              onSelectWidget={setSelectedWidgetId}
+              onUpdateWidget={updateWidget}
+              onUpdateLayout={updateLayout}
+            />
+          </div>
+
+          {/* Right sidebar: Widget config or Layout settings */}
+          <div className="w-72 border-l border-border bg-card p-4 overflow-auto">
+            {selectedWidgetId ? (
+              <PlannerWidgetConfigPanel
+                widget={layoutConfig.widgets.find((w) => w.id === selectedWidgetId)!}
+                onUpdate={(updates) => updateWidget(selectedWidgetId, updates)}
+                onDelete={() => deleteWidget(selectedWidgetId)}
+              />
+            ) : (
+              <LayoutSettings
+                layoutConfig={layoutConfig}
+                onUpdateConfig={updateLayout}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modals */}
+      {showTemplateGallery && (
+        <TemplateGallery onSelect={loadTemplate} onClose={() => setShowTemplateGallery(false)} />
+      )}
+      {showPreview && (
+        <PlannerPreview layoutConfig={layoutConfig} profileId={selectedProfileId || undefined} onClose={() => setShowPreview(false)} />
+      )}
+    </div>
+  );
+}
+
+// Widget configuration panel for the planner settings tab
+function PlannerWidgetConfigPanel({ widget, onUpdate, onDelete }: {
+  widget: PlannerWidgetInstance;
+  onUpdate: (updates: Partial<PlannerWidgetInstance>) => void;
+  onDelete: () => void;
+}) {
+  const updateConfig = (key: string, value: unknown) => {
+    onUpdate({ config: { ...widget.config, [key]: value } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-medium capitalize">{widget.type.replace("-", " ")}</h3>
+        <Button variant="ghost" size="sm" onClick={onDelete}>
+          <Trash2 className="h-4 w-4 text-destructive" />
+        </Button>
+      </div>
+
+      {/* Position/Size */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Position</label>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs text-muted-foreground">X</label>
+            <input type="number" value={widget.x} onChange={(e) => onUpdate({ x: parseInt(e.target.value) || 0 })} min={0} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Y</label>
+            <input type="number" value={widget.y} onChange={(e) => onUpdate({ y: parseInt(e.target.value) || 0 })} min={0} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Width</label>
+            <input type="number" value={widget.width} onChange={(e) => onUpdate({ width: parseInt(e.target.value) || 1 })} min={1} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Height</label>
+            <input type="number" value={widget.height} onChange={(e) => onUpdate({ height: parseInt(e.target.value) || 1 })} min={1} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+          </div>
+        </div>
+      </div>
+
+      {/* Type-specific config */}
+      {widget.type === "text" && (
+        <>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Text</label>
+            <input type="text" value={(widget.config.text as string) || ""} onChange={(e) => updateConfig("text", e.target.value)} placeholder="Enter text..." className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+            <div className="text-xs text-muted-foreground space-y-1">
+              <p>Use date tokens in placeholders:</p>
+              <ul className="list-none space-y-0.5 text-[10px] font-mono bg-muted/50 rounded p-1.5">
+                <li><code>W/WW</code> — week number</li>
+                <li><code>D/DD</code> — day | <code>M/MM</code> — month</li>
+                <li><code>MMM/MMMM</code> — month name</li>
+                <li><code>YY/YYYY</code> — year</li>
+                <li><code>ddd/dddd</code> — weekday</li>
+              </ul>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Font Size</label>
+            <select value={(widget.config.fontSize as string) || "lg"} onChange={(e) => updateConfig("fontSize", e.target.value)} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm">
+              <option value="sm">Small</option><option value="base">Normal</option><option value="lg">Large</option><option value="xl">X-Large</option><option value="2xl">2X-Large</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Alignment</label>
+            <select value={(widget.config.alignment as string) || "center"} onChange={(e) => updateConfig("alignment", e.target.value)} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm">
+              <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Font Weight</label>
+            <select value={(widget.config.fontWeight as string) || "bold"} onChange={(e) => updateConfig("fontWeight", e.target.value)} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm">
+              <option value="normal">Normal</option><option value="medium">Medium</option><option value="semibold">Semibold</option><option value="bold">Bold</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Background</label>
+            <select value={(widget.config.background as string) || "none"} onChange={(e) => updateConfig("background", e.target.value)} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm">
+              <option value="none">None</option><option value="light">Light Gray</option><option value="accent">Accent Color</option><option value="dark">Dark</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Border</label>
+            <select value={(widget.config.border as string) || "none"} onChange={(e) => updateConfig("border", e.target.value)} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm">
+              <option value="none">None</option><option value="solid">Solid</option><option value="dashed">Dashed</option><option value="double">Double</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Border Radius</label>
+            <select value={(widget.config.borderRadius as string) || "none"} onChange={(e) => updateConfig("borderRadius", e.target.value)} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm">
+              <option value="none">None</option><option value="sm">Small</option><option value="md">Medium</option><option value="lg">Large</option><option value="full">Pill</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Padding</label>
+            <select value={(widget.config.padding as string) || "md"} onChange={(e) => updateConfig("padding", e.target.value)} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm">
+              <option value="none">None</option><option value="sm">Small</option><option value="md">Medium</option><option value="lg">Large</option>
+            </select>
+          </div>
+        </>
+      )}
+
+      {widget.type === "notes" && (
+        <>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Title</label>
+            <input type="text" value={(widget.config.title as string) || "Notes"} onChange={(e) => updateConfig("title", e.target.value)} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Line Style</label>
+            <select value={(widget.config.lineStyle as string) || "ruled"} onChange={(e) => updateConfig("lineStyle", e.target.value)} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm">
+              <option value="ruled">Ruled</option><option value="dotted">Dotted</option><option value="grid">Grid</option><option value="blank">Blank</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Line Spacing (px)</label>
+            <input type="number" value={(widget.config.lineSpacing as number) || 20} onChange={(e) => updateConfig("lineSpacing", parseInt(e.target.value) || 20)} min={12} max={40} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+          </div>
+        </>
+      )}
+
+      {widget.type === "tasks" && (
+        <>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Title</label>
+            <input type="text" value={(widget.config.title as string) || "Tasks"} onChange={(e) => updateConfig("title", e.target.value)} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Max Items</label>
+            <input type="number" value={(widget.config.maxItems as number) || 10} onChange={(e) => updateConfig("maxItems", parseInt(e.target.value) || 10)} min={1} max={50} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+          </div>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id="plannerShowCheckboxes" checked={(widget.config.showCheckboxes as boolean) !== false} onChange={(e) => updateConfig("showCheckboxes", e.target.checked)} className="rounded border-border" />
+            <label htmlFor="plannerShowCheckboxes" className="text-sm">Show checkboxes</label>
+          </div>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id="plannerShowDueDate" checked={(widget.config.showDueDate as boolean) !== false} onChange={(e) => updateConfig("showDueDate", e.target.checked)} className="rounded border-border" />
+            <label htmlFor="plannerShowDueDate" className="text-sm">Show due dates</label>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Task Lists</label>
+            <TaskListMultiSelect selectedIds={(widget.config.taskListIds as string[]) || []} onChange={(ids) => updateConfig("taskListIds", ids)} />
+            <p className="text-xs text-muted-foreground">Select lists to show synced tasks, or leave empty for manual entry</p>
+          </div>
+        </>
+      )}
+
+      {widget.type === "news-headlines" && (
+        <>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Title</label>
+            <input type="text" value={(widget.config.title as string) || "Headlines"} onChange={(e) => updateConfig("title", e.target.value)} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Max Items</label>
+            <input type="number" value={(widget.config.maxItems as number) || 5} onChange={(e) => updateConfig("maxItems", parseInt(e.target.value) || 5)} min={1} max={20} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+          </div>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id="plannerShowSource" checked={(widget.config.showSource as boolean) !== false} onChange={(e) => updateConfig("showSource", e.target.checked)} className="rounded border-border" />
+            <label htmlFor="plannerShowSource" className="text-sm">Show source name</label>
+          </div>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id="plannerShowTime" checked={(widget.config.showTime as boolean) !== false} onChange={(e) => updateConfig("showTime", e.target.checked)} className="rounded border-border" />
+            <label htmlFor="plannerShowTime" className="text-sm">Show time ago</label>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Categories</label>
+            <NewsFeedCategoryMultiSelect selectedCategories={(widget.config.categories as string[]) || []} onChange={(categories) => updateConfig("categories", categories)} />
+            <p className="text-xs text-muted-foreground">Filter by category or leave empty for all</p>
+          </div>
+        </>
+      )}
+
+      {widget.type === "calendar-day" && (
+        <>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Title</label>
+            <input type="text" value={(widget.config.title as string) || "Schedule"} onChange={(e) => updateConfig("title", e.target.value)} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Start Hour</label>
+              <input type="number" value={(widget.config.startHour as number) ?? 6} onChange={(e) => updateConfig("startHour", parseInt(e.target.value) || 0)} min={0} max={23} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">End Hour</label>
+              <input type="number" value={(widget.config.endHour as number) ?? 22} onChange={(e) => updateConfig("endHour", parseInt(e.target.value) || 24)} min={1} max={24} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id="plannerFillHeight" checked={(widget.config.fillHeight as boolean) !== false} onChange={(e) => updateConfig("fillHeight", e.target.checked)} className="rounded border-border" />
+            <label htmlFor="plannerFillHeight" className="text-sm">Fill available height</label>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Calendars</label>
+            <CalendarMultiSelect selectedIds={(widget.config.calendarIds as string[]) || []} onChange={(ids) => updateConfig("calendarIds", ids)} />
+          </div>
+        </>
+      )}
+
+      {widget.type === "habits" && (
+        <>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Title</label>
+            <input type="text" value={(widget.config.title as string) || "Self-Care"} onChange={(e) => updateConfig("title", e.target.value)} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Habits (one per line)</label>
+            <textarea value={((widget.config.habits as string[]) || []).join("\n")} onChange={(e) => updateConfig("habits", e.target.value.split("\n").filter(Boolean))} rows={5} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm resize-none" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Columns</label>
+            <input type="number" value={(widget.config.columns as number) || 2} onChange={(e) => updateConfig("columns", parseInt(e.target.value) || 2)} min={1} max={6} className="w-full px-2 py-1 border border-border rounded-md bg-background text-sm" />
+          </div>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id="plannerShowLabels" checked={(widget.config.showLabels as boolean) === true} onChange={(e) => updateConfig("showLabels", e.target.checked)} className="rounded border-border" />
+            <label htmlFor="plannerShowLabels" className="text-sm">Show text labels</label>
+          </div>
+        </>
+      )}
     </div>
   );
 }

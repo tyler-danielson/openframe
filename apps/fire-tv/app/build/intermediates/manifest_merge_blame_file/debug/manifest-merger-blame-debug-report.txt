@@ -1,0 +1,145 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.openframe.firetv"
+4    android:versionCode="1"
+5    android:versionName="1.0.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="26"
+9        android:targetSdkVersion="34" />
+10
+11    <uses-permission android:name="android.permission.INTERNET" />
+11-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:5:5-67
+11-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:5:22-64
+12    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+12-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:6:5-79
+12-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:6:22-76
+13    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+13-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:7:5-81
+13-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:7:22-78
+14
+15    <!-- Fire TV: touchscreen NOT required, leanback supported -->
+16    <uses-feature
+16-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:10:5-90
+17        android:name="android.hardware.touchscreen"
+17-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:10:19-62
+18        android:required="false" />
+18-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:10:63-87
+19    <uses-feature
+19-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:11:5-87
+20        android:name="android.software.leanback"
+20-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:11:19-59
+21        android:required="false" />
+21-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:11:60-84
+22
+23    <permission
+23-->[androidx.core:core:1.12.0] C:\Users\tyler\.gradle\caches\transforms-3\2ccd268e0ca2e1cd10ec650ac8067a3e\transformed\core-1.12.0\AndroidManifest.xml:22:5-24:47
+24        android:name="com.openframe.firetv.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+24-->[androidx.core:core:1.12.0] C:\Users\tyler\.gradle\caches\transforms-3\2ccd268e0ca2e1cd10ec650ac8067a3e\transformed\core-1.12.0\AndroidManifest.xml:23:9-81
+25        android:protectionLevel="signature" />
+25-->[androidx.core:core:1.12.0] C:\Users\tyler\.gradle\caches\transforms-3\2ccd268e0ca2e1cd10ec650ac8067a3e\transformed\core-1.12.0\AndroidManifest.xml:24:9-44
+26
+27    <uses-permission android:name="com.openframe.firetv.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+27-->[androidx.core:core:1.12.0] C:\Users\tyler\.gradle\caches\transforms-3\2ccd268e0ca2e1cd10ec650ac8067a3e\transformed\core-1.12.0\AndroidManifest.xml:26:5-97
+27-->[androidx.core:core:1.12.0] C:\Users\tyler\.gradle\caches\transforms-3\2ccd268e0ca2e1cd10ec650ac8067a3e\transformed\core-1.12.0\AndroidManifest.xml:26:22-94
+28
+29    <application
+29-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:13:5-53:19
+30        android:allowBackup="true"
+30-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:14:9-35
+31        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+31-->[androidx.core:core:1.12.0] C:\Users\tyler\.gradle\caches\transforms-3\2ccd268e0ca2e1cd10ec650ac8067a3e\transformed\core-1.12.0\AndroidManifest.xml:28:18-86
+32        android:banner="@drawable/banner"
+32-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:15:9-42
+33        android:debuggable="true"
+34        android:extractNativeLibs="false"
+35        android:icon="@mipmap/ic_launcher"
+35-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:16:9-43
+36        android:label="@string/app_name"
+36-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:17:9-41
+37        android:supportsRtl="true"
+37-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:18:9-35
+38        android:theme="@style/Theme.OpenFrameTV" >
+38-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:19:9-49
+39
+40        <!-- Main Kiosk Activity -->
+41        <activity
+41-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:23:9-34:20
+42            android:name="com.openframe.firetv.KioskActivity"
+42-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:24:13-42
+43            android:configChanges="orientation|screenSize|keyboardHidden"
+43-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:27:13-74
+44            android:exported="true"
+44-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:25:13-36
+45            android:launchMode="singleTask"
+45-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:26:13-44
+46            android:theme="@style/Theme.OpenFrameTV.Fullscreen" >
+46-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:28:13-64
+47            <intent-filter>
+47-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:29:13-33:29
+48                <action android:name="android.intent.action.MAIN" />
+48-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:30:17-69
+48-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:30:25-66
+49
+50                <category android:name="android.intent.category.LAUNCHER" />
+50-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:31:17-77
+50-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:31:27-74
+51                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+51-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:32:17-86
+51-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:32:27-83
+52            </intent-filter>
+53        </activity>
+54
+55        <!-- Setup Activity -->
+56        <activity
+56-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:37:9-41:58
+57            android:name="com.openframe.firetv.SetupActivity"
+57-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:38:13-42
+58            android:exported="false"
+58-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:39:13-37
+59            android:theme="@style/Theme.OpenFrameTV"
+59-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:40:13-53
+60            android:windowSoftInputMode="adjustResize" />
+60-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:41:13-55
+61
+62        <!-- Boot Receiver: auto-start on device boot -->
+63        <receiver
+63-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:44:9-51:20
+64            android:name="com.openframe.firetv.BootReceiver"
+64-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:45:13-41
+65            android:enabled="true"
+65-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:46:13-35
+66            android:exported="true" >
+66-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:47:13-36
+67            <intent-filter>
+67-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:48:13-50:29
+68                <action android:name="android.intent.action.BOOT_COMPLETED" />
+68-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:49:17-79
+68-->C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\AndroidManifest.xml:49:25-76
+69            </intent-filter>
+70        </receiver>
+71
+72        <provider
+72-->[androidx.emoji2:emoji2:1.2.0] C:\Users\tyler\.gradle\caches\transforms-3\6f6fec51fc0bf858d6900b90dd62d6da\transformed\emoji2-1.2.0\AndroidManifest.xml:24:9-32:20
+73            android:name="androidx.startup.InitializationProvider"
+73-->[androidx.emoji2:emoji2:1.2.0] C:\Users\tyler\.gradle\caches\transforms-3\6f6fec51fc0bf858d6900b90dd62d6da\transformed\emoji2-1.2.0\AndroidManifest.xml:25:13-67
+74            android:authorities="com.openframe.firetv.androidx-startup"
+74-->[androidx.emoji2:emoji2:1.2.0] C:\Users\tyler\.gradle\caches\transforms-3\6f6fec51fc0bf858d6900b90dd62d6da\transformed\emoji2-1.2.0\AndroidManifest.xml:26:13-68
+75            android:exported="false" >
+75-->[androidx.emoji2:emoji2:1.2.0] C:\Users\tyler\.gradle\caches\transforms-3\6f6fec51fc0bf858d6900b90dd62d6da\transformed\emoji2-1.2.0\AndroidManifest.xml:27:13-37
+76            <meta-data
+76-->[androidx.emoji2:emoji2:1.2.0] C:\Users\tyler\.gradle\caches\transforms-3\6f6fec51fc0bf858d6900b90dd62d6da\transformed\emoji2-1.2.0\AndroidManifest.xml:29:13-31:52
+77                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+77-->[androidx.emoji2:emoji2:1.2.0] C:\Users\tyler\.gradle\caches\transforms-3\6f6fec51fc0bf858d6900b90dd62d6da\transformed\emoji2-1.2.0\AndroidManifest.xml:30:17-75
+78                android:value="androidx.startup" />
+78-->[androidx.emoji2:emoji2:1.2.0] C:\Users\tyler\.gradle\caches\transforms-3\6f6fec51fc0bf858d6900b90dd62d6da\transformed\emoji2-1.2.0\AndroidManifest.xml:31:17-49
+79            <meta-data
+79-->[androidx.lifecycle:lifecycle-process:2.4.1] C:\Users\tyler\.gradle\caches\transforms-3\7a571294463d6954fdc6388f1e304f5b\transformed\lifecycle-process-2.4.1\AndroidManifest.xml:31:13-33:52
+80                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+80-->[androidx.lifecycle:lifecycle-process:2.4.1] C:\Users\tyler\.gradle\caches\transforms-3\7a571294463d6954fdc6388f1e304f5b\transformed\lifecycle-process-2.4.1\AndroidManifest.xml:32:17-78
+81                android:value="androidx.startup" />
+81-->[androidx.lifecycle:lifecycle-process:2.4.1] C:\Users\tyler\.gradle\caches\transforms-3\7a571294463d6954fdc6388f1e304f5b\transformed\lifecycle-process-2.4.1\AndroidManifest.xml:33:17-49
+82        </provider>
+83    </application>
+84
+85</manifest>

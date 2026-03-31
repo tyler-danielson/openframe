@@ -16,8 +16,13 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.openframe.mobile",
+      "buildNumber": "1",
       "infoPlist": {
-        "NSCameraUsageDescription": "OpenFrame needs camera access to scan QR codes for easy login."
+        "NSCameraUsageDescription": "OpenFrame needs camera access to scan QR codes for easy login.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "privacyManifests": {
+        "NSPrivacyAccessedAPITypes": []
       }
     },
     "android": {
@@ -26,6 +31,7 @@
         "backgroundColor": "#0A0A0A"
       },
       "package": "com.openframe.mobile",
+      "versionCode": 1,
       "permissions": ["android.permission.CAMERA"],
       "usesCleartextTraffic": true
     },
@@ -46,6 +52,11 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
     }
   }
 }

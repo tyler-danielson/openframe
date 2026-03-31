@@ -11,6 +11,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import { eq, and, desc } from "drizzle-orm";
 import { format, startOfDay, endOfDay, addDays, startOfWeek } from "date-fns";
+import * as path from "path";
+import { renderNotebookToPdf } from "../../services/remarkable/rm-parser.js";
 import {
   remarkableConfig,
   remarkableAgendaSettings,
@@ -404,11 +406,20 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /api/v1/remarkable/agenda/preview - Preview agenda PDF
   fastify.get<{
-    Querystring: { date?: string };
+    Querystring: { date?: string; token?: string };
   }>(
     "/agenda/preview",
     {
-      preHandler: [authenticate],
+      onRequest: [
+        // Support token as query param so <iframe>/<img> tags can load the PDF
+        async (request) => {
+          const query = request.query as Record<string, string>;
+          if (query.token && !request.headers.authorization) {
+            request.headers.authorization = `Bearer ${query.token}`;
+          }
+        },
+        authenticate,
+      ],
       schema: {
         description: "Generate and return agenda PDF for preview",
         tags: ["reMarkable"],
@@ -416,6 +427,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
           type: "object",
           properties: {
             date: { type: "string", format: "date" },
+            token: { type: "string" },
           },
         },
       },
@@ -877,6 +889,104 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
           return fastify.httpErrors.badRequest("reMarkable not connected. Please reconnect.");
         }
         throw error;
+      }
+    }
+  );
+
+  // GET /api/v1/remarkable/documents/view/:path - Download a document as PDF for viewing
+  fastify.get<{
+    Params: { "*": string };
+    Querystring: { token?: string };
+  }>(
+    "/documents/view/*",
+    {
+      onRequest: [
+        async (request) => {
+          const query = request.query as Record<string, string>;
+          if (query.token && !request.headers.authorization) {
+            request.headers.authorization = `Bearer ${query.token}`;
+          }
+        },
+        authenticate,
+      ],
+      schema: {
+        description: "Download a reMarkable document as PDF for in-browser viewing",
+        tags: ["reMarkable"],
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+
+      const docPath = "/" + (request.params["*"] || "");
+      fastify.log.info({ docPath }, "Fetching document for viewing");
+
+      try {
+        const client = getRemarkableClient(fastify, user.id);
+
+        // Try geta (PDF with annotations) first, fall back to raw download
+        let pdfBuffer: Buffer;
+        try {
+          pdfBuffer = await client.downloadDocumentWithAnnotations(docPath);
+        } catch (getaErr) {
+          fastify.log.warn({ err: getaErr, docPath }, "geta failed, trying raw download for PDF extraction");
+          // geta failed — try raw download and look for a PDF inside the zip
+          try {
+            const rawBuffer = await client.downloadDocument(docPath);
+
+            // The raw download is a .zip — extract and look for a PDF inside
+            // reMarkable stores uploaded PDFs as <uuid>.pdf inside the zip
+            const fs = await import("fs");
+            const { execSync } = await import("child_process");
+            const tmpZip = `/tmp/openframe-remarkable/view-${Date.now()}.zip`;
+            const tmpDir = `/tmp/openframe-remarkable/view-${Date.now()}`;
+            fs.writeFileSync(tmpZip, rawBuffer);
+            fs.mkdirSync(tmpDir, { recursive: true });
+            try {
+              execSync(`unzip -o "${tmpZip}" -d "${tmpDir}"`, { timeout: 10000 });
+            } catch { /* unzip might warn but still extract */ }
+            // Find any .pdf file in the extracted contents
+            const extracted = fs.readdirSync(tmpDir, { recursive: true }) as string[];
+            const pdfFile = extracted.find((f: string) => f.toString().endsWith(".pdf"));
+
+            if (pdfFile) {
+              pdfBuffer = fs.readFileSync(path.join(tmpDir, pdfFile.toString()));
+              fastify.log.info({ docPath, size: pdfBuffer.length }, "Extracted PDF from zip");
+            } else {
+              // No PDF inside — it's a handwritten notebook, render strokes to PDF
+              fastify.log.info({ docPath }, "Rendering handwritten notebook to PDF");
+              try {
+                pdfBuffer = await renderNotebookToPdf(rawBuffer);
+                fastify.log.info({ docPath, size: pdfBuffer.length }, "Rendered notebook to PDF");
+              } catch (renderErr) {
+                fastify.log.error({ err: renderErr, docPath }, "Failed to render notebook");
+                try { execSync(`rm -rf "${tmpZip}" "${tmpDir}"`); } catch {}
+                return reply.status(422).send({
+                  success: false,
+                  error: { message: "Failed to render this notebook. The file format may not be supported." },
+                });
+              }
+            }
+            // Clean up temp files
+            try { execSync(`rm -rf "${tmpZip}" "${tmpDir}"`); } catch {}
+          } catch (dlErr) {
+            fastify.log.error({ err: dlErr, docPath }, "Raw download also failed");
+            return reply.status(422).send({
+              success: false,
+              error: { message: "This document cannot be previewed in the browser." },
+            });
+          }
+        }
+
+        return reply
+          .type("application/pdf")
+          .header("Content-Disposition", `inline; filename="${path.basename(docPath)}.pdf"`)
+          .send(pdfBuffer);
+      } catch (error) {
+        fastify.log.error({ err: error, docPath }, "Failed to fetch document for viewing");
+        throw fastify.httpErrors.internalServerError("Failed to download document");
       }
     }
   );

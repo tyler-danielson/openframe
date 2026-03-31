@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="PhotoScreen" extends="Group">
+    <interface>
+        <field id="photoUrl" type="string" alwaysNotify="true" onChange="onPhotoUrlChanged" />
+    </interface>
+    <script type="text/brightscript" uri="PhotoScreen.brs" />
+    <children>
+        <Rectangle width="1920" height="1080" color="0x000000FF" />
+
+        <Poster
+            id="posterA"
+            width="1920"
+            height="1080"
+            loadDisplayMode="scaleToZoom"
+            opacity="1.0" />
+
+        <Poster
+            id="posterB"
+            width="1920"
+            height="1080"
+            loadDisplayMode="scaleToZoom"
+            opacity="0.0" />
+
+        <Animation id="crossfadeAtoB" duration="1.5" easeFunction="inOutCubic">
+            <FloatFieldInterpolator
+                key="[0.0, 1.0]"
+                keyValue="[1.0, 0.0]"
+                fieldToInterp="posterA.opacity" />
+            <FloatFieldInterpolator
+                key="[0.0, 1.0]"
+                keyValue="[0.0, 1.0]"
+                fieldToInterp="posterB.opacity" />
+        </Animation>
+
+        <Animation id="crossfadeBtoA" duration="1.5" easeFunction="inOutCubic">
+            <FloatFieldInterpolator
+                key="[0.0, 1.0]"
+                keyValue="[0.0, 1.0]"
+                fieldToInterp="posterA.opacity" />
+            <FloatFieldInterpolator
+                key="[0.0, 1.0]"
+                keyValue="[1.0, 0.0]"
+                fieldToInterp="posterB.opacity" />
+        </Animation>
+    </children>
+</component>

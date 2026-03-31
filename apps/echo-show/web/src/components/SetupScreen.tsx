@@ -8,7 +8,6 @@ interface SetupScreenProps {
 }
 
 export function SetupScreen({ onConnect, onQRLogin, initialConfig }: SetupScreenProps) {
-  // Check URL params for pre-filled values
   const urlParams = new URLSearchParams(window.location.search);
   const paramServer = urlParams.get("server") || urlParams.get("url") || "";
   const paramToken = urlParams.get("token") || urlParams.get("kiosk") || "";
@@ -21,7 +20,6 @@ export function SetupScreen({ onConnect, onQRLogin, initialConfig }: SetupScreen
   const serverUrlRef = useRef<HTMLInputElement>(null);
   const tokenRef = useRef<HTMLInputElement>(null);
 
-  // Auto-connect if both params provided
   const autoConnect = paramServer && paramToken && !initialConfig;
 
   const getNormalizedServerUrl = useCallback(() => {
@@ -66,7 +64,6 @@ export function SetupScreen({ onConnect, onQRLogin, initialConfig }: SetupScreen
     }
   }, [serverUrl, kioskToken, onConnect, getNormalizedServerUrl]);
 
-  // Auto-connect if URL params provided
   useEffect(() => {
     if (autoConnect) {
       handleConnect();
@@ -85,6 +82,7 @@ export function SetupScreen({ onConnect, onQRLogin, initialConfig }: SetupScreen
   return (
     <div className="setup-screen">
       <div className="setup-container">
+        <div className="setup-logo">OF</div>
         <h1 className="setup-title">OpenFrame</h1>
         <p className="setup-subtitle">Connect to your OpenFrame server</p>
 
@@ -159,6 +157,10 @@ export function SetupScreen({ onConnect, onQRLogin, initialConfig }: SetupScreen
             </button>
           )}
         </div>
+
+        <p className="setup-hint">
+          Tap the bottom-right corner of the kiosk to access settings
+        </p>
       </div>
     </div>
   );

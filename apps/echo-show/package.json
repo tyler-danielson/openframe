@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "cd web && vite",
-    "build": "cd web && tsc -b && vite build",
+    "build": "cd web && vite build",
     "preview": "cd web && vite preview",
     "deploy": "ask deploy && node deploy-webapp.js"
   }

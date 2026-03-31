@@ -1,0 +1,47 @@
+#!/bin/sh
+
+##############################################################################
+#
+#  Gradle start up script for POSIX
+#
+##############################################################################
+
+# Attempt to set APP_HOME
+PRG="$0"
+while [ -h "$PRG" ]; do
+    ls=$(ls -ld "$PRG")
+    link=$(expr "$ls" : '.*-> \(.*\)$')
+    if expr "$link" : '/.*' > /dev/null; then
+        PRG="$link"
+    else
+        PRG=$(dirname "$PRG")/"$link"
+    fi
+done
+SAVED="$(pwd)"
+cd "$(dirname "$PRG")/" >/dev/null
+APP_HOME="$(pwd -P)"
+cd "$SAVED" >/dev/null
+
+# Determine the Java command
+if [ -n "$JAVA_HOME" ]; then
+    JAVACMD="$JAVA_HOME/bin/java"
+else
+    JAVACMD="java"
+fi
+
+# Download wrapper jar if missing
+WRAPPER_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+if [ ! -f "$WRAPPER_JAR" ]; then
+    echo "Downloading Gradle Wrapper..."
+    mkdir -p "$APP_HOME/gradle/wrapper"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL -o "$WRAPPER_JAR" "https://raw.githubusercontent.com/gradle/gradle/v8.2.0/gradle/wrapper/gradle-wrapper.jar"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$WRAPPER_JAR" "https://raw.githubusercontent.com/gradle/gradle/v8.2.0/gradle/wrapper/gradle-wrapper.jar"
+    else
+        echo "Error: curl or wget required to download Gradle wrapper"
+        exit 1
+    fi
+fi
+
+exec "$JAVACMD" -jar "$WRAPPER_JAR" "$@"

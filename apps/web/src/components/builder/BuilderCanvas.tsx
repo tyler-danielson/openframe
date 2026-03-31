@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Pencil } from "lucide-react";
+import { Pencil, ArrowUpToLine, ArrowUp, ArrowDown, ArrowDownToLine, Copy, Trash2 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { ASPECT_RATIO_PRESETS, type WidgetInstance, type BuilderWidgetType } from "../../stores/screensaver";
 import { WIDGET_REGISTRY, getWidgetDefinition } from "../../lib/widgets/registry";
@@ -22,8 +22,20 @@ export function BuilderCanvas({ showGrid, previewMode, liveMode = false, onWidge
     moveWidget,
     resizeWidget,
     removeWidget,
+    duplicateWidget,
+    bringWidgetToFront,
+    bringWidgetForward,
+    sendWidgetBackward,
+    sendWidgetToBack,
     gridSnap,
   } = useBuilder();
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    widgetId: string;
+  } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -218,6 +230,8 @@ export function BuilderCanvas({ showGrid, previewMode, liveMode = false, onWidge
   const handleWidgetMouseDown = useCallback(
     (e: React.MouseEvent, widget: WidgetInstance) => {
       if (previewMode) return;
+      // Don't start drag on right-click (context menu)
+      if (e.button !== 0) return;
       e.stopPropagation();
       selectWidget(widget.id);
 
@@ -428,6 +442,7 @@ export function BuilderCanvas({ showGrid, previewMode, liveMode = false, onWidge
     // Only deselect if clicking on empty area (not on a widget)
     if (!previewMode) {
       selectWidget(null);
+      setContextMenu(null);
     }
   }, [previewMode, selectWidget]);
 
@@ -633,6 +648,13 @@ export function BuilderCanvas({ showGrid, previewMode, liveMode = false, onWidge
               }}
               onMouseDown={(e) => handleWidgetMouseDown(e, widget)}
               onClick={(e) => e.stopPropagation()}
+              onContextMenu={(e) => {
+                if (previewMode) return;
+                e.preventDefault();
+                e.stopPropagation();
+                selectWidget(widget.id);
+                setContextMenu({ x: e.clientX, y: e.clientY, widgetId: widget.id });
+              }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
                 if (!previewMode && onWidgetDoubleClick) {
@@ -767,7 +789,111 @@ export function BuilderCanvas({ showGrid, previewMode, liveMode = false, onWidge
           </div>
         </div>
       )}
+
+      {/* Right-click context menu */}
+      {contextMenu && (
+        <WidgetContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          widgetId={contextMenu.widgetId}
+          onClose={() => setContextMenu(null)}
+          onEdit={(id) => { onWidgetDoubleClick?.(id); setContextMenu(null); }}
+          onDuplicate={(id) => { duplicateWidget(id); setContextMenu(null); }}
+          onDelete={(id) => { removeWidget(id); setContextMenu(null); }}
+          onBringToFront={(id) => { bringWidgetToFront(id); setContextMenu(null); }}
+          onBringForward={(id) => { bringWidgetForward(id); setContextMenu(null); }}
+          onSendBackward={(id) => { sendWidgetBackward(id); setContextMenu(null); }}
+          onSendToBack={(id) => { sendWidgetToBack(id); setContextMenu(null); }}
+        />
+      )}
       </div>
+    </div>
+  );
+}
+
+// Context menu for widget right-click
+function WidgetContextMenu({
+  x,
+  y,
+  widgetId,
+  onClose,
+  onEdit,
+  onDuplicate,
+  onDelete,
+  onBringToFront,
+  onBringForward,
+  onSendBackward,
+  onSendToBack,
+}: {
+  x: number;
+  y: number;
+  widgetId: string;
+  onClose: () => void;
+  onEdit: (id: string) => void;
+  onDuplicate: (id: string) => void;
+  onDelete: (id: string) => void;
+  onBringToFront: (id: string) => void;
+  onBringForward: (id: string) => void;
+  onSendBackward: (id: string) => void;
+  onSendToBack: (id: string) => void;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [onClose]);
+
+  // Adjust position to keep menu on screen
+  const adjustedX = Math.min(x, window.innerWidth - 200);
+  const adjustedY = Math.min(y, window.innerHeight - 300);
+
+  const items: { label: string; icon: React.ReactNode; action: () => void; danger?: boolean; separator?: boolean }[] = [
+    { label: "Edit", icon: <Pencil className="h-3.5 w-3.5" />, action: () => onEdit(widgetId) },
+    { label: "Duplicate", icon: <Copy className="h-3.5 w-3.5" />, action: () => onDuplicate(widgetId), separator: true },
+    { label: "Bring to Front", icon: <ArrowUpToLine className="h-3.5 w-3.5" />, action: () => onBringToFront(widgetId) },
+    { label: "Bring Forward", icon: <ArrowUp className="h-3.5 w-3.5" />, action: () => onBringForward(widgetId) },
+    { label: "Send Backward", icon: <ArrowDown className="h-3.5 w-3.5" />, action: () => onSendBackward(widgetId) },
+    { label: "Send to Back", icon: <ArrowDownToLine className="h-3.5 w-3.5" />, action: () => onSendToBack(widgetId), separator: true },
+    { label: "Delete", icon: <Trash2 className="h-3.5 w-3.5" />, action: () => onDelete(widgetId), danger: true },
+  ];
+
+  return (
+    <div
+      ref={menuRef}
+      className="fixed z-50 min-w-[180px] rounded-lg border border-border bg-[#1c1c1e] py-1 shadow-xl animate-in fade-in-0 zoom-in-95"
+      style={{ left: adjustedX, top: adjustedY }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {items.map((item, i) => (
+        <div key={item.label}>
+          {item.separator && i > 0 && <div className="my-1 h-px bg-border" />}
+          <button
+            className={cn(
+              "flex w-full items-center gap-2.5 px-3 py-1.5 text-sm transition-colors",
+              item.danger
+                ? "text-red-400 hover:bg-red-500/10"
+                : "text-popover-foreground hover:bg-accent"
+            )}
+            onClick={item.action}
+          >
+            {item.icon}
+            {item.label}
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

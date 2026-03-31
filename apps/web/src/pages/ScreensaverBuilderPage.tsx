@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ArrowLeft, Eye, Grid3X3, Settings, Monitor, X, Play, Square, Send, Check, Plus, Link2, Copy, CheckCircle } from "lucide-react";
+import { ArrowLeft, Eye, Grid3X3, Settings, Monitor, X, Play, Square, Send, Check, Plus, Link2, Copy, CheckCircle, LayoutTemplate } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../components/ui/Button";
 import { BuilderCanvas } from "../components/builder/BuilderCanvas";
 import { AddBlockModal } from "../components/builder/AddBlockModal";
 import { EditBlockModal } from "../components/builder/EditBlockModal";
 import { BlockLayersPanel } from "../components/builder/BlockLayersPanel";
+import { TemplatePickerModal } from "../components/builder/TemplatePickerModal";
 import { BuilderProvider } from "../contexts/BuilderContext";
 import { useScreensaverStore, ASPECT_RATIO_PRESETS, GRID_PRESETS, DEFAULT_LAYOUT_CONFIG, type CanvasSizeMode, type AspectRatioPreset, type ScreensaverLayoutConfig, type BuilderWidgetType } from "../stores/screensaver";
 import { WIDGET_REGISTRY } from "../lib/widgets/registry";
@@ -27,6 +28,7 @@ export function ScreensaverBuilderPage() {
   const [showAddBlockModal, setShowAddBlockModal] = useState(false);
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
   const [showKioskUrlModal, setShowKioskUrlModal] = useState(false);
+  const [showTemplatePickerModal, setShowTemplatePickerModal] = useState(false);
   const [urlCopied, setUrlCopied] = useState(false);
 
   // Local state for kiosk mode
@@ -220,11 +222,9 @@ export function ScreensaverBuilderPage() {
   );
 
   // Handler for adding widgets from modal
-  const handleAddWidgetFromModal = useCallback((type: BuilderWidgetType) => {
+  const handleAddWidgetFromModal = useCallback((type: BuilderWidgetType, configOverrides?: Record<string, unknown>) => {
     const definition = WIDGET_REGISTRY[type];
 
-    // Scale widget size based on current grid density relative to base 16x9 grid
-    // This ensures widgets maintain a reasonable visual size regardless of grid fineness
     const baseColumns = 16;
     const baseRows = 9;
     const scaleX = layoutConfig.gridColumns / baseColumns;
@@ -233,8 +233,9 @@ export function ScreensaverBuilderPage() {
     const scaledWidth = Math.max(1, Math.round(definition.defaultSize.width * scaleX));
     const scaledHeight = Math.max(1, Math.round(definition.defaultSize.height * scaleY));
 
+    const mergedConfig = { ...definition.defaultConfig, ...configOverrides };
+
     if (isKioskMode) {
-      // In kiosk mode, we need to update local state directly
       const newWidget = {
         id: `widget-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         type,
@@ -242,7 +243,7 @@ export function ScreensaverBuilderPage() {
         y: 0,
         width: scaledWidth,
         height: scaledHeight,
-        config: { ...definition.defaultConfig },
+        config: mergedConfig,
       };
       const newConfig = {
         ...localLayoutConfig,
@@ -251,17 +252,45 @@ export function ScreensaverBuilderPage() {
       setLocalLayoutConfig(newConfig);
       localLayoutConfigRef.current = newConfig;
     } else {
-      // In global mode, use the store's addWidget action
       useScreensaverStore.getState().addWidget({
         type,
         x: 0,
         y: 0,
         width: scaledWidth,
         height: scaledHeight,
-        config: { ...definition.defaultConfig },
+        config: mergedConfig,
       });
     }
   }, [isKioskMode, localLayoutConfig, layoutConfig.gridColumns, layoutConfig.gridRows]);
+
+  const handleApplyTemplate = useCallback((template: import("../lib/widgets/templates").ScreenTemplate) => {
+    const newWidgets = template.widgets.map((w, i) => ({
+      id: `widget-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 9)}`,
+      type: w.type,
+      x: w.x,
+      y: w.y,
+      width: w.width,
+      height: w.height,
+      config: { ...WIDGET_REGISTRY[w.type]?.defaultConfig, ...w.config },
+      style: w.style,
+    }));
+
+    const newConfig: Partial<ScreensaverLayoutConfig> = {
+      gridColumns: template.gridColumns,
+      gridRows: template.gridRows,
+      gridGap: template.gridGap,
+      backgroundColor: template.backgroundColor,
+      widgets: newWidgets,
+    };
+
+    if (isKioskMode) {
+      const merged = { ...localLayoutConfig, ...newConfig } as ScreensaverLayoutConfig;
+      setLocalLayoutConfig(merged);
+      localLayoutConfigRef.current = merged;
+    } else {
+      setStoreLayoutConfig(newConfig);
+    }
+  }, [isKioskMode, localLayoutConfig, setStoreLayoutConfig]);
 
   // Render the main builder UI
   const renderBuilderUI = () => (
@@ -289,6 +318,16 @@ export function ScreensaverBuilderPage() {
           >
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             Add Block
+          </Button>
+          {/* Templates button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowTemplatePickerModal(true)}
+            className="h-7 px-2.5 text-xs"
+          >
+            <LayoutTemplate className="mr-1.5 h-3.5 w-3.5" />
+            Templates
           </Button>
           {/* Get Kiosk URL button - only in kiosk mode */}
           {isKioskMode && kiosk?.token && (
@@ -572,6 +611,14 @@ export function ScreensaverBuilderPage() {
           widgetId={editingWidgetId}
         />
       )}
+
+      {/* Template Picker Modal */}
+      <TemplatePickerModal
+        isOpen={showTemplatePickerModal}
+        onClose={() => setShowTemplatePickerModal(false)}
+        onApply={handleApplyTemplate}
+        hasExistingWidgets={(layoutConfig.widgets?.length ?? 0) > 0}
+      />
 
       {/* Kiosk URL Modal */}
       {showKioskUrlModal && kiosk?.token && (

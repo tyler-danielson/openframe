@@ -15,18 +15,19 @@ interface CastTarget {
   id: string;
   name: string;
   type: "kiosk" | "media_player";
-  capabilities: ("iptv" | "cameras" | "multiview")[];
+  capabilities: ("iptv" | "cameras" | "multiview" | "webpage")[];
   state?: string;
 }
 
 interface CastRequest {
   targetId: string;
   targetType: "kiosk" | "media_player";
-  contentType: "iptv" | "camera" | "multiview";
+  contentType: "iptv" | "camera" | "multiview" | "webpage";
   channelId?: string;
   cameraId?: string;
   cameraEntityId?: string;
   multiviewItems?: unknown[];
+  webpageUrl?: string;
 }
 
 async function fetchFromHA(
@@ -84,11 +85,11 @@ export const castRoutes: FastifyPluginAsync = async (fastify) => {
 
       for (const kiosk of userKiosks) {
         const features = (kiosk.enabledFeatures as Record<string, boolean>) || {};
-        const capabilities: ("iptv" | "cameras" | "multiview")[] = [];
+        const capabilities: ("iptv" | "cameras" | "multiview" | "webpage")[] = [];
         if (features.iptv) capabilities.push("iptv");
         if (features.cameras) capabilities.push("cameras");
-        // Multiview is available if kiosk has any streaming features
         if (features.iptv || features.cameras) capabilities.push("multiview");
+        capabilities.push("webpage"); // All kiosks can display webpages
 
         targets.push({
           id: kiosk.id,
@@ -164,12 +165,13 @@ export const castRoutes: FastifyPluginAsync = async (fastify) => {
             targetType: { type: "string", enum: ["kiosk", "media_player"] },
             contentType: {
               type: "string",
-              enum: ["iptv", "camera", "multiview"],
+              enum: ["iptv", "camera", "multiview", "webpage"],
             },
             channelId: { type: "string" },
             cameraId: { type: "string" },
             cameraEntityId: { type: "string" },
             multiviewItems: { type: "array" },
+            webpageUrl: { type: "string" },
           },
         },
       },
@@ -229,6 +231,8 @@ async function handleKioskCast(
   } else if (contentType === "multiview" && body.multiviewItems) {
     queueKioskCommand(kioskId, "navigate", { path: "multiview" });
     queueKioskCommand(kioskId, "multiview-set", { items: body.multiviewItems });
+  } else if (contentType === "webpage" && body.webpageUrl) {
+    queueKioskCommand(kioskId, "display-webpage", { url: body.webpageUrl });
   } else {
     throw fastify.httpErrors.badRequest("Missing required content parameters");
   }

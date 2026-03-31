@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
-import { api } from "../services/api";
+import { api, type Kiosk } from "../services/api";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 
 type PageState = "loading" | "ready" | "approving" | "approved" | "error" | "expired";
+type LinkMode = "existing" | "new";
 
 export function DeviceLoginPage() {
   const [searchParams] = useSearchParams();
@@ -19,6 +20,12 @@ export function DeviceLoginPage() {
   const [kioskName, setKioskName] = useState("TV Kiosk");
   const [approvedKioskId, setApprovedKioskId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Kiosk selection
+  const [linkMode, setLinkMode] = useState<LinkMode>("existing");
+  const [existingKiosks, setExistingKiosks] = useState<Kiosk[]>([]);
+  const [selectedKioskId, setSelectedKioskId] = useState<string | null>(null);
+  const [loadingKiosks, setLoadingKiosks] = useState(true);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -52,10 +59,37 @@ export function DeviceLoginPage() {
     verifyCode();
   }, [isAuthenticated, code]);
 
+  // Load existing kiosks
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    async function loadKiosks() {
+      try {
+        const kiosks = await api.getKiosks();
+        setExistingKiosks(kiosks);
+        if (kiosks.length > 0) {
+          setSelectedKioskId(kiosks[0].id);
+          setLinkMode("existing");
+        } else {
+          setLinkMode("new");
+        }
+      } catch {
+        // If loading fails, just default to new
+        setLinkMode("new");
+      } finally {
+        setLoadingKiosks(false);
+      }
+    }
+
+    loadKiosks();
+  }, [isAuthenticated]);
+
   const handleApprove = async () => {
     setPageState("approving");
     try {
-      const result = await api.approveDeviceCode(userCode, kioskName.trim() || undefined);
+      const result = linkMode === "existing" && selectedKioskId
+        ? await api.approveDeviceCode(userCode, undefined, selectedKioskId)
+        : await api.approveDeviceCode(userCode, kioskName.trim() || undefined);
       setApprovedKioskId(result.kioskId);
       setPageState("approved");
     } catch (err) {
@@ -90,9 +124,9 @@ export function DeviceLoginPage() {
               <line x1="12" y1="17" x2="12" y2="21" />
             </svg>
           </div>
-          <CardTitle className="text-2xl">Approve Device</CardTitle>
+          <CardTitle className="text-2xl">Connect Display</CardTitle>
           <CardDescription>
-            A TV is requesting access to your OpenFrame account
+            A display is requesting access to your OpenFrame account
           </CardDescription>
         </CardHeader>
 
@@ -115,27 +149,82 @@ export function DeviceLoginPage() {
                 </p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-primary mb-1" htmlFor="kioskName">
-                  Kiosk Name
-                </label>
-                <input
-                  id="kioskName"
-                  type="text"
-                  value={kioskName}
-                  onChange={(e) => setKioskName(e.target.value)}
-                  placeholder="TV Kiosk"
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Give this kiosk a name so you can identify it later
-                </p>
-              </div>
+              {/* Kiosk selection */}
+              {!loadingKiosks && existingKiosks.length > 0 && (
+                <div className="flex rounded-lg border border-border overflow-hidden">
+                  <button
+                    className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                      linkMode === "existing"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-background text-muted-foreground hover:bg-accent"
+                    }`}
+                    onClick={() => setLinkMode("existing")}
+                  >
+                    Use Existing
+                  </button>
+                  <button
+                    className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                      linkMode === "new"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-background text-muted-foreground hover:bg-accent"
+                    }`}
+                    onClick={() => setLinkMode("new")}
+                  >
+                    Create New
+                  </button>
+                </div>
+              )}
+
+              {linkMode === "existing" && existingKiosks.length > 0 ? (
+                <div>
+                  <label className="block text-sm font-medium text-primary mb-2">
+                    Select a kiosk
+                  </label>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {existingKiosks.map((kiosk) => (
+                      <button
+                        key={kiosk.id}
+                        onClick={() => setSelectedKioskId(kiosk.id)}
+                        className={`w-full text-left rounded-lg border p-3 transition-colors ${
+                          selectedKioskId === kiosk.id
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border bg-background text-foreground hover:border-primary/40"
+                        }`}
+                      >
+                        <p className="font-medium text-sm">{kiosk.name}</p>
+                        {kiosk.dashboardType && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {kiosk.dashboardType}
+                          </p>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-primary mb-1" htmlFor="kioskName">
+                    Kiosk Name
+                  </label>
+                  <input
+                    id="kioskName"
+                    type="text"
+                    value={kioskName}
+                    onChange={(e) => setKioskName(e.target.value)}
+                    placeholder="TV Kiosk"
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Give this kiosk a name so you can identify it later
+                  </p>
+                </div>
+              )}
 
               <div className="flex gap-3 pt-2">
                 <Button
                   className="flex-1"
                   onClick={handleApprove}
+                  disabled={linkMode === "existing" && !selectedKioskId}
                 >
                   Approve
                 </Button>
@@ -164,9 +253,9 @@ export function DeviceLoginPage() {
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               </div>
-              <p className="text-lg font-semibold text-primary">Device Approved!</p>
+              <p className="text-lg font-semibold text-primary">Device Connected!</p>
               <p className="text-sm text-muted-foreground">
-                The TV should connect automatically within a few seconds.
+                The display should connect automatically within a few seconds.
               </p>
               <div className="flex flex-col gap-2 mt-2 w-full">
                 {approvedKioskId && (
@@ -196,7 +285,7 @@ export function DeviceLoginPage() {
               </div>
               <p className="text-lg font-semibold text-primary">Code Expired</p>
               <p className="text-sm text-muted-foreground">
-                This code has expired. Please generate a new one on the TV.
+                This code has expired. Please generate a new one on the display.
               </p>
               <Button
                 variant="outline"

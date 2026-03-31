@@ -64,9 +64,10 @@ const tvConnectStore = new Map<string, TvConnectEntry>();
 // Unambiguous characters for user codes (no 0/O, 1/I/L, B/8, 5/S)
 const UNAMBIGUOUS_CHARS = "ACDEFGHJKMNPQRTUVWXY2346789";
 function generateUserCode(): string {
+  const bytes = randomBytes(6);
   let code = "";
   for (let i = 0; i < 6; i++) {
-    code += UNAMBIGUOUS_CHARS[Math.floor(Math.random() * UNAMBIGUOUS_CHARS.length)];
+    code += UNAMBIGUOUS_CHARS[bytes[i]! % UNAMBIGUOUS_CHARS.length];
   }
   return code;
 }
@@ -291,6 +292,233 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         data: {
           accessToken,
           refreshToken,
+          expiresIn: 900,
+        },
+      };
+    }
+  );
+
+  // Auth config — tells clients which auth methods are available (public, no auth needed)
+  fastify.get(
+    "/config",
+    {
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+      schema: {
+        description: "Get available authentication methods and configuration",
+        tags: ["Auth"],
+      },
+    },
+    async (request) => {
+      const requestOrigin = getRequestOrigin(request) ?? undefined;
+      const googleConfig = await getOAuthConfig(fastify.db, "google", requestOrigin);
+      const msConfig = await getOAuthConfig(fastify.db, "microsoft", requestOrigin);
+
+      return {
+        success: true,
+        data: {
+          google: googleConfig.clientId ? { clientId: googleConfig.clientId } : null,
+          microsoft: msConfig.clientId ? { available: true } : null,
+          emailPassword: true,
+          signup: true,
+        },
+      };
+    }
+  );
+
+  // Public sign-up — creates a new account and returns tokens
+  fastify.post(
+    "/signup",
+    {
+      config: { rateLimit: { max: 5, timeWindow: "1 minute" } },
+      schema: {
+        description: "Create a new account with email and password",
+        tags: ["Auth"],
+        body: {
+          type: "object",
+          properties: {
+            email: { type: "string", format: "email" },
+            name: { type: "string", minLength: 1 },
+            password: { type: "string", minLength: 8 },
+          },
+          required: ["email", "name", "password"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const { email, name, password } = request.body as {
+        email: string;
+        name: string;
+        password: string;
+      };
+
+      // Check if user already exists
+      const [existing] = await fastify.db
+        .select()
+        .from(users)
+        .where(eq(users.email, email))
+        .limit(1);
+
+      if (existing) {
+        return reply.code(409).send({
+          success: false,
+          error: { code: "email_taken", message: "An account with this email already exists" },
+        });
+      }
+
+      // Create user
+      const passwordHash = await bcrypt.hash(password, 12);
+      const [user] = await fastify.db
+        .insert(users)
+        .values({ email, name, passwordHash, role: "admin" as const })
+        .returning();
+
+      // Issue tokens so the user is immediately logged in
+      const accessToken = fastify.jwt.sign({ userId: user!.id });
+      const refreshToken = randomBytes(32).toString("base64url");
+      const tokenHash = createHash("sha256").update(refreshToken).digest("hex");
+      const familyId = randomUUID();
+
+      await fastify.db.insert(refreshTokens).values({
+        userId: user!.id,
+        tokenHash,
+        familyId,
+        deviceInfo: request.headers["user-agent"],
+        ipAddress: request.ip,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+
+      return {
+        success: true,
+        data: {
+          user: { id: user!.id, email: user!.email, name: user!.name },
+          accessToken,
+          refreshToken,
+          expiresIn: 900,
+        },
+      };
+    }
+  );
+
+  // Google ID token exchange — for native Android/iOS apps using Credential Manager
+  // Accepts a Google ID token, verifies it, finds/creates the user, returns session tokens
+  fastify.post(
+    "/google-id-token",
+    {
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+      schema: {
+        description: "Exchange a Google ID token for session tokens (native app sign-in)",
+        tags: ["Auth", "OAuth"],
+        body: {
+          type: "object",
+          properties: {
+            idToken: { type: "string" },
+          },
+          required: ["idToken"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const { idToken } = request.body as { idToken: string };
+
+      // Get Google client ID from settings
+      const requestOrigin = getRequestOrigin(request) ?? undefined;
+      const googleConfig = await getOAuthConfig(fastify.db, "google", requestOrigin);
+      if (!googleConfig.clientId) {
+        return reply.internalServerError("Google OAuth not configured");
+      }
+
+      // Verify the ID token with Google
+      const verifyUrl = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`;
+      const verifyResponse = await fetch(verifyUrl);
+
+      if (!verifyResponse.ok) {
+        return reply.unauthorized("Invalid Google ID token");
+      }
+
+      const tokenInfo = await verifyResponse.json() as {
+        aud: string;
+        email: string;
+        email_verified: string;
+        name?: string;
+        picture?: string;
+        sub: string;
+      };
+
+      // Verify the token was issued for our client ID
+      if (tokenInfo.aud !== googleConfig.clientId) {
+        return reply.unauthorized("Token was not issued for this application");
+      }
+
+      if (tokenInfo.email_verified !== "true") {
+        return reply.unauthorized("Email not verified");
+      }
+
+      // Find or create user (same logic as Google OAuth callback)
+      let user;
+
+      // 1. Try to find user by email
+      [user] = await fastify.db
+        .select()
+        .from(users)
+        .where(eq(users.email, tokenInfo.email))
+        .limit(1);
+
+      // 2. Check if this Google account is linked to another user
+      if (!user) {
+        const [linkedToken] = await fastify.db
+          .select({ userId: oauthTokens.userId })
+          .from(oauthTokens)
+          .where(
+            and(
+              eq(oauthTokens.provider, "google"),
+              eq(oauthTokens.externalAccountId, tokenInfo.email)
+            )
+          )
+          .limit(1);
+
+        if (linkedToken) {
+          [user] = await fastify.db
+            .select()
+            .from(users)
+            .where(eq(users.id, linkedToken.userId))
+            .limit(1);
+        }
+      }
+
+      // 3. Create new user if not found
+      if (!user) {
+        [user] = await fastify.db
+          .insert(users)
+          .values({
+            email: tokenInfo.email,
+            name: tokenInfo.name,
+            avatarUrl: tokenInfo.picture,
+            role: "admin" as const,
+          })
+          .returning();
+      }
+
+      // Create session tokens
+      const accessToken = fastify.jwt.sign({ userId: user!.id });
+      const refreshTokenValue = randomBytes(32).toString("base64url");
+      const tokenHash = createHash("sha256").update(refreshTokenValue).digest("hex");
+      const familyId = randomUUID();
+
+      await fastify.db.insert(refreshTokens).values({
+        userId: user!.id,
+        tokenHash,
+        familyId,
+        deviceInfo: request.headers["user-agent"],
+        ipAddress: request.ip,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+
+      return {
+        success: true,
+        data: {
+          user: { id: user!.id, email: user!.email, name: user!.name, avatarUrl: user!.avatarUrl },
+          accessToken,
+          refreshToken: refreshTokenValue,
           expiresIn: 900,
         },
       };
@@ -632,9 +860,17 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       if (isIncremental) {
         // Incremental: let Google merge with existing grants, don't force consent
         url.searchParams.set("include_granted_scopes", "true");
+      } else if (query.mobile === "true") {
+        // Mobile apps: show account chooser so users can pick their Google account
+        url.searchParams.set("prompt", "select_account consent");
       } else {
         // Fresh auth: request consent to get refresh token
         url.searchParams.set("prompt", "consent");
+      }
+
+      // Pass login_hint from mobile apps so Google pre-selects the account
+      if (query.login_hint) {
+        url.searchParams.set("login_hint", query.login_hint);
       }
 
       // Get the return URL from query param (most reliable) or construct from referer
@@ -1372,26 +1608,6 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // Get server configuration (for frontend to know server URLs)
-  fastify.get(
-    "/config",
-    {
-      schema: {
-        description: "Get server configuration",
-        tags: ["Auth"],
-      },
-    },
-    async () => {
-      const frontendUrl = await getFrontendUrl(fastify.db);
-      return {
-        success: true,
-        data: {
-          frontendUrl,
-        },
-      };
-    }
-  );
-
   // Get current user
   fastify.get(
     "/me",
@@ -2059,6 +2275,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           properties: {
             userCode: { type: "string" },
             kioskName: { type: "string" },
+            kioskId: { type: "string", description: "Existing kiosk ID to link instead of creating a new one" },
           },
           required: ["userCode"],
         },
@@ -2086,9 +2303,10 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.unauthorized("Not authenticated");
       }
 
-      const { userCode, kioskName } = request.body as {
+      const { userCode, kioskName, kioskId: existingKioskId } = request.body as {
         userCode: string;
         kioskName?: string;
+        kioskId?: string;
       };
 
       const upperCode = userCode.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -2107,30 +2325,55 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("Code has already been used");
       }
 
-      // Create a new kiosk for this user
-      const name = kioskName?.trim() || "TV Kiosk";
-      const [newKiosk] = await fastify.db
-        .insert(kiosks)
-        .values({
-          userId: user.id,
-          name,
-        })
-        .returning();
+      let kioskId: string;
+      let kioskToken: string;
+      let finalName: string;
+
+      if (existingKioskId) {
+        // Use existing kiosk
+        const [existing] = await fastify.db
+          .select()
+          .from(kiosks)
+          .where(and(eq(kiosks.id, existingKioskId), eq(kiosks.userId, user.id)))
+          .limit(1);
+
+        if (!existing) {
+          return reply.notFound("Kiosk not found");
+        }
+
+        kioskId = existing.id;
+        kioskToken = existing.token;
+        finalName = existing.name;
+      } else {
+        // Create a new kiosk
+        const name = kioskName?.trim() || "TV Kiosk";
+        const [newKiosk] = await fastify.db
+          .insert(kiosks)
+          .values({
+            userId: user.id,
+            name,
+          })
+          .returning();
+
+        kioskId = newKiosk!.id;
+        kioskToken = newKiosk!.token;
+        finalName = name;
+      }
 
       // Mark the device code as approved with the kiosk token
       entry.status = "approved";
-      entry.kioskToken = newKiosk!.token;
+      entry.kioskToken = kioskToken;
 
       fastify.log.info(
-        `Device code approved: user=${user.id}, kiosk=${newKiosk!.id}, name=${name}`
+        `Device code approved: user=${user.id}, kiosk=${kioskId}, name=${finalName}`
       );
 
       return {
         success: true,
         data: {
-          kioskId: newKiosk!.id,
-          kioskToken: newKiosk!.token,
-          kioskName: name,
+          kioskId,
+          kioskToken,
+          kioskName: finalName,
         },
       };
     }

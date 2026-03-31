@@ -1,0 +1,1 @@
+- [theme_patterns.md](theme_patterns.md) -- Semantic color tokens, common violation patterns, and exemplar files for this project's theme system

@@ -11,6 +11,7 @@ import { Layout } from "../components/ui/Layout";
 import { useScreensaverStore } from "../stores/screensaver";
 import { useRemoteControlStore } from "../stores/remote-control";
 import { useSplitScreenStore } from "../stores/split-screen";
+import { useCastWebpageStore } from "../stores/cast-webpage";
 import { useBlockNavStore } from "../stores/block-nav";
 import { FileShareOverlay } from "../components/FileShareOverlay";
 
@@ -791,6 +792,25 @@ function KioskCommandPoller({ token }: { token: string }) {
           break;
         }
 
+        case "display-webpage":
+          if (cmd.payload?.url && typeof cmd.payload.url === "string") {
+            if (cmd.payload.navigate) {
+              // Navigate the full page — works with sites that block iframes
+              console.log(`[Kiosk] Navigating to webpage: ${cmd.payload.url}`);
+              window.location.href = cmd.payload.url;
+            } else {
+              // Show in overlay iframe — for iframe-friendly sites
+              console.log(`[Kiosk] Displaying webpage in overlay: ${cmd.payload.url}`);
+              useCastWebpageStore.getState().display(cmd.payload.url);
+            }
+          }
+          break;
+
+        case "dismiss-webpage":
+          console.log("[Kiosk] Dismissing cast webpage");
+          useCastWebpageStore.getState().dismiss();
+          break;
+
         default:
           console.warn(`[Kiosk] Unknown command type: ${cmd.type}`);
       }
@@ -854,6 +874,75 @@ export function KioskDisplayPage() {
     <KioskProvider token={token}>
       <KioskCommandPoller token={token} />
       <KioskLayoutWrapper />
+      <CastWebpageOverlay />
     </KioskProvider>
+  );
+}
+
+function CastWebpageOverlay() {
+  const { url, dismiss } = useCastWebpageStore();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [iframeFailed, setIframeFailed] = useState(false);
+
+  // Reset failure state when URL changes
+  useEffect(() => {
+    setIframeFailed(false);
+  }, [url]);
+
+  // Detect iframe load failures (X-Frame-Options / CSP blocked sites)
+  // If the iframe fails, navigate the full page to the URL instead
+  useEffect(() => {
+    if (!url || iframeFailed) return;
+
+    const checkTimer = setTimeout(() => {
+      const iframe = iframeRef.current;
+      if (!iframe) return;
+
+      try {
+        // Try to access iframe content — if blocked by CORS/X-Frame-Options,
+        // this will throw or the document will be empty
+        const doc = iframe.contentDocument || iframe.contentWindow?.document;
+        // If we can access it and it has no body content, it likely failed
+        if (doc && doc.body && doc.body.innerHTML === "") {
+          console.log(`[Kiosk] Iframe blocked for ${url}, redirecting full page`);
+          setIframeFailed(true);
+          window.location.href = url;
+        }
+      } catch {
+        // Cross-origin error means the page loaded (can't access it but it's there)
+        // This is actually success — the iframe is showing the page
+      }
+    }, 3000);
+
+    return () => clearTimeout(checkTimer);
+  }, [url, iframeFailed]);
+
+  if (!url) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black">
+      <iframe
+        ref={iframeRef}
+        src={url}
+        className="w-full h-full border-0"
+        allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+        onError={() => {
+          console.log(`[Kiosk] Iframe error for ${url}, redirecting full page`);
+          setIframeFailed(true);
+          window.location.href = url;
+        }}
+      />
+      <button
+        onClick={dismiss}
+        className="absolute top-4 right-4 z-[101] rounded-full bg-black/60 p-2 text-white/80 hover:text-white hover:bg-black/80 transition-colors backdrop-blur-sm"
+        title="Close"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
   );
 }

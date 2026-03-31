@@ -95,6 +95,7 @@ export const healthRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/health/info",
     {
+      onRequest: [fastify.authenticate],
       schema: {
         description: "Get server information including IP addresses",
         tags: ["Health"],

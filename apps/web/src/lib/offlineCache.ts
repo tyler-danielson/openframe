@@ -15,12 +15,19 @@ export const CACHE_KEYS = {
   WEATHER_FORECAST: "openframe_weather_forecast",
   WEATHER_HOURLY: "openframe_weather_hourly",
   KIOSK_CONFIG: "openframe_kiosk_config",
+  EVENTS: "openframe_events",
+  CALENDARS: "openframe_calendars",
+  TASKS: "openframe_tasks",
+  TASK_LISTS: "openframe_task_lists",
 } as const;
 
 // Default max ages in milliseconds
 export const CACHE_MAX_AGES = {
   WEATHER: 6 * 60 * 60 * 1000, // 6 hours
   KIOSK_CONFIG: 24 * 60 * 60 * 1000, // 24 hours
+  EVENTS: 24 * 60 * 60 * 1000, // 24 hours
+  CALENDARS: 24 * 60 * 60 * 1000, // 24 hours
+  TASKS: 12 * 60 * 60 * 1000, // 12 hours
 } as const;
 
 export const offlineCache = {

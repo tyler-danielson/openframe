@@ -7,6 +7,7 @@ interface ProcessOptions {
   filename: string;
   generateThumbnail?: boolean;
   generateMedium?: boolean;
+  maxResolution?: number; // Max pixel dimension (default: 3840 for 4K)
 }
 
 interface ProcessResult {
@@ -39,17 +40,23 @@ export async function processImage(
   // Extract EXIF data before rotation
   const exif = metadata.exif ? parseExif(metadata) : {};
 
-  // Auto-rotate based on EXIF orientation, then get corrected dimensions
-  const rotatedBuffer = await sharp(buffer).rotate().toBuffer();
-  const image = sharp(rotatedBuffer);
-  const rotatedMeta = await image.metadata();
-  const width = rotatedMeta.width ?? 0;
-  const height = rotatedMeta.height ?? 0;
+  // Auto-rotate based on EXIF orientation, then downscale to max resolution
+  const maxDim = options.maxResolution ?? 3840;
+  const maxHeight = Math.round(maxDim * 9 / 16); // Maintain 16:9 ratio for max
+  const downscaled = await sharp(buffer)
+    .rotate()
+    .resize(maxDim, maxHeight, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 85 })
+    .toBuffer();
+  const image = sharp(downscaled);
+  const finalMeta = await image.metadata();
+  const width = finalMeta.width ?? 0;
+  const height = finalMeta.height ?? 0;
 
-  // Save the auto-rotated original (orientation baked into pixels)
+  // Save the processed image
   await mkdir(join(options.userDir, "original"), { recursive: true });
   const originalPath = join(options.userDir, "original", options.filename);
-  await writeFile(originalPath, rotatedBuffer);
+  await writeFile(originalPath, downscaled);
 
   const result: ProcessResult = {
     width,

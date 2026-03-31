@@ -296,6 +296,18 @@ export function DayScheduleWidget({ config, style, isBuilder }: DayScheduleWidge
               {format(new Date().setHours(hour, 0), "ha")}
             </div>
           ))}
+
+          {/* Current time label in gutter */}
+          {showCurrentTimeMarker && !isBuilder && (
+            <div
+              className="absolute right-0 z-10"
+              style={{ top: `${currentTimePosition}%`, transform: "translateY(-50%)" }}
+            >
+              <span className="bg-red-500 text-white font-bold px-1 rounded text-[8px] leading-none py-0.5">
+                {format(now, "HH:mm")}
+              </span>
+            </div>
+          )}
         </div>
       )}
 

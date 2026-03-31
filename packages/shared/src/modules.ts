@@ -8,6 +8,7 @@ export type ModuleId =
   | "cast"
   | "spotify"
   | "iptv"
+  | "siriusxm"
   | "youtube"
   | "plex"
   | "audiobookshelf"
@@ -21,9 +22,11 @@ export type ModuleId =
   | "ai-briefing"
   | "gmail"
   | "telegram"
+  | "whatsapp"
   | "capacities"
   | "matter"
-  | "companion";
+  | "companion"
+  | "packages";
 
 export type ModuleCategory =
   | "smart-home"
@@ -114,6 +117,14 @@ export const MODULE_REGISTRY: Record<ModuleId, ModuleDefinition> = {
     name: "Live TV (IPTV)",
     description: "Live TV channels via IPTV/M3U streams",
     icon: "Tv",
+    category: "entertainment",
+    dependsOn: [],
+  },
+  siriusxm: {
+    id: "siriusxm",
+    name: "SiriusXM Radio",
+    description: "Live satellite radio channels via SiriusXM",
+    icon: "Radio",
     category: "entertainment",
     dependsOn: [],
   },
@@ -221,6 +232,14 @@ export const MODULE_REGISTRY: Record<ModuleId, ModuleDefinition> = {
     category: "communication",
     dependsOn: [],
   },
+  whatsapp: {
+    id: "whatsapp",
+    name: "WhatsApp",
+    description: "Send commands and receive notifications via WhatsApp",
+    icon: "MessageCircle",
+    category: "communication",
+    dependsOn: [],
+  },
   capacities: {
     id: "capacities",
     name: "Capacities",
@@ -243,6 +262,14 @@ export const MODULE_REGISTRY: Record<ModuleId, ModuleDefinition> = {
     description: "Mobile companion app for remote access",
     icon: "Smartphone",
     category: "system",
+    dependsOn: [],
+  },
+  packages: {
+    id: "packages",
+    name: "Package Tracking",
+    description: "Track incoming packages from USPS, UPS, FedEx, and more",
+    icon: "Package",
+    category: "information",
     dependsOn: [],
   },
 };

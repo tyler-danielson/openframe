@@ -1,0 +1,28 @@
+com.openframe.firetv.app-pngs-0 C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\build\generated\res\pngs\debug
+com.openframe.firetv.app-resValues-1 C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\build\generated\res\resValues\debug
+com.openframe.firetv.app-packageDebugResources-2 C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\build\intermediates\incremental\debug\packageDebugResources\merged.dir
+com.openframe.firetv.app-packageDebugResources-3 C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
+com.openframe.firetv.app-merged_res-4 C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\build\intermediates\merged_res\debug
+com.openframe.firetv.app-debug-5 C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\debug\res
+com.openframe.firetv.app-main-6 C:\Claude Projects\My Calendar\openframe\apps\fire-tv\app\src\main\res
+com.openframe.firetv.app-webkit-1.9.0-7 C:\Users\tyler\.gradle\caches\transforms-3\0bc26f8c79db2ddc3dedaf05c8b47085\transformed\webkit-1.9.0\res
+com.openframe.firetv.app-annotation-experimental-1.3.0-8 C:\Users\tyler\.gradle\caches\transforms-3\270fb7fd829a98926c9ddcbdbe931f54\transformed\annotation-experimental-1.3.0\res
+com.openframe.firetv.app-coordinatorlayout-1.0.0-9 C:\Users\tyler\.gradle\caches\transforms-3\27475c178b1731c57efa9671280a2b47\transformed\coordinatorlayout-1.0.0\res
+com.openframe.firetv.app-core-1.12.0-10 C:\Users\tyler\.gradle\caches\transforms-3\2ccd268e0ca2e1cd10ec650ac8067a3e\transformed\core-1.12.0\res
+com.openframe.firetv.app-media-1.0.0-11 C:\Users\tyler\.gradle\caches\transforms-3\2f3e54ab2f23fd032af0a6156df07d26\transformed\media-1.0.0\res
+com.openframe.firetv.app-activity-1.6.0-12 C:\Users\tyler\.gradle\caches\transforms-3\353d37f368eee9acacac393e37f9884f\transformed\activity-1.6.0\res
+com.openframe.firetv.app-lifecycle-viewmodel-savedstate-2.5.1-13 C:\Users\tyler\.gradle\caches\transforms-3\39c562c8d8783beea151f14e7ca32776\transformed\lifecycle-viewmodel-savedstate-2.5.1\res
+com.openframe.firetv.app-lifecycle-livedata-core-2.5.1-14 C:\Users\tyler\.gradle\caches\transforms-3\414c4947b2643c056060617d52e7b536\transformed\lifecycle-livedata-core-2.5.1\res
+com.openframe.firetv.app-lifecycle-runtime-2.5.1-15 C:\Users\tyler\.gradle\caches\transforms-3\42c279ca6ce9b4c2bbbaef2af45e191c\transformed\lifecycle-runtime-2.5.1\res
+com.openframe.firetv.app-fragment-1.3.6-16 C:\Users\tyler\.gradle\caches\transforms-3\682f8c367c2a77ce64b8ceb9c7d65505\transformed\fragment-1.3.6\res
+com.openframe.firetv.app-emoji2-1.2.0-17 C:\Users\tyler\.gradle\caches\transforms-3\6f6fec51fc0bf858d6900b90dd62d6da\transformed\emoji2-1.2.0\res
+com.openframe.firetv.app-lifecycle-viewmodel-2.5.1-18 C:\Users\tyler\.gradle\caches\transforms-3\7864bc8c1d801f68c1e5f4938530c1a7\transformed\lifecycle-viewmodel-2.5.1\res
+com.openframe.firetv.app-lifecycle-process-2.4.1-19 C:\Users\tyler\.gradle\caches\transforms-3\7a571294463d6954fdc6388f1e304f5b\transformed\lifecycle-process-2.4.1\res
+com.openframe.firetv.app-startup-runtime-1.1.1-20 C:\Users\tyler\.gradle\caches\transforms-3\9f32a872f0b1731ac06773ebeb3ffa7e\transformed\startup-runtime-1.1.1\res
+com.openframe.firetv.app-appcompat-1.6.1-21 C:\Users\tyler\.gradle\caches\transforms-3\af226701e07b6e5753175ffad1df9a85\transformed\appcompat-1.6.1\res
+com.openframe.firetv.app-appcompat-resources-1.6.1-22 C:\Users\tyler\.gradle\caches\transforms-3\af7216361ca839e24eaca4905b35b800\transformed\appcompat-resources-1.6.1\res
+com.openframe.firetv.app-leanback-1.0.0-23 C:\Users\tyler\.gradle\caches\transforms-3\cb9d4b2983f74336cf48bfcdf46f074b\transformed\leanback-1.0.0\res
+com.openframe.firetv.app-savedstate-1.2.0-24 C:\Users\tyler\.gradle\caches\transforms-3\d6446bb19f923c941890a2019061c859\transformed\savedstate-1.2.0\res
+com.openframe.firetv.app-core-ktx-1.12.0-25 C:\Users\tyler\.gradle\caches\transforms-3\e0f6a21bbc1725885c6fb4d4ab876c33\transformed\core-ktx-1.12.0\res
+com.openframe.firetv.app-recyclerview-1.0.0-26 C:\Users\tyler\.gradle\caches\transforms-3\eb1c825db431ab696004ae0c3f630f2c\transformed\recyclerview-1.0.0\res
+com.openframe.firetv.app-emoji2-views-helper-1.2.0-27 C:\Users\tyler\.gradle\caches\transforms-3\f848fa7d3a3b65c1575c183cc9692e1d\transformed\emoji2-views-helper-1.2.0\res

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="MainScene" extends="Scene">
+    <interface>
+        <field id="deepLinkArgs" type="assocarray" />
+        <field id="exitChannel" type="boolean" value="false" onChange="onExitChannel" />
+    </interface>
+    <script type="text/brightscript" uri="MainScene.brs" />
+    <script type="text/brightscript" uri="pkg:/components/utils/Registry.brs" />
+    <children>
+        <Rectangle width="1920" height="1080" color="0x0f172aFF" />
+
+        <!-- Screens (all initially invisible) -->
+        <SetupScreen id="setupScreen" visible="false" />
+        <QRSetupScreen id="qrSetupScreen" visible="false" />
+        <PhotoScreen id="photoScreen" visible="false" />
+        <CalendarScreen id="calendarScreen" visible="false" />
+        <WeatherScreen id="weatherScreen" visible="false" />
+        <ClockScreen id="clockScreen" visible="false" />
+        <ErrorScreen id="errorScreen" visible="false" />
+        <SettingsOverlay id="settingsOverlay" visible="false" />
+
+        <!-- Status indicator -->
+        <Label
+            id="statusIndicator"
+            text=""
+            font="font:SmallSystemFont"
+            color="0x22c55eFF"
+            translation="[1700, 20]"
+            width="200"
+            horizAlign="right"
+            visible="false" />
+
+        <!-- Paused indicator -->
+        <Label
+            id="pausedIndicator"
+            text="PAUSED"
+            font="font:MediumBoldSystemFont"
+            color="0xfbbf24FF"
+            horizAlign="center"
+            width="1920"
+            translation="[0, 1040]"
+            visible="false" />
+
+        <!-- API tasks -->
+        <ApiTask id="healthTask" />
+        <ApiTask id="weatherTask" />
+        <ApiTask id="calendarTask" />
+        <ApiTask id="photoTask" />
+
+        <!-- Timers -->
+        <Timer id="rotationTimer" duration="30" repeat="true" />
+        <Timer id="weatherRefreshTimer" duration="600" repeat="true" />
+        <Timer id="calendarRefreshTimer" duration="300" repeat="true" />
+    </children>
+</component>

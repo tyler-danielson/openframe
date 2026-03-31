@@ -159,8 +159,8 @@ export function RollingMonthView({
       return { icon: currentWeather.icon, temp: currentWeather.temp };
     }
     if (weatherForecast) {
-      const dayName = format(day, "EEE");
-      const forecast = weatherForecast.find(f => f.date === dayName);
+      const dateKey = format(day, "yyyy-MM-dd");
+      const forecast = weatherForecast.find(f => f.date === dateKey);
       if (forecast) {
         return { icon: forecast.icon, temp: forecast.temp_max };
       }

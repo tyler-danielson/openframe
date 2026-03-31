@@ -1,4 +1,5 @@
-import { X, Trash2 } from "lucide-react";
+import { X, Trash2, Settings } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import type { PlannerWidgetInstance } from "@openframe/shared";
 import { Button } from "../ui/Button";
 import { PLANNER_WIDGET_REGISTRY } from "../../lib/planner/widget-registry";
@@ -21,6 +22,7 @@ export function WidgetConfigPopover({
   onDelete,
   onClose,
 }: WidgetConfigPopoverProps) {
+  const navigate = useNavigate();
   const definition = PLANNER_WIDGET_REGISTRY[widget.type];
 
   const updateConfig = (key: string, value: unknown) => {
@@ -410,6 +412,14 @@ export function WidgetConfigPopover({
                   Filter by category or leave empty for all
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={() => navigate("/settings/connections")}
+                className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-primary hover:bg-primary/10 rounded-md transition-colors"
+              >
+                <Settings className="h-3.5 w-3.5" />
+                Manage RSS Feeds
+              </button>
             </>
           )}
 

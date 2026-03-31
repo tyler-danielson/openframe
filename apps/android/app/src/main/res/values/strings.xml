@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OpenFrame</string>
+    <string name="tab_today">Today</string>
+    <string name="tab_calendar">Calendar</string>
+    <string name="tab_tasks">Tasks</string>
+    <string name="tab_photos">Photos</string>
+    <string name="tab_kiosk">Kiosk</string>
+    <string name="tab_settings">Settings</string>
+</resources>

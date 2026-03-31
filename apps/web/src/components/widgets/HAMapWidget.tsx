@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState, useMemo } from "react";
+import React, { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MapPin, User, Loader2, AlertTriangle, Home, Navigation } from "lucide-react";
 import { api } from "../../services/api";
@@ -264,17 +264,17 @@ function MapView({
   const OSM_LIGHT_STYLE = {
     version: 8 as const,
     sources: {
-      osm: {
+      carto: {
         type: "raster" as const,
         tiles: [
-          "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-          "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-          "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+          "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+          "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
         ],
         tileSize: 256,
       },
     },
-    layers: [{ id: "osm", type: "raster" as const, source: "osm", minzoom: 0, maxzoom: 19 }],
+    layers: [{ id: "carto-light", type: "raster" as const, source: "carto", minzoom: 0, maxzoom: 19 }],
   };
 
   const OSM_DARK_STYLE = {
@@ -409,6 +409,203 @@ function MapView({
   );
 }
 
+// Custom HTML marker for Leaflet (replaces CircleMarker with styled divs)
+function LeafletHtmlMarker({ position, html }: { position: [number, number]; html: string }) {
+  const markerRef = useRef<import("leaflet").Marker | null>(null);
+  const [L, setL] = useState<typeof import("leaflet") | null>(null);
+  const [RLMarker, setRLMarker] = useState<typeof import("react-leaflet").Marker | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    Promise.all([import("leaflet"), import("react-leaflet")]).then(([leaflet, rl]) => {
+      if (mounted) {
+        setL(() => leaflet);
+        setRLMarker(() => rl.Marker);
+      }
+    });
+    return () => { mounted = false; };
+  }, []);
+
+  if (!L || !RLMarker) return null;
+
+  const icon = L.divIcon({
+    html: `<div style="position:relative;display:flex;align-items:center;justify-content:center">${html}</div>`,
+    className: "",
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+  });
+
+  return <RLMarker ref={markerRef} position={position} icon={icon} />;
+}
+
+// Leaflet fallback map - uses raster tiles, no WebGL required
+function LeafletMapView({
+  locations,
+  zones,
+  darkMode,
+  showDeviceNames,
+  showZones,
+  deviceIcons,
+  onError,
+}: {
+  locations: Location[];
+  zones: Zone[];
+  darkMode: boolean;
+  showDeviceNames: boolean;
+  showZones: boolean;
+  deviceIcons: Record<string, string>;
+  onError: () => void;
+}) {
+  const [leafletReady, setLeafletReady] = useState(false);
+  const [LeafletComponents, setLeafletComponents] = useState<{
+    MapContainer: typeof import("react-leaflet").MapContainer;
+    TileLayer: typeof import("react-leaflet").TileLayer;
+    CircleMarker: typeof import("react-leaflet").CircleMarker;
+    Circle: typeof import("react-leaflet").Circle;
+    Tooltip: typeof import("react-leaflet").Tooltip;
+    useMap: typeof import("react-leaflet").useMap;
+  } | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadLeaflet() {
+      try {
+        const [rl, L] = await Promise.all([
+          import("react-leaflet"),
+          import("leaflet"),
+        ]);
+        await import("leaflet/dist/leaflet.css");
+        // Fix default icon paths for bundlers
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        delete (L.Icon.Default.prototype as any)._getIconUrl;
+        L.Icon.Default.mergeOptions({
+          iconRetinaUrl: "",
+          iconUrl: "",
+          shadowUrl: "",
+        });
+        if (mounted) {
+          setLeafletComponents({
+            MapContainer: rl.MapContainer,
+            TileLayer: rl.TileLayer,
+            CircleMarker: rl.CircleMarker,
+            Circle: rl.Circle,
+            Tooltip: rl.Tooltip,
+            useMap: rl.useMap,
+          });
+          setLeafletReady(true);
+        }
+      } catch (err) {
+        console.warn("Failed to load Leaflet:", err);
+        if (mounted) onError();
+      }
+    }
+    loadLeaflet();
+    return () => { mounted = false; };
+  }, [onError]);
+
+  if (!leafletReady || !LeafletComponents) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+      </div>
+    );
+  }
+
+  const { MapContainer, TileLayer, CircleMarker, Circle, Tooltip, useMap } = LeafletComponents;
+
+  const tileUrl = darkMode
+    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+    : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+
+  // Component to fit bounds inside MapContainer
+  function FitBounds() {
+    const map = useMap();
+    useEffect(() => {
+      const points: [number, number][] = locations.map(l => [l.latitude, l.longitude]);
+      if (showZones) {
+        for (const zone of zones) {
+          points.push([zone.latitude, zone.longitude]);
+        }
+      }
+      if (points.length === 0) return;
+      if (points.length === 1) {
+        map.setView(points[0]!, 14);
+      } else {
+        const lats = points.map(p => p[0]);
+        const lngs = points.map(p => p[1]);
+        map.fitBounds(
+          [[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]],
+          { padding: [40, 40], maxZoom: 15 }
+        );
+      }
+    }, [map, locations.length]);
+    return null;
+  }
+
+  return (
+    <MapContainer
+      center={[39.8, -98.5]}
+      zoom={4}
+      style={{ width: "100%", height: "100%", background: darkMode ? "#1a1a2e" : "#f0f0f0" }}
+      zoomControl={false}
+      attributionControl={false}
+    >
+      <TileLayer url={tileUrl} />
+      <FitBounds />
+      {/* Zone markers */}
+      {showZones && zones.map((zone) => {
+        const isHome = zone.entityId === "zone.home";
+        return (
+          <React.Fragment key={zone.entityId}>
+            <Circle
+              center={[zone.latitude, zone.longitude]}
+              radius={zone.radius}
+              pathOptions={{
+                color: isHome ? "#047857" : "#6366f1",
+                fillColor: isHome ? "#047857" : "#6366f1",
+                fillOpacity: 0.1,
+                weight: 2,
+              }}
+            />
+            <LeafletHtmlMarker
+              position={[zone.latitude, zone.longitude]}
+              html={`<div style="width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:${isHome ? "#047857" : "#6366f1"};border:2px solid rgba(255,255,255,0.7);box-shadow:0 2px 8px rgba(0,0,0,0.3)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  ${isHome ? '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>' : '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>'}
+                </svg>
+              </div>${showDeviceNames ? `<div style="position:absolute;left:50%;transform:translateX(-50%);top:100%;margin-top:4px;font-size:10px;background:rgba(0,0,0,0.7);color:rgba(255,255,255,0.8);padding:2px 6px;border-radius:4px;white-space:nowrap">${zone.name}</div>` : ""}`}
+            />
+          </React.Fragment>
+        );
+      })}
+      {/* Device markers */}
+      {locations.map((location, index) => {
+        const isHome = location.state === "home";
+        const color = isHome ? "#047857" : (COLORS[index % COLORS.length] ?? "#3B82F6");
+        const customIcon = deviceIcons[location.entityId];
+        const innerContent = customIcon
+          ? `<span style="font-size:16px;line-height:1">${customIcon}</span>`
+          : location.entityPictureUrl
+            ? `<img src="${location.entityPictureUrl}" style="width:24px;height:24px;border-radius:50%;object-fit:cover" />`
+            : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+        const label = showDeviceNames
+          ? `<div style="position:absolute;left:50%;transform:translateX(-50%);top:100%;margin-top:4px;display:flex;flex-direction:column;align-items:center;gap:2px">
+              <div style="font-size:12px;background:rgba(0,0,0,0.7);color:white;padding:2px 6px;border-radius:4px;white-space:nowrap">${location.name}</div>
+            </div>`
+          : "";
+        return (
+          <LeafletHtmlMarker
+            key={location.entityId}
+            position={[location.latitude, location.longitude]}
+            html={`<div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:${color};border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4)">${innerContent}</div>${label}`}
+          />
+        );
+      })}
+    </MapContainer>
+  );
+}
+
+
 // Fallback list view when map can't load
 function LocationListView({
   locations,
@@ -494,6 +691,7 @@ function LocationListView({
 
 export function HAMapWidget({ config, style, isBuilder }: HAMapWidgetProps) {
   const [mapFailed, setMapFailed] = useState(false);
+  const [leafletFailed, setLeafletFailed] = useState(false);
 
   const showDeviceNames = (config.showDeviceNames as boolean) ?? true;
   const darkMode = (config.darkMode as boolean) ?? true;
@@ -632,8 +830,67 @@ export function HAMapWidget({ config, style, isBuilder }: HAMapWidgetProps) {
     );
   }
 
-  // Show list view if map failed to load at runtime
-  if (mapFailed) {
+  // MapLibre failed — try Leaflet (raster tiles, no WebGL)
+  if (mapFailed && !leafletFailed) {
+    return (
+      <div className="h-full w-full rounded-lg overflow-hidden relative">
+        <LeafletMapView
+          locations={locations}
+          zones={zones}
+          darkMode={darkMode}
+          showDeviceNames={showDeviceNames}
+          showZones={showZones}
+          deviceIcons={deviceIcons}
+          onError={() => setLeafletFailed(true)}
+        />
+        {/* ETA panel overlay */}
+        {showEta && Object.keys(etas).length > 0 && (
+          <div className="absolute top-2 left-2 z-[1000] bg-black/80 backdrop-blur-sm rounded-lg px-2.5 py-2 shadow-lg border border-blue-500/30">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Navigation className="h-3 w-3 text-blue-400" />
+              <span className="text-[10px] font-semibold text-blue-400 uppercase tracking-wide">ETA Home</span>
+            </div>
+            <div className="space-y-1">
+              {locations
+                .filter((loc) => loc.state !== "home" && etas[loc.entityId])
+                .map((loc) => (
+                  <div key={loc.entityId} className="flex items-center gap-2 text-[11px] text-white">
+                    <span className="font-medium truncate max-w-[80px]">{loc.name}</span>
+                    <span className="text-blue-300 ml-auto">{formatEta(etas[loc.entityId]!.duration)}</span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+        {/* Last Updated overlay */}
+        {(() => {
+          const visible = locations.filter((loc) => {
+            if (loc.state === "home" && loc.lastUpdated &&
+              (Date.now() - new Date(loc.lastUpdated).getTime()) < 60 * 60 * 1000) return false;
+            return true;
+          });
+          if (visible.length === 0) return null;
+          return (
+            <div className="absolute bottom-2 right-2 z-[1000] bg-primary/80 backdrop-blur-sm rounded-lg px-2.5 py-1.5 shadow-lg border border-primary/30">
+              <div className="space-y-0.5">
+                {visible.map((location) => (
+                  <div key={location.entityId} className="flex items-center gap-2 text-[11px] text-primary-foreground">
+                    <span className="font-medium truncate max-w-[80px]">{location.name}</span>
+                    <span className="opacity-70">
+                      {location.lastUpdated ? formatLastUpdated(location.lastUpdated) : "\u2014"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+    );
+  }
+
+  // Both map engines failed — show list view
+  if (mapFailed && leafletFailed) {
     return <LocationListView locations={locations} etas={etas} showEta={showEta} deviceIcons={deviceIcons} style={style} showReason />;
   }
 

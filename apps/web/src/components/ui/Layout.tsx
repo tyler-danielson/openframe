@@ -32,6 +32,9 @@ import {
   Kanban,
   UserPlus,
   HelpCircle,
+  HardDrive,
+  WifiOff,
+  Radio,
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { resolveLucideIcon as sharedResolveLucideIcon, isCustomIcon } from "../../lib/icon-utils";
@@ -39,7 +42,7 @@ import { DashboardIcon } from "./DashboardIcon";
 import { api, type KioskEnabledFeatures, type KioskDisplayType, type KioskDashboard } from "../../services/api";
 import { getDashboardTypeOption } from "../../data/kiosk-options";
 import { useAuthStore } from "../../stores/auth";
-import { isCloudMode } from "../../lib/cloud";
+import { isCloudMode, appPath } from "../../lib/cloud";
 import { useSidebarStore, SIDEBAR_FEATURES, type SidebarFeature } from "../../stores/sidebar";
 import { useModuleStore } from "../../stores/modules";
 import type { CustomScreen } from "@openframe/shared";
@@ -49,6 +52,7 @@ import { useBlockNavStore, type NavigableBlock } from "../../stores/block-nav";
 import { cn } from "../../lib/utils";
 import { SidebarHelpOverlay, type HelpItem } from "../SidebarHelpOverlay";
 import { useDemoMode } from "../../contexts/DemoContext";
+import { useConnection } from "../../contexts/ConnectionContext";
 import { useSplitScreenStore } from "../../stores/split-screen";
 import { SplitScreenContainer } from "../SplitScreenContainer";
 
@@ -69,6 +73,7 @@ const BUILTIN_FEATURE_MAP: Record<string, { icon: any; path: string; label: stri
   dashboard: { icon: LayoutDashboard, path: "dashboard", label: "Dashboard", moduleId: null },
   cardview: { icon: Kanban, path: "cardview", label: "Card View", moduleId: null },
   photos: { icon: Image, path: "photos", label: "Photos", moduleId: "photos" },
+  files: { icon: HardDrive, path: "files", label: "Files", moduleId: null },
   cameras: { icon: Camera, path: "cameras", label: "Cameras", moduleId: "cameras" },
   multiview: { icon: LayoutGrid, path: "multiview", label: "Multi-View", moduleId: "cameras" },
   homeassistant: { icon: Home, path: "homeassistant", label: "Home Assistant", moduleId: "homeassistant" },
@@ -88,6 +93,7 @@ function resolveLucideIcon(name: string): React.ComponentType<{ className?: stri
 const mediaItemsBase = [
   { path: "spotify", icon: Music, label: "Spotify" },
   { path: "iptv", icon: Tv, label: "Live TV" },
+  { path: "siriusxm", icon: Radio, label: "SiriusXM" },
 ];
 
 export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards, kioskControls, className, basePath: baseProp }: LayoutProps = {}) {
@@ -153,7 +159,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
   );
 
   // Check if current route is a media route
-  const isMediaRoute = location.pathname.endsWith("/spotify") || location.pathname.endsWith("/iptv");
+  const isMediaRoute = location.pathname.endsWith("/spotify") || location.pathname.endsWith("/iptv") || location.pathname.endsWith("/siriusxm");
 
   // Auto-open media menu when on a media route
   useEffect(() => {
@@ -415,22 +421,26 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
   const hasDashboards = kioskDashboards && kioskDashboards.length > 0;
   const spotifyModuleOn = isModuleEnabled("spotify");
   const iptvModuleOn = isModuleEnabled("iptv");
+  const siriusxmModuleOn = isModuleEnabled("siriusxm");
   const spotifyEnabled = !hasDashboards && spotifyModuleOn && (kioskEnabledFeatures ? isFeatureEnabled("spotify") : (!sidebarFeatures.spotify || sidebarFeatures.spotify.enabled));
   const iptvEnabled = !hasDashboards && iptvModuleOn && (kioskEnabledFeatures ? isFeatureEnabled("iptv") : (!sidebarFeatures.iptv || sidebarFeatures.iptv.enabled));
+  const siriusxmEnabled = !hasDashboards && siriusxmModuleOn && (kioskEnabledFeatures ? isFeatureEnabled("siriusxm" as any) : (!sidebarFeatures.siriusxm || sidebarFeatures.siriusxm.enabled));
   const spotifyPinned = kioskEnabledFeatures ? true : (!sidebarFeatures.spotify || sidebarFeatures.spotify.pinned);
   const iptvPinned = kioskEnabledFeatures ? true : (!sidebarFeatures.iptv || sidebarFeatures.iptv.pinned);
+  const siriusxmPinned = kioskEnabledFeatures ? true : (!sidebarFeatures.siriusxm || sidebarFeatures.siriusxm.pinned);
 
   // Show media button in sidebar if at least one media item is enabled AND pinned
-  const showMedia = (spotifyEnabled && spotifyPinned) || (iptvEnabled && iptvPinned);
+  const showMedia = (spotifyEnabled && spotifyPinned) || (iptvEnabled && iptvPinned) || (siriusxmEnabled && siriusxmPinned);
 
   // Filter media items for sidebar (pinned ones)
   const filteredMediaItems = useMemo(() => {
     return mediaItems.filter(item => {
       if (item.label === "Spotify") return spotifyEnabled && spotifyPinned;
       if (item.label === "Live TV") return iptvEnabled && iptvPinned;
+      if (item.label === "SiriusXM") return siriusxmEnabled && siriusxmPinned;
       return true;
     });
-  }, [mediaItems, spotifyEnabled, spotifyPinned, iptvEnabled, iptvPinned]);
+  }, [mediaItems, spotifyEnabled, spotifyPinned, iptvEnabled, iptvPinned, siriusxmEnabled, siriusxmPinned]);
 
   // Media items for More menu (enabled but unpinned)
   const moreMediaItems = useMemo(() => {
@@ -438,9 +448,10 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
     return mediaItems.filter(item => {
       if (item.label === "Spotify") return spotifyEnabled && !spotifyPinned;
       if (item.label === "Live TV") return iptvEnabled && !iptvPinned;
+      if (item.label === "SiriusXM") return siriusxmEnabled && !siriusxmPinned;
       return false;
     });
-  }, [mediaItems, kioskEnabledFeatures, spotifyEnabled, spotifyPinned, iptvEnabled, iptvPinned]);
+  }, [mediaItems, kioskEnabledFeatures, spotifyEnabled, spotifyPinned, iptvEnabled, iptvPinned, siriusxmEnabled, siriusxmPinned]);
 
   // Build help overlay items dynamically based on what's currently visible
   const helpNavItems = useMemo((): HelpItem[] => {
@@ -522,6 +533,10 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
   const hideNav = kioskDisplayType === "display" || kioskDisplayType === "tv";
   const isTvMode = kioskDisplayType === "tv";
 
+  // Show minimal sidebar when kiosk is offline (even if hideNav would normally hide it)
+  const { isOffline, connectionStatus, checkNow } = useConnection();
+  const isOfflineKiosk = isKioskPath && isOffline;
+
   // Block navigation for TV sidebar
   const blockNavMode = useBlockNavStore((s) => s.mode);
   const focusedBlockId = useBlockNavStore((s) => s.focusedBlockId);
@@ -599,7 +614,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
     const path = window.location.pathname;
     if (path.includes("/screensaver-builder") || path.includes("/planner")) {
       e.preventDefault();
-      window.location.href = to;
+      window.location.href = appPath(to);
     }
   }, []);
 
@@ -610,7 +625,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
         <div className="fixed top-0 inset-x-0 z-[60] flex items-center justify-center gap-4 bg-primary px-4 py-2 text-primary-foreground text-sm">
           <span>You're exploring the live demo. Changes reset between sessions.</span>
           <a
-            href={isCloudMode ? "https://openframe.us/login" : "/login"}
+            href={isCloudMode ? "https://openframe.us/login" : appPath("/login")}
             className="rounded-md bg-primary-foreground/20 px-3 py-0.5 font-medium hover:bg-primary-foreground/30 transition-colors"
           >
             Sign Up Free
@@ -636,11 +651,11 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
         />
       )}
 
-      {/* Sidebar */}
-      {!hideNav && <aside
+      {/* Sidebar — force visible when kiosk is offline for refresh/exit controls */}
+      {(!hideNav || isOfflineKiosk) && <aside
         className={cn(
           "fixed lg:relative z-50 lg:z-auto h-full flex w-16 shrink-0 flex-col items-center border-r border-primary/15 bg-card py-4 transform transition-transform duration-500 ease-in-out",
-          hideToolbarForBurnIn
+          hideToolbarForBurnIn && !isOfflineKiosk
             ? "-translate-x-full"
             : isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
@@ -654,7 +669,8 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
           <X className="h-5 w-5 text-foreground" />
         </button>
 
-        <nav className={cn("flex flex-1 flex-col items-center", isTvMode ? "gap-3" : "gap-2")}>
+        {/* Hide nav items when sidebar is only shown for offline controls */}
+        {!hideNav && <nav className={cn("flex flex-1 flex-col items-center", isTvMode ? "gap-3" : "gap-2")}>
           {hasDashboards ? (
             /* Dashboard-based nav: all items in order, no media submenu */
             pinnedItems.map((item) => (
@@ -758,9 +774,51 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
             </>
           )}
 
-        </nav>
+        </nav>}
 
-        <div className="flex flex-col items-center gap-2">
+        <div className={cn("flex flex-col items-center gap-2", hideNav && isOfflineKiosk && "flex-1 justify-end")}>
+          {/* Offline kiosk controls — shown when sidebar is forced visible during disconnection */}
+          {isOfflineKiosk && (
+            <div className="flex flex-col items-center gap-2 mb-2">
+              {/* Connection status badge */}
+              <div
+                className={cn(
+                  "flex h-10 w-10 items-center justify-center rounded-lg",
+                  connectionStatus === "reconnecting"
+                    ? "bg-amber-500/10 text-amber-500"
+                    : "bg-destructive/10 text-destructive"
+                )}
+                title={connectionStatus === "reconnecting" ? "Reconnecting..." : "Server offline"}
+              >
+                {connectionStatus === "reconnecting" ? (
+                  <RefreshCw className="h-5 w-5 animate-spin" />
+                ) : (
+                  <WifiOff className="h-5 w-5" />
+                )}
+              </div>
+              {/* Retry connection */}
+              <button
+                onClick={async () => {
+                  const online = await checkNow();
+                  if (online) window.location.reload();
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                title="Retry connection"
+              >
+                <RefreshCw className="h-5 w-5" />
+              </button>
+              {/* Exit fullscreen */}
+              {isFullscreen && (
+                <button
+                  onClick={() => document.exitFullscreen?.()}
+                  className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                  title="Exit fullscreen"
+                >
+                  <Minimize className="h-5 w-5" />
+                </button>
+              )}
+            </div>
+          )}
           {/* Kiosk mode indicator */}
           {isKioskPath && (
             <div

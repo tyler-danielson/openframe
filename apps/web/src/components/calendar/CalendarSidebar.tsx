@@ -217,7 +217,7 @@ function TodayContent({
     return { name: cal?.name ?? "Calendar", color: cal?.color ?? "#3B82F6" };
   };
 
-  const tomorrowForecast = forecast?.find(f => f.date === format(tomorrowStart, "EEE"));
+  const tomorrowForecast = forecast?.find(f => f.date === format(tomorrowStart, "yyyy-MM-dd"));
 
   return (
     <div className="p-4 space-y-5">

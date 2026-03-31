@@ -1,4 +1,4 @@
-import { useMemo, useRef, useCallback, useEffect } from "react";
+import { useMemo, useRef, useCallback, useEffect, useState } from "react";
 import { format, addDays, isToday } from "date-fns";
 import type { CalendarEvent } from "@openframe/shared";
 import { useCalendarStore } from "../../stores/calendar";
@@ -110,6 +110,16 @@ export function ScheduleView({
   const longPressStartPosRef = useRef<{ x: number; y: number } | null>(null);
   const didLongPressRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Current time state that updates every minute for the time indicator
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Scroll to center current time on mount
   useEffect(() => {
@@ -331,8 +341,10 @@ export function ScheduleView({
     <div className="h-full flex flex-col border-t border-l border-white overflow-hidden">
       {/* Header row with day names */}
       <div className="flex border-b border-white shrink-0">
-        {/* Time gutter header */}
-        <div className="w-20 shrink-0 bg-muted border-r border-white" />
+        {/* Time gutter header - shows month abbreviation */}
+        <div className="w-20 shrink-0 bg-muted border-r border-white flex items-center justify-center">
+          <span className="text-lg font-semibold text-muted-foreground">{format(currentDate, "MMM")}</span>
+        </div>
 
         {/* Day headers - simple format: "Sun 2" */}
         {scheduleDays.map((day) => {
@@ -340,7 +352,7 @@ export function ScheduleView({
           return (
             <div
               key={format(day, "yyyy-MM-dd")}
-              className={`flex-1 px-3 py-3 border-r border-white cursor-pointer ${isTodayHeader ? 'bg-primary/10' : 'bg-muted'}`}
+              className={`flex-1 px-2 py-2 border-r border-white cursor-pointer ${isTodayHeader ? 'bg-primary/10' : 'bg-muted'}`}
               onClick={() => handleDayClick(day)}
               onPointerDown={(e) => handleDayPointerDown(day, e)}
               onPointerMove={handleDayPointerMove}
@@ -348,9 +360,9 @@ export function ScheduleView({
               onPointerLeave={handleDayPointerUp}
               onPointerCancel={handleDayPointerUp}
             >
-              <p className={`text-2xl font-semibold text-center flex items-center justify-center gap-2 ${isTodayHeader ? 'text-primary' : 'text-foreground'}`}>
+              <p className={`text-lg font-medium text-center flex items-center justify-center gap-1.5 ${isTodayHeader ? 'text-primary' : 'text-foreground'}`}>
                 <span>{format(day, "EEE")}</span>
-                <span className={`${isTodayHeader ? 'bg-primary text-primary-foreground rounded-full w-9 h-9 flex items-center justify-center' : ''}`}>
+                <span className={`${isTodayHeader ? 'bg-primary text-primary-foreground rounded-full w-7 h-7 flex items-center justify-center text-sm font-bold' : ''}`}>
                   {format(day, "d")}
                 </span>
               </p>
@@ -407,7 +419,7 @@ export function ScheduleView({
       {/* Time grid - shows 8 hours at a time, scrollable */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 flex overflow-auto schedule-scroll"
+        className="flex-1 overflow-auto schedule-scroll"
         style={{
           scrollbarWidth: 'none',
           msOverflowStyle: 'none',
@@ -418,6 +430,7 @@ export function ScheduleView({
             display: none;
           }
         `}</style>
+        <div className="flex relative" style={{ minHeight: `calc(${totalHours} * (100vh - 200px) / 8)` }}>
         {/* Time gutter */}
         <div
           className="w-20 shrink-0 bg-muted border-r border-white"
@@ -516,26 +529,34 @@ export function ScheduleView({
                 );
               })}
 
-              {/* Current time indicator for today */}
-              {isCurrentDay && (() => {
-                const now = new Date();
-                const nowHour = now.getHours() + now.getMinutes() / 60;
-                if (nowHour >= dayStartHour && nowHour <= dayEndHour) {
-                  const topHours = nowHour - dayStartHour;
-                  return (
-                    <div
-                      className="absolute left-0 right-0 h-0.5 bg-red-500 z-10 pointer-events-none"
-                      style={{ top: `calc(${topHours} * (100vh - 200px) / 8)` }}
-                    >
-                      <div className="absolute -left-1 -top-1 w-2 h-2 rounded-full bg-red-500" />
-                    </div>
-                  );
-                }
-                return null;
-              })()}
             </div>
           );
         })}
+
+          {/* Current time indicator - spans full width with time label */}
+          {(() => {
+            const nowHour = currentTime.getHours() + currentTime.getMinutes() / 60;
+            if (nowHour >= dayStartHour && nowHour <= dayEndHour) {
+              const topHours = nowHour - dayStartHour;
+              return (
+                <div
+                  className="absolute left-0 right-0 z-20 pointer-events-none flex items-center"
+                  style={{ top: `calc(${topHours} * (100vh - 200px) / 8)` }}
+                >
+                  {/* Time label in gutter area */}
+                  <div className="w-20 shrink-0 flex items-center justify-end pr-1">
+                    <span className="bg-red-500 text-white text-sm font-bold px-1.5 py-0.5 rounded">
+                      {format(currentTime, 'HH:mm')}
+                    </span>
+                  </div>
+                  {/* Red line across all day columns */}
+                  <div className="flex-1 h-0.5 bg-red-500" />
+                </div>
+              );
+            }
+            return null;
+          })()}
+        </div>
       </div>
     </div>
   );

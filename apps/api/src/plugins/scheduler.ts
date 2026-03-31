@@ -6,7 +6,7 @@
 
 import type { FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
-import { eq, and, gte, lte, inArray, isNotNull } from "drizzle-orm";
+import { eq, and, gte, lte, inArray, isNotNull, desc } from "drizzle-orm";
 import { getIptvCacheService } from "../services/iptv-cache.js";
 import { getAutomationEngine } from "../services/automation-engine.js";
 import { getNewsCacheService } from "../services/news-cache.js";
@@ -31,12 +31,14 @@ import {
   tasks,
   iptvServers,
   matterDevices,
+  photoAlbums,
+  photos,
 } from "@openframe/database/schema";
 import { getRemarkableClient } from "../services/remarkable/client.js";
 import { syncGoogleCalendars } from "../services/calendar-sync/google.js";
 import { syncMicrosoftCalendars } from "../services/calendar-sync/microsoft.js";
 import { syncICSCalendar } from "../services/calendar-sync/ics.js";
-import { decryptEventFields } from "../lib/encryption.js";
+import { decryptEventFields, decryptOAuthToken } from "../lib/encryption.js";
 import { oauthTokens, users } from "@openframe/database/schema";
 import { hasRequiredScopes, getScopesForFeature } from "../utils/oauth-scopes.js";
 import { generateAgendaPdf, getAgendaFilename, type AgendaEvent } from "../services/remarkable/agenda-generator.js";
@@ -45,6 +47,13 @@ import type { PlannerLayoutConfig } from "@openframe/shared";
 import { getCategorySettings } from "../routes/settings/index.js";
 import { syncRemarkableDocuments } from "../services/remarkable/note-processor.js";
 import { startOfDay, endOfDay, format, parse } from "date-fns";
+import { listAlbumPhotos, getAccessToken, getPhotoUrl } from "../services/google-photos.js";
+import { randomUUID } from "crypto";
+import { processImage } from "../services/photos/processor.js";
+import { mkdir } from "fs/promises";
+import { existsSync } from "fs";
+import { join } from "path";
+import * as os from "os";
 import {
   fetchGamesForTeams,
   formatDateForESPN,
@@ -82,6 +91,13 @@ const REMARKABLE_AGENDA_CHECK_INTERVAL_MS = 60 * 1000;
 
 // Profile planner check interval (1 minute - to check if push time reached)
 const PROFILE_PLANNER_CHECK_INTERVAL_MS = 60 * 1000;
+
+// rmapi config file path (must match client.ts)
+const RMAPI_HOME = process.env.NODE_ENV === "production" ? "/root" : os.homedir();
+const RMAPI_CONFIG = join(RMAPI_HOME, ".config", "rmapi", "rmapi.conf");
+
+// Max consecutive rmapi failures before stopping retries for the day
+const MAX_RMAPI_FAILURES = 3;
 
 // Matter device reachability check interval (2 minutes)
 const MATTER_REACHABILITY_INTERVAL_MS = 2 * 60 * 1000;
@@ -154,6 +170,9 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
   const agendaPushedToday = new Map<string, string>(); // userId -> dateString
   // Track which profiles have already pushed planner today
   const profilePlannerPushedToday = new Map<string, string>(); // profileId -> dateString
+  // Track consecutive rmapi failures to avoid infinite retries
+  const agendaFailCount = new Map<string, number>(); // userId -> failure count
+  const plannerFailCount = new Map<string, number>(); // profileId -> failure count
 
   // Start the IPTV cache refresh scheduler
   const startIptvCacheScheduler = () => {
@@ -573,6 +592,11 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
   const startRemarkableNoteScheduler = () => {
     const pollNotes = async () => {
       try {
+        // Check if rmapi config file exists — if not, skip polling
+        if (!existsSync(RMAPI_CONFIG)) {
+          return;
+        }
+
         // Get all connected reMarkable users
         const connectedUsers = await fastify.db
           .select()
@@ -603,6 +627,43 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     }, STARTUP_DELAY_MS + 20000); // Start 20 seconds after IPTV
   };
 
+  // Helper: generate a simple agenda PDF (fallback when no planner config exists)
+  async function generateSimpleAgenda(
+    _fastify: typeof fastify,
+    settings: { userId: string; showLocation: boolean; showDescription: boolean; notesLines: number; templateStyle: string | null; includeCalendarIds: string[] | null },
+    now: Date
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    const start = startOfDay(now);
+    const end = endOfDay(now);
+    let calendarIds: string[];
+    if (settings.includeCalendarIds && settings.includeCalendarIds.length > 0) {
+      calendarIds = settings.includeCalendarIds;
+    } else {
+      const userCalendars = await fastify.db.select().from(calendars)
+        .where(and(eq(calendars.userId, settings.userId), eq(calendars.isVisible, true)));
+      calendarIds = userCalendars.map(c => c.id);
+    }
+    const dayEvents: AgendaEvent[] = [];
+    for (const calId of calendarIds) {
+      const [cal] = await fastify.db.select().from(calendars).where(eq(calendars.id, calId)).limit(1);
+      const calEvents = await fastify.db.select().from(events)
+        .where(and(eq(events.calendarId, calId), lte(events.startTime, end), gte(events.endTime, start)));
+      for (const event of calEvents.map(decryptEventFields)) {
+        dayEvents.push({
+          title: event.title, startTime: event.startTime, endTime: event.endTime,
+          isAllDay: event.isAllDay, location: event.location, description: event.description,
+          calendarName: cal?.name, calendarColor: cal?.color ?? undefined,
+        });
+      }
+    }
+    const buffer = await generateAgendaPdf({
+      date: now, events: dayEvents, showLocation: settings.showLocation,
+      showDescription: settings.showDescription, notesLines: settings.notesLines,
+      templateStyle: (settings.templateStyle as "default" | "minimal" | "detailed") || "default",
+    });
+    return { buffer, filename: getAgendaFilename(now) };
+  }
+
   // Start reMarkable agenda push scheduler
   const startRemarkableAgendaScheduler = () => {
     const checkAgendaPush = async () => {
@@ -610,6 +671,12 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
         const now = new Date();
         const todayStr = format(now, "yyyy-MM-dd");
         const currentTime = format(now, "HH:mm");
+
+        // Check if rmapi config file exists — if not, skip all pushes
+        if (!existsSync(RMAPI_CONFIG)) {
+          // Only log once per day to avoid spam
+          return;
+        }
 
         // Get all users with agenda push enabled
         const agendaSettings = await fastify.db
@@ -620,6 +687,12 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
         for (const settings of agendaSettings) {
           // Check if already pushed today
           if (agendaPushedToday.get(settings.userId) === todayStr) {
+            continue;
+          }
+
+          // Check if too many failures today — stop retrying
+          const failures = agendaFailCount.get(settings.userId) ?? 0;
+          if (failures >= MAX_RMAPI_FAILURES) {
             continue;
           }
 
@@ -642,78 +715,133 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
             }
 
             try {
-              fastify.log.info({ userId: settings.userId }, "Pushing daily agenda to reMarkable...");
+              fastify.log.info({ userId: settings.userId }, "Pushing daily planner to reMarkable...");
 
-              const start = startOfDay(now);
-              const end = endOfDay(now);
+              // Find the user's default profile with a planner config
+              const userProfiles = await fastify.db
+                .select()
+                .from(familyProfiles)
+                .where(eq(familyProfiles.userId, settings.userId));
 
-              // Get calendars to include
-              let calendarIds: string[];
-              if (settings.includeCalendarIds && settings.includeCalendarIds.length > 0) {
-                calendarIds = settings.includeCalendarIds;
-              } else {
-                const userCalendars = await fastify.db
+              const defaultProfile = userProfiles.find(p => p.isDefault) || userProfiles[0];
+
+              let pdfBuffer: Buffer;
+              let filename: string;
+              // Will be updated if planner config has a pushFolderPath
+              let uploadFolder = settings.folderPath || "/Planners";
+
+              if (defaultProfile) {
+                // Check for planner config
+                const [plannerConfig] = await fastify.db
                   .select()
-                  .from(calendars)
-                  .where(and(eq(calendars.userId, settings.userId), eq(calendars.isVisible, true)));
-                calendarIds = userCalendars.map((c) => c.id);
-              }
-
-              // Get events for today
-              const dayEvents: AgendaEvent[] = [];
-              const calendarMap = new Map<string, typeof calendars.$inferSelect>();
-
-              for (const calId of calendarIds) {
-                const [cal] = await fastify.db
-                  .select()
-                  .from(calendars)
-                  .where(eq(calendars.id, calId))
+                  .from(profilePlannerConfig)
+                  .where(eq(profilePlannerConfig.profileId, defaultProfile.id))
                   .limit(1);
 
-                if (cal) {
-                  calendarMap.set(calId, cal);
-                }
+                if (plannerConfig?.layoutConfig) {
+                  // Use planner layout
+                  const layoutConfig = plannerConfig.layoutConfig as import("@openframe/shared").PlannerLayoutConfig;
 
-                const calEvents = await fastify.db
-                  .select()
-                  .from(events)
-                  .where(
-                    and(
-                      eq(events.calendarId, calId),
-                      lte(events.startTime, end),
-                      gte(events.endTime, start)
-                    )
-                  );
+                  // Use pushFolderPath from layout config if set
+                  if (layoutConfig.pushFolderPath) {
+                    uploadFolder = layoutConfig.pushFolderPath;
+                  }
 
-                for (const event of calEvents) {
-                  const decrypted = decryptEventFields(event);
-                  dayEvents.push({
-                    title: decrypted.title,
-                    startTime: decrypted.startTime,
-                    endTime: decrypted.endTime,
-                    isAllDay: decrypted.isAllDay,
-                    location: decrypted.location,
-                    description: decrypted.description,
-                    calendarName: calendarMap.get(calId)?.name,
-                    calendarColor: calendarMap.get(calId)?.color ?? undefined,
+                  // Get user timezone
+                  const [userRow] = await fastify.db
+                    .select({ timezone: users.timezone })
+                    .from(users)
+                    .where(eq(users.id, settings.userId))
+                    .limit(1);
+                  const tz = userRow?.timezone || "UTC";
+
+                  // Calculate day boundaries in user's timezone
+                  const dateStr = format(now, "yyyy-MM-dd");
+                  const sampleUtc = new Date(`${dateStr}T12:00:00Z`);
+                  const sampleLocal = new Date(sampleUtc.toLocaleString("en-US", { timeZone: tz }));
+                  const offsetMs = sampleUtc.getTime() - sampleLocal.getTime();
+                  const dayStart = new Date(new Date(`${dateStr}T00:00:00Z`).getTime() + offsetMs);
+                  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000 - 1);
+
+                  // Gather planner data
+                  const widgetTypes = new Set(layoutConfig.widgets.map(w => w.type));
+
+                  // Events
+                  const calendarEvents: CalendarEvent[] = [];
+                  if (widgetTypes.has("calendar-day") || widgetTypes.has("calendar-week") || widgetTypes.has("calendar-month")) {
+                    const userCalendars = await fastify.db
+                      .select()
+                      .from(calendars)
+                      .where(eq(calendars.userId, settings.userId));
+                    const visibleIds = userCalendars.map(c => c.id);
+                    if (visibleIds.length > 0) {
+                      const allEvents = await fastify.db
+                        .select()
+                        .from(events)
+                        .where(and(inArray(events.calendarId, visibleIds), lte(events.startTime, dayEnd), gte(events.endTime, dayStart)));
+                      const calMap = new Map(userCalendars.map(c => [c.id, c]));
+                      for (const e of allEvents.map(decryptEventFields)) {
+                        calendarEvents.push({
+                          id: e.id, title: e.title, startTime: e.startTime, endTime: e.endTime,
+                          isAllDay: e.isAllDay, location: e.location ?? undefined,
+                          calendarName: calMap.get(e.calendarId)?.name, color: calMap.get(e.calendarId)?.color ?? undefined,
+                        });
+                      }
+                    }
+                  }
+
+                  // Tasks
+                  const taskItems: TaskItem[] = [];
+                  if (widgetTypes.has("tasks")) {
+                    const userTaskLists = await fastify.db.select().from(taskLists)
+                      .where(and(eq(taskLists.userId, settings.userId), eq(taskLists.isVisible, true)));
+                    if (userTaskLists.length > 0) {
+                      const allTasks = await fastify.db.select().from(tasks)
+                        .where(and(inArray(tasks.taskListId, userTaskLists.map(l => l.id)), eq(tasks.status, "needsAction")));
+                      for (const t of allTasks.filter(t => !t.dueDate || t.dueDate <= dayEnd)) {
+                        taskItems.push({ id: t.id, title: t.title, dueDate: t.dueDate ?? undefined, completed: false });
+                      }
+                    }
+                  }
+
+                  // News
+                  const newsItems: NewsItem[] = [];
+                  if (widgetTypes.has("news-headlines")) {
+                    const userFeeds = await fastify.db.select().from(newsFeeds)
+                      .where(and(eq(newsFeeds.userId, settings.userId), eq(newsFeeds.isActive, true)));
+                    if (userFeeds.length > 0) {
+                      const articles = await fastify.db.select().from(newsArticles)
+                        .where(inArray(newsArticles.feedId, userFeeds.map(f => f.id)))
+                        .orderBy(desc(newsArticles.publishedAt))
+                        .limit(10);
+                      for (const a of articles) {
+                        const feed = userFeeds.find(f => f.id === a.feedId);
+                        newsItems.push({ id: a.id, title: a.title, source: feed?.name, publishedAt: a.publishedAt ?? undefined });
+                      }
+                    }
+                  }
+
+                  const result = await generatePlannerPdf(layoutConfig, {
+                    date: dayStart, events: calendarEvents, tasks: taskItems, news: newsItems, timezone: tz,
                   });
+                  pdfBuffer = result.buffer;
+                  filename = result.filename;
+                } else {
+                  // No planner config — fall back to simple agenda
+                  const agendaPdf = await generateSimpleAgenda(fastify, settings, now);
+                  pdfBuffer = agendaPdf.buffer;
+                  filename = agendaPdf.filename;
                 }
+              } else {
+                // No profile — fall back to simple agenda
+                const agendaPdf = await generateSimpleAgenda(fastify, settings, now);
+                pdfBuffer = agendaPdf.buffer;
+                filename = agendaPdf.filename;
               }
-
-              // Generate PDF
-              const pdfBuffer = await generateAgendaPdf({
-                date: now,
-                events: dayEvents,
-                showLocation: settings.showLocation,
-                showDescription: settings.showDescription,
-                notesLines: settings.notesLines,
-                templateStyle: settings.templateStyle as "default" | "minimal" | "detailed",
-              });
 
               // Upload to reMarkable
               const client = getRemarkableClient(fastify, settings.userId);
-              const filename = getAgendaFilename(now);
-              const documentId = await client.uploadPdf(pdfBuffer, filename, settings.folderPath);
+              const documentId = await client.uploadPdf(pdfBuffer, filename, uploadFolder);
 
               // Track the document
               await fastify.db.insert(remarkableDocuments).values({
@@ -737,22 +865,25 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
               agendaPushedToday.set(settings.userId, todayStr);
 
               fastify.log.info(
-                { userId: settings.userId, eventCount: dayEvents.length },
-                "Daily agenda pushed to reMarkable"
+                { userId: settings.userId, filename, folder: uploadFolder },
+                "Daily planner pushed to reMarkable"
               );
             } catch (err) {
+              const count = (agendaFailCount.get(settings.userId) ?? 0) + 1;
+              agendaFailCount.set(settings.userId, count);
               fastify.log.error(
-                { err, userId: settings.userId },
-                "Failed to push agenda to reMarkable"
+                { err, userId: settings.userId, failCount: count, maxRetries: MAX_RMAPI_FAILURES },
+                `Failed to push agenda to reMarkable (attempt ${count}/${MAX_RMAPI_FAILURES})`
               );
             }
           }
         }
 
-        // Clean up old entries from agendaPushedToday
+        // Clean up old entries from agendaPushedToday and reset fail counts on new day
         for (const [userId, dateStr] of agendaPushedToday.entries()) {
           if (dateStr !== todayStr) {
             agendaPushedToday.delete(userId);
+            agendaFailCount.delete(userId); // Reset retries for new day
           }
         }
       } catch (error) {
@@ -993,6 +1124,11 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
         const todayStr = format(now, "yyyy-MM-dd");
         const currentTime = format(now, "HH:mm");
 
+        // Check if rmapi config file exists — if not, skip all pushes
+        if (!existsSync(RMAPI_CONFIG)) {
+          return;
+        }
+
         // Get all profile remarkable settings with enabled = true and scheduleType = daily
         const allSettings = await fastify.db
           .select()
@@ -1002,6 +1138,12 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
         for (const settings of allSettings) {
           // Check if already pushed today
           if (profilePlannerPushedToday.get(settings.profileId) === todayStr) {
+            continue;
+          }
+
+          // Check if too many failures today — stop retrying
+          const failures = plannerFailCount.get(settings.profileId) ?? 0;
+          if (failures >= MAX_RMAPI_FAILURES) {
             continue;
           }
 
@@ -1106,9 +1248,11 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
                 "Profile planner pushed to reMarkable"
               );
             } catch (err) {
+              const count = (plannerFailCount.get(settings.profileId) ?? 0) + 1;
+              plannerFailCount.set(settings.profileId, count);
               fastify.log.error(
-                { err, profileId: settings.profileId },
-                "Failed to push profile planner to reMarkable"
+                { err, profileId: settings.profileId, failCount: count, maxRetries: MAX_RMAPI_FAILURES },
+                `Failed to push profile planner to reMarkable (attempt ${count}/${MAX_RMAPI_FAILURES})`
               );
             }
           }
@@ -1192,19 +1336,22 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
                   "Weekly profile planner pushed to reMarkable"
                 );
               } catch (err) {
+                const count = (plannerFailCount.get(settings.profileId) ?? 0) + 1;
+                plannerFailCount.set(settings.profileId, count);
                 fastify.log.error(
-                  { err, profileId: settings.profileId },
-                  "Failed to push weekly profile planner to reMarkable"
+                  { err, profileId: settings.profileId, failCount: count, maxRetries: MAX_RMAPI_FAILURES },
+                  `Failed to push weekly profile planner to reMarkable (attempt ${count}/${MAX_RMAPI_FAILURES})`
                 );
               }
             }
           }
         }
 
-        // Clean up old entries
+        // Clean up old entries and reset fail counts on new day
         for (const [profileId, dateStr] of profilePlannerPushedToday.entries()) {
           if (dateStr !== todayStr) {
             profilePlannerPushedToday.delete(profileId);
+            plannerFailCount.delete(profileId); // Reset retries for new day
           }
         }
       } catch (error) {
@@ -1276,6 +1423,246 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     }, STARTUP_DELAY_MS + 35000); // Start 35 seconds after IPTV
   };
 
+  // ========== Google Photos Album Sync ==========
+  const GOOGLE_PHOTOS_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+  let googlePhotosSyncInterval: ReturnType<typeof setInterval> | null = null;
+
+  const startGooglePhotosSyncScheduler = () => {
+    const uploadDir = process.env.UPLOAD_DIR ?? "./uploads";
+
+    const syncAllLinkedAlbums = async () => {
+      try {
+        // Find all albums with auto-sync enabled
+        const linkedAlbums = await fastify.db
+          .select()
+          .from(photoAlbums)
+          .where(and(eq(photoAlbums.autoSync, true), isNotNull(photoAlbums.googleAlbumId)));
+
+        if (linkedAlbums.length === 0) return;
+
+        // Group by user
+        const byUser = new Map<string, typeof linkedAlbums>();
+        for (const album of linkedAlbums) {
+          const list = byUser.get(album.userId) ?? [];
+          list.push(album);
+          byUser.set(album.userId, list);
+        }
+
+        for (const [userId, albums] of byUser) {
+          try {
+            // Get Google token
+            const [rawToken] = await fastify.db
+              .select()
+              .from(oauthTokens)
+              .where(and(eq(oauthTokens.userId, userId), eq(oauthTokens.provider, "google")))
+              .limit(1);
+            if (!rawToken) continue;
+            const token = decryptOAuthToken(rawToken);
+            if (!token.scope?.includes("photoslibrary") && !token.scope?.includes("photospicker")) continue;
+
+            for (const album of albums) {
+              if (!album.googleAlbumId) continue;
+
+              try {
+                // Get existing external IDs
+                const existing = await fastify.db
+                  .select({ externalId: photos.externalId })
+                  .from(photos)
+                  .where(and(eq(photos.albumId, album.id), eq(photos.sourceType, "google")));
+                const existingIds = new Set(existing.map((p) => p.externalId));
+
+                const allPhotos = await fastify.db
+                  .select({ sortOrder: photos.sortOrder })
+                  .from(photos)
+                  .where(eq(photos.albumId, album.id));
+                let maxOrder = Math.max(0, ...allPhotos.map((p) => p.sortOrder));
+
+                const userDir = join(uploadDir, userId);
+                await mkdir(userDir, { recursive: true });
+                await mkdir(join(userDir, "thumbnails"), { recursive: true });
+                await mkdir(join(userDir, "medium"), { recursive: true });
+                await mkdir(join(userDir, "original"), { recursive: true });
+
+                let pageToken: string | undefined;
+                let imported = 0;
+                let accessToken = await getAccessToken(token);
+                let photoCount = 0;
+
+                do {
+                  const page = await listAlbumPhotos(token, album.googleAlbumId, pageToken);
+
+                  for (const item of page.photos) {
+                    if (existingIds.has(item.id)) continue;
+
+                    photoCount++;
+                    if (photoCount % 50 === 0) accessToken = await getAccessToken(token);
+
+                    try {
+                      const downloadUrl = `${item.baseUrl}=d`;
+                      let response = await fetch(downloadUrl, {
+                        headers: { Authorization: `Bearer ${accessToken}` },
+                      });
+                      if (!response.ok) {
+                        response = await fetch(getPhotoUrl(item.baseUrl, 2048, 1536), {
+                          headers: { Authorization: `Bearer ${accessToken}` },
+                        });
+                      }
+                      if (!response.ok) continue;
+
+                      const buffer = Buffer.from(await response.arrayBuffer());
+                      const fileId = randomUUID();
+                      const ext = item.filename.split(".").pop() ?? "jpg";
+                      const filename = `${fileId}.${ext}`;
+
+                      const result = await processImage(buffer, {
+                        userDir,
+                        filename,
+                        generateThumbnail: true,
+                        generateMedium: true,
+                      });
+
+                      maxOrder++;
+                      await fastify.db.insert(photos).values({
+                        albumId: album.id,
+                        filename,
+                        originalFilename: item.filename,
+                        mimeType: item.mimeType,
+                        width: result.width,
+                        height: result.height,
+                        size: buffer.length,
+                        thumbnailPath: result.thumbnailPath ? join(userId, result.thumbnailPath) : null,
+                        mediumPath: result.mediumPath ? join(userId, result.mediumPath) : null,
+                        originalPath: join(userId, result.originalPath),
+                        metadata: result.metadata,
+                        sortOrder: maxOrder,
+                        sourceType: "google",
+                        externalId: item.id,
+                      });
+                      imported++;
+                    } catch {
+                      // Skip individual photo errors
+                    }
+                  }
+
+                  pageToken = page.nextPageToken;
+                } while (pageToken);
+
+                // Update sync timestamp
+                await fastify.db
+                  .update(photoAlbums)
+                  .set({ lastSyncedAt: new Date(), updatedAt: new Date() })
+                  .where(eq(photoAlbums.id, album.id));
+
+                if (imported > 0) {
+                  fastify.log.info(`[Google Photos Sync] Album "${album.name}": ${imported} new photos`);
+                }
+              } catch (err) {
+                fastify.log.error(`[Google Photos Sync] Error syncing album ${album.id}: ${err}`);
+              }
+            }
+          } catch (err) {
+            fastify.log.error(`[Google Photos Sync] Error processing user ${userId}: ${err}`);
+          }
+        }
+      } catch (err) {
+        fastify.log.error(`[Google Photos Sync] Scheduler error: ${err}`);
+      }
+    };
+
+    setTimeout(async () => {
+      fastify.log.info("Starting Google Photos sync scheduler (6h interval)...");
+      await syncAllLinkedAlbums();
+      googlePhotosSyncInterval = setInterval(syncAllLinkedAlbums, GOOGLE_PHOTOS_SYNC_INTERVAL_MS);
+    }, STARTUP_DELAY_MS + 40000);
+  };
+
+  // ============ Auto-Backup Scheduler ============
+  const AUTO_BACKUP_CHECK_INTERVAL_MS = 15 * 60 * 1000; // Check every 15 minutes
+  let autoBackupInterval: ReturnType<typeof setInterval> | null = null;
+
+  async function checkAutoBackups() {
+    try {
+      const { autoBackupConfig: autoBackupConfigTable, storageServers: storageServersTable } = await import("@openframe/database/schema");
+      const configs = await fastify.db
+        .select()
+        .from(autoBackupConfigTable)
+        .where(
+          and(
+            eq(autoBackupConfigTable.enabled, true),
+            isNotNull(autoBackupConfigTable.storageServerId)
+          )
+        );
+
+      for (const config of configs) {
+        if (!config.storageServerId) continue;
+
+        // Check if backup is due
+        const intervalMs = (config.intervalHours ?? 24) * 60 * 60 * 1000;
+        const lastBackup = config.lastBackupAt ? new Date(config.lastBackupAt).getTime() : 0;
+        const now = Date.now();
+
+        if (now - lastBackup < intervalMs) continue;
+
+        fastify.log.info(`Auto-backup due for user ${config.userId}`);
+
+        try {
+          const { getStorageClient } = await import("../services/storage-client.js");
+          const categories = (config.categories as string[]) || ["settings"];
+          const exportUrl = `/api/v1/settings/export?categories=${categories.join(",")}&includeCredentials=${config.includeCredentials}&includePhotos=${config.includePhotos}`;
+
+          // Get user's auth token for the internal request
+          const [user] = await fastify.db.select().from(users).where(eq(users.id, config.userId)).limit(1);
+          if (!user) continue;
+
+          const token = fastify.jwt.sign({ userId: user.id });
+          const exportResponse = await fastify.inject({
+            method: "GET",
+            url: exportUrl,
+            headers: { authorization: `Bearer ${token}` },
+          });
+
+          if (exportResponse.statusCode !== 200) {
+            fastify.log.error(`Auto-backup export failed for user ${config.userId}`);
+            continue;
+          }
+
+          const backupBuffer = Buffer.from(exportResponse.body, "utf-8");
+          const { client } = await getStorageClient(fastify.db, config.storageServerId, config.userId);
+
+          try {
+            const timestamp = new Date().toISOString().split("T")[0];
+            const filename = `openframe-backup-${timestamp}.json`;
+            const backupDir = config.backupPath || "/openframe-backups";
+            const remotePath = `${backupDir}/${filename}`;
+
+            await client.mkdir(backupDir);
+            await client.write(remotePath, backupBuffer);
+
+            await fastify.db
+              .update(autoBackupConfigTable)
+              .set({ lastBackupAt: new Date(), updatedAt: new Date() })
+              .where(eq(autoBackupConfigTable.id, config.id));
+
+            fastify.log.info(`Auto-backup completed for user ${config.userId}: ${remotePath}`);
+          } finally {
+            await client.disconnect();
+          }
+        } catch (err: any) {
+          fastify.log.error(`Auto-backup failed for user ${config.userId}: ${err.message}`);
+        }
+      }
+    } catch (err: any) {
+      fastify.log.error(`Auto-backup scheduler error: ${err.message}`);
+    }
+  }
+
+  function startAutoBackupScheduler() {
+    autoBackupInterval = setInterval(checkAutoBackups, AUTO_BACKUP_CHECK_INTERVAL_MS);
+    fastify.log.info(`Auto-backup scheduler started (check every ${AUTO_BACKUP_CHECK_INTERVAL_MS / 1000 / 60} minutes)`);
+    // Run initial check after 2 minutes
+    setTimeout(checkAutoBackups, 2 * 60 * 1000);
+  }
+
   // Start scheduler when server is ready
   fastify.addHook("onReady", async () => {
     startIptvCacheScheduler();
@@ -1288,6 +1675,8 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     startRemarkableAgendaScheduler();
     startProfilePlannerScheduler();
     startMatterReachabilityScheduler();
+    startGooglePhotosSyncScheduler();
+    startAutoBackupScheduler();
   });
 
   // Clean up on server close
@@ -1341,6 +1730,16 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
       clearInterval(matterReachabilityInterval);
       matterReachabilityInterval = null;
       fastify.log.info("Matter reachability scheduler stopped");
+    }
+    if (googlePhotosSyncInterval) {
+      clearInterval(googlePhotosSyncInterval);
+      googlePhotosSyncInterval = null;
+      fastify.log.info("Google Photos sync scheduler stopped");
+    }
+    if (autoBackupInterval) {
+      clearInterval(autoBackupInterval);
+      autoBackupInterval = null;
+      fastify.log.info("Auto-backup scheduler stopped");
     }
   });
 };

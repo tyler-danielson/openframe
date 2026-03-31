@@ -94,6 +94,8 @@ export interface PlanLimits {
   maxKiosks: number;
   maxCalendars: number;
   maxCameras: number;
+  maxPhotos?: number;              // Total photos allowed (null = unlimited)
+  maxPhotoResolution?: number;     // Max pixel dimension (e.g. 1080, 3840; null = 4K default)
   features: {
     iptv: boolean;
     spotify: boolean;
@@ -404,6 +406,15 @@ export const photoAlbums = pgTable(
     coverPhotoId: uuid("cover_photo_id"),
     isActive: boolean("is_active").default(true).notNull(),
     slideshowInterval: integer("slideshow_interval").default(30), // seconds
+    googleAlbumId: text("google_album_id"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    autoSync: boolean("auto_sync").default(false).notNull(),
+    source: text("source").default("local").notNull(),
+    storageServerId: uuid("storage_server_id").references(
+      () => storageServers.id,
+      { onDelete: "set null" }
+    ),
+    storagePath: text("storage_path"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -671,6 +682,30 @@ export const kiosks = pgTable(
     index("kiosks_user_idx").on(table.userId),
     index("kiosks_token_idx").on(table.token),
   ]
+);
+
+// Kiosk saved files (photos/PDFs that can be recalled and cast)
+export const kioskSavedFiles = pgTable(
+  "kiosk_saved_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kioskId: uuid("kiosk_id")
+      .notNull()
+      .references(() => kiosks.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    fileType: text("file_type").notNull(), // 'image' | 'pdf'
+    mimeType: text("mime_type").notNull(),
+    storedPath: text("stored_path").notNull(),
+    pageCount: integer("page_count"),
+    fileSize: integer("file_size"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("kiosk_saved_files_kiosk_idx").on(table.kioskId)]
 );
 
 // Display configurations
@@ -1469,6 +1504,7 @@ export const newsFeeds = pgTable(
     name: text("name").notNull(),
     feedUrl: text("feed_url").notNull(),
     category: text("category"),
+    source: text("source"),
     isActive: boolean("is_active").default(true).notNull(),
     lastFetchedAt: timestamp("last_fetched_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1801,6 +1837,71 @@ export const telegramChatsRelations = relations(
   })
 );
 
+// WhatsApp Bot Configuration
+export const whatsappConfig = pgTable("whatsapp_config", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  phoneNumber: text("phone_number"),
+  displayName: text("display_name"),
+  isConnected: boolean("is_connected").default(false).notNull(),
+  sessionDir: text("session_dir"),
+  dailyAgendaEnabled: boolean("daily_agenda_enabled").default(true).notNull(),
+  dailyAgendaTime: text("daily_agenda_time").default("07:00").notNull(),
+  eventRemindersEnabled: boolean("event_reminders_enabled").default(true).notNull(),
+  eventReminderMinutes: integer("event_reminder_minutes").default(15).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+export const whatsappChats = pgTable(
+  "whatsapp_chats",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    jid: text("jid").notNull(),
+    chatType: text("chat_type").notNull().default("private"),
+    chatName: text("chat_name"),
+    isActive: boolean("is_active").default(true).notNull(),
+    linkedAt: timestamp("linked_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("whatsapp_chats_user_idx").on(table.userId),
+    index("whatsapp_chats_jid_idx").on(table.jid),
+  ]
+);
+
+export const whatsappConfigRelations = relations(
+  whatsappConfig,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [whatsappConfig.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+export const whatsappChatsRelations = relations(
+  whatsappChats,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [whatsappChats.userId],
+      references: [users.id],
+    }),
+  })
+);
+
 // Type exports for use in services
 export type OAuthToken = typeof oauthTokens.$inferSelect;
 export type SystemSetting = typeof systemSettings.$inferSelect;
@@ -1819,6 +1920,8 @@ export type CapacitiesConfig = typeof capacitiesConfig.$inferSelect;
 export type CapacitiesSpace = typeof capacitiesSpaces.$inferSelect;
 export type TelegramConfig = typeof telegramConfig.$inferSelect;
 export type TelegramChat = typeof telegramChats.$inferSelect;
+export type WhatsAppConfig = typeof whatsappConfig.$inferSelect;
+export type WhatsAppChat = typeof whatsappChats.$inferSelect;
 export type Kiosk = typeof kiosks.$inferSelect;
 export type CompanionAccess = typeof companionAccess.$inferSelect;
 export type UserRole = "admin" | "member" | "viewer";
@@ -2551,6 +2654,95 @@ export const audiobookshelfServersRelations = relations(audiobookshelfServers, (
   }),
 }));
 
+// ============ Storage Servers (FTP, SFTP, SMB, WebDAV) ============
+
+export const storageProtocolEnum = pgEnum("storage_protocol", [
+  "ftp",
+  "sftp",
+  "smb",
+  "webdav",
+]);
+
+export const storageServers = pgTable(
+  "storage_servers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    protocol: storageProtocolEnum("protocol").notNull(),
+    host: text("host").notNull(),
+    port: integer("port"),
+    basePath: text("base_path").default("/"),
+    username: text("username"),
+    password: text("password"),
+    shareName: text("share_name"),
+    isActive: boolean("is_active").default(true).notNull(),
+    lastConnectedAt: timestamp("last_connected_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("storage_servers_user_idx").on(table.userId)]
+);
+
+export const storageServersRelations = relations(storageServers, ({ one }) => ({
+  user: one(users, {
+    fields: [storageServers.userId],
+    references: [users.id],
+  }),
+}));
+
+export const autoBackupConfig = pgTable(
+  "auto_backup_config",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" })
+      .unique(),
+    storageServerId: uuid("storage_server_id").references(
+      () => storageServers.id,
+      { onDelete: "set null" }
+    ),
+    enabled: boolean("enabled").default(false).notNull(),
+    intervalHours: integer("interval_hours").default(24).notNull(),
+    lastBackupAt: timestamp("last_backup_at", { withTimezone: true }),
+    categories: jsonb("categories").default(["settings"]).notNull(),
+    includePhotos: boolean("include_photos").default(false).notNull(),
+    includeCredentials: boolean("include_credentials").default(false).notNull(),
+    backupPath: text("backup_path").default("/openframe-backups"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("auto_backup_config_user_idx").on(table.userId)]
+);
+
+export const autoBackupConfigRelations = relations(
+  autoBackupConfig,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [autoBackupConfig.userId],
+      references: [users.id],
+    }),
+    storageServer: one(storageServers, {
+      fields: [autoBackupConfig.storageServerId],
+      references: [storageServers.id],
+    }),
+  })
+);
+
+export type StorageServer = typeof storageServers.$inferSelect;
+export type AutoBackupConfig = typeof autoBackupConfig.$inferSelect;
+
 // ============ Routines / Habit Tracker ============
 
 export const routineFrequencyEnum = pgEnum("routine_frequency", [
@@ -3004,3 +3196,407 @@ export const joinRequestsRelations = relations(joinRequests, ({ one }) => ({
     relationName: "joinRequestOwner",
   }),
 }));
+
+// ==================== SiriusXM ====================
+
+export const siriusxmAccounts = pgTable(
+  "siriusxm_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    username: text("username").notNull(),
+    password: text("password").notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    lastAuthenticatedAt: timestamp("last_authenticated_at", {
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("siriusxm_accounts_user_idx").on(table.userId)]
+);
+
+export const siriusxmFavorites = pgTable(
+  "siriusxm_favorites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    channelId: text("channel_id").notNull(),
+    channelName: text("channel_name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("siriusxm_favorites_user_idx").on(table.userId),
+    index("siriusxm_favorites_user_channel_idx").on(
+      table.userId,
+      table.channelId
+    ),
+  ]
+);
+
+export const siriusxmHistory = pgTable(
+  "siriusxm_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    channelId: text("channel_id").notNull(),
+    channelName: text("channel_name").notNull(),
+    listenedAt: timestamp("listened_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("siriusxm_history_user_idx").on(table.userId),
+    index("siriusxm_history_listened_idx").on(table.listenedAt),
+  ]
+);
+
+export const siriusxmAccountsRelations = relations(
+  siriusxmAccounts,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [siriusxmAccounts.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+export const siriusxmFavoritesRelations = relations(
+  siriusxmFavorites,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [siriusxmFavorites.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+export const siriusxmHistoryRelations = relations(
+  siriusxmHistory,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [siriusxmHistory.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+// ==================== Households ====================
+
+export const householdRoleEnum = pgEnum("household_role", [
+  "owner",
+  "admin",
+  "member",
+]);
+
+export const households = pgTable("households", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+export const householdMembers = pgTable(
+  "household_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: householdRoleEnum("role").notNull().default("member"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("household_members_household_idx").on(table.householdId),
+    index("household_members_user_idx").on(table.userId),
+    uniqueIndex("household_members_unique").on(table.householdId, table.userId),
+  ]
+);
+
+export const householdsRelations = relations(households, ({ many }) => ({
+  members: many(householdMembers),
+}));
+
+export const householdMembersRelations = relations(
+  householdMembers,
+  ({ one }) => ({
+    household: one(households, {
+      fields: [householdMembers.householdId],
+      references: [households.id],
+    }),
+    user: one(users, {
+      fields: [householdMembers.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+export type Household = typeof households.$inferSelect;
+export type HouseholdMember = typeof householdMembers.$inferSelect;
+
+// ==================== Sticky Notes ====================
+
+export const stickyNotes = pgTable(
+  "sticky_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    authorUserId: uuid("author_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    content: text("content").notNull().default(""),
+    color: text("color").notNull().default("#FEF3C7"),
+    pinned: boolean("pinned").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("sticky_notes_household_idx").on(table.householdId),
+  ]
+);
+
+export const stickyNotesRelations = relations(stickyNotes, ({ one }) => ({
+  household: one(households, {
+    fields: [stickyNotes.householdId],
+    references: [households.id],
+  }),
+  author: one(users, {
+    fields: [stickyNotes.authorUserId],
+    references: [users.id],
+  }),
+}));
+
+export type StickyNote = typeof stickyNotes.$inferSelect;
+
+// ==================== Chores ====================
+
+export const choreFrequencyEnum = pgEnum("chore_frequency", [
+  "daily",
+  "weekly",
+  "biweekly",
+  "monthly",
+]);
+
+export const chores = pgTable(
+  "chores",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    icon: text("icon"),
+    frequency: choreFrequencyEnum("frequency").notNull().default("weekly"),
+    rotateDay: integer("rotate_day").notNull().default(0), // 0=Sunday
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("chores_household_idx").on(table.householdId),
+  ]
+);
+
+export const choreAssignments = pgTable(
+  "chore_assignments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    choreId: uuid("chore_id")
+      .notNull()
+      .references(() => chores.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => familyProfiles.id, { onDelete: "cascade" }),
+    assignedAt: timestamp("assigned_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    dueDate: date("due_date").notNull(),
+    autoAssigned: boolean("auto_assigned").notNull().default(true),
+  },
+  (table) => [
+    index("chore_assignments_chore_idx").on(table.choreId),
+    index("chore_assignments_profile_idx").on(table.profileId),
+  ]
+);
+
+export const choreRotationOrder = pgTable(
+  "chore_rotation_order",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    choreId: uuid("chore_id")
+      .notNull()
+      .references(() => chores.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => familyProfiles.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+  },
+  (table) => [
+    index("chore_rotation_chore_idx").on(table.choreId),
+  ]
+);
+
+export const choresRelations = relations(chores, ({ one, many }) => ({
+  household: one(households, {
+    fields: [chores.householdId],
+    references: [households.id],
+  }),
+  assignments: many(choreAssignments),
+  rotationOrder: many(choreRotationOrder),
+}));
+
+export const choreAssignmentsRelations = relations(
+  choreAssignments,
+  ({ one }) => ({
+    chore: one(chores, {
+      fields: [choreAssignments.choreId],
+      references: [chores.id],
+    }),
+    profile: one(familyProfiles, {
+      fields: [choreAssignments.profileId],
+      references: [familyProfiles.id],
+    }),
+  })
+);
+
+export const choreRotationOrderRelations = relations(
+  choreRotationOrder,
+  ({ one }) => ({
+    chore: one(chores, {
+      fields: [choreRotationOrder.choreId],
+      references: [chores.id],
+    }),
+    profile: one(familyProfiles, {
+      fields: [choreRotationOrder.profileId],
+      references: [familyProfiles.id],
+    }),
+  })
+);
+
+export type Chore = typeof chores.$inferSelect;
+export type ChoreAssignment = typeof choreAssignments.$inferSelect;
+export type ChoreRotationOrder = typeof choreRotationOrder.$inferSelect;
+
+// ==================== Package Tracking ====================
+
+export const carrierEnum = pgEnum("carrier", [
+  "usps",
+  "ups",
+  "fedex",
+  "amazon",
+  "dhl",
+  "other",
+]);
+
+export const packageStatusEnum = pgEnum("package_status", [
+  "pre_transit",
+  "in_transit",
+  "out_for_delivery",
+  "delivered",
+  "exception",
+  "unknown",
+]);
+
+export const trackedPackages = pgTable(
+  "tracked_packages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    carrier: carrierEnum("carrier").notNull().default("other"),
+    trackingNumber: text("tracking_number").notNull(),
+    label: text("label"),
+    status: packageStatusEnum("status").notNull().default("unknown"),
+    statusDetail: text("status_detail"),
+    expectedDelivery: date("expected_delivery"),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    source: text("source").notNull().default("manual"), // "informed_delivery" | "manual"
+    rawData: jsonb("raw_data"),
+    isArchived: boolean("is_archived").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("tracked_packages_household_idx").on(table.householdId),
+    index("tracked_packages_status_idx").on(table.status),
+  ]
+);
+
+export const uspsConnections = pgTable(
+  "usps_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("usps_connections_household_idx").on(table.householdId),
+  ]
+);
+
+export const trackedPackagesRelations = relations(
+  trackedPackages,
+  ({ one }) => ({
+    household: one(households, {
+      fields: [trackedPackages.householdId],
+      references: [households.id],
+    }),
+  })
+);
+
+export const uspsConnectionsRelations = relations(
+  uspsConnections,
+  ({ one }) => ({
+    household: one(households, {
+      fields: [uspsConnections.householdId],
+      references: [households.id],
+    }),
+  })
+);
+
+export type TrackedPackage = typeof trackedPackages.$inferSelect;
+export type UspsConnection = typeof uspsConnections.$inferSelect;

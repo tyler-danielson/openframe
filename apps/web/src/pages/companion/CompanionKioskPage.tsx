@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -13,8 +13,10 @@ import {
   Maximize,
   Moon,
   Share2,
+  Globe,
 } from "lucide-react";
 import { api, type Kiosk } from "../../services/api";
+import { CastDialog } from "../../components/cast/CastDialog";
 
 // Controllable widget types
 const CONTROLLABLE_TYPES = new Set(["iptv", "spotify", "ha-entity", "photo-album", "photo-feed"]);
@@ -90,6 +92,8 @@ export function CompanionKioskPage() {
   const { kioskId } = useParams<{ kioskId: string }>();
   const navigate = useNavigate();
   const pingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [showCastUrl, setShowCastUrl] = useState(false);
+  const [castUrl, setCastUrl] = useState("");
 
   const { data: kiosk, isLoading } = useQuery({
     queryKey: ["companion-kiosk", kioskId],
@@ -182,6 +186,63 @@ export function CompanionKioskPage() {
           <Share2 className="h-4 w-4 text-primary" />
           Share
         </button>
+      </div>
+
+      {/* Cast URL */}
+      <div className="flex gap-2">
+        {showCastUrl ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const trimmed = castUrl.trim();
+              if (!trimmed) return;
+              const finalUrl = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+              api.castToTarget({
+                targetId: kioskId!,
+                targetType: "kiosk",
+                contentType: "webpage",
+                webpageUrl: finalUrl,
+              }).then(() => {
+                setShowCastUrl(false);
+                setCastUrl("");
+              }).catch(() => {});
+            }}
+            className="flex-1 flex items-center gap-2"
+          >
+            <div className="relative flex-1">
+              <Globe className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={castUrl}
+                onChange={(e) => setCastUrl(e.target.value)}
+                placeholder="URL to cast..."
+                autoFocus
+                className="w-full pl-9 pr-3 py-2.5 text-sm border border-border rounded-xl bg-card focus:outline-none focus:ring-2 focus:ring-primary/30"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setShowCastUrl(false);
+                    setCastUrl("");
+                  }
+                }}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={!castUrl.trim()}
+              className="px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors min-h-[44px]"
+            >
+              Cast
+            </button>
+          </form>
+        ) : (
+          <button
+            onClick={() => setShowCastUrl(true)}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-card border border-border text-sm font-medium text-foreground hover:bg-primary/5 transition-colors min-h-[44px]"
+          >
+            <Globe className="h-4 w-4 text-primary" />
+            Cast Webpage
+          </button>
+        )}
       </div>
 
       {allControls.length === 0 ? (

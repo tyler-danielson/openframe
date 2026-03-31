@@ -4,6 +4,39 @@ import { getCategorySettings } from "../settings/index.js";
 const DISTANCE_MATRIX_API = "https://maps.googleapis.com/maps/api/distancematrix/json";
 const PLACES_AUTOCOMPLETE_API = "https://maps.googleapis.com/maps/api/place/autocomplete/json";
 
+// Server-side distance cache: origin+destination → result + timestamp
+// Traffic data is cached for 15 minutes to avoid redundant API calls
+// (e.g., back-to-back events at the same location)
+interface CachedDistance {
+  data: {
+    distance: { text: string; value: number };
+    duration: { text: string; value: number };
+    durationInTraffic: { text: string; value: number } | null;
+  };
+  timestamp: number;
+}
+const distanceCache = new Map<string, CachedDistance>();
+const DISTANCE_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
+function getDistanceCacheKey(origin: string, destination: string): string {
+  return `${origin.toLowerCase().trim()}|${destination.toLowerCase().trim()}`;
+}
+
+// Prune expired entries periodically (every 100 lookups)
+let cacheLookupCount = 0;
+function maybePruneCache() {
+  cacheLookupCount++;
+  if (cacheLookupCount >= 100) {
+    cacheLookupCount = 0;
+    const now = Date.now();
+    for (const [key, entry] of distanceCache) {
+      if (now - entry.timestamp > DISTANCE_CACHE_TTL) {
+        distanceCache.delete(key);
+      }
+    }
+  }
+}
+
 export async function mapsRoutes(fastify: FastifyInstance) {
   // Get driving distance and duration between two locations
   fastify.get(
@@ -27,6 +60,7 @@ export async function mapsRoutes(fastify: FastifyInstance) {
             type: "object",
             properties: {
               success: { type: "boolean" },
+              cached: { type: "boolean" },
               data: {
                 type: "object",
                 properties: {
@@ -65,8 +99,18 @@ export async function mapsRoutes(fastify: FastifyInstance) {
         destination: string;
       };
 
+      // Check server-side cache first
+      maybePruneCache();
+      const cacheKey = getDistanceCacheKey(origin, destination);
+      const cached = distanceCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < DISTANCE_CACHE_TTL) {
+        return { success: true, cached: true, data: cached.data };
+      }
+
       const googleSettings = await getCategorySettings(fastify.db, "google");
-      const apiKey = googleSettings.maps_api_key || process.env.GOOGLE_MAPS_API_KEY;
+      const serviceSettings = await getCategorySettings(fastify.db, "services");
+      const hasPremiumTraffic = serviceSettings.traffic_premium === "true";
+      const apiKey = googleSettings.maps_api_key || (hasPremiumTraffic ? process.env.GOOGLE_MAPS_PLATFORM_KEY : null) || process.env.GOOGLE_MAPS_API_KEY;
       if (!apiKey) {
         throw fastify.httpErrors.serviceUnavailable("Google Maps API key not configured");
       }
@@ -101,14 +145,16 @@ export async function mapsRoutes(fastify: FastifyInstance) {
           throw fastify.httpErrors.badRequest(`Could not calculate distance: ${element?.status ?? "No results"}`);
         }
 
-        return {
-          success: true,
-          data: {
-            distance: element.distance,
-            duration: element.duration,
-            durationInTraffic: element.duration_in_traffic ?? null,
-          },
+        const result = {
+          distance: element.distance!,
+          duration: element.duration!,
+          durationInTraffic: element.duration_in_traffic ?? null,
         };
+
+        // Cache the result
+        distanceCache.set(cacheKey, { data: result, timestamp: Date.now() });
+
+        return { success: true, cached: false, data: result };
       } catch (error) {
         fastify.log.error({ err: error }, "Distance Matrix API error");
         throw fastify.httpErrors.internalServerError("Failed to calculate distance");
@@ -163,7 +209,9 @@ export async function mapsRoutes(fastify: FastifyInstance) {
       const { input } = request.query as { input: string };
 
       const googleSettings = await getCategorySettings(fastify.db, "google");
-      const apiKey = googleSettings.maps_api_key || process.env.GOOGLE_MAPS_API_KEY;
+      const serviceSettings = await getCategorySettings(fastify.db, "services");
+      const hasPremiumTraffic = serviceSettings.traffic_premium === "true";
+      const apiKey = googleSettings.maps_api_key || (hasPremiumTraffic ? process.env.GOOGLE_MAPS_PLATFORM_KEY : null) || process.env.GOOGLE_MAPS_API_KEY;
       if (!apiKey) {
         throw fastify.httpErrors.serviceUnavailable("Google Maps API key not configured");
       }

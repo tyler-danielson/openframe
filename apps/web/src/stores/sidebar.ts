@@ -8,8 +8,10 @@ export type SidebarFeature =
   | "dashboard"
   | "cardview"
   | "photos"
+  | "files"
   | "spotify"
   | "iptv"
+  | "siriusxm"
   | "cameras"
   | "multiview"
   | "homeassistant"
@@ -26,8 +28,10 @@ export const SIDEBAR_FEATURES: SidebarFeature[] = [
   "dashboard",
   "cardview",
   "photos",
+  "files",
   "spotify",
   "iptv",
+  "siriusxm",
   "cameras",
   "multiview",
   "homeassistant",

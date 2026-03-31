@@ -15,7 +15,16 @@ export function ChatMessage({ role, content, isStreaming }: ChatMessageProps) {
   const formattedContent = useMemo(() => {
     if (!content) return "";
 
+    // Escape HTML entities first to prevent XSS
     let html = content
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+    // Then apply markdown formatting on the sanitized text
+    html = html
       // Code blocks
       .replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre class="bg-muted rounded-md p-3 my-2 overflow-x-auto text-sm"><code>$2</code></pre>')
       // Inline code

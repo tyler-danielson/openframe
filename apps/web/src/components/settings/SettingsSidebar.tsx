@@ -22,7 +22,8 @@ export type SettingsTab =
   | "todos"
   | "sports"
   | "photos"
-  | "custom-screens";
+  | "custom-screens"
+  | "planner";
 
 export interface SidebarGroup {
   label: string;

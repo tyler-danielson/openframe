@@ -9,11 +9,7 @@ import { UpNextWidget } from "./UpNextWidget";
 import { TasksWidget } from "./TasksWidget";
 import { SportsWidget } from "./SportsWidget";
 import { SpotifyWidget } from "./SpotifyWidget";
-import { HAEntityWidget } from "./HAEntityWidget";
-import { HAGaugeWidget } from "./HAGaugeWidget";
-import { HAGraphWidget } from "./HAGraphWidget";
-import { HACameraWidget } from "./HACameraWidget";
-import { HAMapWidget } from "./HAMapWidget";
+import { HAWidget } from "./HAWidget";
 import { TextWidget } from "./TextWidget";
 import { ImageWidget } from "./ImageWidget";
 import { PhotoAlbumWidget } from "./PhotoAlbumWidget";
@@ -29,6 +25,17 @@ import { AudiobookshelfWidget } from "./AudiobookshelfWidget";
 import { PhotoFeedWidget } from "./PhotoFeedWidget";
 import { SupportWidget } from "./SupportWidget";
 import { CountdownHolderWidget } from "./CountdownHolderWidget";
+import { MultiClockWidget } from "./MultiClockWidget";
+import { NotesWidget } from "./NotesWidget";
+import { StockQuoteWidget } from "./StockQuoteWidget";
+import { ExchangeRateWidget } from "./ExchangeRateWidget";
+import { AtmosphericMapWidget } from "./AtmosphericMapWidget";
+import { WeatherAlertsWidget } from "./WeatherAlertsWidget";
+import { OceanTidesWidget } from "./OceanTidesWidget";
+import { AirQualityWidget } from "./AirQualityWidget";
+import { ChoresWidget } from "./ChoresWidget";
+import { StickyNotesWidget } from "./StickyNotesWidget";
+import { PackageTrackingWidget } from "./PackageTrackingWidget";
 
 // Per-widget ErrorBoundary to isolate crashes and identify the broken widget
 class WidgetErrorBoundary extends Component<
@@ -119,20 +126,23 @@ export function WidgetRenderer({ widget, isBuilder = false, widgetId }: WidgetRe
     case "spotify":
       content = <SpotifyWidget {...commonProps} />;
       break;
+    case "ha":
+      content = <HAWidget {...commonProps} />;
+      break;
     case "ha-entity":
-      content = <HAEntityWidget {...commonProps} />;
+      content = <HAWidget {...commonProps} config={{ ...commonProps.config, displayMode: "entity" }} />;
       break;
     case "ha-gauge":
-      content = <HAGaugeWidget {...commonProps} />;
+      content = <HAWidget {...commonProps} config={{ ...commonProps.config, displayMode: "gauge" }} />;
       break;
     case "ha-graph":
-      content = <HAGraphWidget {...commonProps} />;
+      content = <HAWidget {...commonProps} config={{ ...commonProps.config, displayMode: "graph" }} />;
       break;
     case "ha-camera":
-      content = <HACameraWidget {...commonProps} />;
+      content = <HAWidget {...commonProps} config={{ ...commonProps.config, displayMode: "camera" }} />;
       break;
     case "ha-map":
-      content = <HAMapWidget {...commonProps} />;
+      content = <HAWidget {...commonProps} config={{ ...commonProps.config, displayMode: "map" }} />;
       break;
     case "text":
       content = <TextWidget {...commonProps} />;
@@ -178,6 +188,39 @@ export function WidgetRenderer({ widget, isBuilder = false, widgetId }: WidgetRe
       break;
     case "countdown-holder":
       content = <CountdownHolderWidget {...commonProps} />;
+      break;
+    case "multi-clock":
+      content = <MultiClockWidget {...commonProps} />;
+      break;
+    case "notes":
+      content = <NotesWidget {...commonProps} />;
+      break;
+    case "stock-quote":
+      content = <StockQuoteWidget {...commonProps} />;
+      break;
+    case "exchange-rate":
+      content = <ExchangeRateWidget {...commonProps} />;
+      break;
+    case "atmospheric-map":
+      content = <AtmosphericMapWidget {...commonProps} />;
+      break;
+    case "weather-alerts":
+      content = <WeatherAlertsWidget {...commonProps} />;
+      break;
+    case "ocean-tides":
+      content = <OceanTidesWidget {...commonProps} />;
+      break;
+    case "air-quality":
+      content = <AirQualityWidget {...commonProps} />;
+      break;
+    case "chores":
+      content = <ChoresWidget {...commonProps} />;
+      break;
+    case "sticky-notes":
+      content = <StickyNotesWidget {...commonProps} />;
+      break;
+    case "package-tracking":
+      content = <PackageTrackingWidget {...commonProps} />;
       break;
     default:
       content = (

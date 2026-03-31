@@ -19,30 +19,49 @@ export function App() {
     async function init() {
       await initAlexa();
 
-      // Check for saved configuration
       const savedConfig = storage.getKioskConfig();
       if (savedConfig) {
         setConfig(savedConfig);
         setAppState("kiosk");
-      } else if (storage.needsSetup()) {
-        setAppState("setup");
       } else {
         setAppState("setup");
       }
     }
-
     init();
   }, []);
 
-  // Listen for Alexa setup messages (when Lambda tells us to show setup)
+  // Listen for Alexa setup messages (Lambda tells us to show setup)
   useEffect(() => {
     if (!isRunningInAlexa()) return;
-
     onMessage((message) => {
       if (message.action === "setup") {
         setAppState("setup");
       }
     });
+  }, []);
+
+  // Request fullscreen on first interaction (Silk browser mode only)
+  useEffect(() => {
+    if (isRunningInAlexa()) return; // Alexa handles fullscreen itself
+
+    const requestFullscreen = () => {
+      const el = document.documentElement;
+      if (el.requestFullscreen) {
+        el.requestFullscreen().catch(() => {});
+      } else if ((el as any).webkitRequestFullscreen) {
+        (el as any).webkitRequestFullscreen();
+      }
+      document.removeEventListener("touchstart", requestFullscreen);
+      document.removeEventListener("click", requestFullscreen);
+    };
+
+    document.addEventListener("touchstart", requestFullscreen, { once: true });
+    document.addEventListener("click", requestFullscreen, { once: true });
+
+    return () => {
+      document.removeEventListener("touchstart", requestFullscreen);
+      document.removeEventListener("click", requestFullscreen);
+    };
   }, []);
 
   const handleConnect = useCallback((newConfig: KioskConfig) => {
@@ -59,7 +78,6 @@ export function App() {
     setAppState("setup");
   }, []);
 
-  // Loading state
   if (appState === "loading") {
     return (
       <div className="app-loading">
@@ -69,7 +87,6 @@ export function App() {
     );
   }
 
-  // Setup state
   if (appState === "setup") {
     return (
       <SetupScreen
@@ -80,7 +97,6 @@ export function App() {
     );
   }
 
-  // QR Login state
   if (appState === "qr-login") {
     return (
       <QRLoginScreen
@@ -91,7 +107,6 @@ export function App() {
     );
   }
 
-  // Kiosk state
   return (
     <div className="app-kiosk">
       {config && <KioskFrame config={config} onBack={handleBack} />}

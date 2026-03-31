@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="SettingsOverlay" extends="Group">
+    <interface>
+        <field id="serverUrl" type="string" value="" onChange="onInfoChanged" />
+        <field id="kioskToken" type="string" value="" onChange="onInfoChanged" />
+        <field id="action" type="string" alwaysNotify="true" />
+    </interface>
+    <script type="text/brightscript" uri="SettingsOverlay.brs" />
+    <children>
+        <!-- Semi-transparent backdrop -->
+        <Rectangle
+            width="1920"
+            height="1080"
+            color="0x000000CC" />
+
+        <!-- Settings panel -->
+        <Rectangle
+            id="panel"
+            width="600"
+            height="500"
+            translation="[660, 290]"
+            color="0x1e293bFF" />
+
+        <LayoutGroup
+            layoutDirection="vert"
+            translation="[710, 320]"
+            itemSpacings="[20]">
+
+            <Label
+                id="titleLabel"
+                text="Settings"
+                font="font:LargeBoldSystemFont"
+                color="0x60a5faFF"
+                width="500" />
+
+            <Label
+                id="serverLabel"
+                text="Server:"
+                font="font:SmallBoldSystemFont"
+                color="0x94a3b8FF"
+                width="500" />
+
+            <Label
+                id="serverValue"
+                text=""
+                font="font:SmallSystemFont"
+                color="0xf8fafcFF"
+                width="500"
+                maxLines="2"
+                wrap="true" />
+
+            <Label
+                id="tokenLabel"
+                text="Token:"
+                font="font:SmallBoldSystemFont"
+                color="0x94a3b8FF"
+                width="500" />
+
+            <Label
+                id="tokenValue"
+                text=""
+                font="font:SmallSystemFont"
+                color="0xf8fafcFF"
+                width="500" />
+        </LayoutGroup>
+
+        <ButtonGroup
+            id="buttonGroup"
+            translation="[710, 620]"
+            buttons="[Retry Connection, Change Server, Close]" />
+    </children>
+</component>

@@ -64,6 +64,20 @@ export function KioskFrame({ config, onBack }: KioskFrameProps) {
     loadKiosk();
   }, [loadKiosk]);
 
+  // Send navigation command to iframe
+  const sendNavigationCommand = useCallback((page: string) => {
+    if (iframeRef.current?.contentWindow) {
+      try {
+        iframeRef.current.contentWindow.postMessage(
+          { type: "navigate", page },
+          "*"
+        );
+      } catch (err) {
+        console.warn("Failed to send navigation command:", err);
+      }
+    }
+  }, []);
+
   // Initial load
   useEffect(() => {
     loadKiosk();
@@ -78,30 +92,12 @@ export function KioskFrame({ config, onBack }: KioskFrameProps) {
     }
   }, [connectionState, retryCount, handleRetry]);
 
-  // Send navigation command to iframe
-  const sendNavigationCommand = useCallback(
-    (page: string) => {
-      if (iframeRef.current?.contentWindow) {
-        try {
-          iframeRef.current.contentWindow.postMessage(
-            { type: "navigate", page },
-            "*"
-          );
-        } catch (err) {
-          console.warn("Failed to send navigation command:", err);
-        }
-      }
-    },
-    []
-  );
-
   // Listen for Alexa voice commands
   useEffect(() => {
     if (!isRunningInAlexa()) return;
 
     onMessage((message) => {
       const action = message.action as string;
-
       switch (action) {
         case "navigate":
           sendNavigationCommand(message.page as string);
@@ -132,11 +128,9 @@ export function KioskFrame({ config, onBack }: KioskFrameProps) {
   // Keep Alexa session alive with periodic pings
   useEffect(() => {
     if (!isRunningInAlexa()) return;
-
     const interval = setInterval(() => {
       sendMessage({ action: "keepAlive" });
-    }, 60000); // Ping every 60 seconds
-
+    }, 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -150,6 +144,14 @@ export function KioskFrame({ config, onBack }: KioskFrameProps) {
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
   }, [onBack]);
+
+  // Prevent screen idle
+  useEffect(() => {
+    const interval = setInterval(() => {
+      document.title = "OpenFrame Kiosk";
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="kiosk-frame-container">
@@ -190,8 +192,8 @@ export function KioskFrame({ config, onBack }: KioskFrameProps) {
         title="OpenFrame Kiosk"
         onLoad={handleIframeLoad}
         onError={handleIframeError}
-        allow="fullscreen; autoplay"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+        allow="fullscreen; autoplay; camera; microphone"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
       />
 
       {/* Settings touch target (tap bottom-right corner) */}
@@ -216,13 +218,24 @@ export function KioskFrame({ config, onBack }: KioskFrameProps) {
                 <span className="info-label">Token</span>
                 <span className="info-value">{config.kioskToken.slice(0, 8)}...</span>
               </div>
+              <div className="info-item">
+                <span className="info-label">Mode</span>
+                <span className="info-value">{isRunningInAlexa() ? "Alexa Skill" : "Silk Browser"}</span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">Status</span>
+                <span className="info-value">{connectionState === "connected" ? "Connected" : connectionState}</span>
+              </div>
             </div>
 
             <div className="settings-actions">
-              <button className="btn btn-secondary" onClick={onBack}>
+              <button className="btn btn-secondary full-width" onClick={() => { loadKiosk(); setShowSettings(false); }}>
+                Refresh Kiosk
+              </button>
+              <button className="btn btn-secondary full-width" onClick={onBack}>
                 Change Configuration
               </button>
-              <button className="btn btn-primary" onClick={() => setShowSettings(false)}>
+              <button className="btn btn-primary full-width" onClick={() => setShowSettings(false)}>
                 Close
               </button>
             </div>

@@ -110,10 +110,13 @@ export function CustomScreenPage({ screenId: propScreenId }: { screenId?: string
     ...(screen.layoutConfig as Partial<ScreensaverLayoutConfig>),
   };
 
+  // Key the error boundary on screen ID so it resets its error state on navigation
+  const screenKey = screen.id || slug || "default";
+
   return (
-    <CustomScreenErrorBoundary>
-      <div className="h-full w-full">
-        <BuilderProvider initialConfig={layoutConfig}>
+    <CustomScreenErrorBoundary key={screenKey}>
+      <div className="h-full w-full overflow-hidden">
+        <BuilderProvider key={screenKey} initialConfig={layoutConfig}>
           <BuilderCanvas showGrid={false} previewMode={true} liveMode={true} />
         </BuilderProvider>
       </div>

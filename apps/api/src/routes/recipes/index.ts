@@ -114,13 +114,11 @@ async function deleteRecipeImages(sourceImagePath: string | null, thumbnailPath:
 }
 
 export const recipeRoutes: FastifyPluginAsync = async (fastify) => {
-  const { authenticate, authenticateAny } = fastify;
-
   // GET /api/v1/recipes - List all user's recipes
   fastify.get(
     "/",
     {
-      preHandler: [authenticateAny],
+      onRequest: [fastify.authenticateAny],
       schema: {
         description: "List all recipes for the current user",
         tags: ["Recipes"],
@@ -170,7 +168,7 @@ export const recipeRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>(
     "/:id",
     {
-      preHandler: [authenticateAny],
+      onRequest: [fastify.authenticateAny],
       schema: {
         description: "Get a specific recipe",
         tags: ["Recipes"],
@@ -209,7 +207,7 @@ export const recipeRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Body: CreateRecipeBody }>(
     "/",
     {
-      preHandler: [authenticate],
+      onRequest: [fastify.authenticate],
       schema: {
         description: "Create a new recipe manually",
         tags: ["Recipes"],
@@ -262,7 +260,7 @@ export const recipeRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch<{ Params: { id: string }; Body: UpdateRecipeBody }>(
     "/:id",
     {
-      preHandler: [authenticate],
+      onRequest: [fastify.authenticate],
       schema: {
         description: "Update a recipe",
         tags: ["Recipes"],
@@ -326,7 +324,7 @@ export const recipeRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete<{ Params: { id: string } }>(
     "/:id",
     {
-      preHandler: [authenticate],
+      onRequest: [fastify.authenticate],
       schema: {
         description: "Delete a recipe",
         tags: ["Recipes"],
@@ -374,7 +372,7 @@ export const recipeRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Params: { id: string } }>(
     "/:id/favorite",
     {
-      preHandler: [authenticate],
+      onRequest: [fastify.authenticate],
       schema: {
         description: "Toggle recipe favorite status",
         tags: ["Recipes"],
@@ -422,7 +420,7 @@ export const recipeRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/upload-token",
     {
-      preHandler: [authenticate],
+      onRequest: [fastify.authenticate],
       schema: {
         description: "Generate a temporary token for mobile recipe upload",
         tags: ["Recipes"],
@@ -631,7 +629,7 @@ export const recipeRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { "*": string } }>(
     "/image/*",
     {
-      preHandler: [authenticateAny],
+      onRequest: [fastify.authenticateAny],
       schema: {
         description: "Get recipe image",
         tags: ["Recipes"],
@@ -674,7 +672,7 @@ export const recipeRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/tags",
     {
-      preHandler: [authenticateAny],
+      onRequest: [fastify.authenticateAny],
       schema: {
         description: "Get all unique recipe tags",
         tags: ["Recipes"],

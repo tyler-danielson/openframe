@@ -7,6 +7,8 @@ const DEFAULT_FREE_LIMITS: PlanLimits = {
   maxKiosks: 2,
   maxCalendars: 5,
   maxCameras: 2,
+  maxPhotos: 50,
+  maxPhotoResolution: 1080,
   features: {
     iptv: false,
     spotify: false,

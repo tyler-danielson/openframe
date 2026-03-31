@@ -4,11 +4,12 @@ import { CastDialog } from "./CastDialog";
 import { cn } from "../../lib/utils";
 
 interface CastButtonProps {
-  contentType: "iptv" | "camera" | "multiview";
+  contentType: "iptv" | "camera" | "multiview" | "webpage";
   channelId?: string;
   cameraId?: string;
   cameraEntityId?: string;
   multiviewItems?: unknown[];
+  webpageUrl?: string;
   variant?: "overlay" | "toolbar";
   className?: string;
 }
@@ -19,6 +20,7 @@ export function CastButton({
   cameraId,
   cameraEntityId,
   multiviewItems,
+  webpageUrl,
   variant = "toolbar",
   className,
 }: CastButtonProps) {
@@ -47,6 +49,7 @@ export function CastButton({
         cameraId={cameraId}
         cameraEntityId={cameraEntityId}
         multiviewItems={multiviewItems}
+        webpageUrl={webpageUrl}
       />
     </>
   );

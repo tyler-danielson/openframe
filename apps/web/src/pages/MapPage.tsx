@@ -25,31 +25,34 @@ function getWeatherIcon(iconCode: string): string {
   return iconMap[iconCode] || "\u2600\uFE0F";
 }
 
-// OpenStreetMap tile style
-const OSM_STYLE = {
-  version: 8 as const,
-  sources: {
-    osm: {
-      type: "raster" as const,
-      tiles: [
-        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
-      ],
-      tileSize: 256,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+// CartoDB tile styles (no API key needed, kiosk-friendly usage policy)
+function createMapStyle(dark: boolean) {
+  const variant = dark ? "dark_all" : "light_all";
+  return {
+    version: 8 as const,
+    sources: {
+      carto: {
+        type: "raster" as const,
+        tiles: [
+          `https://a.basemaps.cartocdn.com/${variant}/{z}/{x}/{y}@2x.png`,
+          `https://b.basemaps.cartocdn.com/${variant}/{z}/{x}/{y}@2x.png`,
+          `https://c.basemaps.cartocdn.com/${variant}/{z}/{x}/{y}@2x.png`,
+        ],
+        tileSize: 256,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      },
     },
-  },
-  layers: [
-    {
-      id: "osm",
-      type: "raster" as const,
-      source: "osm",
-      minzoom: 0,
-      maxzoom: 19,
-    },
-  ],
-};
+    layers: [
+      {
+        id: "carto",
+        type: "raster" as const,
+        source: "carto",
+        minzoom: 0,
+        maxzoom: 19,
+      },
+    ],
+  };
+}
 
 export function MapPage() {
   const navigate = useNavigate();
@@ -329,7 +332,7 @@ export function MapPage() {
           zoom: 13,
         }}
         style={{ width: "100%", height: "100%" }}
-        mapStyle={OSM_STYLE}
+        mapStyle={createMapStyle(isDarkMode)}
         onError={(e) => {
           console.error("Map error:", e);
           setMapError("Failed to load map tiles");
