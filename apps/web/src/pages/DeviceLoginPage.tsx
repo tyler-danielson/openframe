@@ -68,7 +68,7 @@ export function DeviceLoginPage() {
         const kiosks = await api.getKiosks();
         setExistingKiosks(kiosks);
         if (kiosks.length > 0) {
-          setSelectedKioskId(kiosks[0].id);
+          setSelectedKioskId(kiosks[0]!.id);
           setLinkMode("existing");
         } else {
           setLinkMode("new");
@@ -192,9 +192,9 @@ export function DeviceLoginPage() {
                         }`}
                       >
                         <p className="font-medium text-sm">{kiosk.name}</p>
-                        {kiosk.dashboardType && (
+                        {(kiosk as any).dashboardType && (
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {kiosk.dashboardType}
+                            {(kiosk as any).dashboardType}
                           </p>
                         )}
                       </button>

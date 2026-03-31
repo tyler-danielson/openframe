@@ -127,7 +127,7 @@ export function SiriusXMPage() {
       toast({
         title: "Connection failed",
         description: err.message || "Invalid credentials",
-        variant: "destructive",
+        type: "error",
       });
       setIsLoggingIn(false);
     },
@@ -209,7 +209,7 @@ export function SiriusXMPage() {
             toast({
               title: "Stream error",
               description: "Failed to load stream. Try again.",
-              variant: "destructive",
+              type: "error",
             });
             stopPlayback();
           }
@@ -228,7 +228,7 @@ export function SiriusXMPage() {
       toast({
         title: "Failed to play",
         description: err.message,
-        variant: "destructive",
+        type: "error",
       });
       setCurrentChannel(null);
     }

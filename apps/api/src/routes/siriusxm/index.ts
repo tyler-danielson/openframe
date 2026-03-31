@@ -146,8 +146,8 @@ export const siriusxmRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         success: true,
         data: {
-          id: account.id,
-          username: account.username,
+          id: account!.id,
+          username: account!.username,
           connected: true,
         },
       };

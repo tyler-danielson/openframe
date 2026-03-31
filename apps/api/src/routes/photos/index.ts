@@ -82,12 +82,13 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(userPlans.userId, user.id))
         .limit(1);
 
-      const [{ total }] = await fastify.db
+      const [countRow] = await fastify.db
         .select({ total: count() })
         .from(photos)
         .innerJoin(photoAlbums, eq(photos.albumId, photoAlbums.id))
         .where(eq(photoAlbums.userId, user.id));
 
+      const total = countRow?.total ?? 0;
       const maxPhotos = plan?.limits?.maxPhotos ?? null;
       const maxResolution = plan?.limits?.maxPhotoResolution ?? null;
 
@@ -458,13 +459,13 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       const maxPhotos = plan?.limits?.maxPhotos;
 
       if (maxPhotos) {
-        const [{ total }] = await fastify.db
+        const [countRow] = await fastify.db
           .select({ total: count() })
           .from(photos)
           .innerJoin(photoAlbums, eq(photos.albumId, photoAlbums.id))
           .where(eq(photoAlbums.userId, user.id));
 
-        photoCount = total;
+        photoCount = countRow?.total ?? 0;
 
         if (photoCount >= maxPhotos) {
           return reply.code(403).send({
