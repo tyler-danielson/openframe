@@ -170,7 +170,7 @@ struct OAuthWebView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> OAuthHostController {
         let vc = OAuthHostController()
         vc.coordinator = context.coordinator
-        let urlString = "\(serverUrl)/api/v1/auth/oauth/\(provider)?redirect=openframe://auth/callback"
+        let urlString = "\(serverUrl)/api/v1/auth/oauth/\(provider)?callbackUrl=openframe://auth/callback"
         vc.oauthURL = URL(string: urlString)
         return vc
     }
