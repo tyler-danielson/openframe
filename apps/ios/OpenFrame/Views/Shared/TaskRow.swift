@@ -22,7 +22,7 @@ struct TaskRow: View {
                 Text(task.title)
                     .font(.subheadline)
                     .foregroundStyle(task.isCompleted ? palette.mutedForeground : palette.foreground)
-                    .strikethrough(task.isCompleted)
+                    .strikethrough(task.isCompleted, color: nil)
 
                 if let dueDate = task.dueDateParsed {
                     Text(dueDate.relativeString)
