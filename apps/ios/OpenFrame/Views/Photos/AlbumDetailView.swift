@@ -3,8 +3,19 @@ import Kingfisher
 import PhotosUI
 
 struct AlbumDetailView: View {
-    let album: PhotoAlbum
+    let albumId: String
+    let albumTitle: String
     @EnvironmentObject var container: DIContainer
+
+    init(album: PhotoAlbum) {
+        self.albumId = album.id
+        self.albumTitle = album.name
+    }
+
+    init(albumId: String, albumTitle: String) {
+        self.albumId = albumId
+        self.albumTitle = albumTitle
+    }
     @State private var photos: [Photo] = []
     @State private var isLoading = true
     @State private var showPicker = false
@@ -37,7 +48,7 @@ struct AlbumDetailView: View {
             }
         }
         .background(palette.background.ignoresSafeArea())
-        .navigationTitle(album.name)
+        .navigationTitle(albumTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -72,14 +83,14 @@ struct AlbumDetailView: View {
 
     private func loadPhotos() async {
         isLoading = true
-        photos = (try? await container.photoRepository.getAlbumPhotos(albumId: album.id)) ?? []
+        photos = (try? await container.photoRepository.getAlbumPhotos(albumId: albumId)) ?? []
         isLoading = false
     }
 
     private func uploadPhoto(_ data: Data) {
         isUploading = true
         Task {
-            try? await container.photoRepository.uploadPhoto(albumId: album.id, imageData: data, fileName: "photo_\(UUID().uuidString).jpg")
+            try? await container.photoRepository.uploadPhoto(albumId: albumId, imageData: data, fileName: "photo_\(UUID().uuidString).jpg")
             await loadPhotos()
             isUploading = false
         }

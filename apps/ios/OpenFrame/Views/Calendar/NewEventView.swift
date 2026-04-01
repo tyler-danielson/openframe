@@ -1,12 +1,11 @@
 import SwiftUI
 
 struct NewEventView: View {
-    let calendars: [OFCalendar]
-    let defaultDate: Date
     var onCreated: (() -> Void)?
 
     @EnvironmentObject var container: DIContainer
     @Environment(\.presentationMode) var presentationMode
+    @State private var calendars: [OFCalendar]
     @State private var title = ""
     @State private var selectedCalendarId: String = ""
     @State private var startDate: Date
@@ -16,11 +15,12 @@ struct NewEventView: View {
     @State private var description = ""
     @State private var isSaving = false
     @State private var error: String?
+    @State private var needsCalendarLoad: Bool
 
-    init(calendars: [OFCalendar], defaultDate: Date, onCreated: (() -> Void)? = nil) {
-        self.calendars = calendars
-        self.defaultDate = defaultDate
+    init(calendars: [OFCalendar] = [], defaultDate: Date = Date(), onCreated: (() -> Void)? = nil) {
         self.onCreated = onCreated
+        self._calendars = State(initialValue: calendars)
+        self._needsCalendarLoad = State(initialValue: calendars.isEmpty)
         let start = Calendar.current.date(bySettingHour: Calendar.current.component(.hour, from: Date()) + 1, minute: 0, second: 0, of: defaultDate) ?? defaultDate
         _startDate = State(initialValue: start)
         _endDate = State(initialValue: start.addingTimeInterval(3600))
@@ -65,13 +65,21 @@ struct NewEventView: View {
         }
         .navigationTitle("New Event")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
+        .toolbar(content: {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button("Cancel") { presentationMode.wrappedValue.dismiss() }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Save") { save() }
                     .disabled(title.isEmpty || isSaving)
+            }
+        })
+        .task {
+            if needsCalendarLoad {
+                calendars = (try? await container.calendarRepository.getCalendars()) ?? []
+                if selectedCalendarId.isEmpty {
+                    selectedCalendarId = calendars.first?.id ?? ""
+                }
             }
         }
     }

@@ -60,7 +60,7 @@ struct AddRecipeView: View {
         }
         .navigationTitle("Add Recipe")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
+        .toolbar(content: {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button("Cancel") { presentationMode.wrappedValue.dismiss() }
             }
@@ -68,7 +68,7 @@ struct AddRecipeView: View {
                 Button("Save") { save() }
                     .disabled(title.isEmpty || isSaving)
             }
-        }
+        })
     }
 
     private func save() {

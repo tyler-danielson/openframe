@@ -1,72 +1,88 @@
 import SwiftUI
 
 struct EventDetailView: View {
-    let event: CalendarEvent
+    private let eventId: String
     @EnvironmentObject var container: DIContainer
     @Environment(\.presentationMode) var presentationMode
+    @State private var event: CalendarEvent?
     @State private var showDeleteConfirm = false
+
+    init(event: CalendarEvent) {
+        self.eventId = event.id
+        self._event = State(initialValue: event)
+    }
+
+    init(eventId: String) {
+        self.eventId = eventId
+    }
 
     var body: some View {
         let palette = container.themeManager.palette
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Color bar + title
-                HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.from(css: event.calendarColor) ?? palette.primary)
-                        .frame(width: 6)
+        Group {
+            if let event = event {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Color bar + title
+                        HStack(spacing: 12) {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.from(css: event.calendarColor) ?? palette.primary)
+                                .frame(width: 6)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(event.title)
-                            .font(.title2.bold())
-                            .foregroundStyle(palette.foreground)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(event.title)
+                                    .font(.title2.bold())
+                                    .foregroundStyle(palette.foreground)
 
-                        if event.isAllDay {
-                            Text("All day")
-                                .font(.subheadline)
-                                .foregroundStyle(palette.mutedForeground)
-                        } else if let start = Date.fromISO(event.startTime),
-                                  let end = Date.fromISO(event.endTime) {
-                            Text("\(start.shortDateString)")
-                                .font(.subheadline)
-                                .foregroundStyle(palette.mutedForeground)
-                            Text("\(start.timeString) – \(end.timeString)")
-                                .font(.subheadline)
-                                .foregroundStyle(palette.mutedForeground)
+                                if event.isAllDay {
+                                    Text("All day")
+                                        .font(.subheadline)
+                                        .foregroundStyle(palette.mutedForeground)
+                                } else if let start = Date.fromISO(event.startTime),
+                                          let end = Date.fromISO(event.endTime) {
+                                    Text("\(start.shortDateString)")
+                                        .font(.subheadline)
+                                        .foregroundStyle(palette.mutedForeground)
+                                    Text("\(start.timeString) – \(end.timeString)")
+                                        .font(.subheadline)
+                                        .foregroundStyle(palette.mutedForeground)
+                                }
+                            }
+                        }
+                        .frame(minHeight: 60)
+
+                        // Location
+                        if let location = event.location, !location.isEmpty {
+                            DetailRow(icon: "mappin", title: "Location", value: location)
+                        }
+
+                        // Description
+                        if let desc = event.description, !desc.isEmpty {
+                            DetailRow(icon: "text.alignleft", title: "Description", value: desc)
+                        }
+
+                        // Delete button
+                        if container.canEditCalendar {
+                            Button {
+                                showDeleteConfirm = true
+                            } label: {
+                                HStack {
+                                    Image(systemName: "trash")
+                                    Text("Delete Event")
+                                }
+                                .foregroundStyle(palette.destructive)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(palette.destructive.opacity(0.1))
+                                .cornerRadius(12)
+                            }
+                            .padding(.top, 20)
                         }
                     }
+                    .padding()
                 }
-                .frame(minHeight: 60)
-
-                // Location
-                if let location = event.location, !location.isEmpty {
-                    DetailRow(icon: "mappin", title: "Location", value: location)
-                }
-
-                // Description
-                if let desc = event.description, !desc.isEmpty {
-                    DetailRow(icon: "text.alignleft", title: "Description", value: desc)
-                }
-
-                // Delete button
-                if container.canEditCalendar {
-                    Button {
-                        showDeleteConfirm = true
-                    } label: {
-                        HStack {
-                            Image(systemName: "trash")
-                            Text("Delete Event")
-                        }
-                        .foregroundStyle(palette.destructive)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(palette.destructive.opacity(0.1))
-                        .cornerRadius(12)
-                    }
-                    .padding(.top, 20)
-                }
+            } else {
+                ProgressView()
             }
-            .padding()
         }
         .background(palette.background.ignoresSafeArea())
         .navigationTitle("Event")
@@ -77,11 +93,16 @@ struct EventDetailView: View {
         } message: {
             Text("Are you sure you want to delete this event?")
         }
+        .task {
+            if event == nil {
+                event = try? await container.calendarRepository.getEvent(id: eventId)
+            }
+        }
     }
 
     private func deleteEvent() {
         Task {
-            try? await container.calendarRepository.deleteEvent(id: event.id)
+            try? await container.calendarRepository.deleteEvent(id: event?.id ?? eventId)
             presentationMode.wrappedValue.dismiss()
         }
     }
