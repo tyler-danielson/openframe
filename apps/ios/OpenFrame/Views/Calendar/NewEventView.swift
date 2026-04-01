@@ -53,8 +53,8 @@ struct NewEventView: View {
 
             Section {
                 TextField("Location", text: $location)
-                TextField("Description", text: $description, axis: .vertical)
-                    .lineLimit(3...6)
+                TextEditor(text: $description)
+                    .frame(minHeight: 60, maxHeight: 120)
             }
 
             if let error {
