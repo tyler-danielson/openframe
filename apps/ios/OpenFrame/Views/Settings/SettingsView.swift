@@ -30,7 +30,10 @@ struct SettingsView: View {
 
             // Theme
             Section("Appearance") {
-                Picker("Theme", selection: $container.themeManager.currentTheme) {
+                Picker("Theme", selection: Binding(
+                    get: { container.themeManager.currentTheme },
+                    set: { container.themeManager.currentTheme = $0 }
+                )) {
                     ForEach(AppTheme.allCases) { theme in
                         HStack {
                             Circle()
