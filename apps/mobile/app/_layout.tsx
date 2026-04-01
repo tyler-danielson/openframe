@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { View, ActivityIndicator } from "react-native";
 import { useAuthStore } from "../stores/auth";
+import { useCompanionStore } from "../stores/companion";
 import { useColorScheme } from "../hooks/useColorScheme";
 import "../global.css";
 
@@ -18,6 +19,7 @@ const queryClient = new QueryClient({
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, serverUrl } = useAuthStore();
+  const { fetchContext } = useCompanionStore();
   const segments = useSegments();
   const router = useRouter();
 
@@ -39,6 +41,13 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       router.replace("/(tabs)");
     }
   }, [isAuthenticated, isLoading, serverUrl, segments, router]);
+
+  // Fetch companion permissions on auth
+  useEffect(() => {
+    if (isAuthenticated && serverUrl) {
+      fetchContext();
+    }
+  }, [isAuthenticated, serverUrl]);
 
   if (isLoading) {
     return (
@@ -102,6 +111,16 @@ export default function RootLayout() {
               headerShown: false,
             }}
           />
+          <Stack.Screen name="more/recipes" options={{ headerShown: true, title: "Recipes" }} />
+          <Stack.Screen name="more/recipe/[id]" options={{ headerShown: true, title: "Recipe" }} />
+          <Stack.Screen name="more/recipe/add" options={{ headerShown: true, title: "Add Recipe", presentation: "modal" }} />
+          <Stack.Screen name="more/recipe/scan" options={{ headerShown: true, title: "Scan Recipe", presentation: "modal" }} />
+          <Stack.Screen name="more/weather" options={{ headerShown: true, title: "Weather" }} />
+          <Stack.Screen name="more/news" options={{ headerShown: true, title: "News" }} />
+          <Stack.Screen name="more/homeassistant" options={{ headerShown: true, title: "Home Assistant" }} />
+          <Stack.Screen name="more/iptv" options={{ headerShown: true, title: "IPTV" }} />
+          <Stack.Screen name="more/fileshare" options={{ headerShown: true, title: "Shared Files" }} />
+          <Stack.Screen name="more/join-requests" options={{ headerShown: true, title: "Companion Invites" }} />
         </Stack>
       </AuthGate>
     </QueryClientProvider>

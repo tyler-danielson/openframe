@@ -1,12 +1,16 @@
+import { useState } from "react";
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { format, isToday, isTomorrow, addDays, startOfDay, endOfDay } from "date-fns";
-import { useCalendars, useEvents } from "../../hooks/useCalendarData";
-import { useCalendarStore } from "../../stores/calendar";
+import { format, addDays, startOfDay, endOfDay } from "date-fns";
+import { useQuery } from "@tanstack/react-query";
+import { useCalendars, useEvents, useCreateQuickEvent } from "../../hooks/useCalendarData";
 import { useSelectedEventStore } from "../../stores/selectedEvent";
 import { useThemeColors } from "../../hooks/useColorScheme";
 import { EventCard } from "../../components/EventCard";
+import { QuickInput } from "../../components/QuickInput";
+import { WeatherIcon } from "../../components/WeatherIcon";
+import { api } from "../../services/api";
 import type { CalendarEvent } from "@openframe/shared";
 
 export default function TodayScreen() {
@@ -14,10 +18,33 @@ export default function TodayScreen() {
   const colors = useThemeColors();
   const { data: calendars, isLoading: calendarsLoading, refetch: refetchCalendars } = useCalendars();
   const { data: events, isLoading: eventsLoading, refetch: refetchEvents } = useEvents(new Date());
+  const createQuickEvent = useCreateQuickEvent();
+  const [showNews, setShowNews] = useState(true);
 
   const isLoading = calendarsLoading || eventsLoading;
 
   const setSelectedEvent = useSelectedEventStore((s) => s.setEvent);
+
+  // Weather data
+  const { data: weather } = useQuery({
+    queryKey: ["weather"],
+    queryFn: () => api.getWeather(),
+    staleTime: 15 * 60 * 1000,
+  });
+
+  // Tasks for today
+  const { data: tasks } = useQuery({
+    queryKey: ["tasks-today"],
+    queryFn: () => api.getTasks({ status: "needsAction" }),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // News headlines
+  const { data: news } = useQuery({
+    queryKey: ["news"],
+    queryFn: () => api.getNews(5),
+    staleTime: 10 * 60 * 1000,
+  });
 
   const onRefresh = async () => {
     await Promise.all([refetchCalendars(), refetchEvents()]);
@@ -92,7 +119,7 @@ export default function TodayScreen() {
         }
       >
         {/* Date Header */}
-        <View className="mb-6">
+        <View className="mb-4">
           <Text className="text-muted-foreground text-sm">
             {format(new Date(), "EEEE")}
           </Text>
@@ -101,10 +128,102 @@ export default function TodayScreen() {
           </Text>
         </View>
 
+        {/* Quick Event Input */}
+        <View className="mb-6">
+          <QuickInput
+            placeholder="Quick add event... (e.g., 'Soccer at 4pm Tuesday')"
+            onSubmit={async (text) => {
+              await createQuickEvent.mutateAsync({ text });
+            }}
+            isLoading={createQuickEvent.isPending}
+          />
+        </View>
+
+        {/* Weather Card */}
+        {weather?.current && (
+          <TouchableOpacity
+            className="bg-card rounded-xl p-4 mb-6 flex-row items-center"
+            onPress={() => router.push("/more/weather")}
+            activeOpacity={0.7}
+          >
+            <WeatherIcon icon={weather.current.icon} size={40} color={colors.primary} />
+            <View className="ml-4 flex-1">
+              <Text className="text-foreground text-2xl font-bold">
+                {Math.round(weather.current.temp)}°
+              </Text>
+              <Text className="text-muted-foreground text-sm">
+                {weather.current.description} · {weather.location}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.mutedForeground} />
+          </TouchableOpacity>
+        )}
+
+        {/* Tasks Summary */}
+        {tasks && tasks.length > 0 && (
+          <View className="bg-card rounded-xl p-4 mb-6">
+            <View className="flex-row items-center justify-between mb-3">
+              <Text className="text-foreground font-semibold text-lg">Tasks</Text>
+              <TouchableOpacity onPress={() => router.push("/(tabs)/tasks")}>
+                <Text className="text-primary text-sm font-medium">See all</Text>
+              </TouchableOpacity>
+            </View>
+            {tasks.slice(0, 3).map((task) => (
+              <View key={task.id} className="flex-row items-center py-1.5">
+                <Ionicons
+                  name="checkbox-outline"
+                  size={18}
+                  color={colors.mutedForeground}
+                />
+                <Text className="text-foreground ml-2 flex-1" numberOfLines={1}>
+                  {task.title}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+
         {/* Events */}
         {renderEventSection("Today", todayEvents)}
         {renderEventSection("Tomorrow", tomorrowEvents, tomorrowEvents.length > 0)}
         {renderEventSection("Upcoming", upcomingEvents, upcomingEvents.length > 0)}
+
+        {/* News Headlines */}
+        {news && news.length > 0 && (
+          <View className="mb-6">
+            <TouchableOpacity
+              className="flex-row items-center justify-between mb-3"
+              onPress={() => setShowNews(!showNews)}
+            >
+              <Text className="text-foreground font-semibold text-lg">Headlines</Text>
+              <Ionicons
+                name={showNews ? "chevron-up" : "chevron-down"}
+                size={20}
+                color={colors.mutedForeground}
+              />
+            </TouchableOpacity>
+            {showNews && (
+              <View className="bg-card rounded-xl overflow-hidden">
+                {news.slice(0, 3).map((article, index) => (
+                  <TouchableOpacity
+                    key={article.id}
+                    className={`px-4 py-3 ${
+                      index < Math.min(news.length, 3) - 1 ? "border-b border-border" : ""
+                    }`}
+                    onPress={() => router.push("/more/news")}
+                  >
+                    <Text className="text-foreground text-sm" numberOfLines={2}>
+                      {article.title}
+                    </Text>
+                    {article.source && (
+                      <Text className="text-primary text-xs mt-1">{article.source}</Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
       </ScrollView>
 
       {/* Floating Action Button */}

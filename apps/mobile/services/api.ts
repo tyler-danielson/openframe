@@ -9,6 +9,128 @@ import type {
   Photo,
 } from "@openframe/shared";
 
+// ============ Types ============
+
+export interface Recipe {
+  id: string;
+  title: string;
+  description?: string;
+  ingredients: RecipeIngredient[];
+  steps: string[];
+  prepTime?: number;
+  cookTime?: number;
+  servings?: number;
+  sourceUrl?: string;
+  notes?: string;
+  imageUrl?: string;
+  tags?: string[];
+  createdAt: string;
+}
+
+export interface RecipeIngredient {
+  item?: string;
+  name?: string;
+  amount?: string;
+  unit?: string;
+}
+
+export interface WeatherData {
+  current: {
+    temp: number;
+    feelsLike: number;
+    humidity: number;
+    windSpeed: number;
+    description: string;
+    icon: string;
+    tempMax?: number;
+    tempMin?: number;
+  };
+  forecast: Array<{
+    date: string;
+    high: number;
+    low: number;
+    maxTemp?: number;
+    minTemp?: number;
+    description: string;
+    icon: string;
+  }>;
+  location: string;
+}
+
+export interface NewsArticle {
+  id: string;
+  title: string;
+  source?: string;
+  url?: string;
+  link?: string;
+  imageUrl?: string;
+  publishedAt?: string;
+  summary?: string;
+}
+
+export interface HAEntity {
+  entityId: string;
+  domain: string;
+  friendlyName: string;
+  state: string;
+  attributes: Record<string, unknown>;
+  lastChanged: string;
+}
+
+export interface HARoom {
+  id: string;
+  name: string;
+  entities: HAEntity[];
+}
+
+export interface IptvChannel {
+  id: string;
+  name: string;
+  logo?: string;
+  group?: string;
+  streamUrl?: string;
+  url?: string;
+  isFavorite?: boolean;
+}
+
+export interface IptvCategory {
+  id: string;
+  name: string;
+  channelCount?: number;
+}
+
+export interface SharedFile {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  url: string;
+  createdAt: string;
+}
+
+export interface CompanionPermissions {
+  isOwner: boolean;
+  permissions?: {
+    calendarAccess?: string;
+    taskAccess?: string;
+    kioskAccess?: boolean;
+    photoAccess?: boolean;
+    iptvAccess?: boolean;
+    homeAssistantAccess?: boolean;
+    newsAccess?: boolean;
+    weatherAccess?: boolean;
+    recipeAccess?: boolean;
+  } | null;
+}
+
+export interface JoinRequest {
+  id: string;
+  token?: string;
+  label?: string;
+  expiresAt?: string;
+  createdAt: string;
+}
+
 // Types for API responses
 export interface Kiosk {
   id: string;
@@ -522,6 +644,176 @@ class ApiClient {
       return `${base}${fullPath}${sep}apiKey=${encodeURIComponent(apiKey)}`;
     }
     return `${base}${fullPath}`;
+  }
+
+  // ============ Recipes ============
+
+  async getRecipes(): Promise<Recipe[]> {
+    return this.fetch<Recipe[]>("/recipes");
+  }
+
+  async getRecipe(id: string): Promise<Recipe> {
+    return this.fetch<Recipe>(`/recipes/${id}`);
+  }
+
+  async createRecipe(data: {
+    title: string;
+    description?: string;
+    ingredients?: RecipeIngredient[];
+    steps?: string[];
+    prepTime?: number;
+    cookTime?: number;
+    servings?: number;
+    sourceUrl?: string;
+    notes?: string;
+    tags?: string[];
+  }): Promise<Recipe> {
+    return this.fetch<Recipe>("/recipes", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteRecipe(id: string): Promise<void> {
+    await this.fetch(`/recipes/${id}`, { method: "DELETE" });
+  }
+
+  async scanRecipe(imageBase64: string): Promise<Recipe> {
+    return this.fetch<Recipe>("/recipes/scan", {
+      method: "POST",
+      body: JSON.stringify({ image: imageBase64 }),
+    });
+  }
+
+  // ============ Weather ============
+
+  async getWeather(): Promise<WeatherData> {
+    return this.fetch<WeatherData>("/weather");
+  }
+
+  async getWeatherForecast(): Promise<WeatherData["forecast"]> {
+    return this.fetch<WeatherData["forecast"]>("/weather/forecast");
+  }
+
+  // ============ News ============
+
+  async getNews(limit = 30): Promise<NewsArticle[]> {
+    return this.fetch<NewsArticle[]>(`/news?limit=${limit}`);
+  }
+
+  // ============ Home Assistant ============
+
+  async getHAEntities(): Promise<HAEntity[]> {
+    return this.fetch<HAEntity[]>("/homeassistant/entities");
+  }
+
+  async getHARooms(): Promise<HARoom[]> {
+    return this.fetch<HARoom[]>("/homeassistant/rooms");
+  }
+
+  async callHAService(domain: string, service: string, entityId: string): Promise<void> {
+    await this.fetch("/homeassistant/services", {
+      method: "POST",
+      body: JSON.stringify({ domain, service, entity_id: entityId }),
+    });
+  }
+
+  async toggleHAEntity(entityId: string): Promise<void> {
+    await this.fetch("/homeassistant/toggle", {
+      method: "POST",
+      body: JSON.stringify({ entity_id: entityId }),
+    });
+  }
+
+  // ============ IPTV ============
+
+  async getIptvChannels(group?: string): Promise<IptvChannel[]> {
+    const params = group ? `?group=${encodeURIComponent(group)}` : "";
+    return this.fetch<IptvChannel[]>(`/iptv/channels${params}`);
+  }
+
+  async getIptvFavorites(): Promise<IptvChannel[]> {
+    return this.fetch<IptvChannel[]>("/iptv/favorites");
+  }
+
+  async toggleIptvFavorite(channelId: string): Promise<void> {
+    await this.fetch(`/iptv/favorites/${channelId}`, { method: "POST" });
+  }
+
+  async getIptvCategories(): Promise<IptvCategory[]> {
+    return this.fetch<IptvCategory[]>("/iptv/categories");
+  }
+
+  // ============ File Share ============
+
+  async getSharedFiles(): Promise<SharedFile[]> {
+    return this.fetch<SharedFile[]>("/kiosks/files");
+  }
+
+  async uploadSharedFile(uri: string, filename: string, mimeType: string): Promise<SharedFile> {
+    const { accessToken, authMethod, apiKey } = useAuthStore.getState();
+    const apiBase = this.getApiBase();
+
+    const formData = new FormData();
+    formData.append("file", { uri, name: filename, type: mimeType } as any);
+
+    const headers: Record<string, string> = {};
+    if (authMethod === "token" && accessToken) {
+      headers["Authorization"] = `Bearer ${accessToken}`;
+    } else if (apiKey) {
+      headers["x-api-key"] = apiKey;
+    }
+
+    const response = await fetch(`${apiBase}/kiosks/files`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) throw new Error("Upload failed");
+    const result = await response.json();
+    return result.data ?? result;
+  }
+
+  async deleteSharedFile(id: string): Promise<void> {
+    await this.fetch(`/kiosks/files/${id}`, { method: "DELETE" });
+  }
+
+  // ============ Companion ============
+
+  async getCompanionContext(): Promise<CompanionPermissions> {
+    return this.fetch<CompanionPermissions>("/companion/context");
+  }
+
+  async getCompanionInvites(): Promise<JoinRequest[]> {
+    return this.fetch<JoinRequest[]>("/companion/invites");
+  }
+
+  async createCompanionInvite(label?: string): Promise<JoinRequest> {
+    return this.fetch<JoinRequest>("/companion/invites", {
+      method: "POST",
+      body: JSON.stringify({ label }),
+    });
+  }
+
+  async deleteCompanionInvite(id: string): Promise<void> {
+    await this.fetch(`/companion/invites/${id}`, { method: "DELETE" });
+  }
+
+  // ============ Push Notifications ============
+
+  async registerPushToken(token: string, deviceId: string, platform: string): Promise<void> {
+    await this.fetch("/push/register", {
+      method: "POST",
+      body: JSON.stringify({ token, deviceId, platform }),
+    });
+  }
+
+  async unregisterPushToken(deviceId: string): Promise<void> {
+    await this.fetch("/push/unregister", {
+      method: "POST",
+      body: JSON.stringify({ deviceId }),
+    });
   }
 }
 

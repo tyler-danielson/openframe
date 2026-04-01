@@ -48,6 +48,12 @@
         {
           "cameraPermission": "Allow OpenFrame to access your camera to scan QR codes."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#0A0A0A"
+        }
       ]
     ],
     "experiments": {

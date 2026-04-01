@@ -16,7 +16,9 @@ import { useAuthStore } from "../../stores/auth";
 import { useCalendarStore } from "../../stores/calendar";
 import { useCalendars, useUpdateCalendar, useSyncCalendars } from "../../hooks/useCalendarData";
 import { useThemeColors } from "../../hooks/useColorScheme";
+import { COLOR_SCHEMES, type ColorScheme } from "../../constants/Colors";
 import { api } from "../../services/api";
+import { registerForPushNotifications } from "../../services/push";
 
 export default function SettingsScreen() {
   const colors = useThemeColors();
@@ -25,6 +27,7 @@ export default function SettingsScreen() {
   const { data: calendars, isLoading, refetch } = useCalendars();
   const updateCalendar = useUpdateCalendar();
   const syncCalendars = useSyncCalendars();
+  const [pushEnabled, setPushEnabled] = useState(false);
 
   const { data: kiosks } = useQuery({
     queryKey: ["kiosks"],
@@ -51,6 +54,17 @@ export default function SettingsScreen() {
 
   const handleSync = () => {
     syncCalendars.mutate();
+  };
+
+  const handlePushToggle = async (enabled: boolean) => {
+    if (enabled) {
+      const token = await registerForPushNotifications();
+      if (!token) {
+        Alert.alert("Permission Denied", "Enable notifications in system settings.");
+        return;
+      }
+    }
+    setPushEnabled(enabled);
   };
 
   const renderSection = (
@@ -117,6 +131,57 @@ export default function SettingsScreen() {
           {renderSettingRow("Server", serverUrl?.replace(/^https?:\/\//, ""))}
         </>,
         "person-circle-outline"
+      )}
+
+      {/* Theme Section */}
+      {renderSection(
+        "Theme",
+        <View className="px-4 py-4">
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View className="flex-row gap-3">
+              {COLOR_SCHEMES.map((scheme) => (
+                <TouchableOpacity
+                  key={scheme.value}
+                  className="items-center"
+                  onPress={() => {
+                    // Theme selection — currently just visual since useThemeColors
+                    // reads system dark/light. Full theme switching would need a store.
+                  }}
+                >
+                  <View
+                    className="w-10 h-10 rounded-full border-2"
+                    style={{
+                      backgroundColor: scheme.accent,
+                      borderColor:
+                        colors.primary === scheme.accent
+                          ? colors.foreground
+                          : "transparent",
+                    }}
+                  />
+                  <Text className="text-muted-foreground text-xs mt-1">
+                    {scheme.label.split(" ")[0]}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        </View>,
+        "color-palette-outline"
+      )}
+
+      {/* Notifications */}
+      {renderSection(
+        "Notifications",
+        <View className="flex-row items-center justify-between px-4 py-3">
+          <Text className="text-foreground">Push Notifications</Text>
+          <Switch
+            value={pushEnabled}
+            onValueChange={handlePushToggle}
+            trackColor={{ false: colors.border, true: colors.primary + "80" }}
+            thumbColor={pushEnabled ? colors.primary : colors.mutedForeground}
+          />
+        </View>,
+        "notifications-outline"
       )}
 
       {/* Calendars Section */}
