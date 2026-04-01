@@ -1,231 +1,106 @@
 import SwiftUI
 
 struct AddRecipeView: View {
-    @EnvironmentObject private var appState: AppState
+    var onCreated: (() -> Void)?
+    @EnvironmentObject var container: DIContainer
     @Environment(\.presentationMode) var presentationMode
-
     @State private var title = ""
     @State private var description = ""
+    @State private var servings = ""
     @State private var prepTime = ""
     @State private var cookTime = ""
-    @State private var servings = ""
-    @State private var ingredients: [EditableIngredient] = [EditableIngredient()]
-    @State private var instructions: [String] = [""]
-    @State private var tagsText = ""
+    @State private var ingredientsText = ""
+    @State private var instructionsText = ""
+    @State private var tags = ""
     @State private var notes = ""
     @State private var isSaving = false
-
-    private var palette: ThemePalette {
-        appState.themeManager.palette
-    }
-
-    private var canSave: Bool {
-        !title.trimmingCharacters(in: .whitespaces).isEmpty && !isSaving
-    }
+    @State private var error: String?
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                // Title
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Title *")
-                        .font(Font.caption.bold())
-                        .foregroundStyle(.secondary)
-                    TextField("Recipe name", text: $title)
-                        .textFieldStyle(.roundedBorder)
-                }
+        let palette = container.themeManager.palette
+        Form {
+            Section("Details") {
+                TextField("Recipe title", text: $title)
+                TextField("Description", text: $description)
+            }
 
-                // Description
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Description")
-                        .font(Font.caption.bold())
-                        .foregroundStyle(.secondary)
-                    TextEditor(text: $description)
-                        .frame(minHeight: 60)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color(.systemGray4), lineWidth: 1)
-                        )
-                }
+            Section("Timing") {
+                TextField("Prep time (minutes)", text: $prepTime)
+                    .keyboardType(.numberPad)
+                TextField("Cook time (minutes)", text: $cookTime)
+                    .keyboardType(.numberPad)
+                TextField("Servings", text: $servings)
+                    .keyboardType(.numberPad)
+            }
 
-                // Time & Servings
-                HStack(spacing: 12) {
-                    NumberField(label: "Prep (min)", text: $prepTime)
-                    NumberField(label: "Cook (min)", text: $cookTime)
-                    NumberField(label: "Servings", text: $servings)
-                }
+            Section("Ingredients (one per line)") {
+                TextEditor(text: $ingredientsText)
+                    .frame(minHeight: 100)
+            }
 
-                // Ingredients
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Ingredients")
-                        .font(Font.caption.bold())
-                        .foregroundStyle(.secondary)
+            Section("Instructions (one step per line)") {
+                TextEditor(text: $instructionsText)
+                    .frame(minHeight: 100)
+            }
 
-                    ForEach(ingredients.indices, id: \.self) { index in
-                        HStack(spacing: 6) {
-                            TextField("Amt", text: $ingredients[index].amount)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 50)
-                            TextField("Unit", text: $ingredients[index].unit)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 60)
-                            TextField("Ingredient", text: $ingredients[index].name)
-                                .textFieldStyle(.roundedBorder)
+            Section("Tags (comma separated)") {
+                TextField("dinner, italian, quick", text: $tags)
+            }
 
-                            if ingredients.count > 1 {
-                                Button(action: { ingredients.remove(at: index) }) {
-                                    Image(systemName: "minus.circle.fill")
-                                        .foregroundColor(.red.opacity(0.7))
-                                }
-                            }
-                        }
-                    }
+            Section("Notes") {
+                TextEditor(text: $notes)
+                    .frame(minHeight: 60)
+            }
 
-                    Button(action: { ingredients.append(EditableIngredient()) }) {
-                        HStack {
-                            Image(systemName: "plus.circle.fill")
-                            Text("Add Ingredient")
-                        }
-                        .font(.caption)
-                        .foregroundColor(palette.primary)
-                    }
-                }
-
-                // Instructions
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Instructions")
-                        .font(Font.caption.bold())
-                        .foregroundStyle(.secondary)
-
-                    ForEach(instructions.indices, id: \.self) { index in
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("\(index + 1).")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .padding(.top, 8)
-
-                            TextEditor(text: $instructions[index])
-                                .frame(minHeight: 44)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color(.systemGray4), lineWidth: 1)
-                                )
-
-                            if instructions.count > 1 {
-                                Button(action: { instructions.remove(at: index) }) {
-                                    Image(systemName: "minus.circle.fill")
-                                        .foregroundColor(.red.opacity(0.7))
-                                }
-                                .padding(.top, 8)
-                            }
-                        }
-                    }
-
-                    Button(action: { instructions.append("") }) {
-                        HStack {
-                            Image(systemName: "plus.circle.fill")
-                            Text("Add Step")
-                        }
-                        .font(.caption)
-                        .foregroundColor(palette.primary)
-                    }
-                }
-
-                // Tags
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Tags (comma-separated)")
-                        .font(Font.caption.bold())
-                        .foregroundStyle(.secondary)
-                    TextField("dinner, easy, vegetarian...", text: $tagsText)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                // Notes
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Notes")
-                        .font(Font.caption.bold())
-                        .foregroundStyle(.secondary)
-                    TextEditor(text: $notes)
-                        .frame(minHeight: 60)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color(.systemGray4), lineWidth: 1)
-                        )
+            if let error {
+                Section {
+                    Text(error).foregroundStyle(palette.destructive).font(.caption)
                 }
             }
-            .padding()
         }
-        .navigationBarTitle("New Recipe", displayMode: .inline)
+        .navigationTitle("Add Recipe")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                if isSaving {
-                    ProgressView()
-                } else {
-                    Button("Save") {
-                        Task { await saveRecipe() }
-                    }
-                    .disabled(!canSave)
-                }
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button("Cancel") { presentationMode.wrappedValue.dismiss() }
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Save") { save() }
+                    .disabled(title.isEmpty || isSaving)
             }
         }
     }
 
-    private func saveRecipe() async {
+    private func save() {
         isSaving = true
+        error = nil
+        var body: [String: Any] = ["title": title]
+        if !description.isEmpty { body["description"] = description }
+        if let s = Int(servings) { body["servings"] = s }
+        if let p = Int(prepTime) { body["prepTime"] = p }
+        if let c = Int(cookTime) { body["cookTime"] = c }
+        if !notes.isEmpty { body["notes"] = notes }
 
-        let filteredIngredients = ingredients
-            .filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
-            .map { RecipeIngredientRequest(name: $0.name, amount: $0.amount, unit: $0.unit) }
-
-        let filteredInstructions = instructions
-            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-
-        let filteredTags = tagsText
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-            .filter { !$0.isEmpty }
-
-        let request = CreateRecipeRequest(
-            title: title.trimmingCharacters(in: .whitespaces),
-            description: description.isEmpty ? nil : description,
-            servings: Int(servings),
-            prepTime: Int(prepTime),
-            cookTime: Int(cookTime),
-            ingredients: filteredIngredients.isEmpty ? nil : filteredIngredients,
-            instructions: filteredInstructions.isEmpty ? nil : filteredInstructions,
-            tags: filteredTags.isEmpty ? nil : filteredTags,
-            notes: notes.isEmpty ? nil : notes
-        )
-
-        let result = await appState.recipeRepository.createRecipe(request)
-        isSaving = false
-
-        if case .success = result {
-            presentationMode.wrappedValue.dismiss()
+        let ingredients = ingredientsText.split(separator: "\n").map { line -> [String: Any] in
+            ["item": String(line).trimmingCharacters(in: .whitespaces)]
         }
-    }
-}
+        if !ingredients.isEmpty { body["ingredients"] = ingredients }
 
-// MARK: - Supporting Types
+        let instructions = instructionsText.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }
+        if !instructions.isEmpty { body["instructions"] = instructions }
 
-private struct EditableIngredient {
-    var amount = ""
-    var unit = ""
-    var name = ""
-}
+        let tagList = tags.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+        if !tagList.isEmpty { body["tags"] = tagList }
 
-private struct NumberField: View {
-    let label: String
-    @Binding var text: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(Font.caption.bold())
-                .foregroundStyle(.secondary)
-            TextField("0", text: $text)
-                .textFieldStyle(.roundedBorder)
-                .keyboardType(.numberPad)
+        Task {
+            do {
+                _ = try await container.recipeRepository.createRecipe(body)
+                onCreated?()
+                presentationMode.wrappedValue.dismiss()
+            } catch {
+                self.error = error.localizedDescription
+            }
+            isSaving = false
         }
     }
 }

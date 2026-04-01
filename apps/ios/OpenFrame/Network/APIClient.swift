@@ -1,86 +1,30 @@
 import Foundation
+import Alamofire
 
-actor TokenRefresher {
-    private var isRefreshing = false
-    private var refreshTask: Task<Bool, Never>?
+final class APIClient {
+    let session: Session
+    let keychainService: KeychainService
 
-    func refresh(keychainManager: KeychainManager) async -> Bool {
-        // If already refreshing, wait for existing task
-        if let existing = refreshTask {
-            return await existing.value
-        }
-
-        let task = Task<Bool, Never> {
-            defer { self.refreshTask = nil }
-
-            guard let serverUrl = keychainManager.serverUrl,
-                  let refreshToken = keychainManager.refreshToken else {
-                return false
-            }
-
-            let url = URL(string: "\(serverUrl)/api/v1/auth/refresh")!
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.timeoutInterval = 30
-
-            let body = RefreshRequest(refreshToken: refreshToken)
-            request.httpBody = try? JSONEncoder().encode(body)
-
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                guard let httpResponse = response as? HTTPURLResponse,
-                      httpResponse.statusCode == 200 else {
-                    return false
-                }
-                let wrapper = try JSONDecoder().decode(ApiWrapper<RefreshResponse>.self, from: data)
-                guard let result = wrapper.data else { return false }
-                keychainManager.saveTokens(access: result.accessToken, refresh: result.refreshToken)
-                return true
-            } catch {
-                return false
-            }
-        }
-
-        refreshTask = task
-        return await task.value
-    }
-}
-
-final class APIClient: Sendable {
-    let keychainManager: KeychainManager
-    private let session: URLSession
-    private let tokenRefresher = TokenRefresher()
-    private let decoder: JSONDecoder
-    private let encoder: JSONEncoder
-
-    init(keychainManager: KeychainManager) {
-        self.keychainManager = keychainManager
-
+    init(keychainService: KeychainService) {
+        self.keychainService = keychainService
+        let interceptor = AuthInterceptor(keychainService: keychainService)
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 60
-        self.session = URLSession(configuration: config)
-
-        self.decoder = JSONDecoder()
-        self.encoder = JSONEncoder()
+        self.session = Session(configuration: config, interceptor: interceptor)
     }
 
-    // MARK: - Public API
+    var baseURL: String { keychainService.serverUrl ?? "" }
 
-    /// Make a request and decode the full response
-    func request<T: Decodable>(_ method: HTTPMethod, path: String, body: (any Encodable)? = nil, query: [String: String]? = nil) async throws -> T {
-        let data = try await performRequest(method, path: path, body: body, query: query)
-        do {
-            return try decoder.decode(T.self, from: data)
-        } catch {
-            throw APIError.decodingFailed(error)
-        }
-    }
+    // MARK: - Generic Requests
 
-    /// Make a request, unwrap ApiWrapper, and return the data field
-    func requestData<T: Decodable>(_ method: HTTPMethod, path: String, body: (any Encodable)? = nil, query: [String: String]? = nil) async throws -> T {
-        let wrapper: ApiWrapper<T> = try await request(method, path: path, body: body, query: query)
+    /// Perform request, unwrap ApiWrapper, return data
+    func request<T: Decodable>(_ route: APIRouter) async throws -> T {
+        let wrapper: ApiWrapper<T> = try await session
+            .request(route)
+            .validate()
+            .serializingDecodable(ApiWrapper<T>.self, decoder: Self.decoder)
+            .value
+
         if let error = wrapper.error {
             throw APIError.serverError(error.message ?? "Unknown server error")
         }
@@ -90,154 +34,97 @@ final class APIClient: Sendable {
         return data
     }
 
-    /// Make a request that returns no meaningful data
-    func requestVoid(_ method: HTTPMethod, path: String, body: (any Encodable)? = nil, query: [String: String]? = nil) async throws {
-        _ = try await performRequest(method, path: path, body: body, query: query)
+    /// Perform request, return raw decoded value (no ApiWrapper)
+    func requestRaw<T: Decodable>(_ route: APIRouter) async throws -> T {
+        try await session
+            .request(route)
+            .validate()
+            .serializingDecodable(T.self, decoder: Self.decoder)
+            .value
     }
 
-    /// Upload multipart form data and decode the response
-    func uploadMultipart<T: Decodable>(path: String, fileData: Data, fileName: String, mimeType: String) async throws -> T {
-        let data = try await performMultipartUpload(path: path, fileData: fileData, fileName: fileName, mimeType: mimeType)
-        return try decoder.decode(T.self, from: data)
+    /// Perform request, discard response
+    func requestVoid(_ route: APIRouter) async throws {
+        _ = try await session
+            .request(route)
+            .validate()
+            .serializingData()
+            .value
     }
 
-    /// Upload multipart form data with no meaningful response
-    func uploadMultipartVoid(path: String, fileData: Data, fileName: String, mimeType: String) async throws {
-        _ = try await performMultipartUpload(path: path, fileData: fileData, fileName: fileName, mimeType: mimeType)
-    }
-
-    private func performMultipartUpload(path: String, fileData: Data, fileName: String, mimeType: String, isRetry: Bool = false) async throws -> Data {
-        let boundary = "Boundary-\(UUID().uuidString)"
-        var request = try buildRequest(.post, path: path)
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 120 // Longer timeout for uploads
-
-        var bodyData = Data()
-        bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
-        bodyData.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
-        bodyData.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
-        bodyData.append(fileData)
-        bodyData.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-
-        request.httpBody = bodyData
-
-        let (data, response) = try await session.data(for: request)
-
-        // Handle 401 with token refresh
-        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 401, !isRetry {
-            if keychainManager.authMethod == .bearer {
-                let refreshed = await tokenRefresher.refresh(keychainManager: keychainManager)
-                if refreshed {
-                    return try await performMultipartUpload(path: path, fileData: fileData, fileName: fileName, mimeType: mimeType, isRetry: true)
+    /// Upload multipart file, unwrap ApiWrapper
+    func upload<T: Decodable>(
+        path: String,
+        fileData: Data,
+        fileName: String,
+        mimeType: String,
+        additionalFields: [String: String]? = nil
+    ) async throws -> T {
+        let url = "\(baseURL)\(path)"
+        let wrapper: ApiWrapper<T> = try await session
+            .upload(multipartFormData: { form in
+                form.append(fileData, withName: "file", fileName: fileName, mimeType: mimeType)
+                additionalFields?.forEach { key, value in
+                    form.append(Data(value.utf8), withName: key)
                 }
-            }
-            throw APIError.unauthorized
-        }
+            }, to: url)
+            .validate()
+            .serializingDecodable(ApiWrapper<T>.self, decoder: Self.decoder)
+            .value
 
-        try validateResponse(response)
+        if let error = wrapper.error {
+            throw APIError.serverError(error.message ?? "Upload failed")
+        }
+        guard let data = wrapper.data else {
+            throw APIError.noData
+        }
         return data
     }
 
-    // MARK: - Internal
-
-    private func performRequest(_ method: HTTPMethod, path: String, body: (any Encodable)? = nil, query: [String: String]? = nil, isRetry: Bool = false) async throws -> Data {
-        var request = try buildRequest(method, path: path, query: query)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        if let body = body {
-            request.httpBody = try encoder.encode(AnyEncodable(body))
-        }
-
-        let (data, response) = try await session.data(for: request)
-
-        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 401, !isRetry {
-            // Try token refresh for bearer auth
-            if keychainManager.authMethod == .bearer {
-                let refreshed = await tokenRefresher.refresh(keychainManager: keychainManager)
-                if refreshed {
-                    return try await performRequest(method, path: path, body: body, query: query, isRetry: true)
+    /// Upload multipart file, discard response
+    func uploadVoid(
+        path: String,
+        fileData: Data,
+        fileName: String,
+        mimeType: String,
+        additionalFields: [String: String]? = nil
+    ) async throws {
+        let url = "\(baseURL)\(path)"
+        _ = try await session
+            .upload(multipartFormData: { form in
+                form.append(fileData, withName: "file", fileName: fileName, mimeType: mimeType)
+                additionalFields?.forEach { key, value in
+                    form.append(Data(value.utf8), withName: key)
                 }
-            }
-            throw APIError.unauthorized
-        }
-
-        try validateResponse(response)
-        return data
+            }, to: url)
+            .validate()
+            .serializingData()
+            .value
     }
 
-    private func buildRequest(_ method: HTTPMethod, path: String, query: [String: String]? = nil) throws -> URLRequest {
-        guard let serverUrl = keychainManager.serverUrl else {
-            throw APIError.invalidURL
-        }
+    // MARK: - JSON Decoder
 
-        var urlString = "\(serverUrl)\(path)"
-        if let query = query, !query.isEmpty {
-            var components = URLComponents(string: urlString)
-            components?.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
-            urlString = components?.url?.absoluteString ?? urlString
-        }
-
-        guard let url = URL(string: urlString) else {
-            throw APIError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = method.rawValue
-        request.timeoutInterval = 30
-
-        // Add auth headers (skip for login and refresh)
-        let skipAuth = path.hasSuffix("/auth/login") || path.hasSuffix("/auth/refresh") || path.hasSuffix("/auth/signup")
-        if !skipAuth {
-            switch keychainManager.authMethod {
-            case .bearer:
-                if let token = keychainManager.accessToken {
-                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                }
-            case .apiKey:
-                if let key = keychainManager.apiKey {
-                    request.setValue(key, forHTTPHeaderField: "X-API-Key")
-                }
-            }
-        }
-
-        return request
-    }
-
-    private func validateResponse(_ response: URLResponse) throws {
-        guard let httpResponse = response as? HTTPURLResponse else { return }
-        switch httpResponse.statusCode {
-        case 200...299:
-            return
-        case 401:
-            throw APIError.unauthorized
-        default:
-            throw APIError.serverError("HTTP \(httpResponse.statusCode)")
-        }
-    }
+    private static let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.keyDecodingStrategy = .useDefaultKeys
+        return d
+    }()
 }
 
-// MARK: - Supporting Types
+// MARK: - API Error
 
-enum HTTPMethod: String {
-    case get = "GET"
-    case post = "POST"
-    case patch = "PATCH"
-    case put = "PUT"
-    case delete = "DELETE"
-}
+enum APIError: LocalizedError {
+    case serverError(String)
+    case noData
+    case unauthorized
+    case networkError(Error)
 
-// Type-erased Encodable wrapper
-private struct AnyEncodable: Encodable {
-    private let _encode: (Encoder) throws -> Void
-
-    init(_ wrapped: any Encodable) {
-        _encode = { encoder in
-            try wrapped.encode(to: encoder)
+    var errorDescription: String? {
+        switch self {
+        case .serverError(let msg): return msg
+        case .noData: return "No data received"
+        case .unauthorized: return "Session expired. Please sign in again."
+        case .networkError(let error): return error.localizedDescription
         }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        try _encode(encoder)
     }
 }

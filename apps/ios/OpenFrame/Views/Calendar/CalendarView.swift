@@ -1,166 +1,226 @@
 import SwiftUI
 
-struct CalendarTabView: View {
-    @EnvironmentObject private var appState: AppState
-    @State private var viewModel: CalendarViewModel?
-
-    var onNavigateToEvent: (String) -> Void
-    var onNavigateToNewEvent: () -> Void
+struct CalendarView: View {
+    @EnvironmentObject var container: DIContainer
+    @State private var selectedDate = Date()
+    @State private var events: [CalendarEvent] = []
+    @State private var calendars: [OFCalendar] = []
+    @State private var eventDates: Set<String> = []
+    @State private var isLoading = false
+    @State private var showNewEvent = false
 
     var body: some View {
-        Group {
-            if let vm = viewModel {
-                CalendarContentView(viewModel: vm, appState: appState, onNavigateToEvent: onNavigateToEvent)
-            } else {
-                LoadingView()
+        let palette = container.themeManager.palette
+        VStack(spacing: 0) {
+            // Month calendar grid
+            MonthCalendarGrid(
+                selectedDate: $selectedDate,
+                eventDates: eventDates,
+                palette: palette
+            )
+            .padding(.horizontal)
+            .onChange(of: selectedDate) { _ in
+                Task { await loadEventsForDay() }
+            }
+
+            Divider().background(palette.border)
+
+            // Events for selected day
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    if dayEvents.isEmpty {
+                        EmptyStateView(
+                            icon: "calendar.badge.exclamationmark",
+                            title: "No Events",
+                            message: "Nothing scheduled for \(selectedDate.relativeString)"
+                        )
+                        .frame(height: 200)
+                    } else {
+                        ForEach(dayEvents) { event in
+                            NavigationLink(destination: EventDetailView(event: event)) {
+                                EventCard(event: event)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding()
             }
         }
+        .background(palette.background.ignoresSafeArea())
         .navigationTitle("Calendar")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(action: onNavigateToNewEvent) {
-                    Image(systemName: "plus")
+            if container.canEditCalendar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button { showNewEvent = true } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showNewEvent) {
+            NavigationView {
+                NewEventView(calendars: calendars, defaultDate: selectedDate) {
+                    Task { await loadMonthEvents() }
                 }
             }
         }
         .task {
-            let vm = CalendarViewModel(calendarRepository: appState.calendarRepository)
-            viewModel = vm
-            await vm.loadMonth()
+            await loadCalendars()
+            await loadMonthEvents()
         }
+    }
+
+    private var dayEvents: [CalendarEvent] {
+        events.filter { event in
+            guard let start = Date.fromISO(event.startTime) else { return false }
+            return start.isSameDay(as: selectedDate)
+        }
+        .sorted { a, b in
+            (a.isAllDay ? 0 : 1) < (b.isAllDay ? 0 : 1) ||
+            (a.startTime < b.startTime)
+        }
+    }
+
+    private func loadCalendars() async {
+        calendars = (try? await container.calendarRepository.getCalendars()) ?? []
+    }
+
+    private func loadMonthEvents() async {
+        isLoading = true
+        let start = selectedDate.startOfMonth.adding(days: -7)
+        let end = selectedDate.endOfMonth.adding(days: 7)
+        events = (try? await container.calendarRepository.getEvents(start: start, end: end)) ?? []
+        updateEventDates()
+        isLoading = false
+    }
+
+    private func loadEventsForDay() async {
+        // Events already loaded for the month; just filter
+    }
+
+    private func updateEventDates() {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        eventDates = Set(events.compactMap { event in
+            guard let date = Date.fromISO(event.startTime) else { return nil }
+            return fmt.string(from: date)
+        })
     }
 }
 
-private struct CalendarContentView: View {
-    @ObservedObject var viewModel: CalendarViewModel
-    let appState: AppState
-    var onNavigateToEvent: (String) -> Void
+// MARK: - Month Calendar Grid
+
+struct MonthCalendarGrid: View {
+    @Binding var selectedDate: Date
+    let eventDates: Set<String>
+    let palette: ThemePalette
+
+    private let calendar = Calendar.current
+    private let weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
     var body: some View {
-        let palette = appState.themeManager.palette
-        ScrollView {
-            VStack(spacing: 0) {
-                // Month navigation
-                HStack {
-                    Button { viewModel.navigateMonth(forward: false) } label: {
-                        Image(systemName: "chevron.left")
-                    }
-                    Spacer()
-                    Text(monthYearString(viewModel.currentMonth))
-                        .font(.headline)
-                    Spacer()
-                    Button { viewModel.navigateMonth(forward: true) } label: {
-                        Image(systemName: "chevron.right")
-                    }
+        VStack(spacing: 8) {
+            // Month/year header with arrows
+            HStack {
+                Button { selectedDate = selectedDate.adding(months: -1) } label: {
+                    Image(systemName: "chevron.left")
+                        .foregroundStyle(palette.primary)
                 }
-                .padding(.horizontal)
-                .padding(.vertical, 12)
-
-                // Day-of-week headers
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 0) {
-                    ForEach(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], id: \.self) { day in
-                        Text(day)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .frame(height: 30)
-                    }
+                Spacer()
+                Text(monthYearString)
+                    .font(.headline)
+                    .foregroundStyle(palette.foreground)
+                Spacer()
+                Button { selectedDate = selectedDate.adding(months: 1) } label: {
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(palette.primary)
                 }
-                .padding(.horizontal)
+            }
+            .padding(.vertical, 8)
 
-                // Calendar grid
-                let days = calendarDays(for: viewModel.currentMonth)
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 4) {
-                    ForEach(days, id: \.self) { date in
-                        if let date = date {
-                            CalendarDayCell(
-                                date: date,
-                                isSelected: Calendar.current.isDate(date, inSameDayAs: viewModel.selectedDate),
-                                isToday: date.isToday,
-                                hasEvents: viewModel.daysWithEvents.contains(Calendar.current.component(.day, from: date)),
-                                primaryColor: palette.primary
-                            ) {
-                                viewModel.selectDate(date)
-                            }
-                        } else {
-                            Color.clear.frame(height: 40)
-                        }
-                    }
+            // Weekday headers
+            HStack {
+                ForEach(weekdays, id: \.self) { day in
+                    Text(day)
+                        .font(.caption2)
+                        .foregroundStyle(palette.mutedForeground)
+                        .frame(maxWidth: .infinity)
                 }
-                .padding(.horizontal)
+            }
 
-                Divider().padding(.vertical, 8)
-
-                // Events for selected day
-                if viewModel.eventsForSelectedDate.isEmpty {
-                    Text("No events")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .padding()
-                } else {
-                    LazyVStack(spacing: 6) {
-                        ForEach(viewModel.eventsForSelectedDate) { event in
-                            EventCard(event: event) { onNavigateToEvent(event.id) }
-                                .padding(.horizontal)
-                        }
-                    }
-                    .padding(.vertical, 4)
+            // Days grid
+            let days = daysInMonth
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 4) {
+                ForEach(days, id: \.self) { date in
+                    DayCell(
+                        date: date,
+                        isSelected: date.isSameDay(as: selectedDate),
+                        isToday: date.isToday,
+                        isCurrentMonth: calendar.isDate(date, equalTo: selectedDate, toGranularity: .month),
+                        hasEvents: hasEvents(on: date),
+                        palette: palette
+                    )
+                    .onTapGesture { selectedDate = date }
                 }
             }
         }
+        .padding(.vertical, 8)
     }
 
-    private func monthYearString(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM yyyy"
-        return formatter.string(from: date)
+    private var monthYearString: String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "MMMM yyyy"
+        return fmt.string(from: selectedDate)
     }
 
-    private func calendarDays(for month: Date) -> [Date?] {
-        let cal = Calendar.current
-        let start = month.startOfMonth()
-        let weekday = cal.component(.weekday, from: start)
-        let daysInMonth = cal.range(of: .day, in: .month, for: start)!.count
+    private var daysInMonth: [Date] {
+        let start = selectedDate.startOfMonth
+        let weekday = calendar.component(.weekday, from: start) - 1
+        let firstDay = start.adding(days: -weekday)
+        return (0..<42).map { firstDay.adding(days: $0) }
+    }
 
-        var days: [Date?] = Array(repeating: nil, count: weekday - 1)
-        for day in 1...daysInMonth {
-            if let date = cal.date(bySetting: .day, value: day, of: start) {
-                days.append(date)
-            }
-        }
-        // Pad to fill grid
-        while days.count % 7 != 0 { days.append(nil) }
-        return days
+    private func hasEvents(on date: Date) -> Bool {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        return eventDates.contains(fmt.string(from: date))
     }
 }
 
-private struct CalendarDayCell: View {
+private struct DayCell: View {
     let date: Date
     let isSelected: Bool
     let isToday: Bool
+    let isCurrentMonth: Bool
     let hasEvents: Bool
-    let primaryColor: Color
-    let onTap: () -> Void
+    let palette: ThemePalette
 
     var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 2) {
-                Text("\(Calendar.current.component(.day, from: date))")
-                    .font(.subheadline)
-                    .foregroundStyle(isSelected ? .white : .primary)
-                    .frame(width: 34, height: 34)
-                    .background(
-                        Circle().fill(
-                            isSelected ? primaryColor :
-                            isToday ? primaryColor.opacity(0.2) : .clear
-                        )
-                    )
+        VStack(spacing: 2) {
+            Text("\(date.dayNumber)")
+                .font(.subheadline)
+                .foregroundStyle(foregroundColor)
 
-                Circle()
-                    .fill(hasEvents ? primaryColor : .clear)
-                    .frame(width: 4, height: 4)
-            }
+            Circle()
+                .fill(hasEvents ? palette.primary : .clear)
+                .frame(width: 4, height: 4)
         }
-        .buttonStyle(.plain)
-        .frame(height: 44)
+        .frame(height: 36)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isSelected ? palette.primary.opacity(0.2) : .clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isToday ? palette.primary : .clear, lineWidth: 1)
+        )
+    }
+
+    private var foregroundColor: Color {
+        if isSelected { return palette.primary }
+        if !isCurrentMonth { return palette.mutedForeground.opacity(0.4) }
+        return palette.foreground
     }
 }

@@ -1,110 +1,95 @@
 import SwiftUI
+import Kingfisher
 import PhotosUI
 
 struct AlbumDetailView: View {
-    @EnvironmentObject private var appState: AppState
-    let albumId: String
-    @State private var viewModel: AlbumDetailViewModel?
+    let album: PhotoAlbum
+    @EnvironmentObject var container: DIContainer
+    @State private var photos: [Photo] = []
+    @State private var isLoading = true
+    @State private var showPicker = false
+    @State private var isUploading = false
 
     var body: some View {
+        let palette = container.themeManager.palette
         Group {
-            if let vm = viewModel {
-                AlbumDetailContentView(viewModel: vm, albumId: albumId)
-            } else {
-                LoadingView()
-            }
-        }
-        .navigationTitle("Album")
-        .navigationBarTitleDisplayMode(.inline)
-        .task {
-            let vm = AlbumDetailViewModel(photoRepository: appState.photoRepository)
-            viewModel = vm
-            await vm.loadPhotos(albumId: albumId)
-        }
-    }
-}
-
-private struct AlbumDetailContentView: View {
-    @ObservedObject var viewModel: AlbumDetailViewModel
-    let albumId: String
-    @State private var showingPicker = false
-
-    private let columns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
-
-    var body: some View {
-        ZStack {
-            if viewModel.isLoading && viewModel.photos.isEmpty {
-                LoadingView()
-            } else if viewModel.photos.isEmpty {
-                EmptyStateView(icon: "photo", title: "No photos", subtitle: "Tap + to add one")
+            if photos.isEmpty && !isLoading {
+                EmptyStateView(icon: "photo", title: "No Photos", message: "This album is empty")
             } else {
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 2) {
-                        ForEach(viewModel.photos) { photo in
-                            AsyncImage(url: viewModel.thumbnailUrl(for: photo)) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image.resizable().aspectRatio(1, contentMode: .fill)
-                                default:
-                                    Rectangle()
-                                        .fill(Color(.tertiarySystemGroupedBackground))
-                                        .aspectRatio(1, contentMode: .fit)
-                                }
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
+                        ForEach(photos) { photo in
+                            if let urlString = photo.thumbnailUrl ?? photo.url,
+                               let fullUrl = buildImageURL(urlString) {
+                                KFImage(fullUrl)
+                                    .resizable()
+                                    .placeholder { palette.secondary }
+                                    .aspectRatio(1, contentMode: .fill)
+                                    .clipped()
+                            } else {
+                                Rectangle()
+                                    .fill(palette.secondary)
+                                    .aspectRatio(1, contentMode: .fit)
                             }
-                            .aspectRatio(1, contentMode: .fit)
-                            .clipped()
                         }
                     }
-                }
-            }
-
-            // Floating action button
-            VStack {
-                Spacer()
-                HStack {
-                    Spacer()
-                    Button {
-                        showingPicker = true
-                    } label: {
-                        if viewModel.isUploading {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .frame(width: 56, height: 56)
-                                .background(Color.accentColor)
-                                .clipShape(Circle())
-                                .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
-                        } else {
-                            Image(systemName: "plus")
-                                .font(.title2.weight(.semibold))
-                                .foregroundColor(.white)
-                                .frame(width: 56, height: 56)
-                                .background(Color.accentColor)
-                                .clipShape(Circle())
-                                .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
-                        }
-                    }
-                    .disabled(viewModel.isUploading)
-                    .padding(.trailing, 16)
-                    .padding(.bottom, 16)
                 }
             }
         }
-        .sheet(isPresented: $showingPicker) {
-            PhotoPickerView { imageData in
-                Task {
-                    await viewModel.uploadPhoto(albumId: albumId, imageData: imageData)
+        .background(palette.background.ignoresSafeArea())
+        .navigationTitle(album.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if container.canViewPhotos {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showPicker = true
+                    } label: {
+                        if isUploading {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "plus")
+                        }
+                    }
+                    .disabled(isUploading)
                 }
             }
+        }
+        .sheet(isPresented: $showPicker) {
+            PhotoPickerView { data in
+                uploadPhoto(data)
+            }
+        }
+        .task { await loadPhotos() }
+        .refreshable { await loadPhotos() }
+    }
+
+    private func buildImageURL(_ path: String) -> URL? {
+        if path.hasPrefix("http") { return URL(string: path) }
+        guard let base = container.keychainService.serverUrl else { return nil }
+        return URL(string: "\(base)\(path)")
+    }
+
+    private func loadPhotos() async {
+        isLoading = true
+        photos = (try? await container.photoRepository.getAlbumPhotos(albumId: album.id)) ?? []
+        isLoading = false
+    }
+
+    private func uploadPhoto(_ data: Data) {
+        isUploading = true
+        Task {
+            try? await container.photoRepository.uploadPhoto(albumId: album.id, imageData: data, fileName: "photo_\(UUID().uuidString).jpg")
+            await loadPhotos()
+            isUploading = false
         }
     }
 }
 
-// MARK: - PHPickerViewController wrapper (iOS 14+)
+// MARK: - Photo Picker (iOS 15 compatible)
 
 struct PhotoPickerView: UIViewControllerRepresentable {
-    let onImagePicked: (Data) -> Void
-
-    @Environment(\.presentationMode) var presentationMode
+    let onPick: (Data) -> Void
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
         var config = PHPickerConfiguration()
@@ -118,31 +103,24 @@ struct PhotoPickerView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(self)
+        Coordinator(onPick: onPick)
     }
 
     class Coordinator: NSObject, PHPickerViewControllerDelegate {
-        let parent: PhotoPickerView
+        let onPick: (Data) -> Void
 
-        init(_ parent: PhotoPickerView) {
-            self.parent = parent
+        init(onPick: @escaping (Data) -> Void) {
+            self.onPick = onPick
         }
 
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-            parent.presentationMode.wrappedValue.dismiss()
-
-            guard let provider = results.first?.itemProvider,
-                  provider.canLoadObject(ofClass: UIImage.self) else {
-                return
-            }
-
-            provider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
-                guard let image = object as? UIImage,
-                      let data = image.jpegData(compressionQuality: 0.85) else {
-                    return
-                }
-                DispatchQueue.main.async {
-                    self?.parent.onImagePicked(data)
+            picker.dismiss(animated: true)
+            guard let result = results.first else { return }
+            result.itemProvider.loadDataRepresentation(forTypeIdentifier: "public.image") { [weak self] data, _ in
+                if let data {
+                    DispatchQueue.main.async {
+                        self?.onPick(data)
+                    }
                 }
             }
         }

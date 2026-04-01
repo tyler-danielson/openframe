@@ -1,89 +1,73 @@
 import SwiftUI
 
 struct SignupView: View {
-    @ObservedObject var viewModel: AuthViewModel
+    @EnvironmentObject var container: DIContainer
     @State private var name = ""
     @State private var email = ""
     @State private var password = ""
-    @State private var confirmPassword = ""
-
-    private var palette: ThemePalette { viewModel.appState.themeManager.palette }
-
-    private var passwordError: String? {
-        if !confirmPassword.isEmpty && password != confirmPassword {
-            return "Passwords don't match"
-        }
-        if !password.isEmpty && password.count < 8 {
-            return "Password must be at least 8 characters"
-        }
-        return nil
-    }
-
-    private var canSubmit: Bool {
-        !name.isEmpty && !email.isEmpty && password.count >= 8 && password == confirmPassword && !viewModel.isLoading
-    }
+    @State private var isLoading = false
+    @State private var error: String?
 
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    Text("Create Account")
-                        .font(Font.title.bold())
+        let palette = container.themeManager.palette
+        ScrollView {
+            VStack(spacing: 20) {
+                Text("Create Account")
+                    .font(.title.bold())
+                    .foregroundStyle(palette.foreground)
 
-                    VStack(spacing: 12) {
-                        TextField("Full Name", text: $name)
-                            .textFieldStyle(.roundedBorder)
-                            .textContentType(.name)
+                VStack(spacing: 12) {
+                    TextField("Name", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                        .textInputAutocapitalization(.words)
 
-                        TextField("Email", text: $email)
-                            .textFieldStyle(.roundedBorder)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .keyboardType(.emailAddress)
-                            .textContentType(.emailAddress)
+                    TextField("Email", text: $email)
+                        .textFieldStyle(.roundedBorder)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.emailAddress)
 
-                        SecureField("Password (8+ characters)", text: $password)
-                            .textFieldStyle(.roundedBorder)
-                            .textContentType(.newPassword)
-
-                        SecureField("Confirm Password", text: $confirmPassword)
-                            .textFieldStyle(.roundedBorder)
-                            .textContentType(.newPassword)
-
-                        if let error = passwordError {
-                            Text(error)
-                                .foregroundStyle(.red)
-                                .font(.caption)
-                        }
-                    }
+                    SecureField("Password (8+ characters)", text: $password)
+                        .textFieldStyle(.roundedBorder)
 
                     Button {
-                        Task { await viewModel.signup(name: name, email: email, password: password) }
+                        signup()
                     } label: {
                         HStack {
-                            if viewModel.isLoading { ProgressView().tint(palette.primaryForeground) }
+                            if isLoading { ProgressView().tint(palette.primaryForeground) }
                             Text("Create Account")
                         }
                         .frame(maxWidth: .infinity).padding()
                         .background(palette.primary)
                         .foregroundStyle(palette.primaryForeground)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .cornerRadius(14)
                     }
-                    .disabled(!canSubmit)
-
-                    if let error = viewModel.errorMessage {
-                        Text(error).foregroundStyle(.red).font(.caption)
-                    }
-
-                    Button("Already have an account? Sign In") {
-                        viewModel.goToLogin()
-                    }
-                    .font(.subheadline)
+                    .disabled(name.isEmpty || email.isEmpty || password.count < 8 || isLoading)
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 40)
+
+                if let error {
+                    Text(error)
+                        .foregroundStyle(palette.destructive)
+                        .font(.caption)
+                }
             }
+            .padding(.horizontal, 24)
+            .padding(.top, 40)
         }
-        .navigationViewStyle(.stack)
+        .background(palette.background.ignoresSafeArea())
+    }
+
+    private func signup() {
+        isLoading = true
+        error = nil
+        Task {
+            do {
+                let user = try await container.authRepository.signup(name: name, email: email, password: password)
+                await container.handleLogin(user: user)
+            } catch {
+                self.error = error.localizedDescription
+            }
+            isLoading = false
+        }
     }
 }
