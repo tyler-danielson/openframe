@@ -93,12 +93,22 @@ export interface UserPreferences {
 // Under the new pricing model, ALL features are available on every tier.
 // Differentiation is resource-based (kiosks, photos, AI queries).
 export interface PlanLimits {
-  maxKiosks: number;
-  maxCalendars: number;
-  maxCameras: number;
-  maxPhotos: number;               // Total photos allowed (-1 = unlimited)
-  maxPhotoResolution: number;      // Max pixel dimension (1080 for free, -1 = original)
-  hostedAiQueries: number;         // Monthly hosted AI query limit (-1 = unlimited)
+  // Resource limits
+  maxKiosks: number;               // Free: 1, Home: 3, Pro: -1 (unlimited)
+  maxPhotos: number;               // Free: 100, Home: 500, Pro: -1 (unlimited)
+  maxPhotoResolution: number;      // Free: 1080, Home: 0 (original), Pro: 0 (original)
+                                   // 0 = no downscale (original), positive = max height px
+
+  // AI limits
+  aiQueriesPerMonth: number;       // Free: 25, Home: 200, Pro: 1000
+  aiSoftCap: boolean;              // true = warn at limit but allow ~10% overage
+
+  // Legacy fields (kept for backward compat, ignored in enforcement)
+  maxCalendars?: number;
+  maxCameras?: number;
+  hostedAiQueries?: number;
+
+  // Features (all true on all plans; exists for self-hosted overrides)
   features: {
     iptv: boolean;
     spotify: boolean;
@@ -106,6 +116,10 @@ export interface PlanLimits {
     homeAssistant: boolean;
     automations: boolean;
     companion: boolean;
+    cameras: boolean;
+    sports: boolean;
+    news: boolean;
+    recipes: boolean;
   };
 }
 
@@ -126,6 +140,26 @@ export const userPlans = pgTable("user_plans", {
     .defaultNow()
     .notNull(),
 });
+
+// AI usage metering (tracks monthly query counts per user)
+export const aiUsage = pgTable(
+  "ai_usage",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    month: text("month").notNull(), // "2026-03" format
+    queryCount: integer("query_count").notNull().default(0),
+    tokenCount: integer("token_count").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("ai_usage_user_month_idx").on(table.userId, table.month),
+  ]
+);
 
 // OAuth tokens (encrypted at rest)
 export const oauthTokens = pgTable(

@@ -425,6 +425,8 @@ class ApiClient {
     description?: string;
     location?: string;
     isAllDay?: boolean;
+    recurrenceRule?: string;
+    metadata?: Record<string, unknown>;
   }): Promise<CalendarEvent & { syncWarning?: string }> {
     const { accessToken, refreshToken, apiKey } = useAuthStore.getState();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -5355,12 +5357,12 @@ export interface CloudBillingInfo {
   };
   usage: {
     kiosks: { current: number; limit: number };
-    calendars: { current: number; limit: number };
     photos: { current: number; limit: number };
+    aiQueries: { current: number; limit: number };
   };
   limits: {
     maxPhotoResolution: number;
-    hostedAiQueries: number;
+    aiQueriesPerMonth: number;
   };
   activeServices?: Array<{
     id: string;
@@ -5398,11 +5400,13 @@ export interface ServiceProductsResponse {
 
 export interface PlanLimits {
   maxKiosks: number;
-  maxCalendars: number;
-  maxCameras: number;
   maxPhotos: number;
   maxPhotoResolution: number;
-  hostedAiQueries: number;
+  aiQueriesPerMonth: number;
+  aiSoftCap: boolean;
+  maxCalendars?: number;
+  maxCameras?: number;
+  hostedAiQueries?: number;
   features: {
     iptv: boolean;
     spotify: boolean;
@@ -5410,6 +5414,10 @@ export interface PlanLimits {
     homeAssistant: boolean;
     automations: boolean;
     companion: boolean;
+    cameras: boolean;
+    sports: boolean;
+    news: boolean;
+    recipes: boolean;
   };
 }
 
@@ -5486,9 +5494,8 @@ export interface AdminUserDetail {
     expiresAt: string | null;
   };
   usage: {
-    calendars: number;
     kiosks: number;
-    cameras: number;
+    photos: number;
   };
 }
 

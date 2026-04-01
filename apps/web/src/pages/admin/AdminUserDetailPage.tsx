@@ -51,9 +51,8 @@ export function AdminUserDetailPage() {
   }
 
   const usageItems = [
-    { label: "Calendars", icon: Calendar, used: user.usage.calendars, max: user.plan.limits.maxCalendars },
     { label: "Kiosks", icon: Monitor, used: user.usage.kiosks, max: user.plan.limits.maxKiosks },
-    { label: "Cameras", icon: Camera, used: user.usage.cameras, max: user.plan.limits.maxCameras },
+    { label: "Photos", icon: Camera, used: 0, max: user.plan.limits.maxPhotos },
   ];
 
   return (
@@ -130,9 +129,9 @@ export function AdminUserDetailPage() {
             </select>
           </div>
           <div className="text-xs text-muted-foreground space-y-1">
-            <div>Max Kiosks: {user.plan.limits.maxKiosks}</div>
-            <div>Max Calendars: {user.plan.limits.maxCalendars}</div>
-            <div>Max Cameras: {user.plan.limits.maxCameras}</div>
+            <div>Max Kiosks: {user.plan.limits.maxKiosks === -1 ? "Unlimited" : user.plan.limits.maxKiosks}</div>
+            <div>Max Photos: {user.plan.limits.maxPhotos === -1 ? "Unlimited" : user.plan.limits.maxPhotos}</div>
+            <div>AI Queries/mo: {user.plan.limits.aiQueriesPerMonth === -1 ? "Unlimited" : user.plan.limits.aiQueriesPerMonth}</div>
           </div>
         </Card>
 
@@ -142,7 +141,7 @@ export function AdminUserDetailPage() {
           <div className="space-y-4">
             {usageItems.map((item) => {
               const Icon = item.icon;
-              const pct = item.max > 0 ? (item.used / item.max) * 100 : 0;
+              const pct = (item.max ?? 0) > 0 ? (item.used / (item.max ?? 1)) * 100 : 0;
               return (
                 <div key={item.label}>
                   <div className="flex items-center justify-between text-sm mb-1">

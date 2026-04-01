@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { eq, and, count } from "drizzle-orm";
-import { photoAlbums, photos, oauthTokens, companionAccess, userPlans } from "@openframe/database/schema";
+import { photoAlbums, photos, oauthTokens, companionAccess } from "@openframe/database/schema";
 
 // Upload token type
 export interface UploadTokenData {
@@ -76,30 +76,22 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       const user = await getCurrentUser(request);
       if (!user) return reply.unauthorized();
 
-      const [plan] = await fastify.db
-        .select()
-        .from(userPlans)
-        .where(eq(userPlans.userId, user.id))
-        .limit(1);
+      const planLimits = await fastify.getUserPlanLimits(user.id);
 
-      const [countRow] = await fastify.db
-        .select({ total: count() })
-        .from(photos)
-        .innerJoin(photoAlbums, eq(photos.albumId, photoAlbums.id))
-        .where(eq(photoAlbums.userId, user.id));
+      const { countUserPhotos } = await import("../../plugins/plan-limits.js");
+      const total = await countUserPhotos(fastify.db, user.id);
 
-      const total = countRow?.total ?? 0;
-      const maxPhotos = plan?.limits?.maxPhotos ?? null;
-      const maxResolution = plan?.limits?.maxPhotoResolution ?? null;
+      const maxPhotos = planLimits.maxPhotos;
+      const maxResolution = planLimits.maxPhotoResolution;
 
       return {
         success: true,
         data: {
           photoCount: total,
-          maxPhotos,
-          maxResolution,
-          remaining: maxPhotos ? Math.max(0, maxPhotos - total) : null,
-          upgradeUrl: maxPhotos ? "https://openframe.us/pricing" : null,
+          maxPhotos: maxPhotos === -1 ? null : maxPhotos,
+          maxResolution: maxResolution || null,
+          remaining: maxPhotos !== -1 ? Math.max(0, maxPhotos - total) : null,
+          upgradeUrl: maxPhotos !== -1 ? "https://openframe.us/pricing" : null,
         },
       };
     }
@@ -448,31 +440,22 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.notFound("Album not found");
       }
 
-      // Check plan photo limit
-      const [plan] = await fastify.db
-        .select()
-        .from(userPlans)
-        .where(eq(userPlans.userId, user.id))
-        .limit(1);
+      // Check plan photo limit (resolves companion → owner automatically)
+      const planLimits = await fastify.getUserPlanLimits(user.id);
 
       let photoCount = 0;
-      const maxPhotos = plan?.limits?.maxPhotos;
+      const maxPhotos = planLimits.maxPhotos;
 
-      if (maxPhotos) {
-        const [countRow] = await fastify.db
-          .select({ total: count() })
-          .from(photos)
-          .innerJoin(photoAlbums, eq(photos.albumId, photoAlbums.id))
-          .where(eq(photoAlbums.userId, user.id));
-
-        photoCount = countRow?.total ?? 0;
+      if (maxPhotos !== -1) {
+        const { countUserPhotos } = await import("../../plugins/plan-limits.js");
+        photoCount = await countUserPhotos(fastify.db, user.id);
 
         if (photoCount >= maxPhotos) {
           return reply.code(403).send({
             success: false,
             error: {
               code: "photo_limit_reached",
-              message: `You've reached the ${maxPhotos} photo limit on your free plan.`,
+              message: `You've reached your plan limit of ${maxPhotos} photos. Upgrade for more storage.`,
               upgradeUrl: "https://openframe.us/pricing",
             },
           });
@@ -508,7 +491,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         filename,
         generateThumbnail: true,
         generateMedium: true,
-        maxResolution: plan?.limits?.maxPhotoResolution ?? undefined,
+        maxResolution: planLimits.maxPhotoResolution || undefined, // 0 = original (no limit)
       });
 
       // Get next sort order
@@ -543,34 +526,34 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       const upgradeUrl = "https://openframe.us/pricing";
       const newCount = photoCount + 1;
 
-      if (maxPhotos) {
+      if (maxPhotos !== -1) {
         const remaining = maxPhotos - newCount;
         if (remaining <= 0) {
           warnings.push({
             code: "photo_limit_reached",
-            message: `You've used all ${maxPhotos} photos on your free plan. Upgrade for unlimited photos.`,
+            message: `You've used all ${maxPhotos} photos on your plan. Upgrade for more storage.`,
             upgradeUrl,
           });
         } else if (remaining <= 5) {
           warnings.push({
             code: "photo_limit_approaching",
-            message: `${remaining} photo${remaining === 1 ? "" : "s"} remaining on your free plan (${newCount}/${maxPhotos}).`,
+            message: `${remaining} photo${remaining === 1 ? "" : "s"} remaining on your plan (${newCount}/${maxPhotos}).`,
             upgradeUrl,
           });
         } else if (remaining <= 10) {
           warnings.push({
             code: "photo_limit_notice",
-            message: `You've used ${newCount} of ${maxPhotos} photos on your free plan.`,
+            message: `You've used ${newCount} of ${maxPhotos} photos on your plan.`,
             upgradeUrl,
           });
         }
       }
 
-      const maxRes = plan?.limits?.maxPhotoResolution;
+      const maxRes = planLimits.maxPhotoResolution;
       if (maxRes && (result.width === maxRes || result.height === maxRes)) {
         warnings.push({
           code: "photo_downscaled",
-          message: `Photo was resized to ${maxRes}p (free plan limit). Upgrade for full 4K resolution.`,
+          message: `Photo was resized to ${maxRes}p (plan limit). Upgrade for full resolution.`,
           upgradeUrl,
         });
       }

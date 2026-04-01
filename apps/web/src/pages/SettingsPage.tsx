@@ -9123,11 +9123,11 @@ function BillingSettings() {
                 limit={planLimits.maxPhotos}
               />
             )}
-            {planLimits.hostedAiQueries !== undefined && planLimits.hostedAiQueries !== -1 && (
+            {planLimits.aiQueriesPerMonth !== undefined && planLimits.aiQueriesPerMonth !== -1 && (
               <UsageBar
-                label="AI Queries"
-                current={0}
-                limit={planLimits.hostedAiQueries}
+                label="AI Queries (this month)"
+                current={billing?.usage?.aiQueries?.current ?? 0}
+                limit={planLimits.aiQueriesPerMonth}
               />
             )}
             <div className="pt-2 border-t border-border">

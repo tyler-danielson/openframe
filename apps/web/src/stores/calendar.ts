@@ -86,7 +86,7 @@ export const useCalendarStore = create<CalendarState>()(
       defaultEventDuration: 60,
       autoRefreshInterval: 5,
       showUpNext: false,
-      sidebarWidth: 280,
+      sidebarWidth: Math.round(window.innerWidth * 0.25),
       sidebarTab: "today",
 
   setCalendars: (calendars) => {
@@ -132,7 +132,7 @@ export const useCalendarStore = create<CalendarState>()(
   setDefaultEventDuration: (minutes) => set({ defaultEventDuration: minutes }),
   setAutoRefreshInterval: (minutes) => set({ autoRefreshInterval: minutes }),
   setShowUpNext: (show) => set({ showUpNext: show }),
-  setSidebarWidth: (width) => set({ sidebarWidth: Math.min(500, Math.max(240, width)) }),
+  setSidebarWidth: (width) => set({ sidebarWidth: Math.min(Math.round(window.innerWidth * 0.5), Math.max(240, width)) }),
   setSidebarTab: (tab) => set({ sidebarTab: tab }),
 
   navigateToday: () => set({ currentDate: new Date() }),
@@ -189,6 +189,16 @@ export const useCalendarStore = create<CalendarState>()(
     }),
     {
       name: "calendar-store",
+      version: 1,
+      migrate: (persisted: any, version: number) => {
+        if (version === 0) {
+          // Migrate old fixed 280px default to 25% of screen width
+          if (persisted.sidebarWidth === 280) {
+            persisted.sidebarWidth = Math.round(window.innerWidth * 0.25);
+          }
+        }
+        return persisted;
+      },
       partialize: (state) => ({ view: state.view, weekStartsOn: state.weekStartsOn, familyName: state.familyName, homeAddress: state.homeAddress, timeFormat: state.timeFormat, dayStartHour: state.dayStartHour, dayEndHour: state.dayEndHour, tickerSpeed: state.tickerSpeed, weekMode: state.weekMode, monthMode: state.monthMode, weekCellWidget: state.weekCellWidget, showDriveTimeOnNext: state.showDriveTimeOnNext, showWeekNumbers: state.showWeekNumbers, defaultEventDuration: state.defaultEventDuration, autoRefreshInterval: state.autoRefreshInterval, showUpNext: state.showUpNext, sidebarWidth: state.sidebarWidth, sidebarTab: state.sidebarTab }),
     }
   )

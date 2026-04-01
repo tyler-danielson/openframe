@@ -44,13 +44,15 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
         .from(calendars)
         .where(eq(calendars.userId, user.id));
 
-      // If calendarIds provided, use those (filtered to only user's calendars for security)
-      // Otherwise fall back to visible calendars
+      // Filter to only enabled calendars the user owns
+      // If calendarIds provided, use those (security + syncEnabled check)
+      // Otherwise fall back to visible + enabled calendars
+      const enabledCalendars = userCalendars.filter((c) => c.syncEnabled);
       const calendarIds = query.calendarIds?.length
         ? query.calendarIds.filter((id) =>
-            userCalendars.some((c) => c.id === id)
+            enabledCalendars.some((c) => c.id === id)
           )
-        : userCalendars.filter((c) => c.isVisible).map((c) => c.id);
+        : enabledCalendars.filter((c) => c.isVisible).map((c) => c.id);
 
       if (calendarIds.length === 0) {
         return {

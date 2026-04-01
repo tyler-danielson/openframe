@@ -91,7 +91,7 @@ export function CalendarSidebar({
       />
 
       {/* Tab navigation */}
-      <div className="flex items-center border-b border-border px-2 py-1.5 gap-0.5">
+      <div className="flex items-center border-b border-border px-2 py-1.5 gap-0.5 overflow-x-auto scrollbar-none">
         {SIDEBAR_TABS.map(tab => {
           const Icon = tab.icon;
           const isActive = sidebarTab === tab.id;
@@ -99,7 +99,7 @@ export function CalendarSidebar({
             <button
               key={tab.id}
               onClick={() => setSidebarTab(tab.id)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors shrink-0 ${
                 isActive
                   ? "bg-primary/15 text-primary"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -107,7 +107,7 @@ export function CalendarSidebar({
               title={tab.label}
             >
               <Icon className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{tab.label}</span>
+              <span>{tab.label}</span>
             </button>
           );
         })}
@@ -270,7 +270,7 @@ function TodayContent({
                       <span className="text-[10px] font-semibold text-primary bg-primary/15 px-1.5 py-0.5 rounded-full">NOW</span>
                     )}
                   </div>
-                  <div className="text-sm font-medium truncate">{event.title}</div>
+                  <div className="text-sm font-medium break-words">{event.title}</div>
                 </button>
               );
             })}
@@ -302,7 +302,7 @@ function TodayContent({
                   style={{ borderLeft: `3px solid ${calInfo.color}`, backgroundColor: `${calInfo.color}10` }}
                 >
                   <span className="text-xs text-muted-foreground">{formatTime(event)}</span>
-                  <div className="text-sm font-medium truncate">{event.title}</div>
+                  <div className="text-sm font-medium break-words">{event.title}</div>
                 </button>
               );
             })}

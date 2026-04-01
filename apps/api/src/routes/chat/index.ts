@@ -482,6 +482,26 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      // AI quota check (skip for BYOK users — they use their own key)
+      let aiOverage = false;
+      if (fastify.hostedMode && keySource !== "user") {
+        const { checkAiUsage } = await import("../../plugins/plan-limits.js");
+        const limits = await fastify.getUserPlanLimits(user.id);
+        const aiCheck = await checkAiUsage(fastify.db, user.id, limits);
+
+        if (!aiCheck.allowed) {
+          return reply.code(429).send({
+            success: false,
+            error: "ai_quota_exceeded",
+            current: aiCheck.current,
+            limit: aiCheck.limit,
+            message: "You've used your AI queries for this month. Upgrade or add your own API key.",
+            upgrade_url: "https://openframe.us/pricing",
+          });
+        }
+        aiOverage = aiCheck.isOverage;
+      }
+
       // Create or load conversation
       let convId = conversationId;
       let isNewConversation = false;
@@ -685,9 +705,16 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
           .set({ updatedAt: new Date() })
           .where(eq(chatConversations.id, convId));
 
+        // Increment AI usage counter (skip for BYOK)
+        if (fastify.hostedMode && keySource !== "user") {
+          const { incrementAiUsage } = await import("../../plugins/plan-limits.js");
+          await incrementAiUsage(fastify.db, user.id);
+        }
+
         sendEvent("done", {
           messageId: savedMessage!.id,
           conversationId: convId,
+          ...(aiOverage ? { usage_warning: "You've exceeded your monthly AI quota. Queries will be cut off soon." } : {}),
         });
       } catch (error: any) {
         fastify.log.error({ err: error }, "Chat streaming error");

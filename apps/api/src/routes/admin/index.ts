@@ -25,14 +25,18 @@ interface PlanTemplate {
   limits: PlanLimits;
 }
 
-const ALL_FEATURES_ENABLED = {
+const ALL_FEATURES_ENABLED: PlanLimits["features"] = {
   iptv: true,
   spotify: true,
   ai: true,
   homeAssistant: true,
   automations: true,
   companion: true,
-} as const;
+  cameras: true,
+  sports: true,
+  news: true,
+  recipes: true,
+};
 
 const PLAN_TEMPLATES: PlanTemplate[] = [
   {
@@ -40,11 +44,10 @@ const PLAN_TEMPLATES: PlanTemplate[] = [
     name: "Free",
     limits: {
       maxKiosks: 1,
-      maxCalendars: -1,
-      maxCameras: -1,
       maxPhotos: 100,
       maxPhotoResolution: 1080,
-      hostedAiQueries: 25,
+      aiQueriesPerMonth: 25,
+      aiSoftCap: true,
       features: ALL_FEATURES_ENABLED,
     },
   },
@@ -53,11 +56,10 @@ const PLAN_TEMPLATES: PlanTemplate[] = [
     name: "Home",
     limits: {
       maxKiosks: 3,
-      maxCalendars: -1,
-      maxCameras: -1,
       maxPhotos: 500,
-      maxPhotoResolution: -1,
-      hostedAiQueries: 200,
+      maxPhotoResolution: 0,
+      aiQueriesPerMonth: 200,
+      aiSoftCap: true,
       features: ALL_FEATURES_ENABLED,
     },
   },
@@ -66,11 +68,10 @@ const PLAN_TEMPLATES: PlanTemplate[] = [
     name: "Pro",
     limits: {
       maxKiosks: -1,
-      maxCalendars: -1,
-      maxCameras: -1,
       maxPhotos: -1,
-      maxPhotoResolution: -1,
-      hostedAiQueries: 1000,
+      maxPhotoResolution: 0,
+      aiQueriesPerMonth: 1000,
+      aiSoftCap: true,
       features: ALL_FEATURES_ENABLED,
     },
   },
@@ -79,11 +80,10 @@ const PLAN_TEMPLATES: PlanTemplate[] = [
     name: "Enterprise",
     limits: {
       maxKiosks: -1,
-      maxCalendars: -1,
-      maxCameras: -1,
       maxPhotos: -1,
-      maxPhotoResolution: -1,
-      hostedAiQueries: -1,
+      maxPhotoResolution: 0,
+      aiQueriesPerMonth: -1,
+      aiSoftCap: false,
       features: ALL_FEATURES_ENABLED,
     },
   },

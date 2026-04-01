@@ -2640,9 +2640,17 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
   // Disconnect OAuth provider (delete tokens + associated calendars/events)
   fastify.delete<{ Params: { provider: string } }>(
     "/oauth/:provider",
+    {
+      onRequest: [fastify.authenticateAny],
+      schema: {
+        description: "Disconnect an OAuth provider",
+        tags: ["Auth"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+      },
+    },
     async (request, reply) => {
       const user = await getCurrentUser(request);
-      if (!user) return;
+      if (!user) return reply.unauthorized("Not authenticated");
 
       const { provider } = request.params;
       const validProviders = ["google", "microsoft", "spotify"] as const;
