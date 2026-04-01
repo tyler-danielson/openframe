@@ -50,8 +50,8 @@ struct CalendarView: View {
         .background(palette.background.ignoresSafeArea())
         .navigationTitle("Calendar")
         .toolbar {
-            if container.canEditCalendar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if container.canEditCalendar {
                     Button { showNewEvent = true } label: {
                         Image(systemName: "plus")
                     }

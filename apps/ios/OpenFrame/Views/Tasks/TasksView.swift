@@ -65,8 +65,8 @@ struct TasksView: View {
         .background(palette.background.ignoresSafeArea())
         .navigationTitle("Tasks")
         .toolbar {
-            if container.canEditTasks {
-                ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if container.canEditTasks {
                     Button { showNewTask = true } label: {
                         Image(systemName: "plus")
                     }

@@ -31,8 +31,8 @@ struct CalendarChip: View {
     }
 
     private var calendarColor: Color {
-        if let hex = calendar.color {
-            return Color(hex: hex)
+        if let hex = calendar.color, let color = Color(hex: hex) {
+            return color
         }
         return palette.primary
     }

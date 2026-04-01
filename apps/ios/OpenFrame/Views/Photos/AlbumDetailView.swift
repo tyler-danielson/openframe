@@ -40,8 +40,8 @@ struct AlbumDetailView: View {
         .navigationTitle(album.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if container.canViewPhotos {
-                ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if container.canViewPhotos {
                     Button {
                         showPicker = true
                     } label: {
