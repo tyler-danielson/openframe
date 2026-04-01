@@ -111,9 +111,10 @@ jobs:
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # Update project.yml with real team ID before generating
+          # Update project.yml with real team ID and provisioning profile before generating
           sed -i '' "s/DEVELOPMENT_TEAM: \"\"/DEVELOPMENT_TEAM: \"$APPLE_TEAM_ID\"/" project.yml
-          # Regenerate with team ID
+          sed -i '' "s/PROVISIONING_PROFILE_SPECIFIER: \"\"/PROVISIONING_PROFILE_SPECIFIER: \"$PP_NAME\"/" project.yml
+          # Regenerate with signing settings
           xcodegen generate
 
           # Add iPad orientations for App Store validation
@@ -138,9 +139,7 @@ jobs:
             -sdk iphoneos \
             -configuration Release \
             -archivePath $RUNNER_TEMP/OpenFrame.xcarchive \
-            CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            PROVISIONING_PROFILE="$PP_UUID" \
             CODE_SIGN_IDENTITY="Apple Distribution"
 
       - name: Create ExportOptions.plist
