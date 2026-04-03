@@ -140,6 +140,18 @@ jobs:
             -configuration Release \
             -archivePath $RUNNER_TEMP/OpenFrame.xcarchive
 
+      - name: Verify archive Info.plist
+        run: |
+          echo "=== Archive Info.plist ==="
+          plutil -p $RUNNER_TEMP/OpenFrame.xcarchive/Products/Applications/OpenFrame.app/Info.plist
+          echo ""
+          echo "=== Checking for privacy keys ==="
+          plutil -p $RUNNER_TEMP/OpenFrame.xcarchive/Products/Applications/OpenFrame.app/Info.plist | grep -i "camera\|photo\|encryption" || echo "WARNING: Privacy keys not found!"
+          echo ""
+          echo "=== Build version ==="
+          /usr/libexec/PlistBuddy -c "Print CFBundleVersion" $RUNNER_TEMP/OpenFrame.xcarchive/Products/Applications/OpenFrame.app/Info.plist
+          /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" $RUNNER_TEMP/OpenFrame.xcarchive/Products/Applications/OpenFrame.app/Info.plist
+
       - name: Create ExportOptions.plist
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -152,7 +164,7 @@ jobs:
               <key>method</key>
               <string>app-store-connect</string>
               <key>destination</key>
-              <string>upload</string>
+              <string>export</string>
               <key>teamID</key>
               <string>${APPLE_TEAM_ID}</string>
               <key>signingStyle</key>
@@ -198,12 +210,44 @@ jobs:
             -authenticationKeyPath ~/.private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8 \
             -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" \
             -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
-            -allowProvisioningUpdates
+            -allowProvisioningUpdates 2>&1 | tee $RUNNER_TEMP/export.log
 
-      - name: Verify upload
+          echo ""
+          echo "=== Export result ==="
+          grep -i "upload\|error\|success\|fail" $RUNNER_TEMP/export.log || true
+
+      - name: Verify export output
         run: |
-          echo "✅ IPA exported and uploaded to App Store Connect via exportArchive"
-          echo "The build should appear in TestFlight within 15-30 minutes"
+          echo "=== Exported files ==="
+          ls -la $RUNNER_TEMP/export/ || echo "No export directory found"
+          echo ""
+          if [ -f "$RUNNER_TEMP/export/OpenFrame.ipa" ]; then
+            echo "✅ IPA found: $(wc -c < $RUNNER_TEMP/export/OpenFrame.ipa) bytes"
+          else
+            echo "⚠️ No IPA file found - checking if upload-only mode worked"
+          fi
+          echo ""
+          if [ -f "$RUNNER_TEMP/export/DistributionSummary.plist" ]; then
+            echo "=== Distribution Summary ==="
+            plutil -p $RUNNER_TEMP/export/DistributionSummary.plist
+          fi
+
+      - name: Upload to App Store Connect
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          IPA_PATH="$RUNNER_TEMP/export/OpenFrame.ipa"
+          if [ ! -f "$IPA_PATH" ]; then
+            echo "❌ No IPA file found at $IPA_PATH"
+            exit 1
+          fi
+          echo "Uploading $(wc -c < "$IPA_PATH") byte IPA to App Store Connect..."
+          xcrun altool --upload-app \
+            -f "$IPA_PATH" \
+            --type ios \
+            --apiKey "$APP_STORE_CONNECT_API_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" 2>&1
 
       - name: Clean up keychain
         if: always()
