@@ -33,8 +33,9 @@ struct AlbumDetailView: View {
                             if let urlString = photo.thumbnailUrl ?? photo.url,
                                let fullUrl = buildImageURL(urlString) {
                                 KFImage(fullUrl)
+                                    .requestModifier(ImageCacheService.authModifier(keychainService: container.keychainService))
                                     .resizable()
-                                    .placeholder { palette.secondary }
+                                    .placeholder { ProgressView() }
                                     .aspectRatio(1, contentMode: .fill)
                                     .clipped()
                             } else {
