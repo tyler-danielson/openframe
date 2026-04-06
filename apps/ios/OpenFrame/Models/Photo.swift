@@ -10,11 +10,20 @@ struct PhotoAlbum: Identifiable, Codable {
 
 struct Photo: Identifiable, Codable {
     let id: String
-    let albumId: String
-    var fileName: String?
-    var url: String?
+    var filename: String?
+    var originalFilename: String?
+    var mimeType: String?
     var thumbnailUrl: String?
+    var mediumUrl: String?
+    var originalUrl: String?
     var width: Int?
     var height: Int?
-    var uploadedAt: String?
+    var takenAt: String?
+    var sortOrder: Int?
+    var sourceType: String?
+
+    /// Convenience: best available display URL
+    var url: String? {
+        mediumUrl ?? originalUrl
+    }
 }
