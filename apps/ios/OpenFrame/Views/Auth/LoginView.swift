@@ -1,14 +1,18 @@
 import SwiftUI
 import AuthenticationServices
 
+private enum OAuthProvider: String, Identifiable {
+    case google, microsoft
+    var id: String { rawValue }
+}
+
 struct LoginView: View {
     @EnvironmentObject var container: DIContainer
     @State private var email = ""
     @State private var password = ""
     @State private var apiKeyText = ""
     @State private var useApiKey = false
-    @State private var showOAuth = false
-    @State private var oauthProvider = ""
+    @State private var oauthProvider: OAuthProvider?
     @State private var isLoading = false
     @State private var error: String?
 
@@ -31,14 +35,12 @@ struct LoginView: View {
                     if let config = container.authConfig {
                         if config.google?.clientId != nil {
                             OAuthButton(icon: "globe", title: "Continue with Google", palette: palette) {
-                                oauthProvider = "google"
-                                showOAuth = true
+                                oauthProvider = .google
                             }
                         }
                         if config.microsoft?.available == true {
                             OAuthButton(icon: "building.2", title: "Continue with Microsoft", palette: palette) {
-                                oauthProvider = "microsoft"
-                                showOAuth = true
+                                oauthProvider = .microsoft
                             }
                         }
 
@@ -129,16 +131,16 @@ struct LoginView: View {
             .background(palette.background.ignoresSafeArea())
         }
         .navigationViewStyle(.stack)
-        .sheet(isPresented: $showOAuth) {
+        .sheet(item: $oauthProvider) { provider in
             OAuthWebView(
-                provider: oauthProvider,
+                provider: provider.rawValue,
                 serverUrl: container.keychainService.serverUrl ?? "",
                 onComplete: { accessToken, refreshToken in
-                    showOAuth = false
+                    oauthProvider = nil
                     container.authRepository.saveOAuthTokens(accessToken: accessToken, refreshToken: refreshToken)
                     Task { await container.checkInitialAuth() }
                 },
-                onCancel: { showOAuth = false }
+                onCancel: { oauthProvider = nil }
             )
         }
     }
