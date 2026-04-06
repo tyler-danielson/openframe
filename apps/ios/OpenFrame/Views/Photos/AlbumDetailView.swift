@@ -74,6 +74,11 @@ struct AlbumDetailView: View {
         }
         .task { await loadPhotos() }
         .refreshable { await loadPhotos() }
+        .alert("Upload Failed", isPresented: Binding(get: { uploadError != nil }, set: { if !$0 { uploadError = nil } })) {
+            Button("OK") { uploadError = nil }
+        } message: {
+            Text(uploadError ?? "")
+        }
     }
 
     private func buildImageURL(_ path: String) -> URL? {
@@ -88,11 +93,18 @@ struct AlbumDetailView: View {
         isLoading = false
     }
 
+    @State private var uploadError: String?
+
     private func uploadPhoto(_ data: Data) {
         isUploading = true
+        uploadError = nil
         Task {
-            try? await container.photoRepository.uploadPhoto(albumId: albumId, imageData: data, fileName: "photo_\(UUID().uuidString).jpg")
-            await loadPhotos()
+            do {
+                try await container.photoRepository.uploadPhoto(albumId: albumId, imageData: data, fileName: "photo_\(UUID().uuidString).jpg")
+                await loadPhotos()
+            } catch {
+                uploadError = error.localizedDescription
+            }
             isUploading = false
         }
     }
@@ -128,10 +140,11 @@ struct PhotoPickerView: UIViewControllerRepresentable {
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
             picker.dismiss(animated: true)
             guard let result = results.first else { return }
-            result.itemProvider.loadDataRepresentation(forTypeIdentifier: "public.image") { [weak self] data, _ in
+            let callback = onPick
+            result.itemProvider.loadDataRepresentation(forTypeIdentifier: "public.image") { data, _ in
                 if let data {
                     DispatchQueue.main.async {
-                        self?.onPick(data)
+                        callback(data)
                     }
                 }
             }
