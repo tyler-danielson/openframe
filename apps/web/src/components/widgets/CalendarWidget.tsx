@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, isToday, isTomorrow } from "date-fns";
 import { api } from "../../services/api";
+import { getEventStart, getEventEnd } from "../../lib/event-dates";
 import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import type { CalendarEvent, Calendar } from "@openframe/shared";
@@ -104,12 +105,12 @@ export function CalendarWidget({ config, style, isBuilder }: CalendarWidgetProps
   const filteredEvents = useMemo(() => {
     const now = new Date();
     let filtered = [...events].sort(
-      (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+      (a, b) => getEventStart(a).getTime() - getEventStart(b).getTime()
     );
 
     // Filter to upcoming only if enabled
     if (showUpcomingOnly) {
-      filtered = filtered.filter((event) => new Date(event.endTime) > now);
+      filtered = filtered.filter((event) => getEventEnd(event) > now);
     }
 
     // Filter out blank/empty events if enabled
@@ -238,8 +239,8 @@ export function CalendarWidget({ config, style, isBuilder }: CalendarWidgetProps
       )}
       <div className="flex-1 space-y-2 overflow-hidden">
         {filteredEvents.map((event: CalendarEvent) => {
-          const startTime = new Date(event.startTime);
-          const endTime = new Date(event.endTime);
+          const startTime = getEventStart(event);
+          const endTime = getEventEnd(event);
           const calendar = calendars.find((c: Calendar) => c.id === event.calendarId);
           const now = new Date();
 

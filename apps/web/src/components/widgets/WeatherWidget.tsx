@@ -172,6 +172,9 @@ export function WeatherWidget({ config, style, isBuilder }: WeatherWidgetProps) 
           {showWind && <span>Wind: {weather.wind_speed} {weather.units === "metric" ? "km/h" : "mph"}</span>}
         </div>
       )}
+      <div className="absolute bottom-1 right-2 text-[8px] opacity-30">
+        Weather by Open-Meteo.com
+      </div>
     </div>
   );
 }

@@ -272,6 +272,7 @@ export const DEMO_TASKS: Task[] = [
     status: "needsAction",
     dueDate: today,
     completedAt: null,
+    showOnCalendar: false,
   },
   {
     id: "demo-task-2",
@@ -281,6 +282,7 @@ export const DEMO_TASKS: Task[] = [
     status: "needsAction",
     dueDate: addDays(today, 1),
     completedAt: null,
+    showOnCalendar: false,
   },
   {
     id: "demo-task-3",
@@ -290,6 +292,7 @@ export const DEMO_TASKS: Task[] = [
     status: "needsAction",
     dueDate: addDays(today, 4),
     completedAt: null,
+    showOnCalendar: false,
   },
   {
     id: "demo-task-4",
@@ -299,6 +302,7 @@ export const DEMO_TASKS: Task[] = [
     status: "needsAction",
     dueDate: addDays(today, 7),
     completedAt: null,
+    showOnCalendar: false,
   },
   {
     id: "demo-task-4b",
@@ -308,6 +312,7 @@ export const DEMO_TASKS: Task[] = [
     status: "needsAction",
     dueDate: addDays(today, 10),
     completedAt: null,
+    showOnCalendar: false,
   },
   {
     id: "demo-task-4c",
@@ -317,6 +322,7 @@ export const DEMO_TASKS: Task[] = [
     status: "completed",
     dueDate: subDays(today, 2),
     completedAt: subDays(today, 2),
+    showOnCalendar: false,
   },
   {
     id: "demo-task-4d",
@@ -326,6 +332,7 @@ export const DEMO_TASKS: Task[] = [
     status: "completed",
     dueDate: subDays(today, 3),
     completedAt: subDays(today, 3),
+    showOnCalendar: false,
   },
   // Work
   {
@@ -336,6 +343,7 @@ export const DEMO_TASKS: Task[] = [
     status: "needsAction",
     dueDate: today,
     completedAt: null,
+    showOnCalendar: false,
   },
   {
     id: "demo-task-6",
@@ -345,6 +353,7 @@ export const DEMO_TASKS: Task[] = [
     status: "needsAction",
     dueDate: addDays(today, 2),
     completedAt: null,
+    showOnCalendar: false,
   },
   {
     id: "demo-task-7",
@@ -354,6 +363,7 @@ export const DEMO_TASKS: Task[] = [
     status: "needsAction",
     dueDate: addDays(today, 3),
     completedAt: null,
+    showOnCalendar: false,
   },
   {
     id: "demo-task-8",
@@ -363,6 +373,7 @@ export const DEMO_TASKS: Task[] = [
     status: "needsAction",
     dueDate: addDays(today, 5),
     completedAt: null,
+    showOnCalendar: false,
   },
   {
     id: "demo-task-8b",
@@ -372,6 +383,7 @@ export const DEMO_TASKS: Task[] = [
     status: "needsAction",
     dueDate: addDays(today, 6),
     completedAt: null,
+    showOnCalendar: false,
   },
   {
     id: "demo-task-8c",
@@ -381,6 +393,7 @@ export const DEMO_TASKS: Task[] = [
     status: "completed",
     dueDate: subDays(today, 1),
     completedAt: subDays(today, 1),
+    showOnCalendar: false,
   },
   {
     id: "demo-task-8d",
@@ -390,6 +403,7 @@ export const DEMO_TASKS: Task[] = [
     status: "completed",
     dueDate: subDays(today, 4),
     completedAt: subDays(today, 3),
+    showOnCalendar: false,
   },
   // Home Projects
   {
@@ -400,6 +414,7 @@ export const DEMO_TASKS: Task[] = [
     status: "needsAction",
     dueDate: addDays(today, 2),
     completedAt: null,
+    showOnCalendar: false,
   },
   {
     id: "demo-task-10",
@@ -409,6 +424,7 @@ export const DEMO_TASKS: Task[] = [
     status: "needsAction",
     dueDate: addDays(today, 8),
     completedAt: null,
+    showOnCalendar: false,
   },
   {
     id: "demo-task-11",
@@ -418,6 +434,7 @@ export const DEMO_TASKS: Task[] = [
     status: "needsAction",
     dueDate: null,
     completedAt: null,
+    showOnCalendar: false,
   },
   {
     id: "demo-task-12",
@@ -427,6 +444,7 @@ export const DEMO_TASKS: Task[] = [
     status: "needsAction",
     dueDate: null,
     completedAt: null,
+    showOnCalendar: false,
   },
   {
     id: "demo-task-12b",
@@ -436,6 +454,7 @@ export const DEMO_TASKS: Task[] = [
     status: "completed",
     dueDate: subDays(today, 5),
     completedAt: subDays(today, 5),
+    showOnCalendar: false,
   },
 ];
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { MapPin, Loader2 } from "lucide-react";
+import { api } from "../../services/api";
 
 interface PlacesAutocompleteProps {
   value: string;
@@ -47,12 +48,9 @@ export function PlacesAutocomplete({
 
     setIsLoading(true);
     try {
-      const response = await fetch(
-        `/api/v1/maps/places/autocomplete?input=${encodeURIComponent(query)}`
-      );
-      const data = await response.json();
-      if (data.success && data.data) {
-        setPredictions(data.data);
+      const results = await api.searchPlaces(query);
+      if (results && results.length > 0) {
+        setPredictions(results);
         setShowDropdown(true);
       } else {
         setPredictions([]);

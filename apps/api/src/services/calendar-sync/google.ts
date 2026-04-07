@@ -338,9 +338,15 @@ async function upsertEvent(
     ? new Date(gevent.start.dateTime)
     : parseLocalDate(gevent.start.date!);
 
-  const endTime = gevent.end.dateTime
-    ? new Date(gevent.end.dateTime)
-    : parseLocalDate(gevent.end.date!);
+  // Google uses exclusive end dates for all-day events (a single-day event on
+  // Apr 5 has end="2026-04-06"). Subtract one day so we store inclusive end dates.
+  let endTime: Date;
+  if (gevent.end.dateTime) {
+    endTime = new Date(gevent.end.dateTime);
+  } else {
+    endTime = parseLocalDate(gevent.end.date!);
+    endTime.setDate(endTime.getDate() - 1);
+  }
 
   const isAllDay = !gevent.start.dateTime;
 

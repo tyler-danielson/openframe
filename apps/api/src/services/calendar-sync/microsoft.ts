@@ -605,7 +605,12 @@ async function upsertEvent(
   }
 
   const startTime = parseMSDateTime(mevent.start, mevent.isAllDay ?? false);
+  // Microsoft uses exclusive end dates for all-day events (single-day event on
+  // Apr 5 has end="2026-04-06"). Subtract one day so we store inclusive end dates.
   const endTime = parseMSDateTime(mevent.end, mevent.isAllDay ?? false);
+  if (mevent.isAllDay) {
+    endTime.setDate(endTime.getDate() - 1);
+  }
 
   // Parse recurrence rule
   const recurrenceRule = msRecurrenceToRRule(mevent.recurrence);

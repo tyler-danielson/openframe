@@ -5,6 +5,8 @@ import { ChevronLeft, ChevronRight, Plus, X, PenTool, WifiOff, PanelRight } from
 import { api, type WeatherData, type WeatherForecast, type HourlyForecast } from "../services/api";
 import { useCalendarStore } from "../stores/calendar";
 import { CalendarView, EventModal, CreateEventModal, HandwritingOverlay, DaySummaryModal, CountdownBar } from "../components/calendar";
+import { RoutineEventPopover } from "../components/calendar/RoutineEventPopover";
+import { TaskEventPopover } from "../components/calendar/TaskEventPopover";
 import { CalendarSidebar } from "../components/calendar/CalendarSidebar";
 import { SportsScoreBadge } from "../components/sports";
 import { Button } from "../components/ui/Button";
@@ -14,7 +16,7 @@ import { getFederalHolidaysInRange } from "../data/federalHolidays";
 import { useConnection } from "../contexts/ConnectionContext";
 import { useKiosk } from "../contexts/KioskContext";
 import { useDemoGuard } from "../hooks/useDemoGuard";
-import type { CalendarEvent, SportsGame, FavoriteSportsTeam, CalendarVisibility } from "@openframe/shared";
+import type { CalendarEvent, SportsGame, FavoriteSportsTeam, CalendarVisibility, FamilyProfile } from "@openframe/shared";
 
 
 // Sports game detail modal
@@ -198,6 +200,11 @@ export function CalendarPage() {
     autoRefreshInterval,
     showUpNext,
     setShowUpNext,
+    showRoutinesOnCalendar,
+    showTasksOnCalendar,
+    showSportsOnCalendar,
+    hiddenCalendarIds,
+    hiddenProfileIds,
   } = useCalendarStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -209,6 +216,8 @@ export function CalendarPage() {
   const [daySummaryDate, setDaySummaryDate] = useState<Date | null>(null);
   const [selectedGame, setSelectedGame] = useState<SportsGame | null>(null);
   const [weatherCacheAge, setWeatherCacheAge] = useState<number | null>(null);
+  const [selectedRoutineEvent, setSelectedRoutineEvent] = useState<CalendarEvent | null>(null);
+  const [selectedTaskEvent, setSelectedTaskEvent] = useState<CalendarEvent | null>(null);
 
   const { isOffline: isOfflineMode } = useConnection();
 
@@ -445,6 +454,29 @@ export function CalendarPage() {
     staleTime: autoRefreshInterval > 0 ? Math.min(autoRefreshInterval * 60 * 1000 / 2, 60 * 1000) : 60 * 1000,
   });
 
+  // Fetch routine calendar events (always fetch; visibility controlled in filter)
+  const { data: routineCalendarEvents = [] } = useQuery({
+    queryKey: ["routine-calendar-events", dateRange.start.toISOString(), dateRange.end.toISOString()],
+    queryFn: () => api.getRoutineCalendarEvents(dateRange.start, dateRange.end),
+    refetchInterval: autoRefreshInterval > 0 ? autoRefreshInterval * 60 * 1000 : false,
+    staleTime: 60 * 1000,
+  });
+
+  // Fetch task calendar events (always fetch; visibility controlled in filter)
+  const { data: taskCalendarEvents = [] } = useQuery({
+    queryKey: ["task-calendar-events", dateRange.start.toISOString(), dateRange.end.toISOString()],
+    queryFn: () => api.getTaskCalendarEvents(dateRange.start, dateRange.end),
+    refetchInterval: autoRefreshInterval > 0 ? autoRefreshInterval * 60 * 1000 : false,
+    staleTime: 60 * 1000,
+  });
+
+  // Fetch family profiles for visibility section
+  const { data: profilesData = [] } = useQuery<FamilyProfile[]>({
+    queryKey: ["profiles"],
+    queryFn: () => api.getProfiles(),
+    staleTime: 5 * 60 * 1000,
+  });
+
   // Map calendar IDs to their visibility settings
   const calendarVisibility = useMemo(() =>
     new Map(calendars.map(cal => [cal.id, cal.visibility ?? { week: true, month: true, day: true, popup: true, screensaver: false }])),
@@ -528,8 +560,8 @@ export function CalendarPage() {
       const visibility = teamVisibility.get(teamDbId);
       return isVisibleForView(visibility, view);
     });
-    return [...rawCalendarEvents, ...filteredSportsEvents, ...holidayEvents];
-  }, [rawCalendarEvents, rawSportsEvents, teamVisibility, view, holidayEvents, isKioskMode, kioskViewCalendars]);
+    return [...rawCalendarEvents, ...filteredSportsEvents, ...holidayEvents, ...routineCalendarEvents, ...taskCalendarEvents];
+  }, [rawCalendarEvents, rawSportsEvents, teamVisibility, view, holidayEvents, isKioskMode, kioskViewCalendars, routineCalendarEvents, taskCalendarEvents]);
 
   // Filter calendar events based on calendar visibility settings for current view
   const events = useMemo(() => {
@@ -539,9 +571,29 @@ export function CalendarPage() {
       if (event.calendarId === "federal-holidays") {
         return true;
       }
-      // Sports events already filtered in rawEvents
-      if (!event.calendarId || event.calendarId.startsWith("sports-")) {
+      // Sports events: controlled by sidebar toggle + DB visibility
+      if (event.calendarId?.startsWith("sports-")) {
+        return showSportsOnCalendar;
+      }
+      // Routine events: controlled by sidebar toggle
+      if (event.calendarId?.startsWith("routine-")) {
+        if (!showRoutinesOnCalendar) return false;
+        // People filter: hide routines assigned to hidden profiles
+        const meta = (event as any).metadata;
+        if (hiddenProfileIds.length > 0 && meta?.assignedProfileId && hiddenProfileIds.includes(meta.assignedProfileId)) {
+          return false;
+        }
         return true;
+      }
+      // Task events: controlled by sidebar toggle
+      if (event.calendarId === "tasks") {
+        return showTasksOnCalendar;
+      }
+      // No calendarId — always show
+      if (!event.calendarId) return true;
+      // Sidebar calendar visibility (hiddenCalendarIds)
+      if (hiddenCalendarIds.includes(event.calendarId)) {
+        return false;
       }
       // Kiosk mode: check against per-view allowed list
       if (isKioskMode && kioskViewCalendars) {
@@ -553,14 +605,18 @@ export function CalendarPage() {
       if (!visibility) return true;
       return isVisibleForView(visibility, view);
     });
-  }, [rawEvents, calendarVisibility, view, isKioskMode, kioskViewCalendars]);
+  }, [rawEvents, calendarVisibility, view, isKioskMode, kioskViewCalendars, showRoutinesOnCalendar, showTasksOnCalendar, showSportsOnCalendar, hiddenCalendarIds, hiddenProfileIds]);
 
   // Filter events for popup (day summary modal) based on popup visibility
   const popupEvents = useMemo(() => {
     const popupAllowedIds = getKioskAllowedIds("popup");
-    return [...rawCalendarEvents, ...rawSportsEvents, ...holidayEvents].filter(event => {
+    return [...rawCalendarEvents, ...rawSportsEvents, ...holidayEvents, ...routineCalendarEvents, ...taskCalendarEvents].filter(event => {
       // Holiday events always show in popup
       if (event.calendarId === "federal-holidays") {
+        return true;
+      }
+      // Routine and task events always show in popup
+      if (event.calendarId === "tasks" || event.calendarId?.startsWith("routine-")) {
         return true;
       }
       // Kiosk mode: check against popup allowed list
@@ -581,7 +637,7 @@ export function CalendarPage() {
       if (!visibility) return true;
       return visibility.popup;
     });
-  }, [rawCalendarEvents, rawSportsEvents, holidayEvents, teamVisibility, calendarVisibility, isKioskMode, kioskViewCalendars]);
+  }, [rawCalendarEvents, rawSportsEvents, holidayEvents, routineCalendarEvents, taskCalendarEvents, teamVisibility, calendarVisibility, isKioskMode, kioskViewCalendars]);
 
   // Delete event mutation
   const deleteEvent = useMutation({
@@ -593,6 +649,15 @@ export function CalendarPage() {
   });
 
   const handleSelectEvent = (event: CalendarEvent) => {
+    const metaType = (event.metadata as any)?.type;
+    if (metaType === "routine") {
+      setSelectedRoutineEvent(event);
+      return;
+    }
+    if (metaType === "task") {
+      setSelectedTaskEvent(event);
+      return;
+    }
     setSelectedEvent(event);
     setIsModalOpen(true);
   };
@@ -933,7 +998,8 @@ export function CalendarPage() {
       {showUpNext && (
         <CalendarSidebar
           events={events}
-          calendars={calendars}
+          calendars={calendars.filter(c => c.isVisible)}
+          profiles={profilesData}
           onSelectEvent={handleSelectEvent}
           timeFormat={timeFormat}
           weather={weather}
@@ -982,6 +1048,20 @@ export function CalendarPage() {
         <SportsGameModal
           game={selectedGame}
           onClose={() => setSelectedGame(null)}
+        />
+      )}
+
+      {selectedRoutineEvent && (
+        <RoutineEventPopover
+          event={selectedRoutineEvent}
+          onClose={() => setSelectedRoutineEvent(null)}
+        />
+      )}
+
+      {selectedTaskEvent && (
+        <TaskEventPopover
+          event={selectedTaskEvent}
+          onClose={() => setSelectedTaskEvent(null)}
         />
       )}
 

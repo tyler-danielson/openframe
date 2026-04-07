@@ -81,12 +81,16 @@ export const users = pgTable("users", {
     .notNull(),
 });
 
+export type UserMode = "simple" | "advanced";
+
 export interface UserPreferences {
   defaultCalendarView?: "month" | "week" | "day" | "agenda";
   weekStartsOn?: 0 | 1 | 6; // Sunday, Monday, Saturday
   showWeekNumbers?: boolean;
   theme?: "light" | "dark" | "auto";
   shareContentWithAdmin?: boolean; // default: false
+  userMode?: UserMode;
+  onboardingCompleted?: boolean;
 }
 
 // Plan limits for hosted/cloud mode (synced from cloud platform during provisioning)
@@ -417,6 +421,7 @@ export const tasks = pgTable(
     parentTaskId: uuid("parent_task_id"),
     position: text("position"), // for ordering
     etag: text("etag"),
+    showOnCalendar: boolean("show_on_calendar").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -2785,6 +2790,8 @@ export type AutoBackupConfig = typeof autoBackupConfig.$inferSelect;
 export const routineFrequencyEnum = pgEnum("routine_frequency", [
   "daily",
   "weekly",
+  "monthly",
+  "yearly",
   "custom",
 ]);
 
@@ -2800,12 +2807,14 @@ export const routines = pgTable(
     category: text("category"),
     frequency: routineFrequencyEnum("frequency").notNull().default("daily"),
     daysOfWeek: integer("days_of_week").array(),
+    recurrenceRule: jsonb("recurrence_rule"),
     assignedProfileId: uuid("assigned_profile_id").references(
       () => familyProfiles.id,
       { onDelete: "set null" }
     ),
     sortOrder: integer("sort_order").notNull().default(0),
     isActive: boolean("is_active").default(true).notNull(),
+    showOnCalendar: boolean("show_on_calendar").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -3637,3 +3646,297 @@ export const uspsConnectionsRelations = relations(
 
 export type TrackedPackage = typeof trackedPackages.$inferSelect;
 export type UspsConnection = typeof uspsConnections.$inferSelect;
+
+// ==================== Habits & Goals & Gamification ====================
+
+export const habitFrequencyEnum = pgEnum("habit_frequency", [
+  "daily",
+  "weekly",
+  "custom",
+]);
+
+export const goalTypeEnum = pgEnum("goal_type", [
+  "quantifiable",
+  "milestone",
+]);
+
+export const habits = pgTable(
+  "habits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id").references(() => familyProfiles.id, {
+      onDelete: "set null",
+    }),
+    name: text("name").notNull(),
+    icon: text("icon"),
+    color: text("color"),
+    frequency: habitFrequencyEnum("frequency").notNull().default("daily"),
+    targetDays: jsonb("target_days").$type<number[]>().default([]),
+    targetCount: integer("target_count").notNull().default(1),
+    isShared: boolean("is_shared").notNull().default(false),
+    isActive: boolean("is_active").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("habits_user_idx").on(table.userId),
+    index("habits_profile_idx").on(table.profileId),
+  ]
+);
+
+export const habitsRelations = relations(habits, ({ one, many }) => ({
+  user: one(users, {
+    fields: [habits.userId],
+    references: [users.id],
+  }),
+  profile: one(familyProfiles, {
+    fields: [habits.profileId],
+    references: [familyProfiles.id],
+  }),
+  completions: many(habitCompletions),
+}));
+
+export type Habit = typeof habits.$inferSelect;
+
+export const habitCompletions = pgTable(
+  "habit_completions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    habitId: uuid("habit_id")
+      .notNull()
+      .references(() => habits.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id").references(() => familyProfiles.id, {
+      onDelete: "set null",
+    }),
+    completedDate: date("completed_date").notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    value: text("value"), // For quantitative habits (stored as text for flexibility)
+    notes: text("notes"),
+  },
+  (table) => [
+    index("habit_completions_habit_date_idx").on(
+      table.habitId,
+      table.completedDate
+    ),
+    index("habit_completions_profile_idx").on(table.profileId),
+    uniqueIndex("habit_completions_unique_idx").on(
+      table.habitId,
+      table.profileId,
+      table.completedDate
+    ),
+  ]
+);
+
+export const habitCompletionsRelations = relations(
+  habitCompletions,
+  ({ one }) => ({
+    habit: one(habits, {
+      fields: [habitCompletions.habitId],
+      references: [habits.id],
+    }),
+    profile: one(familyProfiles, {
+      fields: [habitCompletions.profileId],
+      references: [familyProfiles.id],
+    }),
+  })
+);
+
+export type HabitCompletion = typeof habitCompletions.$inferSelect;
+
+export const goals = pgTable(
+  "goals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id").references(() => familyProfiles.id, {
+      onDelete: "set null",
+    }),
+    name: text("name").notNull(),
+    description: text("description"),
+    icon: text("icon"),
+    color: text("color"),
+    goalType: goalTypeEnum("goal_type").notNull().default("milestone"),
+    targetValue: text("target_value"), // Numeric stored as text
+    targetUnit: text("target_unit"),
+    targetPeriod: text("target_period"), // 'daily' | 'weekly' | 'monthly' | 'total'
+    currentValue: text("current_value").default("0"),
+    milestones: jsonb("milestones")
+      .$type<
+        { id: string; name: string; completed: boolean; completedAt: string | null }[]
+      >()
+      .default([]),
+    targetDate: date("target_date"),
+    isShared: boolean("is_shared").notNull().default(false),
+    isActive: boolean("is_active").notNull().default(true),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("goals_user_idx").on(table.userId),
+    index("goals_profile_idx").on(table.profileId),
+  ]
+);
+
+export const goalsRelations = relations(goals, ({ one, many }) => ({
+  user: one(users, {
+    fields: [goals.userId],
+    references: [users.id],
+  }),
+  profile: one(familyProfiles, {
+    fields: [goals.profileId],
+    references: [familyProfiles.id],
+  }),
+  progress: many(goalProgress),
+}));
+
+export type Goal = typeof goals.$inferSelect;
+
+export const goalProgress = pgTable(
+  "goal_progress",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    goalId: uuid("goal_id")
+      .notNull()
+      .references(() => goals.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id").references(() => familyProfiles.id, {
+      onDelete: "set null",
+    }),
+    date: date("date").notNull(),
+    value: text("value").notNull(), // Numeric stored as text
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("goal_progress_goal_date_idx").on(table.goalId, table.date)]
+);
+
+export const goalProgressRelations = relations(goalProgress, ({ one }) => ({
+  goal: one(goals, {
+    fields: [goalProgress.goalId],
+    references: [goals.id],
+  }),
+  profile: one(familyProfiles, {
+    fields: [goalProgress.profileId],
+    references: [familyProfiles.id],
+  }),
+}));
+
+export type GoalProgress = typeof goalProgress.$inferSelect;
+
+export const gamificationPoints = pgTable(
+  "gamification_points",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => familyProfiles.id, { onDelete: "cascade" }),
+    points: integer("points").notNull(),
+    reason: text("reason").notNull(), // 'habit_completion' | 'streak_bonus' | 'goal_progress' | etc.
+    referenceId: uuid("reference_id"),
+    earnedAt: timestamp("earned_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("gamification_points_profile_idx").on(table.profileId),
+    index("gamification_points_earned_at_idx").on(table.earnedAt),
+  ]
+);
+
+export const gamificationPointsRelations = relations(
+  gamificationPoints,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [gamificationPoints.userId],
+      references: [users.id],
+    }),
+    profile: one(familyProfiles, {
+      fields: [gamificationPoints.profileId],
+      references: [familyProfiles.id],
+    }),
+  })
+);
+
+export type GamificationPoint = typeof gamificationPoints.$inferSelect;
+
+export const gamificationBadges = pgTable(
+  "gamification_badges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => familyProfiles.id, { onDelete: "cascade" }),
+    badgeId: text("badge_id").notNull(),
+    earnedAt: timestamp("earned_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("gamification_badges_profile_idx").on(table.profileId),
+    uniqueIndex("gamification_badges_unique_idx").on(
+      table.profileId,
+      table.badgeId
+    ),
+  ]
+);
+
+export const gamificationBadgesRelations = relations(
+  gamificationBadges,
+  ({ one }) => ({
+    profile: one(familyProfiles, {
+      fields: [gamificationBadges.profileId],
+      references: [familyProfiles.id],
+    }),
+  })
+);
+
+export type GamificationBadge = typeof gamificationBadges.$inferSelect;
+
+export const customBadges = pgTable(
+  "custom_badges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    icon: text("icon").notNull(),
+    color: text("color"),
+    criteria: text("criteria"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("custom_badges_user_idx").on(table.userId)]
+);
+
+export const customBadgesRelations = relations(customBadges, ({ one }) => ({
+  user: one(users, {
+    fields: [customBadges.userId],
+    references: [users.id],
+  }),
+}));
+
+export type CustomBadge = typeof customBadges.$inferSelect;

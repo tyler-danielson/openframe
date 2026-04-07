@@ -186,7 +186,11 @@ export async function syncICSCalendar(
       description: icsEvent.description || null,
       location: icsEvent.location || null,
       startTime: icsEvent.dtstart,
-      endTime: icsEvent.dtend,
+      // ICS uses exclusive end dates for all-day events (DTEND is day after).
+      // Subtract one day so we store inclusive end dates.
+      endTime: icsEvent.isAllDay
+        ? new Date(icsEvent.dtend.getFullYear(), icsEvent.dtend.getMonth(), icsEvent.dtend.getDate() - 1)
+        : icsEvent.dtend,
       isAllDay: icsEvent.isAllDay,
       status: mapStatus(icsEvent.status),
       recurrenceRule: icsEvent.rrule || null,

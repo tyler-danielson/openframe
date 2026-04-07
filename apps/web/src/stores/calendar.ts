@@ -34,6 +34,12 @@ interface CalendarState {
   showUpNext: boolean;
   sidebarWidth: number;
   sidebarTab: string;
+  showRoutinesOnCalendar: boolean;
+  showTasksOnCalendar: boolean;
+  showSportsOnCalendar: boolean;
+  visibilityExpanded: boolean;
+  hiddenCalendarIds: string[];
+  hiddenProfileIds: string[];
 
   setCalendars: (calendars: Calendar[]) => void;
   setCurrentDate: (date: Date) => void;
@@ -57,6 +63,12 @@ interface CalendarState {
   setShowUpNext: (show: boolean) => void;
   setSidebarWidth: (width: number) => void;
   setSidebarTab: (tab: string) => void;
+  setShowRoutinesOnCalendar: (show: boolean) => void;
+  setShowTasksOnCalendar: (show: boolean) => void;
+  setShowSportsOnCalendar: (show: boolean) => void;
+  setVisibilityExpanded: (expanded: boolean) => void;
+  toggleCalendarVisibility: (calendarId: string) => void;
+  toggleProfileVisibility: (profileId: string) => void;
   navigateToday: () => void;
   navigatePrevious: () => void;
   navigateNext: () => void;
@@ -88,6 +100,12 @@ export const useCalendarStore = create<CalendarState>()(
       showUpNext: false,
       sidebarWidth: Math.round(window.innerWidth * 0.25),
       sidebarTab: "today",
+      showRoutinesOnCalendar: false,
+      showTasksOnCalendar: false,
+      showSportsOnCalendar: true,
+      visibilityExpanded: false,
+      hiddenCalendarIds: [] as string[],
+      hiddenProfileIds: [] as string[],
 
   setCalendars: (calendars) => {
     const visibleIds = calendars
@@ -134,6 +152,22 @@ export const useCalendarStore = create<CalendarState>()(
   setShowUpNext: (show) => set({ showUpNext: show }),
   setSidebarWidth: (width) => set({ sidebarWidth: Math.min(Math.round(window.innerWidth * 0.5), Math.max(240, width)) }),
   setSidebarTab: (tab) => set({ sidebarTab: tab }),
+  setShowRoutinesOnCalendar: (show) => set({ showRoutinesOnCalendar: show }),
+  setShowTasksOnCalendar: (show) => set({ showTasksOnCalendar: show }),
+  setShowSportsOnCalendar: (show) => set({ showSportsOnCalendar: show }),
+  setVisibilityExpanded: (expanded) => set({ visibilityExpanded: expanded }),
+  toggleCalendarVisibility: (calendarId) => set((state) => {
+    const hidden = state.hiddenCalendarIds.includes(calendarId)
+      ? state.hiddenCalendarIds.filter(id => id !== calendarId)
+      : [...state.hiddenCalendarIds, calendarId];
+    return { hiddenCalendarIds: hidden };
+  }),
+  toggleProfileVisibility: (profileId) => set((state) => {
+    const hidden = state.hiddenProfileIds.includes(profileId)
+      ? state.hiddenProfileIds.filter(id => id !== profileId)
+      : [...state.hiddenProfileIds, profileId];
+    return { hiddenProfileIds: hidden };
+  }),
 
   navigateToday: () => set({ currentDate: new Date() }),
 
@@ -199,7 +233,7 @@ export const useCalendarStore = create<CalendarState>()(
         }
         return persisted;
       },
-      partialize: (state) => ({ view: state.view, weekStartsOn: state.weekStartsOn, familyName: state.familyName, homeAddress: state.homeAddress, timeFormat: state.timeFormat, dayStartHour: state.dayStartHour, dayEndHour: state.dayEndHour, tickerSpeed: state.tickerSpeed, weekMode: state.weekMode, monthMode: state.monthMode, weekCellWidget: state.weekCellWidget, showDriveTimeOnNext: state.showDriveTimeOnNext, showWeekNumbers: state.showWeekNumbers, defaultEventDuration: state.defaultEventDuration, autoRefreshInterval: state.autoRefreshInterval, showUpNext: state.showUpNext, sidebarWidth: state.sidebarWidth, sidebarTab: state.sidebarTab }),
+      partialize: (state) => ({ view: state.view, weekStartsOn: state.weekStartsOn, familyName: state.familyName, homeAddress: state.homeAddress, timeFormat: state.timeFormat, dayStartHour: state.dayStartHour, dayEndHour: state.dayEndHour, tickerSpeed: state.tickerSpeed, weekMode: state.weekMode, monthMode: state.monthMode, weekCellWidget: state.weekCellWidget, showDriveTimeOnNext: state.showDriveTimeOnNext, showWeekNumbers: state.showWeekNumbers, defaultEventDuration: state.defaultEventDuration, autoRefreshInterval: state.autoRefreshInterval, showUpNext: state.showUpNext, sidebarWidth: state.sidebarWidth, sidebarTab: state.sidebarTab, showRoutinesOnCalendar: state.showRoutinesOnCalendar, showTasksOnCalendar: state.showTasksOnCalendar, showSportsOnCalendar: state.showSportsOnCalendar, visibilityExpanded: state.visibilityExpanded, hiddenCalendarIds: state.hiddenCalendarIds, hiddenProfileIds: state.hiddenProfileIds }),
     }
   )
 );

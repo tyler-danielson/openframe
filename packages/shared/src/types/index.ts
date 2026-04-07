@@ -13,12 +13,16 @@ export interface User {
   updatedAt: Date;
 }
 
+export type UserMode = "simple" | "advanced";
+
 export interface UserPreferences {
   defaultCalendarView?: "month" | "week" | "day" | "agenda";
   weekStartsOn?: 0 | 1 | 6;
   showWeekNumbers?: boolean;
   theme?: "light" | "dark" | "auto";
   shareContentWithAdmin?: boolean; // default: false
+  userMode?: UserMode;
+  onboardingCompleted?: boolean;
 }
 
 // Auth types
@@ -121,6 +125,7 @@ export interface Task {
   status: "needsAction" | "completed";
   dueDate: Date | null;
   completedAt: Date | null;
+  showOnCalendar: boolean;
 }
 
 // Photo types
@@ -1542,7 +1547,20 @@ export interface AudiobookshelfItem {
 
 // ============ Routine/Habit Tracker Types ============
 
-export type RoutineFrequency = "daily" | "weekly" | "custom";
+export type RoutineFrequency = "daily" | "weekly" | "monthly" | "yearly" | "custom";
+
+export interface RecurrenceRule {
+  frequency: "daily" | "weekly" | "monthly" | "yearly";
+  interval: number;
+  daysOfWeek?: number[];
+  monthlyMode?: "dayOfMonth" | "dayOfWeek";
+  dayOfMonth?: number;
+  weekOfMonth?: number;
+  dayOfWeekForMonth?: number;
+  endType: "never" | "after" | "onDate";
+  endAfterCount?: number;
+  endDate?: string;
+}
 
 export interface Routine {
   id: string;
@@ -1552,9 +1570,11 @@ export interface Routine {
   category: string | null;
   frequency: RoutineFrequency;
   daysOfWeek: number[] | null;
+  recurrenceRule: RecurrenceRule | null;
   assignedProfileId: string | null;
   sortOrder: number;
   isActive: boolean;
+  showOnCalendar: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -1748,6 +1768,160 @@ export interface TrackedPackage {
 export interface PackageSummary {
   summary: Record<string, number>;
   total: number;
+}
+
+// ============ Habits, Goals & Gamification Types ============
+
+export type HabitFrequency = "daily" | "weekly" | "custom";
+export type GoalType = "quantifiable" | "milestone";
+export type PointReason =
+  | "habit_completion"
+  | "streak_bonus"
+  | "goal_progress"
+  | "goal_complete"
+  | "badge_earned"
+  | "task_complete"
+  | "perfect_day"
+  | "goal_milestone";
+
+export interface Habit {
+  id: string;
+  userId: string;
+  profileId: string | null;
+  name: string;
+  icon: string | null;
+  color: string | null;
+  frequency: HabitFrequency;
+  targetDays: number[];
+  targetCount: number;
+  isShared: boolean;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface HabitCompletion {
+  id: string;
+  habitId: string;
+  profileId: string | null;
+  completedDate: string;
+  completedAt: Date;
+  value: string | null;
+  notes: string | null;
+}
+
+export interface HabitWithCompletions extends Habit {
+  completions: HabitCompletion[];
+  streak: { current: number; longest: number };
+}
+
+export interface GoalMilestone {
+  id: string;
+  name: string;
+  completed: boolean;
+  completedAt: string | null;
+}
+
+export interface Goal {
+  id: string;
+  userId: string;
+  profileId: string | null;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  color: string | null;
+  goalType: GoalType;
+  targetValue: string | null;
+  targetUnit: string | null;
+  targetPeriod: string | null;
+  currentValue: string | null;
+  milestones: GoalMilestone[];
+  targetDate: string | null;
+  isShared: boolean;
+  isActive: boolean;
+  completedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface GoalProgressEntry {
+  id: string;
+  goalId: string;
+  profileId: string | null;
+  date: string;
+  value: string;
+  notes: string | null;
+  createdAt: Date;
+}
+
+export interface GamificationProfile {
+  profileId: string;
+  profileName: string;
+  profileIcon: string | null;
+  profileColor: string | null;
+  totalPoints: number;
+  level: number;
+  levelName: string;
+  levelProgress: number;
+  badges: EarnedBadge[];
+}
+
+export interface EarnedBadge {
+  id: string;
+  badgeId: string;
+  name: string;
+  icon: string;
+  description: string;
+  earnedAt: Date;
+}
+
+export interface BadgeDefinition {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  isCustom?: boolean;
+  color?: string;
+  criteria?: string;
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  profileId: string;
+  profileName: string;
+  profileIcon: string | null;
+  profileColor: string | null;
+  points: number;
+  level: number;
+  levelName: string;
+  levelProgress: number;
+  badges: EarnedBadge[];
+  longestStreak: number;
+}
+
+export interface ScoreboardData {
+  familyName: string;
+  weekLabel: string;
+  profiles: LeaderboardEntry[];
+  todayHabits: {
+    habitId: string;
+    habitName: string;
+    habitIcon: string | null;
+    completions: { profileId: string; completed: boolean }[];
+  }[];
+  recentBadges: {
+    profileId: string;
+    profileName: string;
+    badge: BadgeDefinition;
+    earnedAt: Date;
+  }[];
+}
+
+export interface HabitCompletionResponse {
+  completion: HabitCompletion;
+  newBadges: BadgeDefinition[];
+  pointsEarned: number;
 }
 
 // Custom Screen types

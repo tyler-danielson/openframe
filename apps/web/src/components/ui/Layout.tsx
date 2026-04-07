@@ -35,6 +35,7 @@ import {
   HardDrive,
   WifiOff,
   Radio,
+  Target,
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { resolveLucideIcon as sharedResolveLucideIcon, isCustomIcon } from "../../lib/icon-utils";
@@ -45,7 +46,7 @@ import { useAuthStore } from "../../stores/auth";
 import { isCloudMode, appPath } from "../../lib/cloud";
 import { useSidebarStore, SIDEBAR_FEATURES, type SidebarFeature } from "../../stores/sidebar";
 import { useModuleStore } from "../../stores/modules";
-import type { CustomScreen } from "@openframe/shared";
+import { isSidebarFeatureAvailable, isMediaFeatureAvailable, type CustomScreen } from "@openframe/shared";
 import { useHAWebSocket } from "../../stores/homeassistant-ws";
 import { useScreensaverStore } from "../../stores/screensaver";
 import { useBlockNavStore, type NavigableBlock } from "../../stores/block-nav";
@@ -68,7 +69,7 @@ interface LayoutProps {
 // Built-in feature definitions (icon + route + label)
 const BUILTIN_FEATURE_MAP: Record<string, { icon: any; path: string; label: string; moduleId: string | null }> = {
   calendar: { icon: Calendar, path: "calendar", label: "Calendar", moduleId: null },
-  tasks: { icon: ListTodo, path: "tasks", label: "Tasks", moduleId: null },
+  tasks: { icon: Target, path: "productivity", label: "Productivity", moduleId: null },
   routines: { icon: ListChecks, path: "routines", label: "Routines", moduleId: "routines" },
   dashboard: { icon: LayoutDashboard, path: "dashboard", label: "Dashboard", moduleId: null },
   cardview: { icon: Kanban, path: "cardview", label: "Card View", moduleId: null },
@@ -356,6 +357,15 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
       });
     }
 
+    // Third filter: apply user mode (simple hides advanced-only features)
+    if (!kioskEnabledFeatures) {
+      const userMode = authUser?.preferences?.userMode ?? "advanced";
+      filteredItems = filteredItems.filter(item => {
+        if (!item.feature) return true;
+        return isSidebarFeatureAvailable(item.feature, userMode);
+      });
+    }
+
     // Only show reMarkable, profiles, and admin if authenticated AND not accessing via kiosk URL
     // Settings is rendered separately at the bottom of the sidebar
     if (isAuthenticated && !basePath) {
@@ -422,9 +432,10 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
   const spotifyModuleOn = isModuleEnabled("spotify");
   const iptvModuleOn = isModuleEnabled("iptv");
   const siriusxmModuleOn = isModuleEnabled("siriusxm");
-  const spotifyEnabled = !hasDashboards && spotifyModuleOn && (kioskEnabledFeatures ? isFeatureEnabled("spotify") : (!sidebarFeatures.spotify || sidebarFeatures.spotify.enabled));
-  const iptvEnabled = !hasDashboards && iptvModuleOn && (kioskEnabledFeatures ? isFeatureEnabled("iptv") : (!sidebarFeatures.iptv || sidebarFeatures.iptv.enabled));
-  const siriusxmEnabled = !hasDashboards && siriusxmModuleOn && (kioskEnabledFeatures ? isFeatureEnabled("siriusxm" as any) : (!sidebarFeatures.siriusxm || sidebarFeatures.siriusxm.enabled));
+  const userModeForMedia = authUser?.preferences?.userMode ?? "advanced";
+  const spotifyEnabled = !hasDashboards && spotifyModuleOn && isMediaFeatureAvailable("spotify", userModeForMedia) && (kioskEnabledFeatures ? isFeatureEnabled("spotify") : (!sidebarFeatures.spotify || sidebarFeatures.spotify.enabled));
+  const iptvEnabled = !hasDashboards && iptvModuleOn && isMediaFeatureAvailable("iptv", userModeForMedia) && (kioskEnabledFeatures ? isFeatureEnabled("iptv") : (!sidebarFeatures.iptv || sidebarFeatures.iptv.enabled));
+  const siriusxmEnabled = !hasDashboards && siriusxmModuleOn && isMediaFeatureAvailable("siriusxm", userModeForMedia) && (kioskEnabledFeatures ? isFeatureEnabled("siriusxm" as any) : (!sidebarFeatures.siriusxm || sidebarFeatures.siriusxm.enabled));
   const spotifyPinned = kioskEnabledFeatures ? true : (!sidebarFeatures.spotify || sidebarFeatures.spotify.pinned);
   const iptvPinned = kioskEnabledFeatures ? true : (!sidebarFeatures.iptv || sidebarFeatures.iptv.pinned);
   const siriusxmPinned = kioskEnabledFeatures ? true : (!sidebarFeatures.siriusxm || sidebarFeatures.siriusxm.pinned);

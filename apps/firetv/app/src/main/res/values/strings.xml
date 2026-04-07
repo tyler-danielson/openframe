@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OpenFrame Kiosk</string>
+
+    <!-- Loading -->
+    <string name="loading">Loading OpenFrame Kiosk…</string>
+    <string name="connecting">Connecting…</string>
+
+    <!-- Cloud setup -->
+    <string name="cloud_setup_title">Set Up Your Kiosk</string>
+    <string name="cloud_setup_instructions">1. Open your phone\n2. Scan the QR code\n3. Follow the on-screen steps\n\nYour kiosk will connect automatically.</string>
+    <string name="manual_setup">Manual Setup</string>
+    <string name="qr_code">QR Code</string>
+
+    <!-- Setup -->
+    <string name="setup_title">Manual Configuration</string>
+    <string name="setup_subtitle">Enter your OpenFrame server details</string>
+    <string name="server_url_label">Server URL</string>
+    <string name="server_url_hint">https://your-server.com</string>
+    <string name="token_label">Kiosk Token</string>
+    <string name="token_hint">Paste your kiosk token</string>
+    <string name="connect">Connect</string>
+    <string name="qr_login">QR Login</string>
+    <string name="remote_push">Admin Assign</string>
+    <string name="clear_config">Clear Configuration</string>
+
+    <!-- QR Login -->
+    <string name="qr_login_title">Sign In</string>
+    <string name="or_enter_code">Or enter this code at the URL above:</string>
+    <string name="back_to_return">Press Back to return</string>
+
+    <!-- Remote push -->
+    <string name="remote_push_title">Waiting for Assignment</string>
+
+    <!-- Kiosk -->
+    <string name="settings">Settings</string>
+    <string name="retry_connection">Retry Connection</string>
+    <string name="change_server">Change Server URL</string>
+    <string name="close">Close</string>
+    <string name="menu_hint">MENU → Settings</string>
+</resources>

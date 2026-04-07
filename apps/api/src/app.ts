@@ -77,10 +77,14 @@ import { householdRoutes } from "./routes/households/index.js";
 import { noteRoutes } from "./routes/notes/index.js";
 import { choreRoutes } from "./routes/chores/index.js";
 import { packageRoutes } from "./routes/packages/index.js";
+import { habitRoutes } from "./routes/habits/index.js";
+import { goalRoutes } from "./routes/goals/index.js";
+import { gamificationRoutes } from "./routes/gamification/index.js";
 import { cloudPlugin } from "./plugins/cloud.js";
 import { matterPlugin } from "./plugins/matter.js";
 import { planLimitsPlugin } from "./plugins/plan-limits.js";
 import { requireAdminPlugin } from "./plugins/require-admin.js";
+import redisPlugin from "./plugins/redis.js";
 import { logBuffer, createLogBufferStream } from "./lib/logBuffer.js";
 import { reportErrorToCloud } from "./lib/errorReporter.js";
 import type { Config } from "./config.js";
@@ -208,6 +212,7 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
 
   // Custom plugins
   await app.register(databasePlugin, { connectionString: config.databaseUrl });
+  await app.register(redisPlugin, { url: config.redisUrl });
   await app.register(authPlugin);
   await app.register(schedulerPlugin);
   await app.register(cloudPlugin);
@@ -292,6 +297,9 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(noteRoutes, { prefix: "/api/v1/notes" });
   await app.register(choreRoutes, { prefix: "/api/v1/chores" });
   await app.register(packageRoutes, { prefix: "/api/v1/packages" });
+  await app.register(habitRoutes, { prefix: "/api/v1/habits" });
+  await app.register(goalRoutes, { prefix: "/api/v1/goals" });
+  await app.register(gamificationRoutes, { prefix: "/api/v1/gamification" });
 
   // --- Static file serving (combined container mode) ---
   const publicDir = path.join(process.cwd(), "public");

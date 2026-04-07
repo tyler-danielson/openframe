@@ -3,11 +3,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
   Sun, Camera, ChefHat, ListTodo, Search, ArrowLeft,
-  Clock, Heart, ChevronRight, Circle, CheckCircle2,
+  Clock, Heart, ChevronRight, Circle, CheckCircle2, ChevronDown,
 } from "lucide-react";
 import { api, type WeatherData, type WeatherForecast } from "../../services/api";
 import { useCalendarStore } from "../../stores/calendar";
-import type { CalendarEvent, Camera as CameraType, Recipe, Task } from "@openframe/shared";
+import type { CalendarEvent, Camera as CameraType, Recipe, Task, FamilyProfile } from "@openframe/shared";
+import { getEventStart, getEventEnd } from "../../lib/event-dates";
+import { cn } from "../../lib/utils";
 
 // Weather icon helper (same as CalendarPage)
 function getWeatherIcon(iconCode: string): string {
@@ -41,6 +43,7 @@ const SIDEBAR_TABS: SidebarTab[] = [
 interface CalendarSidebarProps {
   events: CalendarEvent[];
   calendars: { id: string; name: string; color: string }[];
+  profiles: FamilyProfile[];
   onSelectEvent: (event: CalendarEvent) => void;
   timeFormat: string;
   weather?: WeatherData;
@@ -48,16 +51,102 @@ interface CalendarSidebarProps {
   onWeatherClick?: (date: Date) => void;
 }
 
+// ── Visibility Toggle Row ─────────────────────────────────
+
+function VisibilityToggleRow({
+  label,
+  color,
+  enabled,
+  onToggle,
+  avatar,
+  avatarColor,
+}: {
+  label: string;
+  color: string;
+  enabled: boolean;
+  onToggle: () => void;
+  avatar?: string;
+  avatarColor?: string;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className={cn(
+        "w-full flex items-center gap-2 py-1 px-0 rounded-md transition-all cursor-pointer",
+        "hover:bg-white/5",
+        !enabled && "opacity-40"
+      )}
+    >
+      {avatar ? (
+        <div
+          className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-medium"
+          style={{
+            backgroundColor: enabled ? `${avatarColor}20` : "var(--muted)",
+            color: enabled ? avatarColor : "var(--muted-foreground)",
+          }}
+        >
+          {avatar}
+        </div>
+      ) : (
+        <div
+          className="w-2 h-2 rounded-full flex-shrink-0"
+          style={{ backgroundColor: enabled ? color : "var(--muted-foreground)" }}
+        />
+      )}
+      <span className={cn(
+        "text-xs flex-1 text-left",
+        enabled ? "text-foreground" : "text-muted-foreground"
+      )}>
+        {label}
+      </span>
+      <div
+        className="w-[30px] h-[16px] rounded-full p-[2px] flex items-center transition-all"
+        style={{
+          backgroundColor: enabled ? color : "var(--muted)",
+          justifyContent: enabled ? "flex-end" : "flex-start",
+        }}
+      >
+        <div
+          className="w-[12px] h-[12px] rounded-full transition-all"
+          style={{ backgroundColor: enabled ? "#ffffff" : "var(--muted-foreground)" }}
+        />
+      </div>
+    </button>
+  );
+}
+
+function VisibilitySubsection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-3">
+      <div className="text-[11px] text-muted-foreground/60 font-medium mb-1.5">
+        {label}
+      </div>
+      <div className="flex flex-col gap-1">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export function CalendarSidebar({
   events,
   calendars,
+  profiles,
   onSelectEvent,
   timeFormat,
   weather,
   forecast,
   onWeatherClick,
 }: CalendarSidebarProps) {
-  const { sidebarWidth, sidebarTab, setSidebarWidth, setSidebarTab } = useCalendarStore();
+  const {
+    sidebarWidth, sidebarTab, setSidebarWidth, setSidebarTab,
+    showRoutinesOnCalendar, setShowRoutinesOnCalendar,
+    showTasksOnCalendar, setShowTasksOnCalendar,
+    showSportsOnCalendar, setShowSportsOnCalendar,
+    visibilityExpanded, setVisibilityExpanded,
+    hiddenCalendarIds, toggleCalendarVisibility,
+    hiddenProfileIds, toggleProfileVisibility,
+  } = useCalendarStore();
 
   // Resize handle
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -78,6 +167,18 @@ export function CalendarSidebar({
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
   }, [sidebarWidth, setSidebarWidth]);
+
+  // Build all visibility sources for the collapsed dot indicators
+  const allSources = useMemo(() => {
+    const sources: { id: string; color: string; enabled: boolean }[] = [
+      { id: "routines", color: "#4fd1c5", enabled: showRoutinesOnCalendar },
+      { id: "tasks", color: "#f59e0b", enabled: showTasksOnCalendar },
+      { id: "sports", color: "#EF4444", enabled: showSportsOnCalendar },
+      ...calendars.map(c => ({ id: c.id, color: c.color, enabled: !hiddenCalendarIds.includes(c.id) })),
+      ...profiles.map(p => ({ id: p.id, color: p.color || "#3B82F6", enabled: !hiddenProfileIds.includes(p.id) })),
+    ];
+    return sources;
+  }, [showRoutinesOnCalendar, showTasksOnCalendar, showSportsOnCalendar, calendars, profiles, hiddenCalendarIds, hiddenProfileIds]);
 
   return (
     <div
@@ -130,6 +231,91 @@ export function CalendarSidebar({
         {sidebarTab === "recipes" && <RecipesContent />}
         {sidebarTab === "tasks" && <TasksContent />}
       </div>
+
+      {/* Visibility section — collapsible at bottom */}
+      <div className="border-t border-border">
+        <button
+          onClick={() => setVisibilityExpanded(!visibilityExpanded)}
+          className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-white/5 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+              Visibility
+            </span>
+            <div className="flex gap-1">
+              {allSources.filter(s => s.enabled).map(s => (
+                <div
+                  key={s.id}
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: s.color }}
+                />
+              ))}
+            </div>
+          </div>
+          <ChevronDown className={cn(
+            "h-3 w-3 text-muted-foreground transition-transform",
+            visibilityExpanded && "rotate-180"
+          )} />
+        </button>
+
+        {visibilityExpanded && (
+          <div className="px-4 pb-3">
+            {/* Overlays */}
+            <VisibilitySubsection label="Overlays">
+              <VisibilityToggleRow
+                label="Routines"
+                color="#4fd1c5"
+                enabled={showRoutinesOnCalendar}
+                onToggle={() => setShowRoutinesOnCalendar(!showRoutinesOnCalendar)}
+              />
+              <VisibilityToggleRow
+                label="Tasks"
+                color="#f59e0b"
+                enabled={showTasksOnCalendar}
+                onToggle={() => setShowTasksOnCalendar(!showTasksOnCalendar)}
+              />
+              <VisibilityToggleRow
+                label="Sports"
+                color="#EF4444"
+                enabled={showSportsOnCalendar}
+                onToggle={() => setShowSportsOnCalendar(!showSportsOnCalendar)}
+              />
+            </VisibilitySubsection>
+
+            {/* Calendars */}
+            {calendars.length > 0 && (
+              <VisibilitySubsection label="Calendars">
+                {calendars.map(cal => (
+                  <VisibilityToggleRow
+                    key={cal.id}
+                    label={cal.name}
+                    color={cal.color}
+                    enabled={!hiddenCalendarIds.includes(cal.id)}
+                    onToggle={() => toggleCalendarVisibility(cal.id)}
+                  />
+                ))}
+              </VisibilitySubsection>
+            )}
+
+            {/* People */}
+            {profiles.length > 0 && (
+              <VisibilitySubsection label="People">
+                {profiles.map(profile => (
+                  <VisibilityToggleRow
+                    key={profile.id}
+                    label={profile.name}
+                    color={profile.color || "#3B82F6"}
+                    enabled={!hiddenProfileIds.includes(profile.id)}
+                    onToggle={() => toggleProfileVisibility(profile.id)}
+                    avatar={profile.name.charAt(0).toUpperCase()}
+                    avatarColor={profile.color || "#3B82F6"}
+                  />
+                ))}
+              </VisibilitySubsection>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -163,7 +349,7 @@ function TodayContent({
   const dedup = (list: CalendarEvent[]): CalendarEvent[] => {
     const seen = new Set<string>();
     return list.filter(e => {
-      const key = `${e.title}|${new Date(e.startTime).getTime()}`;
+      const key = `${e.title}|${getEventStart(e).getTime()}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -173,14 +359,14 @@ function TodayContent({
   const todayEvents = useMemo(() => {
     const filtered = events
       .filter(e => {
-        const start = new Date(e.startTime);
-        const end = new Date(e.endTime);
+        const start = getEventStart(e);
+        const end = getEventEnd(e);
         return start < tomorrowStart && end > todayStart;
       })
       .sort((a, b) => {
         if (a.isAllDay && !b.isAllDay) return -1;
         if (!a.isAllDay && b.isAllDay) return 1;
-        return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
+        return getEventStart(a).getTime() - getEventStart(b).getTime();
       });
     return dedup(filtered);
   }, [events, todayStart.getTime(), tomorrowStart.getTime()]);
@@ -188,14 +374,14 @@ function TodayContent({
   const tomorrowEvents = useMemo(() => {
     const filtered = events
       .filter(e => {
-        const start = new Date(e.startTime);
-        const end = new Date(e.endTime);
+        const start = getEventStart(e);
+        const end = getEventEnd(e);
         return start < tomorrowEnd && end > tomorrowStart;
       })
       .sort((a, b) => {
         if (a.isAllDay && !b.isAllDay) return -1;
         if (!a.isAllDay && b.isAllDay) return 1;
-        return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
+        return getEventStart(a).getTime() - getEventStart(b).getTime();
       });
     return dedup(filtered);
   }, [events, tomorrowStart.getTime(), tomorrowEnd.getTime()]);

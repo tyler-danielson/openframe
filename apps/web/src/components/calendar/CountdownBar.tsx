@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Timer } from "lucide-react";
 import type { CalendarEvent } from "@openframe/shared";
 import { calculateTimeRemaining, formatCountdownWithOptions } from "../../lib/countdown";
+import { getEventStart } from "../../lib/event-dates";
 
 interface CountdownBarProps {
   events: CalendarEvent[];
@@ -14,7 +15,7 @@ export function CountdownBar({ events, onSelectEvent }: CountdownBarProps) {
   // Filter to future events with showCountdown enabled
   const countdownEvents = events.filter((e) => {
     const meta = e.metadata as Record<string, unknown> | undefined;
-    return meta?.showCountdown === true && new Date(e.startTime) > new Date();
+    return meta?.showCountdown === true && getEventStart(e) > new Date();
   });
 
   // Deduplicate recurring events (show only the next occurrence per recurringEventId)
@@ -22,13 +23,13 @@ export function CountdownBar({ events, onSelectEvent }: CountdownBarProps) {
   for (const e of countdownEvents) {
     const key = e.recurringEventId || e.id;
     const existing = deduped.get(key);
-    if (!existing || new Date(e.startTime) < new Date(existing.startTime)) {
+    if (!existing || getEventStart(e) < getEventStart(existing)) {
       deduped.set(key, e);
     }
   }
 
   const sorted = Array.from(deduped.values()).sort(
-    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+    (a, b) => getEventStart(a).getTime() - getEventStart(b).getTime()
   );
 
   // Tick every second for live countdown
@@ -46,7 +47,7 @@ export function CountdownBar({ events, onSelectEvent }: CountdownBarProps) {
         const meta = event.metadata as Record<string, unknown> | undefined;
         const fmt = (meta?.countdownFormat as string) ?? "dhm";
         const displayName = (meta?.countdownLabel as string) || event.title;
-        const tr = calculateTimeRemaining(new Date(event.startTime));
+        const tr = calculateTimeRemaining(getEventStart(event));
         return (
           <button
             key={event.id}
@@ -58,7 +59,7 @@ export function CountdownBar({ events, onSelectEvent }: CountdownBarProps) {
               {displayName}
             </span>
             <span className="text-xs font-mono text-primary/80 tabular-nums shrink-0">
-              {formatCountdownWithOptions(tr, fmt, new Date(event.startTime))}
+              {formatCountdownWithOptions(tr, fmt, getEventStart(event))}
             </span>
           </button>
         );

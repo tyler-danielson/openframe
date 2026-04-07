@@ -474,14 +474,24 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.notFound("Event not found");
       }
 
-      if (calendar.isReadOnly) {
-        return reply.badRequest("Calendar is read-only");
-      }
-
       // Merge metadata (shallow merge new keys into existing)
       if (body.metadata !== undefined) {
         const existingMetadata = (existingEvent.metadata as Record<string, unknown>) ?? {};
         updates.metadata = { ...existingMetadata, ...body.metadata };
+      }
+
+      // Read-only calendars only allow metadata updates (e.g. countdown settings)
+      if (calendar.isReadOnly) {
+        const metadataOnly = Object.keys(body).every((k) => k === "metadata");
+        if (!metadataOnly) {
+          return reply.badRequest("Calendar is read-only");
+        }
+        const [event] = await fastify.db
+          .update(events)
+          .set({ metadata: updates.metadata, updatedAt: new Date() })
+          .where(eq(events.id, id))
+          .returning();
+        return decryptEventFields(event);
       }
 
       const [event] = await fastify.db

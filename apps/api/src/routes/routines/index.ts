@@ -1,24 +1,30 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, gte, lte } from "drizzle-orm";
 import { routines, routineCompletions } from "@openframe/database/schema";
+import type { CalendarEvent, RecurrenceRule } from "@openframe/shared";
+import { expandRecurrence, getEffectiveRecurrenceRule } from "../../services/recurrence.js";
 
 interface CreateRoutineBody {
   title: string;
   icon?: string | null;
   category?: string | null;
-  frequency?: "daily" | "weekly" | "custom";
+  frequency?: "daily" | "weekly" | "monthly" | "yearly" | "custom";
   daysOfWeek?: number[] | null;
+  recurrenceRule?: RecurrenceRule | null;
   assignedProfileId?: string | null;
+  showOnCalendar?: boolean;
 }
 
 interface UpdateRoutineBody {
   title?: string;
   icon?: string | null;
   category?: string | null;
-  frequency?: "daily" | "weekly" | "custom";
+  frequency?: "daily" | "weekly" | "monthly" | "yearly" | "custom";
   daysOfWeek?: number[] | null;
+  recurrenceRule?: RecurrenceRule | null;
   assignedProfileId?: string | null;
   isActive?: boolean;
+  showOnCalendar?: boolean;
 }
 
 interface ToggleCompleteBody {
@@ -110,9 +116,11 @@ export const routineRoutes: FastifyPluginAsync = async (fastify) => {
             title: { type: "string" },
             icon: { type: ["string", "null"] },
             category: { type: ["string", "null"] },
-            frequency: { type: "string", enum: ["daily", "weekly", "custom"] },
+            frequency: { type: "string", enum: ["daily", "weekly", "monthly", "yearly", "custom"] },
             daysOfWeek: { type: ["array", "null"], items: { type: "number" } },
+            recurrenceRule: { type: ["object", "null"] },
             assignedProfileId: { type: ["string", "null"] },
+            showOnCalendar: { type: "boolean" },
           },
           required: ["title"],
         },
@@ -146,12 +154,125 @@ export const routineRoutes: FastifyPluginAsync = async (fastify) => {
           category: body.category ?? null,
           frequency: body.frequency ?? "daily",
           daysOfWeek: body.daysOfWeek ?? null,
+          recurrenceRule: body.recurrenceRule ?? null,
           assignedProfileId: body.assignedProfileId ?? null,
+          showOnCalendar: body.showOnCalendar ?? false,
           sortOrder: maxSort + 1,
         })
         .returning();
 
       return { success: true, data: routine };
+    }
+  );
+
+  // GET /api/v1/routines/calendar-events - Get routines as calendar events
+  fastify.get(
+    "/calendar-events",
+    {
+      preHandler: [authenticateAny],
+      schema: {
+        description: "Get routines expanded as calendar events for a date range",
+        tags: ["Routines"],
+        querystring: {
+          type: "object",
+          properties: {
+            start: { type: "string", description: "ISO date string" },
+            end: { type: "string", description: "ISO date string" },
+          },
+          required: ["start", "end"],
+        },
+      },
+    },
+    async (request) => {
+      const user = (request as any).user;
+      if (!user?.userId) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+
+      const query = request.query as { start: string; end: string };
+      const startDate = new Date(query.start);
+      const endDate = new Date(query.end);
+
+      // Get active routines with showOnCalendar enabled
+      const calendarRoutines = await fastify.db
+        .select()
+        .from(routines)
+        .where(
+          and(
+            eq(routines.userId, user.userId),
+            eq(routines.isActive, true),
+            eq(routines.showOnCalendar, true)
+          )
+        );
+
+      if (calendarRoutines.length === 0) {
+        return { success: true, data: [] };
+      }
+
+      // Get completions for the date range
+      const startStr = startDate.toISOString().split("T")[0]!;
+      const endStr = endDate.toISOString().split("T")[0]!;
+
+      const completions = await fastify.db
+        .select()
+        .from(routineCompletions)
+        .where(
+          and(
+            gte(routineCompletions.completedDate, startStr),
+            lte(routineCompletions.completedDate, endStr)
+          )
+        );
+
+      // Build completion set keyed by "routineId-date"
+      const completionSet = new Set<string>();
+      for (const c of completions) {
+        completionSet.add(`${c.routineId}-${c.completedDate}`);
+      }
+
+      // Expand routines into calendar events using recurrence engine
+      const events: CalendarEvent[] = [];
+
+      for (const routine of calendarRoutines) {
+        const rule = getEffectiveRecurrenceRule({
+          ...routine,
+          recurrenceRule: routine.recurrenceRule as RecurrenceRule | null,
+        });
+        const dates = expandRecurrence(rule, startDate, endDate, routine.createdAt);
+
+        for (const eventDate of dates) {
+          const dateStr = eventDate.toISOString().split("T")[0]!;
+          const isCompleted = completionSet.has(`${routine.id}-${dateStr}`);
+
+          events.push({
+            id: `routine-${routine.id}-${dateStr}`,
+            calendarId: `routine-${routine.id}`,
+            externalId: `routine-${routine.id}-${dateStr}`,
+            title: `${routine.icon ? routine.icon + " " : ""}${routine.title}`,
+            description: isCompleted ? "Completed" : null,
+            location: null,
+            startTime: eventDate,
+            endTime: eventDate,
+            isAllDay: true,
+            status: isCompleted ? "confirmed" : "tentative",
+            recurrenceRule: null,
+            recurringEventId: null,
+            attendees: [],
+            reminders: [],
+            metadata: {
+              type: "routine",
+              routineId: routine.id,
+              isCompleted,
+              assignedProfileId: routine.assignedProfileId,
+              icon: routine.icon,
+              category: routine.category,
+              frequency: routine.frequency,
+              daysOfWeek: routine.daysOfWeek,
+            },
+          });
+        }
+      }
+
+      return { success: true, data: events };
     }
   );
 
@@ -214,10 +335,12 @@ export const routineRoutes: FastifyPluginAsync = async (fastify) => {
             title: { type: "string" },
             icon: { type: ["string", "null"] },
             category: { type: ["string", "null"] },
-            frequency: { type: "string", enum: ["daily", "weekly", "custom"] },
+            frequency: { type: "string", enum: ["daily", "weekly", "monthly", "yearly", "custom"] },
             daysOfWeek: { type: ["array", "null"], items: { type: "number" } },
+            recurrenceRule: { type: ["object", "null"] },
             assignedProfileId: { type: ["string", "null"] },
             isActive: { type: "boolean" },
+            showOnCalendar: { type: "boolean" },
           },
         },
       },
@@ -242,12 +365,20 @@ export const routineRoutes: FastifyPluginAsync = async (fastify) => {
         throw fastify.httpErrors.notFound("Routine not found");
       }
 
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (body.title !== undefined) updates.title = body.title;
+      if (body.icon !== undefined) updates.icon = body.icon;
+      if (body.category !== undefined) updates.category = body.category;
+      if (body.frequency !== undefined) updates.frequency = body.frequency;
+      if (body.daysOfWeek !== undefined) updates.daysOfWeek = body.daysOfWeek;
+      if (body.recurrenceRule !== undefined) updates.recurrenceRule = body.recurrenceRule;
+      if (body.assignedProfileId !== undefined) updates.assignedProfileId = body.assignedProfileId;
+      if (body.isActive !== undefined) updates.isActive = body.isActive;
+      if (body.showOnCalendar !== undefined) updates.showOnCalendar = body.showOnCalendar;
+
       const [updated] = await fastify.db
         .update(routines)
-        .set({
-          ...body,
-          updatedAt: new Date(),
-        })
+        .set(updates)
         .where(eq(routines.id, id))
         .returning();
 

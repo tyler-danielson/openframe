@@ -7,6 +7,7 @@ import { calculateTimeRemaining, formatCountdownWithOptions } from "../../lib/co
 import { getFontSizeConfig } from "../../lib/font-size";
 import { cn } from "../../lib/utils";
 import type { CalendarEvent } from "@openframe/shared";
+import { getEventStart } from "../../lib/event-dates";
 
 interface CountdownHolderWidgetProps {
   config: Record<string, unknown>;
@@ -39,7 +40,7 @@ export function CountdownHolderWidget({ config, style, isBuilder }: CountdownHol
       const allEvents = await api.getEvents(start, end);
       return allEvents.filter(
         (e) => (e.metadata as Record<string, unknown>)?.showCountdown === true
-          && new Date(e.startTime) > new Date()
+          && getEventStart(e) > new Date()
       );
     },
     staleTime: 60 * 1000,
@@ -51,13 +52,13 @@ export function CountdownHolderWidget({ config, style, isBuilder }: CountdownHol
   for (const e of countdownEvents) {
     const key = e.recurringEventId || e.id;
     const existing = deduped.get(key);
-    if (!existing || new Date(e.startTime) < new Date(existing.startTime)) {
+    if (!existing || getEventStart(e) < getEventStart(existing)) {
       deduped.set(key, e);
     }
   }
 
   const sorted = Array.from(deduped.values()).sort(
-    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+    (a, b) => getEventStart(a).getTime() - getEventStart(b).getTime()
   );
 
   // Tick every second for live countdowns
@@ -147,7 +148,7 @@ export function CountdownHolderWidget({ config, style, isBuilder }: CountdownHol
     const meta = event.metadata as Record<string, unknown> | undefined;
     const fmt = (meta?.countdownFormat as string) ?? "dhm";
     const displayName = (meta?.countdownLabel as string) || event.title;
-    const tr = calculateTimeRemaining(new Date(event.startTime));
+    const tr = calculateTimeRemaining(getEventStart(event));
 
     const { preset, isCustom, customValue } = getFontSizeConfig(style);
     const sizeClasses = isCustom ? null : FONT_SIZE_CLASSES[preset as Exclude<FontSizePreset, "custom">];
@@ -162,7 +163,7 @@ export function CountdownHolderWidget({ config, style, isBuilder }: CountdownHol
     if (fmt === "sleeps") {
       const now = new Date();
       const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const targetDate = new Date(event.startTime);
+      const targetDate = getEventStart(event);
       const eventMidnight = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
       const sleeps = Math.max(0, Math.round((eventMidnight.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24)));
 
@@ -273,8 +274,8 @@ export function CountdownHolderWidget({ config, style, isBuilder }: CountdownHol
         const meta = event.metadata as Record<string, unknown> | undefined;
         const fmt = (meta?.countdownFormat as string) ?? "dhm";
         const displayName = (meta?.countdownLabel as string) || event.title;
-        const tr = calculateTimeRemaining(new Date(event.startTime));
-        const countdownText = formatCountdownWithOptions(tr, fmt, new Date(event.startTime));
+        const tr = calculateTimeRemaining(getEventStart(event));
+        const countdownText = formatCountdownWithOptions(tr, fmt, getEventStart(event));
 
         return (
           <div

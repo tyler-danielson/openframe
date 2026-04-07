@@ -82,6 +82,7 @@ export const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
   notes: z.string().max(5000).optional(),
   dueDate: z.coerce.date().optional(),
+  showOnCalendar: z.boolean().optional(),
 });
 
 export const updateTaskSchema = z.object({
@@ -89,6 +90,7 @@ export const updateTaskSchema = z.object({
   notes: z.string().max(5000).optional(),
   status: z.enum(["needsAction", "completed"]).optional(),
   dueDate: z.coerce.date().nullable().optional(),
+  showOnCalendar: z.boolean().optional(),
 });
 
 // Photo validators

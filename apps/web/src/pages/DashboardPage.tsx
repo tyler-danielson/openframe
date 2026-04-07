@@ -199,7 +199,7 @@ export function DashboardPage() {
             <div className="flex items-center gap-3 text-muted-foreground">
               <Cloud className="h-10 w-10 opacity-50" />
               <div className="text-sm">
-                <p>Weather not configured</p>
+                <p>Set your location in Settings</p>
               </div>
             </div>
           ) : weather ? (

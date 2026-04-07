@@ -51,6 +51,7 @@ import type {
   AIChatProvider,
   Routine,
   RoutineWithCompletions,
+  RecurrenceRule,
   MatterDevice,
   MatterDeviceState,
   MatterDeviceAttributes,
@@ -512,6 +513,7 @@ class ApiClient {
       notes: string;
       status: "needsAction" | "completed";
       dueDate: Date | null;
+      showOnCalendar: boolean;
     }>
   ): Promise<Task> {
     return this.fetch<Task>(`/tasks/${id}`, {
@@ -1049,6 +1051,14 @@ class ApiClient {
   }> {
     const params = new URLSearchParams({ origin, destination });
     return this.fetch(`/maps/distance?${params}`);
+  }
+
+  async searchPlaces(input: string): Promise<Array<{
+    place_id: string;
+    description: string;
+    structured_formatting: { main_text: string; secondary_text: string };
+  }>> {
+    return this.fetch(`/maps/places/autocomplete?input=${encodeURIComponent(input)}`);
   }
 
   // IPTV
@@ -2020,9 +2030,9 @@ class ApiClient {
 
   // Weather
 
-  async getWeatherStatus(): Promise<{ configured: boolean }> {
-    const res = await this.fetch<{ success: boolean; configured: boolean }>("/weather/status");
-    return { configured: res.configured };
+  async getWeatherStatus(): Promise<{ configured: boolean; provider?: string }> {
+    const res = await this.fetch<{ success: boolean; configured: boolean; provider?: string }>("/weather/status");
+    return { configured: res.configured, provider: res.provider };
   }
 
   async getCurrentWeather(): Promise<WeatherData> {
@@ -4088,9 +4098,11 @@ class ApiClient {
     title: string;
     icon?: string | null;
     category?: string | null;
-    frequency?: "daily" | "weekly" | "custom";
+    frequency?: "daily" | "weekly" | "monthly" | "yearly" | "custom";
     daysOfWeek?: number[] | null;
+    recurrenceRule?: RecurrenceRule | null;
     assignedProfileId?: string | null;
+    showOnCalendar?: boolean;
   }): Promise<Routine> {
     return this.fetch<Routine>("/routines", {
       method: "POST",
@@ -4104,10 +4116,12 @@ class ApiClient {
       title?: string;
       icon?: string | null;
       category?: string | null;
-      frequency?: "daily" | "weekly" | "custom";
+      frequency?: "daily" | "weekly" | "monthly" | "yearly" | "custom";
       daysOfWeek?: number[] | null;
+      recurrenceRule?: RecurrenceRule | null;
       assignedProfileId?: string | null;
       isActive?: boolean;
+      showOnCalendar?: boolean;
     }
   ): Promise<Routine> {
     return this.fetch<Routine>(`/routines/${id}`, {
@@ -4135,6 +4149,18 @@ class ApiClient {
       method: "PATCH",
       body: JSON.stringify({ routineIds }),
     });
+  }
+
+  async getRoutineCalendarEvents(start: Date, end: Date): Promise<CalendarEvent[]> {
+    return this.fetch<CalendarEvent[]>(
+      `/routines/calendar-events?start=${start.toISOString()}&end=${end.toISOString()}`
+    );
+  }
+
+  async getTaskCalendarEvents(start: Date, end: Date): Promise<CalendarEvent[]> {
+    return this.fetch<CalendarEvent[]>(
+      `/tasks/calendar-events?start=${start.toISOString()}&end=${end.toISOString()}`
+    );
   }
 
   // ============ Cloud Platform Methods ============
@@ -4597,6 +4623,200 @@ class ApiClient {
 
   async refreshPackage(id: string): Promise<void> {
     await this.fetch(`/packages/${id}/refresh`, { method: "POST" });
+  }
+
+  // ============ Habits ============
+
+  async getHabits(profileId?: string): Promise<any[]> {
+    const params = profileId ? `?profileId=${profileId}` : "";
+    const res = await this.fetch<{ data: any[] }>(`/habits${params}`);
+    return (res as any).data ?? res;
+  }
+
+  async createHabit(data: {
+    name: string;
+    icon?: string;
+    color?: string;
+    frequency?: string;
+    targetDays?: number[];
+    targetCount?: number;
+    profileId?: string;
+    isShared?: boolean;
+  }): Promise<any> {
+    const res = await this.fetch<any>("/habits", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return res.data ?? res;
+  }
+
+  async updateHabit(id: string, data: Record<string, any>): Promise<any> {
+    const res = await this.fetch<any>(`/habits/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+    return res.data ?? res;
+  }
+
+  async deleteHabit(id: string): Promise<void> {
+    await this.fetch(`/habits/${id}`, { method: "DELETE" });
+  }
+
+  async completeHabit(
+    id: string,
+    data: { profileId?: string; date?: string; value?: string; notes?: string }
+  ): Promise<any> {
+    const res = await this.fetch<any>(`/habits/${id}/complete`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return res.data ?? res;
+  }
+
+  async uncompleteHabit(id: string, date: string, profileId?: string): Promise<void> {
+    const params = profileId ? `?profileId=${profileId}` : "";
+    await this.fetch(`/habits/${id}/complete/${date}${params}`, {
+      method: "DELETE",
+    });
+  }
+
+  async getHabitHistory(
+    id: string,
+    startDate?: string,
+    endDate?: string
+  ): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (startDate) params.set("startDate", startDate);
+    if (endDate) params.set("endDate", endDate);
+    const q = params.toString() ? `?${params}` : "";
+    const res = await this.fetch<any>(`/habits/${id}/history${q}`);
+    return res.data ?? res;
+  }
+
+  async getHabitStreaks(profileId?: string): Promise<any[]> {
+    const params = profileId ? `?profileId=${profileId}` : "";
+    const res = await this.fetch<any>(`/habits/streaks${params}`);
+    return res.data ?? res;
+  }
+
+  // ============ Goals ============
+
+  async getGoals(params?: { profileId?: string; active?: boolean }): Promise<any[]> {
+    const search = new URLSearchParams();
+    if (params?.profileId) search.set("profileId", params.profileId);
+    if (params?.active !== undefined) search.set("active", String(params.active));
+    const q = search.toString() ? `?${search}` : "";
+    const res = await this.fetch<any>(`/goals${q}`);
+    return res.data ?? res;
+  }
+
+  async createGoal(data: {
+    name: string;
+    description?: string;
+    icon?: string;
+    color?: string;
+    goalType?: string;
+    targetValue?: string;
+    targetUnit?: string;
+    targetPeriod?: string;
+    milestones?: { name: string }[];
+    targetDate?: string;
+    profileId?: string;
+    isShared?: boolean;
+  }): Promise<any> {
+    const res = await this.fetch<any>("/goals", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return res.data ?? res;
+  }
+
+  async updateGoal(id: string, data: Record<string, any>): Promise<any> {
+    const res = await this.fetch<any>(`/goals/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+    return res.data ?? res;
+  }
+
+  async deleteGoal(id: string): Promise<void> {
+    await this.fetch(`/goals/${id}`, { method: "DELETE" });
+  }
+
+  async logGoalProgress(
+    id: string,
+    data: { value: string; profileId?: string; date?: string; notes?: string }
+  ): Promise<any> {
+    const res = await this.fetch<any>(`/goals/${id}/progress`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return res.data ?? res;
+  }
+
+  async completeMilestone(goalId: string, milestoneId: string): Promise<any> {
+    const res = await this.fetch<any>(
+      `/goals/${goalId}/milestones/${milestoneId}/complete`,
+      { method: "POST" }
+    );
+    return res.data ?? res;
+  }
+
+  async completeGoal(id: string): Promise<any> {
+    const res = await this.fetch<any>(`/goals/${id}/complete`, {
+      method: "POST",
+    });
+    return res.data ?? res;
+  }
+
+  // ============ Gamification ============
+
+  async getGamificationProfile(profileId: string): Promise<any> {
+    const res = await this.fetch<any>(`/gamification/profile/${profileId}`);
+    return res.data ?? res;
+  }
+
+  async getLeaderboard(period?: string): Promise<any[]> {
+    const params = period ? `?period=${period}` : "";
+    const res = await this.fetch<any>(`/gamification/leaderboard${params}`);
+    return res.data ?? res;
+  }
+
+  async getAllBadges(): Promise<any[]> {
+    const res = await this.fetch<any>("/gamification/badges");
+    return res.data ?? res;
+  }
+
+  async awardBadge(profileId: string, badgeId: string): Promise<void> {
+    await this.fetch("/gamification/badges/award", {
+      method: "POST",
+      body: JSON.stringify({ profileId, badgeId }),
+    });
+  }
+
+  async getScoreboard(): Promise<any> {
+    const res = await this.fetch<any>("/gamification/scoreboard");
+    return res.data ?? res;
+  }
+
+  async createCustomBadge(data: {
+    name: string;
+    icon: string;
+    description?: string;
+    color?: string;
+    criteria?: string;
+  }): Promise<any> {
+    const res = await this.fetch<any>("/gamification/badges/custom", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return res.data ?? res;
+  }
+
+  async deleteCustomBadge(id: string): Promise<void> {
+    await this.fetch(`/gamification/badges/custom/${id}`, {
+      method: "DELETE",
+    });
   }
 }
 

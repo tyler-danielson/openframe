@@ -17,6 +17,7 @@ import {
   Kanban,
   PenTool,
   X,
+  CalendarDays,
 } from "lucide-react";
 import { api } from "../services/api";
 import { Button } from "../components/ui/Button";
@@ -130,6 +131,16 @@ export function TasksPage() {
     mutationFn: (id: string) => api.deleteTask(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+  });
+
+  // Toggle showOnCalendar mutation
+  const toggleCalendarMutation = useMutation({
+    mutationFn: ({ id, show }: { id: string; show: boolean }) =>
+      api.updateTask(id, { showOnCalendar: show }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["task-calendar-events"] });
     },
   });
 
@@ -325,6 +336,18 @@ export function TasksPage() {
             )}
           </div>
         </div>
+        <button
+          onClick={() => toggleCalendarMutation.mutate({ id: task.id, show: !task.showOnCalendar })}
+          className={cn(
+            "p-1 rounded transition-colors",
+            task.showOnCalendar
+              ? "text-primary bg-primary/10"
+              : "text-muted-foreground hover:bg-muted"
+          )}
+          title={task.showOnCalendar ? "Showing on calendar" : "Show on calendar"}
+        >
+          <CalendarDays className="h-4 w-4" />
+        </button>
         <button
           onClick={() => { if (!guard("Delete task")) deleteMutation.mutate(task.id); }}
           className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"

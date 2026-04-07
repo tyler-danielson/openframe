@@ -731,6 +731,52 @@ export const WIDGET_REGISTRY: Record<BuilderWidgetType, WidgetDefinition> = {
     },
     moduleId: "packages",
   },
+  habits: {
+    name: "Habit Tracker",
+    description: "Track daily habits with streaks and completion grids",
+    icon: "Target",
+    category: "schedule",
+    defaultSize: { width: 4, height: 3 },
+    minSize: { width: 2, height: 2 },
+    maxSize: { width: 99, height: 99 },
+    defaultConfig: {
+      profileId: "",
+      displayMode: "grid",
+      showShared: true,
+      maxHabits: 6,
+    },
+    moduleId: null,
+  },
+  goals: {
+    name: "Goals",
+    description: "Display active goals with progress bars",
+    icon: "Trophy",
+    category: "schedule",
+    defaultSize: { width: 4, height: 3 },
+    minSize: { width: 2, height: 2 },
+    maxSize: { width: 99, height: 99 },
+    defaultConfig: {
+      profileId: "",
+      maxGoals: 3,
+      showCompleted: false,
+    },
+    moduleId: null,
+  },
+  leaderboard: {
+    name: "Family Leaderboard",
+    description: "Family gamification leaderboard with points and levels",
+    icon: "Medal",
+    category: "schedule",
+    defaultSize: { width: 4, height: 4 },
+    minSize: { width: 3, height: 3 },
+    maxSize: { width: 99, height: 99 },
+    defaultConfig: {
+      period: "weekly",
+      showBadges: true,
+      showLevels: true,
+    },
+    moduleId: null,
+  },
 };
 
 export const WIDGET_CATEGORIES = [

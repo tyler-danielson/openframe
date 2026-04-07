@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simple "OF" text icon placeholder. Replace with a real icon before publishing. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20,30 L50,30 L50,40 L30,40 L30,50 L48,50 L48,60 L30,60 L30,78 L20,78 Z
+                          M58,30 L80,30 C88,30 94,36 94,54 C94,72 88,78 80,78 L58,78 Z
+                          M68,40 L68,68 L78,68 C83,68 84,63 84,54 C84,45 83,40 78,40 Z" />
+</vector>

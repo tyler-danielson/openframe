@@ -582,6 +582,12 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
       queryClient.invalidateQueries({ queryKey: ["me"] });
       queryClient.invalidateQueries({ queryKey: ["calendars"] });
       queryClient.invalidateQueries({ queryKey: ["spotify-status"] });
+    },
+    onError: (err) => {
+      console.error("Failed to disconnect:", err);
+      alert(`Failed to disconnect: ${err instanceof Error ? err.message : "Unknown error"}`);
+    },
+    onSettled: () => {
       setConfirmDisconnect(null);
       setDisconnecting(null);
     },

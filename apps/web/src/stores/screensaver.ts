@@ -53,7 +53,10 @@ export type BuilderWidgetType =
   | "ha"
   | "chores"
   | "sticky-notes"
-  | "package-tracking";
+  | "package-tracking"
+  | "habits"
+  | "goals"
+  | "leaderboard";
 
 export type FontSizePreset = "xs" | "sm" | "md" | "lg" | "xl" | "custom";
 

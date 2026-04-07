@@ -1,0 +1,5 @@
+-keep class com.google.zxing.** { *; }
+-keep class okhttp3.** { *; }
+-keep class okio.** { *; }
+-dontwarn okhttp3.**
+-dontwarn okio.**

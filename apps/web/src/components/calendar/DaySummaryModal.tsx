@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Calendar, Clock, MapPin, Plus, ChevronDown, ChevronUp, Thermometer, Droplets, Wind } from "lucide-react";
-import { format, isSameDay } from "date-fns";
+import { format } from "date-fns";
 import type { CalendarEvent } from "@openframe/shared";
+import { eventFallsOnDay, getEventStart, getEventEnd } from "../../lib/event-dates";
 import type { WeatherData, WeatherForecast, HourlyForecast } from "../../services/api";
 
 interface DaySummaryModalProps {
@@ -37,19 +38,12 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent, on
   if (!date) return null;
 
   // Filter events for this specific day, then deduplicate
-  const dayEvents = events.filter((event) => {
-    const eventStart = new Date(event.startTime);
-    const eventEnd = new Date(event.endTime);
-    // Include events that start on this day, or span across this day
-    return isSameDay(eventStart, date) ||
-           (eventStart < date && eventEnd > date) ||
-           isSameDay(eventEnd, date);
-  });
+  const dayEvents = events.filter((event) => eventFallsOnDay(event, date));
 
   // Deduplicate: same title + same start time = duplicate (covers recurring instance expansion)
   const seen = new Set<string>();
   const uniqueDayEvents = dayEvents.filter((event) => {
-    const key = `${event.title?.toLowerCase().trim()}|${new Date(event.startTime).getTime()}`;
+    const key = `${event.title?.toLowerCase().trim()}|${getEventStart(event).getTime()}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -59,7 +53,7 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent, on
   const sortedEvents = [...uniqueDayEvents].sort((a, b) => {
     if (a.isAllDay && !b.isAllDay) return -1;
     if (!a.isAllDay && b.isAllDay) return 1;
-    return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
+    return getEventStart(a).getTime() - getEventStart(b).getTime();
   });
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -70,7 +64,7 @@ export function DaySummaryModal({ date, events, open, onClose, onSelectEvent, on
   // Find the next upcoming event index
   const now = new Date();
   const nextEventIndex = sortedEvents.findIndex(
-    (event) => new Date(event.endTime) >= now
+    (event) => getEventEnd(event) >= now
   );
 
   const updateScrollIndicators = useCallback(() => {

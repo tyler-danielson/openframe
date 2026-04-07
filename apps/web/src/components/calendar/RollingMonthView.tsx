@@ -3,40 +3,7 @@ import { format, addDays, isSameDay, isToday, startOfWeek, getWeek } from "date-
 import type { CalendarEvent } from "@openframe/shared";
 import { cn } from "../../lib/utils";
 import { useCalendarStore } from "../../stores/calendar";
-
-// For all-day events, we need to parse the date as a local date (ignoring timezone)
-// because all-day events are conceptually "date-only" and stored as midnight UTC
-function getEventStartDate(event: CalendarEvent): Date {
-  if (event.isAllDay) {
-    // Parse the ISO string and extract just the date part
-    const isoString = typeof event.startTime === 'string'
-      ? event.startTime
-      : event.startTime.toISOString();
-    // Extract YYYY-MM-DD and create a local midnight date
-    const datePart = isoString.slice(0, 10);
-    const parts = datePart.split('-').map(Number);
-    const year = parts[0] ?? 1970;
-    const month = parts[1] ?? 1;
-    const day = parts[2] ?? 1;
-    return new Date(year, month - 1, day); // Local midnight
-  }
-  return new Date(event.startTime);
-}
-
-function getEventEndDate(event: CalendarEvent): Date {
-  if (event.isAllDay) {
-    const isoString = typeof event.endTime === 'string'
-      ? event.endTime
-      : event.endTime.toISOString();
-    const datePart = isoString.slice(0, 10);
-    const parts = datePart.split('-').map(Number);
-    const year = parts[0] ?? 1970;
-    const month = parts[1] ?? 1;
-    const day = parts[2] ?? 1;
-    return new Date(year, month - 1, day);
-  }
-  return new Date(event.endTime);
-}
+import { getEventStart as getEventStartDate, getEventEnd as getEventEndDate } from "../../lib/event-dates";
 
 const LONG_PRESS_DURATION = 500; // ms
 

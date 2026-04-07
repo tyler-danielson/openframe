@@ -7,7 +7,7 @@ import { Button } from "../components/ui/Button";
 import { RoutineItem } from "../components/routines/RoutineItem";
 import { AddRoutineModal } from "../components/routines/AddRoutineModal";
 import { useProfileStore, useActiveProfile } from "../stores/profile";
-import type { RoutineWithCompletions, RoutineFrequency } from "@openframe/shared";
+import type { RoutineWithCompletions, RoutineFrequency, RecurrenceRule } from "@openframe/shared";
 
 export function RoutinesPage() {
   const queryClient = useQueryClient();
@@ -84,7 +84,9 @@ export function RoutinesPage() {
     category: string | null;
     frequency: RoutineFrequency;
     daysOfWeek: number[] | null;
+    recurrenceRule: RecurrenceRule | null;
     assignedProfileId: string | null;
+    showOnCalendar: boolean;
   }) => {
     if (editingRoutine) {
       updateRoutine.mutate({ id: editingRoutine.id, ...data });
@@ -247,14 +249,17 @@ export function RoutinesPage() {
             </Button>
           </div>
         ) : (
-          <div className="space-y-6">
+          <div
+            className="grid gap-0"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}
+          >
             {/* Categorized routines */}
             {Array.from(categories.entries()).map(([cat, items]) => (
-              <div key={cat}>
+              <div key={cat} className="border-r border-border last:border-r-0 px-3 py-2">
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-primary">
                   {cat}
                 </h3>
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   {items.map((routine) => (
                     <RoutineItem
                       key={routine.id}
@@ -271,13 +276,13 @@ export function RoutinesPage() {
 
             {/* Uncategorized routines */}
             {uncategorized.length > 0 && (
-              <div>
+              <div className="border-r border-border last:border-r-0 px-3 py-2">
                 {categories.size > 0 && (
-                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-primary">
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Other
                   </h3>
                 )}
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   {uncategorized.map((routine) => (
                     <RoutineItem
                       key={routine.id}

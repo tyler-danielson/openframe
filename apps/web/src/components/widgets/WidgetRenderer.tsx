@@ -36,6 +36,9 @@ import { AirQualityWidget } from "./AirQualityWidget";
 import { ChoresWidget } from "./ChoresWidget";
 import { StickyNotesWidget } from "./StickyNotesWidget";
 import { PackageTrackingWidget } from "./PackageTrackingWidget";
+import { HabitsWidget } from "./HabitsWidget";
+import { GoalsWidget } from "./GoalsWidget";
+import { LeaderboardWidget } from "./LeaderboardWidget";
 
 // Per-widget ErrorBoundary to isolate crashes and identify the broken widget
 class WidgetErrorBoundary extends Component<
@@ -221,6 +224,15 @@ export function WidgetRenderer({ widget, isBuilder = false, widgetId }: WidgetRe
       break;
     case "package-tracking":
       content = <PackageTrackingWidget {...commonProps} />;
+      break;
+    case "habits":
+      content = <HabitsWidget {...commonProps} />;
+      break;
+    case "goals":
+      content = <GoalsWidget {...commonProps} />;
+      break;
+    case "leaderboard":
+      content = <LeaderboardWidget {...commonProps} />;
       break;
     default:
       content = (

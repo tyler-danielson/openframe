@@ -32,6 +32,7 @@ import { CalendarConnectionsView } from "../components/settings/CalendarListForA
 import { AddAccountModal } from "../components/settings/AddAccountModal";
 import { HACalendarModal } from "../components/settings/HACalendarModal";
 import { SupportButton } from "../components/settings/SupportButton";
+import { UserModeToggle } from "../components/settings/UserModeToggle";
 import { ConnectionsTab } from "../components/settings/ConnectionsTab";
 import { NewsSourceSettings } from "../components/settings/NewsSourceSettings";
 import { AIProviderConfig } from "../components/settings/AIProviderConfig";
@@ -43,7 +44,7 @@ import { SETUP_GUIDES } from "../data/setup-guides";
 import { HandwritingCanvas } from "../components/ui/HandwritingCanvas";
 import { useHAWebSocket } from "../stores/homeassistant-ws";
 import { useModuleStore } from "../stores/modules";
-import { MODULE_REGISTRY, MODULE_CATEGORIES, type ModuleId } from "@openframe/shared";
+import { MODULE_REGISTRY, MODULE_CATEGORIES, type ModuleId, isSettingsTabAvailable } from "@openframe/shared";
 import type { CalendarProvider } from "@openframe/shared";
 import { CameraFeed } from "../components/cameras/CameraFeed";
 import { buildOAuthUrl } from "../utils/oauth-scopes";
@@ -68,7 +69,7 @@ const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; descript
   { id: "account", label: "Account", icon: <User className="h-4 w-4" />, description: "Profile & login" },
   { id: "connections", label: "Connections", icon: <Link2 className="h-4 w-4" />, description: "Linked services & accounts" },
   { id: "modules", label: "Modules", icon: <Puzzle className="h-4 w-4" />, description: "Add & manage features" },
-  { id: "screens", label: "Screens", icon: <PanelLeft className="h-4 w-4" />, description: "Manage sidebar screens" },
+  { id: "screens", label: "Views", icon: <PanelLeft className="h-4 w-4" />, description: "Manage sidebar views" },
   { id: "kiosks", label: "Kiosks", icon: <Monitor className="h-4 w-4" />, description: "Display devices" },
   { id: "ai", label: "AI", icon: <Sparkles className="h-4 w-4" />, description: "Assistant & models", moduleId: "__ai__" },
   { id: "assumptions", label: "Assumptions", icon: <Lightbulb className="h-4 w-4" />, description: "AI behavior rules" },
@@ -79,7 +80,7 @@ const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode; descript
   { id: "system", label: "System", icon: <Settings className="h-4 w-4" />, description: "Backup & advanced" },
   { id: "billing", label: "Billing", icon: <CreditCard className="h-4 w-4" />, description: "Plan & subscription", cloudOnly: true },
   { id: "instances", label: "Instances", icon: <Server className="h-4 w-4" />, description: "Linked instances", cloudOnly: true },
-  { id: "support", label: "Support", icon: <LifeBuoy className="h-4 w-4" />, description: "Help & tickets", cloudOnly: true, moduleId: null },
+  { id: "support", label: "Support", icon: <LifeBuoy className="h-4 w-4" />, description: "Help & tickets", moduleId: null },
   { id: "cameras", label: "Cameras", icon: <CameraIcon className="h-4 w-4" />, description: "Manage cameras & streams" },
   { id: "todos", label: "To-Dos", icon: <ListTodo className="h-4 w-4" />, description: "Task lists & providers" },
   { id: "sports", label: "Sports", icon: <Trophy className="h-4 w-4" />, description: "Favorite teams & scores", moduleId: "sports" },
@@ -101,11 +102,14 @@ const AI_MODULE_IDS = ["ai-chat", "ai-briefing", "gmail", "telegram", "capacitie
 
 function useFilteredTabs() {
   const modules = useModuleStore((s) => s.modules);
+  const userMode = useAuthStore((s) => s.user?.preferences?.userMode ?? "advanced");
   return useMemo(() => {
     const isEnabled = (id: string) => modules[id] ?? false;
     return allTabs.filter((tab) => {
       if (isCloudMode && tab.selfHostedOnly) return false;
       if (!isCloudMode && tab.cloudOnly) return false;
+      // User mode gating
+      if (!isSettingsTabAvailable(tab.id, userMode)) return false;
       // Module gating
       if (tab.moduleId === "__ai__") {
         return AI_MODULE_IDS.some((id) => isEnabled(id));
@@ -115,7 +119,7 @@ function useFilteredTabs() {
       }
       return true;
     });
-  }, [modules]);
+  }, [modules, userMode]);
 }
 
 // Static fallback for initial render (used where hooks can't be called)
@@ -8116,6 +8120,11 @@ function WeatherSettings() {
     queryFn: () => api.getCategorySettings("weather"),
   });
 
+  const { data: weatherStatus } = useQuery({
+    queryKey: ["weather-status"],
+    queryFn: () => api.getWeatherStatus(),
+  });
+
   useEffect(() => {
     if (settings.length > 0 && !loaded) {
       setApiKey(settings.find((s) => s.key === "api_key")?.value || "");
@@ -8132,6 +8141,7 @@ function WeatherSettings() {
         units: units || "imperial",
       });
       queryClient.invalidateQueries({ queryKey: ["settings", "weather"] });
+      queryClient.invalidateQueries({ queryKey: ["weather-status"] });
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);
     } catch {
@@ -8156,7 +8166,8 @@ function WeatherSettings() {
     }
   };
 
-  const isConfigured = !!settings.find((s) => s.key === "api_key")?.value;
+  const hasOwnKey = !!settings.find((s) => s.key === "api_key")?.value;
+  const activeProvider = weatherStatus?.provider || "open-meteo";
   const unitLabel = units === "metric" ? "C" : "F";
 
   const weatherEmoji = (icon: string) => {
@@ -8177,32 +8188,26 @@ function WeatherSettings() {
             Weather Configuration
           </CardTitle>
           <CardDescription>
-            Configure weather data for your dashboard. Get a free API key from{" "}
-            <a href="https://openweathermap.org/api" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80">
-              openweathermap.org
-            </a>
+            Weather is powered by{" "}
+            {activeProvider === "openweathermap" ? (
+              <>OpenWeatherMap (your API key)</>
+            ) : (
+              <>
+                <a href="https://open-meteo.com" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80">
+                  Open-Meteo
+                </a>
+                {" "}&mdash; free, no API key needed
+              </>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {isConfigured && (
-            <div className="flex items-center gap-2 text-sm text-primary">
-              <CheckCircle className="h-4 w-4" />
-              API key configured
-            </div>
-          )}
-
-          <div>
-            <label className="block text-sm font-medium mb-1">API Key</label>
-            <p className="text-xs text-muted-foreground mb-1.5">
-              Your OpenWeatherMap API key (free tier supports 1,000 calls/day)
-            </p>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => { setApiKey(e.target.value); setSaveStatus("idle"); }}
-              placeholder="Enter your API key..."
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
-            />
+          {/* Active provider indicator */}
+          <div className="flex items-center gap-2 text-sm text-primary">
+            <CheckCircle className="h-4 w-4" />
+            {activeProvider === "openweathermap"
+              ? "Using OpenWeatherMap"
+              : "Using Open-Meteo (free)"}
           </div>
 
           <div>
@@ -8217,13 +8222,34 @@ function WeatherSettings() {
             </select>
           </div>
 
+          {/* Optional OWM API key */}
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              OpenWeatherMap API Key <span className="text-muted-foreground font-normal">(optional)</span>
+            </label>
+            <p className="text-xs text-muted-foreground mb-1.5">
+              Provide your own OWM key to use OpenWeatherMap instead of Open-Meteo.
+              Get one free at{" "}
+              <a href="https://openweathermap.org/api" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80">
+                openweathermap.org
+              </a>
+            </p>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => { setApiKey(e.target.value); setSaveStatus("idle"); }}
+              placeholder="Leave blank to use Open-Meteo (free)"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+            />
+          </div>
+
           <div className="flex items-center gap-2 pt-1">
             <Button size="sm" onClick={handleSave} disabled={saveStatus === "saving"}>
               {saveStatus === "saving" ? (
                 <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Saving...</>
               ) : "Save"}
             </Button>
-            <Button size="sm" variant="outline" onClick={handleTest} disabled={testStatus === "testing" || !isConfigured}>
+            <Button size="sm" variant="outline" onClick={handleTest} disabled={testStatus === "testing"}>
               {testStatus === "testing" ? (
                 <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Testing...</>
               ) : "Test Connection"}
@@ -8270,9 +8296,9 @@ function WeatherSettings() {
                     <p className="text-2xl font-bold">{Math.round(testData.current.temp)}&deg;{unitLabel}</p>
                     <p className="text-sm text-muted-foreground capitalize">{testData.current.description}</p>
                     <p className="text-xs text-muted-foreground">
-                      Feels like {Math.round(testData.current.feelsLike)}&deg;{unitLabel}
+                      Feels like {Math.round(testData.current.feels_like ?? testData.current.feelsLike)}&deg;{unitLabel}
                       {testData.current.humidity != null && ` · Humidity ${testData.current.humidity}%`}
-                      {testData.current.windSpeed != null && ` · Wind ${Math.round(testData.current.windSpeed)} ${units === "metric" ? "m/s" : "mph"}`}
+                      {(testData.current.wind_speed ?? testData.current.windSpeed) != null && ` · Wind ${Math.round(testData.current.wind_speed ?? testData.current.windSpeed)} ${units === "metric" ? "km/h" : "mph"}`}
                     </p>
                   </div>
                 </div>
@@ -8282,7 +8308,7 @@ function WeatherSettings() {
             {/* Forecast */}
             {testData.forecast?.length > 0 && (
               <div>
-                <h4 className="text-sm font-medium mb-2">5-Day Forecast</h4>
+                <h4 className="text-sm font-medium mb-2">Forecast</h4>
                 <div className="grid grid-cols-5 gap-2">
                   {testData.forecast.slice(0, 5).map((day: any) => (
                     <div key={day.date} className="rounded-lg border border-border bg-muted/30 p-2 text-center">
@@ -10915,6 +10941,11 @@ export function SettingsPage() {
                 </div>
               </div>
 
+              {/* Display Mode */}
+              <div className="pt-6 border-t border-border">
+                <UserModeToggle />
+              </div>
+
               {/* Linked Accounts */}
               <div className="pt-6 border-t border-border">
                 <div className="flex items-center justify-between mb-4">
@@ -11121,7 +11152,7 @@ export function SettingsPage() {
             </div>
           )}
 
-          {/* Support Tab (cloud mode only) */}
+          {/* Support Tab */}
           {activeTab === "support" && (
             <div className="mx-auto max-w-3xl">
               <SupportTab />

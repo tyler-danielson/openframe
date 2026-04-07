@@ -203,6 +203,9 @@ export function ForecastWidget({ config, style, isBuilder }: ForecastWidgetProps
           </div>
         </div>
       </div>
+      <div className="absolute bottom-1 right-2 text-[8px] opacity-30">
+        Weather by Open-Meteo.com
+      </div>
     </div>
   );
 }

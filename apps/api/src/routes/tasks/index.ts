@@ -346,6 +346,7 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
           title: input.title,
           notes: input.notes,
           dueDate: input.dueDate,
+          showOnCalendar: input.showOnCalendar ?? false,
         })
         .returning();
 
@@ -415,6 +416,7 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
       if (input.title !== undefined) updates.title = input.title;
       if (input.notes !== undefined) updates.notes = input.notes;
       if (input.dueDate !== undefined) updates.dueDate = input.dueDate;
+      if (input.showOnCalendar !== undefined) updates.showOnCalendar = input.showOnCalendar;
       if (input.status !== undefined) {
         updates.status = input.status;
         if (input.status === "completed") {
@@ -501,6 +503,110 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
         success: true,
         data: task,
       };
+    }
+  );
+
+  // GET /api/v1/tasks/calendar-events - Get tasks as calendar events
+  fastify.get(
+    "/calendar-events",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Get tasks formatted as calendar events for a date range",
+        tags: ["Tasks"],
+        querystring: {
+          type: "object",
+          properties: {
+            start: { type: "string", description: "ISO date string" },
+            end: { type: "string", description: "ISO date string" },
+          },
+          required: ["start", "end"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+
+      const query = request.query as { start: string; end: string };
+      const startDate = new Date(query.start);
+      const endDate = new Date(query.end);
+
+      // Get user's task lists
+      const userLists = await fastify.db
+        .select()
+        .from(taskLists)
+        .where(eq(taskLists.userId, user.id));
+
+      if (userLists.length === 0) {
+        return { success: true, data: [] };
+      }
+
+      const listIds = userLists.map((l) => l.id);
+      const listMap = new Map(userLists.map((l) => [l.id, l]));
+
+      // Get incomplete tasks with showOnCalendar enabled
+      const calendarTasks = [];
+      for (const listId of listIds) {
+        const listTasks = await fastify.db
+          .select()
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.taskListId, listId),
+              eq(tasks.showOnCalendar, true),
+              eq(tasks.status, "needsAction")
+            )
+          );
+        calendarTasks.push(...listTasks);
+      }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const events = calendarTasks
+        .map((task) => {
+          const eventDate = task.dueDate ? new Date(task.dueDate) : new Date(today);
+          eventDate.setHours(0, 0, 0, 0);
+
+          // Only include if the event date falls within the requested range
+          if (eventDate < startDate || eventDate > endDate) return null;
+
+          const isOverdue = task.dueDate && new Date(task.dueDate) < today;
+          const list = listMap.get(task.taskListId);
+
+          return {
+            id: `task-${task.id}`,
+            calendarId: "tasks",
+            externalId: `task-${task.id}`,
+            title: task.title,
+            description: task.notes,
+            location: null,
+            startTime: eventDate,
+            endTime: eventDate,
+            isAllDay: true,
+            status: "confirmed" as const,
+            recurrenceRule: null,
+            recurringEventId: null,
+            attendees: [],
+            reminders: [],
+            metadata: {
+              type: "task",
+              taskId: task.id,
+              taskListId: task.taskListId,
+              taskListName: list?.name,
+              dueDate: task.dueDate,
+              hasExplicitDueDate: !!task.dueDate,
+              isOverdue,
+              notes: task.notes,
+            },
+          };
+        })
+        .filter(Boolean);
+
+      return { success: true, data: events };
     }
   );
 

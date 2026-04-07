@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import {
   users,
   refreshTokens,
@@ -8,6 +8,7 @@ import {
   kioskConfig,
   kiosks,
   calendars,
+  events,
 } from "@openframe/database/schema";
 // Note: kioskConfig is still used for screensaver settings (PUT /kiosk/screensaver)
 import {
@@ -2662,27 +2663,46 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
       const db = fastify.db;
 
-      // Delete calendars (events cascade via FK) for this provider
-      if (typedProvider === "google" || typedProvider === "microsoft") {
-        await db
-          .delete(calendars)
+      await db.transaction(async (tx) => {
+        // Set a statement timeout so deletes don't hang on row locks
+        // from background sync operations
+        await tx.execute(sql`SET LOCAL statement_timeout = '30s'`);
+
+        // Delete calendars + events for this provider
+        if (typedProvider === "google" || typedProvider === "microsoft") {
+          // Find calendar IDs first, then delete events explicitly to avoid
+          // long cascade deletes that block on row locks
+          const calRows = await tx
+            .select({ id: calendars.id })
+            .from(calendars)
+            .where(
+              and(
+                eq(calendars.userId, user.id),
+                eq(calendars.provider, typedProvider)
+              )
+            );
+
+          if (calRows.length > 0) {
+            const calIds = calRows.map((c) => c.id);
+            await tx
+              .delete(events)
+              .where(inArray(events.calendarId, calIds));
+            await tx
+              .delete(calendars)
+              .where(inArray(calendars.id, calIds));
+          }
+        }
+
+        // Delete OAuth tokens for this provider
+        await tx
+          .delete(oauthTokens)
           .where(
             and(
-              eq(calendars.userId, user.id),
-              eq(calendars.provider, typedProvider)
+              eq(oauthTokens.userId, user.id),
+              eq(oauthTokens.provider, typedProvider)
             )
           );
-      }
-
-      // Delete OAuth tokens for this provider
-      await db
-        .delete(oauthTokens)
-        .where(
-          and(
-            eq(oauthTokens.userId, user.id),
-            eq(oauthTokens.provider, typedProvider)
-          )
-        );
+      });
 
       return { ok: true };
     }

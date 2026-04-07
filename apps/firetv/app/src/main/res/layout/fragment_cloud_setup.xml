@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:background="@color/bg_primary"
+    android:padding="48dp">
+
+    <!-- Left: QR code -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center">
+
+        <ImageView
+            android:id="@+id/iv_qr_code"
+            android:layout_width="340dp"
+            android:layout_height="340dp"
+            android:contentDescription="@string/qr_code"
+            android:background="@color/white"
+            android:padding="8dp" />
+
+        <TextView
+            android:id="@+id/tv_url"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="16sp" />
+
+    </LinearLayout>
+
+    <!-- Right: Instructions -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center_vertical"
+        android:paddingStart="48dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/cloud_setup_title"
+            android:textColor="@color/text_primary"
+            android:textSize="36sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/cloud_setup_instructions"
+            android:textColor="@color/text_secondary"
+            android:textSize="18sp"
+            android:lineSpacingMultiplier="1.4" />
+
+        <TextView
+            android:id="@+id/tv_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:textColor="@color/accent"
+            android:textSize="16sp" />
+
+        <Button
+            android:id="@+id/btn_manual_setup"
+            android:layout_width="wrap_content"
+            android:layout_height="56dp"
+            android:layout_marginTop="40dp"
+            android:text="@string/manual_setup"
+            android:textSize="16sp"
+            android:backgroundTint="@color/bg_surface"
+            android:paddingHorizontal="32dp"
+            android:focusable="true" />
+
+    </LinearLayout>
+
+</LinearLayout>

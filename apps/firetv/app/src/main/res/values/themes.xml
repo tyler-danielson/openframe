@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.OpenFrameKiosk" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/bg_primary</item>
+        <item name="android:colorPrimary">@color/accent</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:editTextColor">@color/text_primary</item>
+        <item name="colorButtonNormal">@color/bg_surface</item>
+        <item name="android:buttonStyle">@style/Widget.OpenFrame.Button</item>
+    </style>
+
+    <!-- Used on the activity itself for true full-screen -->
+    <style name="Theme.OpenFrameKiosk.Fullscreen" parent="Theme.OpenFrameKiosk">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+    </style>
+
+    <style name="Widget.OpenFrame.Button" parent="Widget.AppCompat.Button">
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textAllCaps">false</item>
+    </style>
+
+</resources>

@@ -8,6 +8,8 @@ import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { CalendarPage } from "./pages/CalendarPage";
 import { TasksPage } from "./pages/TasksPage";
+import { ProductivityPage } from "./pages/ProductivityPage";
+import { ScoreboardPage } from "./pages/ScoreboardPage";
 import { PhotosPage } from "./pages/PhotosPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { IptvPage } from "./pages/IptvPage";
@@ -30,6 +32,7 @@ import { ChatPage } from "./pages/ChatPage";
 import { RoutinesPage } from "./pages/RoutinesPage";
 import { SetupPage } from "./pages/SetupPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
+import { OnboardingWizardPage } from "./pages/OnboardingWizardPage";
 import { TvSetupPage } from "./pages/TvSetupPage";
 import { DeviceLinkPage } from "./pages/DeviceLinkPage";
 import { GetStartedPage } from "./pages/GetStartedPage";
@@ -85,6 +88,7 @@ import { api } from "./services/api";
 import { isCloudMode } from "./lib/cloud";
 import { useModuleStore } from "./stores/modules";
 import { ModuleGate } from "./components/ModuleGate";
+import { ModeGate } from "./components/ModeGate";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -162,6 +166,7 @@ function KeyedCustomScreenPage() {
 export default function App() {
   const location = useLocation();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const authUser = useAuthStore((state) => state.user);
   const setApiKey = useAuthStore((state) => state.setApiKey);
   const syncScreensaverSettings = useScreensaverStore((state) => state.syncFromServer);
   const colorScheme = useScreensaverStore((state) => state.colorScheme);
@@ -317,6 +322,35 @@ export default function App() {
     );
   }
 
+  // Redirect to onboarding wizard if user hasn't completed it
+  const needsWizard = isAuthenticated
+    && authUser
+    && !authUser.preferences?.onboardingCompleted
+    && !location.pathname.startsWith("/welcome")
+    && !location.pathname.startsWith("/setup")
+    && !location.pathname.startsWith("/kiosk/")
+    && !location.pathname.startsWith("/upload")
+    && !location.pathname.startsWith("/auth/callback")
+    && !location.pathname.startsWith("/demo")
+    && !location.pathname.startsWith("/companion")
+    && !location.pathname.startsWith("/invite")
+    && !location.pathname.startsWith("/join")
+    && !location.pathname.startsWith("/device-login")
+    && !location.pathname.startsWith("/tv-setup")
+    && !location.pathname.startsWith("/link")
+    && !location.pathname.startsWith("/login");
+
+  if (needsWizard) {
+    return (
+      <Toaster>
+        <Routes>
+          <Route path="/welcome" element={<ProtectedRoute><OnboardingWizardPage /></ProtectedRoute>} />
+          <Route path="*" element={<Navigate to="/welcome" replace />} />
+        </Routes>
+      </Toaster>
+    );
+  }
+
   // Redirect to setup if needed (and not already on setup page)
   if (needsSetup && !location.pathname.startsWith("/setup")) {
     return (
@@ -336,6 +370,7 @@ export default function App() {
         <Route path="/setup" element={<SetupPage />} />
         <Route path="/get-started" element={<GetStartedPage />} />
         <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
+        <Route path="/welcome" element={<ProtectedRoute><OnboardingWizardPage /></ProtectedRoute>} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         {/* Public invite acceptance page */}
@@ -378,28 +413,30 @@ export default function App() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="tasks" element={<TasksPage />} />
-          <Route path="routines" element={<ModuleGate moduleId="routines"><RoutinesPage /></ModuleGate>} />
+          <Route path="productivity" element={<ProductivityPage />} />
+          <Route path="scoreboard" element={<ModeGate><ScoreboardPage /></ModeGate>} />
+          <Route path="routines" element={<ModeGate><ModuleGate moduleId="routines"><RoutinesPage /></ModuleGate></ModeGate>} />
           <Route path="photos" element={<ModuleGate moduleId="photos"><PhotosPage /></ModuleGate>} />
-          <Route path="files" element={<FilesPage />} />
-          <Route path="iptv" element={<ModuleGate moduleId="iptv"><IptvPage /></ModuleGate>} />
-          <Route path="iptv/channels" element={<ModuleGate moduleId="iptv"><IptvChannelManagerPage /></ModuleGate>} />
-          <Route path="siriusxm" element={<ModuleGate moduleId="siriusxm"><SiriusXMPage /></ModuleGate>} />
-          <Route path="cameras" element={<ModuleGate moduleId="cameras"><CamerasPage /></ModuleGate>} />
-          <Route path="multiview" element={<ModuleGate moduleId="cameras"><MultiViewPage /></ModuleGate>} />
-          <Route path="homeassistant" element={<ModuleGate moduleId="homeassistant"><HomeAssistantPage /></ModuleGate>} />
-          <Route path="matter" element={<ModuleGate moduleId="matter"><MatterPage /></ModuleGate>} />
-          <Route path="spotify" element={<ModuleGate moduleId="spotify"><SpotifyPage /></ModuleGate>} />
-          <Route path="map" element={<ModuleGate moduleId="map"><MapPage /></ModuleGate>} />
+          <Route path="files" element={<ModeGate><FilesPage /></ModeGate>} />
+          <Route path="iptv" element={<ModeGate><ModuleGate moduleId="iptv"><IptvPage /></ModuleGate></ModeGate>} />
+          <Route path="iptv/channels" element={<ModeGate><ModuleGate moduleId="iptv"><IptvChannelManagerPage /></ModuleGate></ModeGate>} />
+          <Route path="siriusxm" element={<ModeGate><ModuleGate moduleId="siriusxm"><SiriusXMPage /></ModuleGate></ModeGate>} />
+          <Route path="cameras" element={<ModeGate><ModuleGate moduleId="cameras"><CamerasPage /></ModuleGate></ModeGate>} />
+          <Route path="multiview" element={<ModeGate><ModuleGate moduleId="cameras"><MultiViewPage /></ModuleGate></ModeGate>} />
+          <Route path="homeassistant" element={<ModeGate><ModuleGate moduleId="homeassistant"><HomeAssistantPage /></ModuleGate></ModeGate>} />
+          <Route path="matter" element={<ModeGate><ModuleGate moduleId="matter"><MatterPage /></ModuleGate></ModeGate>} />
+          <Route path="spotify" element={<ModeGate><ModuleGate moduleId="spotify"><SpotifyPage /></ModuleGate></ModeGate>} />
+          <Route path="map" element={<ModeGate><ModuleGate moduleId="map"><MapPage /></ModuleGate></ModeGate>} />
           <Route path="kitchen" element={<ModuleGate moduleId="recipes"><KitchenPage /></ModuleGate>} />
           <Route path="recipes" element={<Navigate to="/kitchen" replace />} />
-          <Route path="chat" element={<ModuleGate moduleId="ai-chat"><ChatPage /></ModuleGate>} />
+          <Route path="chat" element={<ModeGate><ModuleGate moduleId="ai-chat"><ChatPage /></ModuleGate></ModeGate>} />
           <Route path="screen/:slug" element={<KeyedCustomScreenPage />} />
-          <Route path="screen/:slug/edit" element={<CustomScreenBuilderPage />} />
+          <Route path="screen/:slug/edit" element={<ModeGate><CustomScreenBuilderPage /></ModeGate>} />
           <Route
             path="remarkable"
             element={
               <SettingsProtectedRoute>
-                <ModuleGate moduleId="remarkable"><RemarkablePage /></ModuleGate>
+                <ModeGate><ModuleGate moduleId="remarkable"><RemarkablePage /></ModuleGate></ModeGate>
               </SettingsProtectedRoute>
             }
           />
@@ -423,7 +460,7 @@ export default function App() {
             path="settings/screensaver-builder"
             element={
               <SettingsProtectedRoute>
-                <ScreensaverBuilderPage />
+                <ModeGate><ScreensaverBuilderPage /></ModeGate>
               </SettingsProtectedRoute>
             }
           />

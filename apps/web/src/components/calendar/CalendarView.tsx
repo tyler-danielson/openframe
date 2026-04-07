@@ -7,24 +7,8 @@ import { WeekGridView } from "./WeekGridView";
 import { RollingMonthView } from "./RollingMonthView";
 import { ScheduleView } from "./ScheduleView";
 import type { CalendarEvent } from "@openframe/shared";
+import { getEventStart, getEventEnd } from "../../lib/event-dates";
 import "react-big-calendar/lib/css/react-big-calendar.css";
-
-// For all-day events, we need to parse the date as a local date (ignoring timezone)
-// because all-day events are conceptually "date-only" and stored as midnight UTC
-function getEventDate(dateValue: Date | string, isAllDay: boolean): Date {
-  if (isAllDay) {
-    const isoString = typeof dateValue === 'string'
-      ? dateValue
-      : dateValue.toISOString();
-    const datePart = isoString.slice(0, 10);
-    const parts = datePart.split('-').map(Number);
-    const year = parts[0] ?? 1970;
-    const month = parts[1] ?? 1;
-    const day = parts[2] ?? 1;
-    return new Date(year, month - 1, day);
-  }
-  return new Date(dateValue);
-}
 
 const locales = { "en-US": enUS };
 
@@ -414,14 +398,23 @@ export function CalendarView({
   }, [dayEndHour]);
 
   const displayEvents: CalendarDisplayEvent[] = useMemo(() => {
-    return events.map((event) => ({
-      id: event.id,
-      title: event.title,
-      start: getEventDate(event.startTime, event.isAllDay),
-      end: getEventDate(event.endTime, event.isAllDay),
-      allDay: event.isAllDay,
-      resource: event,
-    }));
+    return events.map((event) => {
+      const start = getEventStart(event);
+      const end = getEventEnd(event);
+      // react-big-calendar expects exclusive end dates for all-day events.
+      // getEventEnd returns end-of-day (23:59:59), so add 1ms to push to next midnight.
+      if (event.isAllDay) {
+        end.setMilliseconds(end.getMilliseconds() + 1);
+      }
+      return {
+        id: event.id,
+        title: event.title,
+        start,
+        end,
+        allDay: event.isAllDay,
+        resource: event,
+      };
+    });
   }, [events]);
 
   const handleSelectEvent = useCallback(

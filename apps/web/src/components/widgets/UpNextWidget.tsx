@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { format, isToday, isTomorrow, differenceInMinutes, differenceInHours, differenceInDays } from "date-fns";
 import { MapPin } from "lucide-react";
 import { api } from "../../services/api";
+import { getEventStart, getEventEnd } from "../../lib/event-dates";
 import type { WidgetStyle, FontSizePreset } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import type { CalendarEvent, Calendar } from "@openframe/shared";
@@ -105,8 +106,8 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
 
   const upcomingEvents = useMemo(() => {
     let filtered = [...events]
-      .filter((event) => new Date(event.endTime) > now)
-      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+      .filter((event) => getEventEnd(event) > now)
+      .sort((a, b) => getEventStart(a).getTime() - getEventStart(b).getTime());
 
     if (hideBlankEvents) {
       filtered = filtered.filter((event) => event.title && event.title.trim() !== "");
@@ -132,7 +133,7 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
   const groupedEvents = useMemo(() => {
     const groups = new Map<string, CalendarEvent[]>();
     for (const event of upcomingEvents) {
-      const dayKey = format(new Date(event.startTime), "yyyy-MM-dd");
+      const dayKey = format(getEventStart(event), "yyyy-MM-dd");
       if (!groups.has(dayKey)) {
         groups.set(dayKey, []);
       }
@@ -152,8 +153,8 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
   };
 
   const getCountdownText = (event: CalendarEvent) => {
-    const startTime = new Date(event.startTime);
-    const endTime = new Date(event.endTime);
+    const startTime = getEventStart(event);
+    const endTime = getEventEnd(event);
 
     if (startTime <= now && endTime > now) {
       return "Now";
@@ -172,8 +173,8 @@ export function UpNextWidget({ config, style, isBuilder }: UpNextWidgetProps) {
 
   const getTimeRange = (event: CalendarEvent) => {
     if (event.isAllDay) return "All day";
-    const start = new Date(event.startTime);
-    const end = new Date(event.endTime);
+    const start = getEventStart(event);
+    const end = getEventEnd(event);
     return `${format(start, "h:mm a")} – ${format(end, "h:mm a")}`;
   };
 

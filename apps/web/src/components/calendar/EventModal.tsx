@@ -215,39 +215,49 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      let startDateTime: Date;
-      let endDateTime: Date;
+      const metadata = {
+        showCountdown,
+        countdownFormat,
+        countdownLabel: countdownLabel || undefined,
+      };
 
-      // Use start date for end date if not multi-day
-      const effectiveEndDate = editIsMultiDay ? editEndDate : editStartDate;
+      let updatedEvent: CalendarEvent;
 
-      if (editIsAllDay) {
-        startDateTime = new Date(editStartDate + "T00:00:00");
-        endDateTime = new Date(effectiveEndDate + "T23:59:59");
+      if (calendar?.isReadOnly) {
+        // Read-only calendars: only update metadata (countdown settings)
+        updatedEvent = await api.updateEvent(event.id, { metadata } as Partial<CalendarEvent>);
       } else {
-        startDateTime = new Date(`${editStartDate}T${editStartTime}`);
-        endDateTime = new Date(`${effectiveEndDate}T${editEndTime}`);
-      }
+        let startDateTime: Date;
+        let endDateTime: Date;
 
-      const updatedEvent = await api.updateEvent(event.id, {
-        title: editTitle,
-        startTime: startDateTime,
-        endTime: endDateTime,
-        location: editLocation || undefined,
-        description: editDescription || undefined,
-        isAllDay: editIsAllDay,
-        metadata: {
-          showCountdown,
-          countdownFormat,
-          countdownLabel: countdownLabel || undefined,
-        },
-      } as Partial<CalendarEvent>);
+        // Use start date for end date if not multi-day
+        const effectiveEndDate = editIsMultiDay ? editEndDate : editStartDate;
+
+        if (editIsAllDay) {
+          startDateTime = new Date(editStartDate + "T00:00:00");
+          endDateTime = new Date(effectiveEndDate + "T23:59:59");
+        } else {
+          startDateTime = new Date(`${editStartDate}T${editStartTime}`);
+          endDateTime = new Date(`${effectiveEndDate}T${editEndTime}`);
+        }
+
+        updatedEvent = await api.updateEvent(event.id, {
+          title: editTitle,
+          startTime: startDateTime,
+          endTime: endDateTime,
+          location: editLocation || undefined,
+          description: editDescription || undefined,
+          isAllDay: editIsAllDay,
+          metadata,
+        } as Partial<CalendarEvent>);
+      }
 
       onUpdate?.(updatedEvent);
       onClose(); // Close modal after successful save
     } catch (error) {
       console.error("Failed to update event:", error);
-      alert("Failed to save event. Please try again.");
+      const msg = error instanceof Error ? error.message : "Unknown error";
+      alert(`Failed to save event: ${msg}`);
     } finally {
       setIsSaving(false);
     }
@@ -299,13 +309,16 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
     }
   };
 
+  // Read-only calendars can only edit metadata (countdown settings)
+  const canEditFields = isEditing && !calendar?.isReadOnly;
+
   return (
     <Dialog.Root open={open} onOpenChange={onClose}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-fade-in" />
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-full max-w-xl -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-xl border border-border bg-card p-4 shadow-xl data-[state=open]:animate-slide-up">
           <div className="mb-3 flex items-start justify-between">
-            {isEditing ? (
+            {canEditFields ? (
               <input
                 type="text"
                 value={editTitle}
@@ -338,11 +351,10 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
             )}
 
             {/* Date and time */}
-            {isEditing ? (
+            {canEditFields ? (
               <div className="space-y-3">
                 {/* Toggles row */}
                 <div className="flex items-center gap-4">
-                  {/* All day toggle */}
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -359,7 +371,6 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
                     </button>
                     <label className="text-sm">All day</label>
                   </div>
-                  {/* Multi-day toggle */}
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -381,64 +392,23 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
                   </div>
                 </div>
 
-                {/* Date and Time row */}
-                <div className="flex gap-2">
-                  {/* Date picker */}
-                  <div className="flex-1">
-                    <label className="block text-sm font-medium mb-1">
-                      {editIsMultiDay ? "Start" : "Date"}
-                    </label>
-                    <Popover.Root open={showStartDatePicker} onOpenChange={setShowStartDatePicker}>
-                      <Popover.Trigger asChild>
-                        <button
-                          type="button"
-                          className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors touch-manipulation ${
-                            showStartDatePicker
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:bg-accent"
-                          }`}
-                        >
-                          <Calendar className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm font-medium">{formatDateDisplay(editStartDate)}</span>
-                        </button>
-                      </Popover.Trigger>
-                      <Popover.Portal>
-                        <Popover.Content
-                          className="z-[9999] bg-card border border-border rounded-xl shadow-xl"
-                          sideOffset={4}
-                          align="start"
-                        >
-                          <TouchDatePicker
-                            value={editStartDate}
-                            onChange={(value) => {
-                              setEditStartDate(value);
-                              if (editIsMultiDay && new Date(value) > new Date(editEndDate)) {
-                                setEditEndDate(value);
-                              }
-                            }}
-                            onSelect={() => setShowStartDatePicker(false)}
-                          />
-                        </Popover.Content>
-                      </Popover.Portal>
-                    </Popover.Root>
-                  </div>
-
-                  {/* End Date (only if multi-day) */}
-                  {editIsMultiDay && (
+                {/* Start: date + time side by side */}
+                <div>
+                  <label className="block text-sm font-medium mb-1">Start</label>
+                  <div className="flex gap-2">
                     <div className="flex-1">
-                      <label className="block text-sm font-medium mb-1">End</label>
-                      <Popover.Root open={showEndDatePicker} onOpenChange={setShowEndDatePicker}>
+                      <Popover.Root open={showStartDatePicker} onOpenChange={setShowStartDatePicker}>
                         <Popover.Trigger asChild>
                           <button
                             type="button"
                             className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors touch-manipulation ${
-                              showEndDatePicker
+                              showStartDatePicker
                                 ? "border-primary bg-primary/5"
                                 : "border-border hover:bg-accent"
                             }`}
                           >
                             <Calendar className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">{formatDateDisplay(editEndDate)}</span>
+                            <span className="text-sm font-medium">{formatDateDisplay(editStartDate)}</span>
                           </button>
                         </Popover.Trigger>
                         <Popover.Portal>
@@ -448,83 +418,123 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
                             align="start"
                           >
                             <TouchDatePicker
-                              value={editEndDate}
-                              onChange={setEditEndDate}
-                              onSelect={() => setShowEndDatePicker(false)}
+                              value={editStartDate}
+                              onChange={(value) => {
+                                setEditStartDate(value);
+                                if (editIsMultiDay && new Date(value) > new Date(editEndDate)) {
+                                  setEditEndDate(value);
+                                }
+                              }}
+                              onSelect={() => setShowStartDatePicker(false)}
                             />
                           </Popover.Content>
                         </Popover.Portal>
                       </Popover.Root>
                     </div>
-                  )}
+                    {!editIsAllDay && (
+                      <div className="w-[140px]">
+                        <Popover.Root open={showStartTimePicker} onOpenChange={setShowStartTimePicker}>
+                          <Popover.Trigger asChild>
+                            <button
+                              type="button"
+                              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors touch-manipulation ${
+                                showStartTimePicker
+                                  ? "border-primary bg-primary/5"
+                                  : "border-border hover:bg-accent"
+                              }`}
+                            >
+                              <Clock className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-sm font-medium">{formatTimeDisplay(editStartTime)}</span>
+                            </button>
+                          </Popover.Trigger>
+                          <Popover.Portal>
+                            <Popover.Content
+                              className="z-[9999] bg-card border border-border rounded-xl shadow-xl"
+                              sideOffset={4}
+                              align="end"
+                            >
+                              <TouchTimePicker
+                                value={editStartTime}
+                                onChange={setEditStartTime}
+                                onSelect={() => setShowStartTimePicker(false)}
+                              />
+                            </Popover.Content>
+                          </Popover.Portal>
+                        </Popover.Root>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {/* Time pickers (only if not all-day) */}
-                {!editIsAllDay && (
-                  <div className="flex gap-2">
-                    {/* Start Time */}
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium mb-1">Start Time</label>
-                      <Popover.Root open={showStartTimePicker} onOpenChange={setShowStartTimePicker}>
-                        <Popover.Trigger asChild>
-                          <button
-                            type="button"
-                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors touch-manipulation ${
-                              showStartTimePicker
-                                ? "border-primary bg-primary/5"
-                                : "border-border hover:bg-accent"
-                            }`}
-                          >
-                            <Clock className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">{formatTimeDisplay(editStartTime)}</span>
-                          </button>
-                        </Popover.Trigger>
-                        <Popover.Portal>
-                          <Popover.Content
-                            className="z-[9999] bg-card border border-border rounded-xl shadow-xl"
-                            sideOffset={4}
-                            align="start"
-                          >
-                            <TouchTimePicker
-                              value={editStartTime}
-                              onChange={setEditStartTime}
-                              onSelect={() => setShowStartTimePicker(false)}
-                            />
-                          </Popover.Content>
-                        </Popover.Portal>
-                      </Popover.Root>
-                    </div>
-                    {/* End Time */}
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium mb-1">End Time</label>
-                      <Popover.Root open={showEndTimePicker} onOpenChange={setShowEndTimePicker}>
-                        <Popover.Trigger asChild>
-                          <button
-                            type="button"
-                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors touch-manipulation ${
-                              showEndTimePicker
-                                ? "border-primary bg-primary/5"
-                                : "border-border hover:bg-accent"
-                            }`}
-                          >
-                            <Clock className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">{formatTimeDisplay(editEndTime)}</span>
-                          </button>
-                        </Popover.Trigger>
-                        <Popover.Portal>
-                          <Popover.Content
-                            className="z-[9999] bg-card border border-border rounded-xl shadow-xl"
-                            sideOffset={4}
-                            align="end"
-                          >
-                            <TouchTimePicker
-                              value={editEndTime}
-                              onChange={setEditEndTime}
-                              onSelect={() => setShowEndTimePicker(false)}
-                            />
-                          </Popover.Content>
-                        </Popover.Portal>
-                      </Popover.Root>
+                {/* End: date (if multi-day) + time side by side */}
+                {(!editIsAllDay || editIsMultiDay) && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1">End</label>
+                    <div className="flex gap-2">
+                      {editIsMultiDay && (
+                        <div className="flex-1">
+                          <Popover.Root open={showEndDatePicker} onOpenChange={setShowEndDatePicker}>
+                            <Popover.Trigger asChild>
+                              <button
+                                type="button"
+                                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors touch-manipulation ${
+                                  showEndDatePicker
+                                    ? "border-primary bg-primary/5"
+                                    : "border-border hover:bg-accent"
+                                }`}
+                              >
+                                <Calendar className="h-4 w-4 text-muted-foreground" />
+                                <span className="text-sm font-medium">{formatDateDisplay(editEndDate)}</span>
+                              </button>
+                            </Popover.Trigger>
+                            <Popover.Portal>
+                              <Popover.Content
+                                className="z-[9999] bg-card border border-border rounded-xl shadow-xl"
+                                sideOffset={4}
+                                align="start"
+                              >
+                                <TouchDatePicker
+                                  value={editEndDate}
+                                  onChange={setEditEndDate}
+                                  onSelect={() => setShowEndDatePicker(false)}
+                                />
+                              </Popover.Content>
+                            </Popover.Portal>
+                          </Popover.Root>
+                        </div>
+                      )}
+                      {!editIsAllDay && (
+                        <div className={editIsMultiDay ? "w-[140px]" : "flex-1"}>
+                          <Popover.Root open={showEndTimePicker} onOpenChange={setShowEndTimePicker}>
+                            <Popover.Trigger asChild>
+                              <button
+                                type="button"
+                                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors touch-manipulation ${
+                                  showEndTimePicker
+                                    ? "border-primary bg-primary/5"
+                                    : "border-border hover:bg-accent"
+                                }`}
+                              >
+                                <Clock className="h-4 w-4 text-muted-foreground" />
+                                <span className="text-sm font-medium">{formatTimeDisplay(editEndTime)}</span>
+                              </button>
+                            </Popover.Trigger>
+                            <Popover.Portal>
+                              <Popover.Content
+                                className="z-[9999] bg-card border border-border rounded-xl shadow-xl"
+                                sideOffset={4}
+                                align="end"
+                              >
+                                <TouchTimePicker
+                                  value={editEndTime}
+                                  onChange={setEditEndTime}
+                                  onSelect={() => setShowEndTimePicker(false)}
+                                />
+                              </Popover.Content>
+                            </Popover.Portal>
+                          </Popover.Root>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -558,7 +568,7 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
             )}
 
             {/* Location */}
-            {isEditing ? (
+            {canEditFields ? (
               <div>
                 <label className="block text-sm font-medium mb-2">Location</label>
                 <PlacesAutocomplete
@@ -643,7 +653,7 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
             ) : null}
 
             {/* Description */}
-            {isEditing ? (
+            {canEditFields ? (
               <div>
                 <label className="block text-sm font-medium mb-2">Description</label>
                 <textarea
@@ -779,7 +789,7 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
               </>
             ) : (
               <>
-                {onDelete && (
+                {onDelete && !calendar?.isReadOnly && (
                   <Button
                     variant="destructive"
                     className="py-2 text-sm touch-manipulation"
@@ -794,7 +804,7 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
                   onClick={() => setIsEditing(true)}
                 >
                   <Pencil className="h-4 w-4 mr-2" />
-                  Edit
+                  {calendar?.isReadOnly ? "Countdown" : "Edit"}
                 </Button>
                 <Button
                   variant="outline"

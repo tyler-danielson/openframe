@@ -20,6 +20,7 @@ import { cn } from "../../lib/utils";
 import { useDataFreshness } from "../../hooks/useDataFreshness";
 import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
 import { StaleDataOverlay } from "./StaleDataOverlay";
+import { getEventStart as getEventStartDate, getEventEnd as getEventEndDate } from "../../lib/event-dates";
 
 interface WeekScheduleWidgetProps {
   config: Record<string, unknown>;
@@ -41,36 +42,6 @@ const CUSTOM_SCALE = {
   event: 0.85,
   header: 0.85,
 };
-
-function getEventStartDate(event: CalendarEvent): Date {
-  if (event.isAllDay) {
-    const isoString = typeof event.startTime === "string"
-      ? event.startTime
-      : event.startTime.toISOString();
-    const datePart = isoString.slice(0, 10);
-    const parts = datePart.split("-").map(Number);
-    const year = parts[0] ?? 1970;
-    const month = parts[1] ?? 1;
-    const day = parts[2] ?? 1;
-    return new Date(year, month - 1, day);
-  }
-  return new Date(event.startTime);
-}
-
-function getEventEndDate(event: CalendarEvent): Date {
-  if (event.isAllDay) {
-    const isoString = typeof event.endTime === "string"
-      ? event.endTime
-      : event.endTime.toISOString();
-    const datePart = isoString.slice(0, 10);
-    const parts = datePart.split("-").map(Number);
-    const year = parts[0] ?? 1970;
-    const month = parts[1] ?? 1;
-    const day = parts[2] ?? 1;
-    return new Date(year, month - 1, day);
-  }
-  return new Date(event.endTime);
-}
 
 // Multi-day timed events should be treated like all-day events (banner at top)
 function isBannerEvent(event: CalendarEvent): boolean {

@@ -5,45 +5,16 @@ import { cn } from "../../lib/utils";
 import { useCalendarStore } from "../../stores/calendar";
 import { WeekCellWidget } from "./WeekCellWidget";
 import { api } from "../../services/api";
-
-// For all-day events, we need to parse the date as a local date (ignoring timezone)
-// because all-day events are conceptually "date-only" and stored as midnight UTC
-function getEventStartDate(event: CalendarEvent): Date {
-  if (event.isAllDay) {
-    // Parse the ISO string and extract just the date part
-    const isoString = typeof event.startTime === 'string'
-      ? event.startTime
-      : event.startTime.toISOString();
-    // Extract YYYY-MM-DD and create a local midnight date
-    const datePart = isoString.slice(0, 10);
-    const parts = datePart.split('-').map(Number);
-    const year = parts[0] ?? 1970;
-    const month = parts[1] ?? 1;
-    const day = parts[2] ?? 1;
-    return new Date(year, month - 1, day); // Local midnight
-  }
-  return new Date(event.startTime);
-}
-
-function getEventEndDate(event: CalendarEvent): Date {
-  if (event.isAllDay) {
-    const isoString = typeof event.endTime === 'string'
-      ? event.endTime
-      : event.endTime.toISOString();
-    const datePart = isoString.slice(0, 10);
-    const parts = datePart.split('-').map(Number);
-    const year = parts[0] ?? 1970;
-    const month = parts[1] ?? 1;
-    const day = parts[2] ?? 1;
-    return new Date(year, month - 1, day);
-  }
-  return new Date(event.endTime);
-}
+import { getEventStart as getEventStartDate, getEventEnd as getEventEndDate } from "../../lib/event-dates";
 
 const LONG_PRESS_DURATION = 500; // ms
 
 // Counts how many event elements are visible in the scrollable container
-function VisibleEventCount({ totalCount }: { totalCount: number }) {
+function VisibleEventCount({ dayEvents }: { dayEvents: CalendarEvent[] }) {
+  const totalCount = dayEvents.length;
+  const taskCount = dayEvents.filter(e => (e as any).metadata?.type === "task" || (e as any).metadata?.type === "routine").length;
+  const eventCount = totalCount - taskCount;
+
   const ref = useRef<HTMLSpanElement>(null);
   const [visibleCount, setVisibleCount] = useState(totalCount);
 
@@ -71,13 +42,19 @@ function VisibleEventCount({ totalCount }: { totalCount: number }) {
     return () => observer.disconnect();
   }, [totalCount]);
 
+  const parts: string[] = [];
+  if (eventCount > 0) parts.push(`${eventCount} event${eventCount !== 1 ? "s" : ""}`);
+  if (taskCount > 0) parts.push(`${taskCount} task${taskCount !== 1 ? "s" : ""}`);
+
+  if (parts.length === 0) return null;
+
+  const label = visibleCount < totalCount
+    ? `${visibleCount} of ${totalCount} — ${parts.join(", ")}`
+    : parts.join(", ");
+
   return (
     <span ref={ref} className="text-xs text-muted-foreground font-normal leading-tight">
-      {totalCount === 0
-        ? "0 events"
-        : visibleCount < totalCount
-          ? `${visibleCount} of ${totalCount} event${totalCount !== 1 ? "s" : ""}`
-          : `${totalCount} event${totalCount !== 1 ? "s" : ""}`}
+      {label}
     </span>
   );
 }
@@ -448,7 +425,7 @@ export function WeekGridView({
               </button>
             )}
           </div>
-          <VisibleEventCount totalCount={dayEvents.length} />
+          <VisibleEventCount dayEvents={dayEvents} />
         </div>
 
         {/* Events */}
