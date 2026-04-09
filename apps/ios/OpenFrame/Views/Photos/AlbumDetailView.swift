@@ -20,15 +20,31 @@ struct AlbumDetailView: View {
     @State private var isLoading = true
     @State private var showPicker = false
     @State private var isUploading = false
+    @State private var uploadThumbnail: UIImage?
+    @State private var uploadError: String?
 
     var body: some View {
         let palette = container.themeManager.palette
         Group {
-            if photos.isEmpty && !isLoading {
+            if photos.isEmpty && !isLoading && !isUploading {
                 EmptyStateView(icon: "photo", title: "No Photos", message: "This album is empty")
             } else {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
+                        // Show uploading placeholder at the top
+                        if isUploading, let thumb = uploadThumbnail {
+                            ZStack {
+                                Image(uiImage: thumb)
+                                    .resizable()
+                                    .aspectRatio(1, contentMode: .fill)
+                                    .clipped()
+                                    .opacity(0.5)
+                                ProgressView()
+                                    .tint(.white)
+                                    .scaleEffect(1.2)
+                            }
+                        }
+
                         ForEach(photos) { photo in
                             if let urlString = photo.thumbnailUrl ?? photo.url,
                                let fullUrl = buildImageURL(urlString) {
@@ -89,15 +105,16 @@ struct AlbumDetailView: View {
 
     private func loadPhotos() async {
         isLoading = true
-        photos = (try? await container.photoRepository.getAlbumPhotos(albumId: albumId)) ?? []
+        var fetched = (try? await container.photoRepository.getAlbumPhotos(albumId: albumId)) ?? []
+        fetched.reverse()
+        photos = fetched
         isLoading = false
     }
-
-    @State private var uploadError: String?
 
     private func uploadPhoto(_ data: Data) {
         isUploading = true
         uploadError = nil
+        uploadThumbnail = UIImage(data: data)
         Task {
             do {
                 try await container.photoRepository.uploadPhoto(albumId: albumId, imageData: data, fileName: "photo_\(UUID().uuidString).jpg")
@@ -105,6 +122,7 @@ struct AlbumDetailView: View {
             } catch {
                 uploadError = error.localizedDescription
             }
+            uploadThumbnail = nil
             isUploading = false
         }
     }
