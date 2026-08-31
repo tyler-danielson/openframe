@@ -68,3 +68,26 @@ export function hasRequiredScopes(
   const granted = new Set(grantedScopeString.split(/\s+/));
   return requiredScopes.every((scope) => granted.has(scope));
 }
+
+/**
+ * Merge a newly granted scope string into the previously stored one.
+ *
+ * OAuth providers return only the scopes authorized by the flow that just ran.
+ * A base sign-in ("openid email profile") therefore reports none of the feature
+ * scopes the user granted earlier, so overwriting the stored value would drop
+ * calendar/tasks/photos access and silently disable those integrations until
+ * the user reconnects them. Union the two instead — a grant is only removed
+ * when the user explicitly revokes it, which disconnects the account anyway.
+ */
+export function mergeScopes(
+  storedScopeString: string | null | undefined,
+  grantedScopeString: string | null | undefined
+): string | null {
+  const split = (value: string | null | undefined): string[] =>
+    value ? value.split(/\s+/).filter(Boolean) : [];
+
+  const merged = new Set([...split(storedScopeString), ...split(grantedScopeString)]);
+  if (merged.size === 0) return null;
+
+  return [...merged].join(" ");
+}

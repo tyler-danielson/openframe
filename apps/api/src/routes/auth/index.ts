@@ -22,7 +22,7 @@ import { getCurrentUser } from "../../plugins/auth.js";
 import { encryptField, decryptField } from "../../lib/encryption.js";
 import { getCategorySettings } from "../settings/index.js";
 import { isPrivateIp, getRequestOrigin } from "../../utils/oauth-helpers.js";
-import { getScopesForFeature, type OAuthFeature } from "../../utils/oauth-scopes.js";
+import { getScopesForFeature, mergeScopes, type OAuthFeature } from "../../utils/oauth-scopes.js";
 import { resetDemoData } from "./demo-seed.js";
 import { kioskCommands as kioskCommandsById } from "../kiosks/index.js";
 
@@ -857,16 +857,19 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       url.searchParams.set("scope", scopes.join(" "));
       url.searchParams.set("state", state);
       url.searchParams.set("access_type", "offline");
+      // Always ask Google to return the union of this grant and everything the
+      // user has already authorized, so a base sign-in doesn't report a scope
+      // set that looks like calendar/tasks/photos access was withdrawn.
+      url.searchParams.set("include_granted_scopes", "true");
 
-      if (isIncremental) {
-        // Incremental: let Google merge with existing grants, don't force consent
-        url.searchParams.set("include_granted_scopes", "true");
-      } else if (query.mobile === "true") {
-        // Mobile apps: show account chooser so users can pick their Google account
-        url.searchParams.set("prompt", "select_account consent");
-      } else {
-        // Fresh auth: request consent to get refresh token
-        url.searchParams.set("prompt", "consent");
+      // Incremental auth adds a scope to an existing grant, so it doesn't need
+      // to force consent; a fresh grant does, to be issued a refresh token.
+      if (!isIncremental) {
+        url.searchParams.set(
+          "prompt",
+          // Mobile apps: show the account chooser so users can pick an account
+          query.mobile === "true" ? "select_account consent" : "consent"
+        );
       }
 
       // Pass login_hint from mobile apps so Google pre-selects the account
@@ -1058,7 +1061,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             accessToken: encryptField(tokens.access_token) ?? tokens.access_token,
             refreshToken: encryptField(tokens.refresh_token ?? decryptField(existingOAuth.refreshToken)) ?? existingOAuth.refreshToken,
             expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-            scope: tokens.scope,
+            scope: mergeScopes(existingOAuth.scope, tokens.scope),
             externalAccountId: userInfo.email,
             updatedAt: new Date(),
           })
@@ -1387,7 +1390,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             accessToken: encryptField(tokens.access_token) ?? tokens.access_token,
             refreshToken: encryptField(tokens.refresh_token ?? decryptField(existingOAuth.refreshToken)) ?? existingOAuth.refreshToken,
             expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-            scope: tokens.scope,
+            scope: mergeScopes(existingOAuth.scope, tokens.scope),
             externalAccountId: email,
             updatedAt: new Date(),
           })
