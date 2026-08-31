@@ -1,15 +1,17 @@
 import { useEffect, useRef, useCallback } from "react";
 
-// Tiny silent WAV as a data URI (44 bytes of silence) — no external file needed
-const SILENT_WAV =
-  "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+// ~10 s of silence (synthesized by the keepSilkOpenAsset plugin in
+// vite.config.ts); re-fetched with a cache-busting query every time it ends so
+// Silk sees fresh media + network activity and resets its idle timer.
+// Technique from https://gitlab.com/DaGammla/keep-silk-open (MIT, 2022 DaGammla)
+const SILENT_MP3 = "/keep-silk-open.mp3";
 
 /**
  * Keeps the Echo Show's Silk browser tab active and prevents
  * the device from going to the Alexa home screen / sleep.
  *
  * Uses three complementary strategies:
- * 1. Silent audio loop (prevents tab suspension)
+ * 1. Silent audio re-fetched each minute (prevents tab suspension / idle timeout)
  * 2. Web Audio API oscillator at zero gain (backup)
  * 3. Periodic activity ping (prevents idle detection)
  */
@@ -22,10 +24,14 @@ export function KeepAlive() {
     if (activatedRef.current) return;
     activatedRef.current = true;
 
-    // Method 1: Silent audio loop
-    const audio = new Audio(SILENT_WAV);
-    audio.loop = true;
+    // Method 1: Silent audio, reloaded with a fresh URL every time it ends
+    const audio = new Audio(`${SILENT_MP3}?q=${Date.now()}`);
     audio.volume = 0.01;
+    audio.onended = () => {
+      audio.src = `${SILENT_MP3}?q=${Date.now()}`;
+      audio.currentTime = 0;
+      audio.play().catch(() => {});
+    };
     audioRef.current = audio;
     audio.play().catch(() => {});
 

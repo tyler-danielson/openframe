@@ -1,14 +1,46 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "path";
 
 const basePath = process.env.VITE_BASE_PATH || "/";
 
+// One 72-byte frame of MPEG-2.5 Layer III silence (8 kbps, 8 kHz, mono),
+// generated with lamejs. Encoded silence is bit-identical frame to frame, so
+// repeating this frame yields a valid silent MP3 (~72 ms per frame).
+const SILENT_FRAME_B64 =
+  "/+MYxAAAAANIAAAAAExBTUUDAAkIAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const SILENT_FRAME_COUNT = 141; // ≈ 10 s of audio
+
+// Serves/emits the silent keep-silk-open.mp3 used by useSilkKeepAlive,
+// synthesized from the frame above so no binary asset lives in the repo.
+function keepSilkOpenAsset(): Plugin {
+  const media = () =>
+    Buffer.concat(new Array<Buffer>(SILENT_FRAME_COUNT).fill(Buffer.from(SILENT_FRAME_B64, "base64")));
+  return {
+    name: "keep-silk-open-asset",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url?.split("?")[0] === "/keep-silk-open.mp3") {
+          res.setHeader("Content-Type", "audio/mpeg");
+          res.setHeader("Cache-Control", "no-store");
+          res.end(media());
+        } else {
+          next();
+        }
+      });
+    },
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "keep-silk-open.mp3", source: media() });
+    },
+  };
+}
+
 export default defineConfig({
   base: basePath,
   plugins: [
     react(),
+    keepSilkOpenAsset(),
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "apple-touch-icon.png"],

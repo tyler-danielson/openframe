@@ -78,6 +78,7 @@ import { Toaster } from "./components/ui/Toaster";
 import { Screensaver } from "./components/Screensaver";
 import { NowPlaying } from "./components/spotify/NowPlaying";
 import { useIdleDetector } from "./hooks/useIdleDetector";
+import { useSilkKeepAlive } from "./hooks/useSilkKeepAlive";
 import { useDurationAlertMonitor } from "./hooks/useDurationAlertMonitor";
 import { useHAWebSocket } from "./stores/homeassistant-ws";
 import { DurationAlertBanner } from "./components/alerts/DurationAlertBanner";
@@ -165,6 +166,10 @@ function KeyedCustomScreenPage() {
 
 export default function App() {
   const location = useLocation();
+
+  // Keep Silk browser (Echo Show / Fire tablet) from closing any page due to inactivity
+  useSilkKeepAlive();
+
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const authUser = useAuthStore((state) => state.user);
   const setApiKey = useAuthStore((state) => state.setApiKey);
