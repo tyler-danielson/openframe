@@ -52,40 +52,6 @@ const FEATURE_ROUTES: Record<string, { path: string; element: JSX.Element; wildc
   chat: { path: "chat", element: <DashboardPage /> }, // placeholder
 };
 
-// Silk browser keep-alive: plays silent audio to prevent Echo Show from closing the tab
-function useSilkKeepAlive() {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const activatedRef = useRef(false);
-
-  useEffect(() => {
-    const isSilk = /\bSilk\b/i.test(navigator.userAgent);
-    if (!isSilk) return;
-
-    const activate = () => {
-      if (activatedRef.current) return;
-      activatedRef.current = true;
-
-      const audio = new Audio("/silent.mp3");
-      audio.loop = true;
-      audio.volume = 0.01;
-      audioRef.current = audio;
-      audio.play().catch(() => {});
-    };
-
-    document.addEventListener("touchstart", activate, { once: true });
-    document.addEventListener("click", activate, { once: true });
-
-    return () => {
-      document.removeEventListener("touchstart", activate);
-      document.removeEventListener("click", activate);
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
-  }, []);
-}
-
 // Redirect helper that uses absolute paths to avoid React Router's relative-from-splat behavior
 function KioskRedirect({ to }: { to: string }) {
   const location = useLocation();
@@ -116,9 +82,6 @@ function KioskApp() {
   const screensaverIsActive = useScreensaverStore((s) => s.isActive);
   const screensaverBehavior = useScreensaverStore((s) => s.behavior);
   const showScreensaverOverlay = screensaverBehavior !== "hide-toolbar";
-
-  // Keep Silk browser tab alive on Echo Show devices
-  useSilkKeepAlive();
 
   // Enable idle detection for screensaver
   useIdleDetector();
