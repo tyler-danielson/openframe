@@ -6,6 +6,15 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# Only one build per ref at a time. Without this, two close-together pushes to
+# master build in parallel and both push :latest — whichever finishes LAST wins,
+# so :latest can silently regress to the older commit. Superseded runs are
+# cancelled instead. Tag builds (v*) are their own group and never cancel, or
+# get cancelled by, a master build.
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/tyler-danielson/openframe
