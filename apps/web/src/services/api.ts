@@ -3528,6 +3528,10 @@ class ApiClient {
     });
   }
 
+  async getSetupConfig(category: "google" | "microsoft"): Promise<SetupProviderConfig> {
+    return this.fetch<SetupProviderConfig>(`/setup/config/${category}`);
+  }
+
   async completeSetup(): Promise<void> {
     await this.fetch("/setup/complete", { method: "POST", body: JSON.stringify({}) });
   }
@@ -5192,6 +5196,12 @@ export interface SystemSetting {
   description: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SetupProviderConfig {
+  client_id: string | null;
+  tenant_id?: string | null;
+  has_client_secret: boolean;
 }
 
 // reMarkable types
