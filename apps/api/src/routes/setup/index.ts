@@ -449,4 +449,63 @@ export const setupRoutes: FastifyPluginAsync = async (fastify) => {
       };
     }
   );
+
+  // GET /config/:category - Global OAuth app credentials for a provider (admin only)
+  fastify.get(
+    "/config/:category",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description:
+          "Get global OAuth app credentials for a provider (secret never returned)",
+        tags: ["Setup"],
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          properties: {
+            category: { type: "string", enum: ["google", "microsoft"] },
+          },
+          required: ["category"],
+        },
+      },
+    },
+    async (request, reply) => {
+      // Hosted/cloud installs use platform-managed provider credentials
+      if (fastify.hostedMode) {
+        return reply.forbidden("Provider credentials are managed by the platform");
+      }
+
+      const user = await getCurrentUser(request);
+      if (!user || user.role !== "admin") {
+        return reply.forbidden("Admin access required");
+      }
+
+      const { category } = request.params as { category: string };
+      if (category !== "google" && category !== "microsoft") {
+        return reply.badRequest("Unsupported category");
+      }
+
+      // Global rows only (user_id IS NULL) - the same source the OAuth flow reads
+      const settings = await getCategorySettings(fastify.db, category);
+
+      if (category === "google") {
+        return {
+          success: true,
+          data: {
+            client_id: settings.client_id || process.env.GOOGLE_CLIENT_ID || null,
+            has_client_secret: Boolean(settings.client_secret || process.env.GOOGLE_CLIENT_SECRET),
+          },
+        };
+      }
+
+      return {
+        success: true,
+        data: {
+          client_id: settings.client_id || process.env.MICROSOFT_CLIENT_ID || null,
+          has_client_secret: Boolean(settings.client_secret || process.env.MICROSOFT_CLIENT_SECRET),
+          tenant_id: settings.tenant_id || process.env.MICROSOFT_TENANT_ID || null,
+        },
+      };
+    }
+  );
 };

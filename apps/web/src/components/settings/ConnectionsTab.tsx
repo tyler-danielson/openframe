@@ -22,6 +22,7 @@ import { WhatsAppSettings } from "../whatsapp/WhatsAppSettings";
 import { StorageServerConfig } from "./StorageServerConfig";
 import { ServicePricingModal } from "./ServicePricingModal";
 import type { SettingsTab } from "./SettingsSidebar";
+import { ProviderCredentialsCard } from "./ProviderCredentialsCard";
 
 interface ConnectionsTabProps {
   onNavigateToTab: (tab: SettingsTab) => void;
@@ -366,6 +367,9 @@ const SERVICES: ServiceDef[] = [
 ];
 
 export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: ConnectionsTabProps) {
+  // Provider credentials are global + admin-only; hidden in cloud mode (platform-managed)
+  const isAdmin = useAuthStore((s) => s.user)?.role === "admin";
+  const [showCredentials, setShowCredentials] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
@@ -1068,6 +1072,26 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
           Add Connection
         </Button>
       </div>
+
+      {/* Provider credentials (admin, self-hosted only) */}
+      {isAdmin && !isCloudMode && (
+        <div>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-primary">
+                Provider Credentials
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Google &amp; Microsoft OAuth app credentials used for sign-in and calendar sync.
+              </p>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setShowCredentials((v) => !v)}>
+              {showCredentials ? "Hide" : "Show"}
+            </Button>
+          </div>
+          {showCredentials && <ProviderCredentialsCard />}
+        </div>
+      )}
 
       {/* Connected services list */}
       {totalConnected === 0 ? (
