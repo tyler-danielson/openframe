@@ -74,6 +74,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Build metadata
+        id: buildmeta
+        run: echo "time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push App image (self-hosted)
         uses: docker/build-push-action@v6
         with:
@@ -81,6 +85,9 @@ jobs:
           file: docker/Dockerfile.combined
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ steps.buildmeta.outputs.time }}
           tags: ${{ steps.meta-app.outputs.tags }}
           labels: ${{ steps.meta-app.outputs.labels }}
           cache-from: type=gha
@@ -96,6 +103,8 @@ jobs:
           build-args: |
             VITE_BASE_PATH=/app/
             VITE_CLOUD_MODE=true
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ steps.buildmeta.outputs.time }}
           tags: ${{ steps.meta-cloud.outputs.tags }}
           labels: ${{ steps.meta-cloud.outputs.labels }}
           cache-from: type=gha
