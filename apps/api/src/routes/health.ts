@@ -2,6 +2,12 @@ import type { FastifyPluginAsync } from "fastify";
 import { sql } from "drizzle-orm";
 import os from "os";
 
+// Injected at image build time (docker/Dockerfile.combined). "unknown" is the
+// honest answer for a dev server or a locally built image.
+const GIT_SHA = process.env.GIT_SHA || "unknown";
+const BUILD_TIME = process.env.BUILD_TIME || "unknown";
+const GIT_SHA_SHORT = GIT_SHA === "unknown" ? "unknown" : GIT_SHA.slice(0, 7);
+
 export const healthRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get(
     "/health",
@@ -16,6 +22,9 @@ export const healthRoutes: FastifyPluginAsync = async (fastify) => {
               status: { type: "string" },
               timestamp: { type: "string" },
               version: { type: "string" },
+              commit: { type: "string" },
+              commitShort: { type: "string" },
+              builtAt: { type: "string" },
             },
           },
         },
@@ -26,6 +35,9 @@ export const healthRoutes: FastifyPluginAsync = async (fastify) => {
         status: "ok",
         timestamp: new Date().toISOString(),
         version: "1.0.0",
+        commit: GIT_SHA,
+        commitShort: GIT_SHA_SHORT,
+        builtAt: BUILD_TIME,
       };
     }
   );

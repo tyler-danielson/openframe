@@ -104,6 +104,14 @@ ENV NODE_ENV=production
 ENV PORT=3001
 ENV HOME=/root
 
+# Build identity, surfaced by GET /api/v1/health so a running container can be
+# matched to the commit it was built from. Declared in this final stage so a new
+# commit doesn't invalidate the cached build stages above.
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=unknown
+ENV GIT_SHA=$GIT_SHA
+ENV BUILD_TIME=$BUILD_TIME
+
 EXPOSE 3001
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
