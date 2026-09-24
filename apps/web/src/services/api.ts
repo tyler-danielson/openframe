@@ -3309,8 +3309,7 @@ class ApiClient {
   }
 
   getRecipeImageUrl(path: string): string {
-    const { accessToken } = useAuthStore.getState();
-    return `${API_BASE}/recipes/image/${path}?token=${accessToken}`;
+    return withAuthParams(`${API_BASE}/recipes/image/${path}`);
   }
 
   // Kitchen Timers
@@ -3792,7 +3791,7 @@ class ApiClient {
 
   getPlexThumbUrl(serverId: string, path: string): string {
     const params = new URLSearchParams({ path });
-    return `/api/v1/plex/servers/${serverId}/thumb?${params}`;
+    return withAuthParams(`/api/v1/plex/servers/${serverId}/thumb?${params}`);
   }
 
   // Audiobookshelf
@@ -3832,7 +3831,7 @@ class ApiClient {
 
   getAudiobookshelfCoverUrl(serverId: string, itemId: string): string {
     const params = new URLSearchParams({ itemId });
-    return `/api/v1/audiobookshelf/servers/${serverId}/cover?${params}`;
+    return withAuthParams(`/api/v1/audiobookshelf/servers/${serverId}/cover?${params}`);
   }
 
   // ============ Storage Servers ============
@@ -3897,7 +3896,7 @@ class ApiClient {
 
   getStorageDownloadUrl(serverId: string, filePath: string): string {
     const params = new URLSearchParams({ path: filePath });
-    return `/api/v1/storage/servers/${serverId}/download?${params}`;
+    return withAuthParams(`/api/v1/storage/servers/${serverId}/download?${params}`);
   }
 
   async uploadStorageFile(serverId: string, destPath: string, file: File): Promise<{ path: string }> {
@@ -5850,6 +5849,19 @@ export interface MatterDeviceWithState extends MatterDevice {
 export const api = new ApiClient();
 
 /**
+ * Append the current credentials to an API URL that the browser loads itself
+ * (<img>, <audio>, download links), since those requests can't carry
+ * Authorization/X-API-Key headers. The API accepts them on GET requests.
+ */
+export function withAuthParams(url: string): string {
+  const { accessToken, apiKey } = useAuthStore.getState();
+  const sep = url.includes("?") ? "&" : "?";
+  if (apiKey) return `${url}${sep}apiKey=${encodeURIComponent(apiKey)}`;
+  if (accessToken) return `${url}${sep}token=${encodeURIComponent(accessToken)}`;
+  return url;
+}
+
+/**
  * Append auth token as a query param to local photo file URLs so <img> tags
  * can load them. Browsers can't set Authorization headers on image requests.
  * External URLs (Reddit, Google, etc.) are returned unchanged.
@@ -5857,9 +5869,5 @@ export const api = new ApiClient();
 export function getPhotoUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
   if (!url.startsWith("/api/v1/photos/files/")) return url;
-  const { accessToken, apiKey } = useAuthStore.getState();
-  const sep = url.includes("?") ? "&" : "?";
-  if (apiKey) return `${url}${sep}apiKey=${encodeURIComponent(apiKey)}`;
-  if (accessToken) return `${url}${sep}token=${encodeURIComponent(accessToken)}`;
-  return url;
+  return withAuthParams(url);
 }

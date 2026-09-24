@@ -1,6 +1,7 @@
 import { Star, Clock, Users } from "lucide-react";
 import type { Recipe } from "@openframe/shared";
 import { cn } from "../../lib/utils";
+import { api } from "../../services/api";
 
 interface RecipeCardProps {
   recipe: Recipe;
@@ -20,7 +21,7 @@ export function RecipeCard({ recipe, onClick, onToggleFavorite }: RecipeCardProp
       <div className="aspect-[4/3] bg-accent relative overflow-hidden">
         {recipe.thumbnailPath ? (
           <img
-            src={`/api/v1/recipes/image/${recipe.thumbnailPath}`}
+            src={api.getRecipeImageUrl(recipe.thumbnailPath)}
             alt={recipe.title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
