@@ -317,7 +317,10 @@ export const calendars = pgTable(
     syncInterval: integer("sync_interval"), // sync interval in minutes (null = system default)
     syncToken: text("sync_token"), // for incremental sync
     sourceUrl: text("source_url"), // for ICS subscriptions - the URL to fetch from
-    lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    lastSyncAt: timestamp("last_sync_at", { withTimezone: true }), // last successful sync
+    lastSyncError: text("last_sync_error"), // null when the last sync attempt succeeded
+    lastSyncErrorAt: timestamp("last_sync_error_at", { withTimezone: true }),
+    fullSyncAt: timestamp("full_sync_at", { withTimezone: true }), // last full (non-incremental) sync
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -348,6 +351,8 @@ export const events = pgTable(
     isAllDay: boolean("is_all_day").default(false).notNull(),
     status: eventStatusEnum("status").default("confirmed").notNull(),
     recurrenceRule: text("recurrence_rule"), // RRULE string
+    timeZone: text("time_zone"), // IANA zone the recurrence is defined in (null = viewer's zone)
+    exdates: jsonb("exdates").$type<string[]>(), // ISO starts of deleted occurrences (EXDATE / cancelled instances)
     recurringEventId: text("recurring_event_id"), // parent event for instances
     originalStartTime: timestamp("original_start_time", { withTimezone: true }), // for recurring instances
     attendees: jsonb("attendees").$type<EventAttendee[]>().default([]),

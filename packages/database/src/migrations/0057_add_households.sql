@@ -23,18 +23,24 @@ CREATE INDEX IF NOT EXISTS "household_members_household_idx" ON "household_membe
 CREATE INDEX IF NOT EXISTS "household_members_user_idx" ON "household_members"("user_id");
 CREATE UNIQUE INDEX IF NOT EXISTS "household_members_unique" ON "household_members"("household_id", "user_id");
 
--- Auto-create a household for each existing user
-INSERT INTO "households" ("id", "name", "created_at")
-SELECT u.id, COALESCE(u.name, u.email) || '''s Home', now()
-FROM "users" u
-WHERE NOT EXISTS (
-  SELECT 1 FROM "household_members" hm WHERE hm.user_id = u.id
-);
+-- Auto-create a household for each existing user. Only when households were
+-- just created: this migration may be re-applied to databases that already
+-- ran it, where memberships are managed by the app.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM "households") THEN
+    INSERT INTO "households" ("id", "name", "created_at")
+    SELECT u.id, COALESCE(u.name, u.email) || '''s Home', now()
+    FROM "users" u
+    WHERE NOT EXISTS (
+      SELECT 1 FROM "household_members" hm WHERE hm.user_id = u.id
+    );
 
-INSERT INTO "household_members" ("household_id", "user_id", "role")
-SELECT h.id, u.id, 'owner'
-FROM "users" u
-JOIN "households" h ON h.id = u.id
-WHERE NOT EXISTS (
-  SELECT 1 FROM "household_members" hm WHERE hm.user_id = u.id
-);
+    INSERT INTO "household_members" ("household_id", "user_id", "role")
+    SELECT h.id, u.id, 'owner'
+    FROM "users" u
+    JOIN "households" h ON h.id = u.id
+    WHERE NOT EXISTS (
+      SELECT 1 FROM "household_members" hm WHERE hm.user_id = u.id
+    );
+  END IF;
+END $$;

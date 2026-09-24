@@ -23,7 +23,7 @@ EXCEPTION
 END $$;
 
 -- reMarkable Templates - stores template configurations
-CREATE TABLE remarkable_templates (
+CREATE TABLE IF NOT EXISTS remarkable_templates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
@@ -42,7 +42,7 @@ CREATE INDEX IF NOT EXISTS remarkable_templates_type_idx ON remarkable_templates
 CREATE INDEX IF NOT EXISTS remarkable_templates_active_idx ON remarkable_templates(user_id, is_active);
 
 -- reMarkable Schedules - unified scheduling for templates and default agenda
-CREATE TABLE remarkable_schedules (
+CREATE TABLE IF NOT EXISTS remarkable_schedules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     template_id UUID REFERENCES remarkable_templates(id) ON DELETE CASCADE, -- null for default agenda
@@ -63,7 +63,7 @@ CREATE INDEX IF NOT EXISTS remarkable_schedules_enabled_idx ON remarkable_schedu
 CREATE INDEX IF NOT EXISTS remarkable_schedules_next_push_idx ON remarkable_schedules(next_push_at) WHERE enabled = true;
 
 -- reMarkable Processed Confirmations - tracks confirmations sent back after note processing
-CREATE TABLE remarkable_processed_confirmations (
+CREATE TABLE IF NOT EXISTS remarkable_processed_confirmations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     document_id UUID NOT NULL REFERENCES remarkable_documents(id) ON DELETE CASCADE,

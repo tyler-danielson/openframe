@@ -1,5 +1,5 @@
 -- RSS feed subscriptions
-CREATE TABLE news_feeds (
+CREATE TABLE IF NOT EXISTS news_feeds (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE news_feeds (
 CREATE INDEX IF NOT EXISTS news_feeds_user_idx ON news_feeds(user_id);
 
 -- Cached articles
-CREATE TABLE news_articles (
+CREATE TABLE IF NOT EXISTS news_articles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     feed_id UUID NOT NULL REFERENCES news_feeds(id) ON DELETE CASCADE,
     guid TEXT NOT NULL,
@@ -27,5 +27,12 @@ CREATE TABLE news_articles (
 );
 
 CREATE INDEX IF NOT EXISTS news_articles_feed_idx ON news_articles(feed_id);
-CREATE UNIQUE INDEX IF NOT EXISTS news_articles_guid_idx ON news_articles(feed_id, guid);
+-- Existing databases may already hold duplicate guids (the table can predate
+-- this index); skip the index there rather than fail the whole migration run.
+DO $$ BEGIN
+    CREATE UNIQUE INDEX IF NOT EXISTS news_articles_guid_idx ON news_articles(feed_id, guid);
+EXCEPTION
+    WHEN unique_violation THEN
+        RAISE NOTICE 'news_articles has duplicate (feed_id, guid) rows; skipping news_articles_guid_idx';
+END $$;
 CREATE INDEX IF NOT EXISTS news_articles_published_idx ON news_articles(published_at DESC);

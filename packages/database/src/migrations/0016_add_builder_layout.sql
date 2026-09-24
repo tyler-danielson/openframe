@@ -6,6 +6,6 @@ BEGIN
         WHERE enumlabel = 'builder' 
         AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'screensaver_layout')
     ) THEN
-        ALTER TYPE screensaver_layout ADD VALUE 'builder';
+        ALTER TYPE screensaver_layout ADD VALUE IF NOT EXISTS 'builder';
     END IF;
 END $$;

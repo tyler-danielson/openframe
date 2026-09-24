@@ -12,4 +12,4 @@ CREATE TABLE IF NOT EXISTS kiosk_saved_files (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX kiosk_saved_files_kiosk_idx ON kiosk_saved_files(kiosk_id);
+CREATE INDEX IF NOT EXISTS kiosk_saved_files_kiosk_idx ON kiosk_saved_files(kiosk_id);
