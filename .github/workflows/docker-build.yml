@@ -58,10 +58,11 @@ jobs:
             curl -fsS http://localhost:3001/api/v1/health/ready > /dev/null 2>&1 && break
             sleep 2
           done
-          docker logs app
+          docker logs app > app.log 2>&1
+          cat app.log
           curl -fsS http://localhost:3001/api/v1/health/ready
           # The entrypoint starts the server even when migrations fail
-          docker logs app 2>&1 | grep -q "Migrations completed successfully"
+          grep -q "Migrations completed successfully" app.log
 
       - name: Every migration in the journal was applied
         run: |
