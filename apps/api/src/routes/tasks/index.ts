@@ -1,10 +1,11 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, asc, desc, gte, lte } from "drizzle-orm";
 import { taskLists, tasks, oauthTokens } from "@openframe/database/schema";
 import { taskQuerySchema, createTaskSchema, updateTaskSchema } from "@openframe/shared/validators";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { GoogleTasksService } from "../../services/google-tasks.js";
-import { decryptOAuthToken } from "../../lib/encryption.js";
+import { getValidAccessToken } from "../../services/calendar-sync/oauth.js";
+import { describeSyncError } from "../../services/calendar-sync/errors.js";
 import { hasRequiredScopes, getScopesForFeature } from "../../utils/oauth-scopes.js";
 
 export const taskRoutes: FastifyPluginAsync = async (fastify) => {
@@ -25,8 +26,8 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
 
-      // Get Google OAuth token
-      const [rawToken] = await fastify.db
+      // Get Google OAuth tokens (primary account first)
+      const googleTokens = await fastify.db
         .select()
         .from(oauthTokens)
         .where(
@@ -35,16 +36,16 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
             eq(oauthTokens.provider, "google")
           )
         )
-        .limit(1);
-      const token = rawToken ? decryptOAuthToken(rawToken) : null;
+        .orderBy(desc(oauthTokens.isPrimary), asc(oauthTokens.createdAt));
 
-      if (!token?.accessToken) {
+      if (googleTokens.length === 0) {
         return { success: false, error: "Google account not connected" };
       }
 
-      // Check that the user has granted task scopes
+      // Use an account that has granted task scopes
       const requiredScopes = getScopesForFeature("google", "tasks");
-      if (!hasRequiredScopes(token.scope, requiredScopes)) {
+      const token = googleTokens.find((t) => hasRequiredScopes(t.scope, requiredScopes));
+      if (!token) {
         return reply.code(403).send({
           success: false,
           error: "insufficient_scope",
@@ -54,7 +55,15 @@ export const taskRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      const googleTasks = new GoogleTasksService(token.accessToken);
+      // Access tokens last an hour; refresh (and persist) it when needed
+      let accessToken: string;
+      try {
+        accessToken = await getValidAccessToken(fastify.db, token, "google");
+      } catch (err) {
+        return reply.code(502).send({ success: false, error: "sync_failed", message: describeSyncError(err) });
+      }
+
+      const googleTasks = new GoogleTasksService(accessToken);
 
       // Fetch all task lists from Google
       const googleLists = await googleTasks.getTaskLists();
