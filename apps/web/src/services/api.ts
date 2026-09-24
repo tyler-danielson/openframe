@@ -1,4 +1,5 @@
 import { useAuthStore } from "../stores/auth";
+import { browserTimeZone } from "../lib/event-dates";
 import type {
   Calendar,
   CalendarEvent,
@@ -414,6 +415,9 @@ class ApiClient {
     if (calendarIds?.length) {
       params.set("calendarIds", calendarIds.join(","));
     }
+    // Lets the server match all-day events to this viewer's calendar dates
+    const tz = browserTimeZone();
+    if (tz) params.set("tz", tz);
 
     return this.fetch<CalendarEvent[]>(`/events?${params}`);
   }
@@ -427,6 +431,7 @@ class ApiClient {
     location?: string;
     isAllDay?: boolean;
     recurrenceRule?: string;
+    timeZone?: string;
     metadata?: Record<string, unknown>;
   }): Promise<CalendarEvent & { syncWarning?: string }> {
     const { accessToken, refreshToken, apiKey } = useAuthStore.getState();
@@ -1014,6 +1019,8 @@ class ApiClient {
     const params = new URLSearchParams();
     if (start) params.set("start", start.toISOString());
     if (end) params.set("end", end.toISOString());
+    const tz = browserTimeZone();
+    if (tz) params.set("tz", tz);
     const queryString = params.toString();
     const response = await fetch(`${API_BASE}/kiosks/public/${token}/events${queryString ? `?${queryString}` : ""}`);
     if (!response.ok) {
@@ -3974,7 +3981,13 @@ class ApiClient {
       start: start.toISOString(),
       end: end.toISOString(),
     });
+    const tz = browserTimeZone();
+    if (tz) params.set("tz", tz);
     return this.fetch<CalendarEvent[]>(`/companion/data/events?${params}`);
+  }
+
+  async getCompanionEvent(id: string): Promise<CalendarEvent> {
+    return this.fetch<CalendarEvent>(`/companion/data/events/${id}`);
   }
 
   async getCompanionCalendars(): Promise<Calendar[]> {

@@ -13,6 +13,7 @@ import { Button } from "../components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/Select";
 import { offlineCache, CACHE_KEYS, CACHE_MAX_AGES } from "../lib/offlineCache";
 import { getFederalHolidaysInRange } from "../data/federalHolidays";
+import { allDayDateToStorage } from "../lib/event-dates";
 import { useConnection } from "../contexts/ConnectionContext";
 import { useKiosk } from "../contexts/KioskContext";
 import { useDemoGuard } from "../hooks/useDemoGuard";
@@ -523,24 +524,29 @@ export function CalendarPage() {
   // Generate federal holiday events for the current date range
   const holidayEvents = useMemo((): CalendarEvent[] => {
     const holidays = getFederalHolidaysInRange(dateRange.start, dateRange.end);
-    return holidays.map(holiday => ({
-      id: `holiday-${holiday.date.toISOString()}`,
-      calendarId: "federal-holidays",
-      externalId: `holiday-${holiday.date.toISOString()}`,
-      title: holiday.name,
-      description: holiday.isObserved && holiday.actualDate
-        ? `Observed (actual date: ${format(holiday.actualDate, "MMMM d")})`
-        : null,
-      location: null,
-      startTime: holiday.date,
-      endTime: holiday.date,
-      isAllDay: true,
-      status: "confirmed" as const,
-      recurrenceRule: null,
-      recurringEventId: null,
-      attendees: [],
-      reminders: [],
-    }));
+    return holidays.map(holiday => {
+      // Holiday dates are local midnight, but all-day events are read as UTC
+      // midnight (lib/event-dates); convert, or zones east of UTC show them a day early
+      const day = allDayDateToStorage(format(holiday.date, "yyyy-MM-dd"));
+      return {
+        id: `holiday-${holiday.date.toISOString()}`,
+        calendarId: "federal-holidays",
+        externalId: `holiday-${holiday.date.toISOString()}`,
+        title: holiday.name,
+        description: holiday.isObserved && holiday.actualDate
+          ? `Observed (actual date: ${format(holiday.actualDate, "MMMM d")})`
+          : null,
+        location: null,
+        startTime: day,
+        endTime: day,
+        isAllDay: true,
+        status: "confirmed" as const,
+        recurrenceRule: null,
+        recurringEventId: null,
+        attendees: [],
+        reminders: [],
+      };
+    });
   }, [dateRange.start, dateRange.end]);
 
   // Combine and filter all events based on visibility settings for current view

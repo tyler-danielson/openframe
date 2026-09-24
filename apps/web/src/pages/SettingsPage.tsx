@@ -57,6 +57,7 @@ import { CalendarMultiSelect } from "../components/planner/CalendarMultiSelect";
 import { TaskListMultiSelect } from "../components/planner/TaskListMultiSelect";
 import { NewsFeedCategoryMultiSelect } from "../components/planner/NewsFeedCategoryMultiSelect";
 import { DEFAULT_PLANNER_CONFIG } from "../lib/planner/templates";
+import { isCalendarEnabled } from "../lib/event-dates";
 
 // SettingsTab type re-exported from SettingsSidebar
 const STATIC_TAB_IDS: SettingsTab[] = ["account", "connections", "modules", "screens", "kiosks", "ai", "assumptions", "automations", "companion", "users", "cloud", "system", "billing", "instances", "support", "cameras", "todos", "sports", "photos", "custom-screens", "planner"];
@@ -10379,7 +10380,7 @@ export function SettingsPage() {
   });
 
   // Get editable calendars for default selection
-  const editableCalendars = calendars.filter((c) => !c.isReadOnly && c.syncEnabled);
+  const editableCalendars = calendars.filter((c) => !c.isReadOnly && isCalendarEnabled(c));
   const currentDefaultCalendar = calendars.find((c) => c.isPrimary);
 
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -10608,6 +10609,7 @@ export function SettingsPage() {
 
                       const syncAgeMs = lastSync > 0 ? Date.now() - lastSync : 0;
                       const isSyncStale = isOAuth && syncAgeMs > 72 * 60 * 60 * 1000;
+                      const failing = accountCals.filter(c => c.lastSyncError);
 
                       return (
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
@@ -10616,6 +10618,12 @@ export function SettingsPage() {
                               <Clock className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
                               Last synced {new Date(lastSync).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                               {isSyncStale && " — sync may be failing, try re-syncing"}
+                            </span>
+                          )}
+                          {failing.length > 0 && (
+                            <span className="text-amber-600 dark:text-amber-400 basis-full">
+                              <AlertTriangle className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
+                              {failing.length === 1 ? `"${failing[0]!.name}" failed to sync` : `${failing.length} calendars failed to sync`}: {failing[0]!.lastSyncError}
                             </span>
                           )}
                           {isResyncable && (
@@ -10660,6 +10668,15 @@ export function SettingsPage() {
                           onDeleteCalendar={async (id) => {
                             await api.deleteCalendar(id);
                             queryClient.invalidateQueries({ queryKey: ["calendars"] });
+                          }}
+                          onSyncCalendar={async (id) => {
+                            try {
+                              await api.syncCalendar(id);
+                            } finally {
+                              // The outcome (incl. any error) is recorded on the calendar
+                              queryClient.invalidateQueries({ queryKey: ["calendars"] });
+                              queryClient.invalidateQueries({ queryKey: ["events"] });
+                            }
                           }}
                           onConnect={(provider) => {
                             if (provider === "sports") {

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Calendar } from "lucide-react";
 import { api } from "../../services/api";
+import { isCalendarEnabled } from "../../lib/event-dates";
 
 interface CalendarMultiSelectProps {
   selectedIds: string[];
@@ -23,7 +24,7 @@ export function CalendarMultiSelect({ selectedIds, onChange }: CalendarMultiSele
 
   const handleSelectAll = () => {
     if (!calendars) return;
-    const allIds = calendars.filter((c) => c.syncEnabled).map((c) => c.id);
+    const allIds = calendars.filter(isCalendarEnabled).map((c) => c.id);
     onChange(allIds);
   };
 
@@ -47,8 +48,8 @@ export function CalendarMultiSelect({ selectedIds, onChange }: CalendarMultiSele
     );
   }
 
-  // Only show calendars that have sync enabled
-  const syncedCalendars = calendars?.filter((c) => c.syncEnabled) || [];
+  // Only show enabled calendars (local calendars never sync but are enabled)
+  const syncedCalendars = calendars?.filter(isCalendarEnabled) || [];
 
   if (syncedCalendars.length === 0) {
     return (

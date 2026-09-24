@@ -11,6 +11,7 @@ import { TouchTimePicker } from "../ui/TouchTimePicker";
 import { RecurrencePicker } from "./RecurrencePicker";
 import { VoiceEventInput, isVoiceInputAvailable } from "./VoiceEventInput";
 import { api } from "../../services/api";
+import { allDayDateToStorage, browserTimeZone } from "../../lib/event-dates";
 import { useCalendarStore } from "../../stores/calendar";
 import { useToast } from "../ui/Toaster";
 import { cn } from "../../lib/utils";
@@ -116,6 +117,7 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
       location?: string;
       description?: string;
       recurrenceRule?: string;
+      timeZone?: string;
       metadata?: Record<string, unknown>;
     }) => api.createEvent(data),
     onSuccess: (data) => {
@@ -146,10 +148,9 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
     let endDateTime: Date;
 
     if (isAllDay) {
-      startDateTime = new Date(startDate);
-      startDateTime.setHours(0, 0, 0, 0);
-      endDateTime = new Date(endDate);
-      endDateTime.setHours(23, 59, 59, 999);
+      // All-day events are stored as UTC midnight of the first and last day
+      startDateTime = allDayDateToStorage(startDate);
+      endDateTime = allDayDateToStorage(endDate);
     } else {
       startDateTime = new Date(`${startDate}T${startTime}`);
       endDateTime = new Date(`${endDate}T${endTime}`);
@@ -170,6 +171,7 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
       location: location.trim() || undefined,
       description: description.trim() || undefined,
       recurrenceRule: recurrenceRule ?? undefined,
+      timeZone: browserTimeZone(),
       metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     });
   };
@@ -185,7 +187,9 @@ export function CreateEventModal({ open, onClose, calendars }: CreateEventModalP
   };
 
   const formatDateDisplay = (date: string) => {
-    return format(new Date(date), "EEE, MMM d");
+    // "yyyy-MM-dd" is a local calendar date; new Date(date) would parse it as UTC
+    const [year, month, day] = date.split("-").map(Number);
+    return format(new Date(year ?? 1970, (month ?? 1) - 1, day ?? 1), "EEE, MMM d");
   };
 
   // Handle date change with auto-sync

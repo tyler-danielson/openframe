@@ -11,6 +11,7 @@ import { TouchDatePicker } from "../ui/TouchDatePicker";
 import { TouchTimePicker } from "../ui/TouchTimePicker";
 import { useCalendarStore } from "../../stores/calendar";
 import { api } from "../../services/api";
+import { allDayDateToStorage, getEventEnd, getEventStart } from "../../lib/event-dates";
 
 interface EventModalProps {
   event: CalendarEvent | null;
@@ -128,8 +129,9 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
       setCountdownFormat((meta?.countdownFormat as "dhm" | "dh" | "d" | "sleeps") ?? "dhm");
       setCountdownLabel((meta?.countdownLabel as string) ?? "");
 
-      const start = new Date(event.startTime);
-      const end = new Date(event.endTime);
+      // All-day events are UTC-midnight dates; read them as calendar dates
+      const start = getEventStart(event);
+      const end = getEventEnd(event);
 
       const startDateStr = format(start, "yyyy-MM-dd");
       const endDateStr = format(end, "yyyy-MM-dd");
@@ -181,8 +183,8 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
 
   if (!event) return null;
 
-  const startDate = new Date(event.startTime);
-  const endDate = new Date(event.endTime);
+  const startDate = getEventStart(event);
+  const endDate = getEventEnd(event);
   const calendar = calendars.find((c) => c.id === event.calendarId);
 
   const formatEventTime = () => {
@@ -234,8 +236,8 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
         const effectiveEndDate = editIsMultiDay ? editEndDate : editStartDate;
 
         if (editIsAllDay) {
-          startDateTime = new Date(editStartDate + "T00:00:00");
-          endDateTime = new Date(effectiveEndDate + "T23:59:59");
+          startDateTime = allDayDateToStorage(editStartDate);
+          endDateTime = allDayDateToStorage(effectiveEndDate);
         } else {
           startDateTime = new Date(`${editStartDate}T${editStartTime}`);
           endDateTime = new Date(`${effectiveEndDate}T${editEndTime}`);
@@ -245,8 +247,9 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
           title: editTitle,
           startTime: startDateTime,
           endTime: endDateTime,
-          location: editLocation || undefined,
-          description: editDescription || undefined,
+          // Empty strings clear the field (undefined would leave it unchanged)
+          location: editLocation,
+          description: editDescription,
           isAllDay: editIsAllDay,
           metadata,
         } as Partial<CalendarEvent>);
@@ -274,8 +277,8 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
     setCountdownFormat((meta?.countdownFormat as "dhm" | "dh" | "d" | "sleeps") ?? "dhm");
     setCountdownLabel((meta?.countdownLabel as string) ?? "");
 
-    const start = new Date(event.startTime);
-    const end = new Date(event.endTime);
+    const start = getEventStart(event);
+    const end = getEventEnd(event);
 
     const startDateStr = format(start, "yyyy-MM-dd");
     const endDateStr = format(end, "yyyy-MM-dd");
@@ -303,7 +306,8 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
       onClose();
     } catch (error) {
       console.error("Failed to delete event:", error);
-      alert("Failed to delete event. Please try again.");
+      const msg = error instanceof Error ? error.message : "Please try again.";
+      alert(`Failed to delete event: ${msg}`);
     } finally {
       setIsDeleting(false);
     }

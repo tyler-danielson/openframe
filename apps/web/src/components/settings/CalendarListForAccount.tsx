@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Eye, EyeOff, Trash2, Check, X, Plus, Pencil, ChevronDown, ChevronUp, Monitor, MonitorOff, RotateCcw, Timer } from "lucide-react";
+import { Eye, EyeOff, Trash2, Check, X, Plus, Pencil, ChevronDown, ChevronUp, Monitor, MonitorOff, RotateCcw, Timer, AlertTriangle, RefreshCw } from "lucide-react";
 import type { Calendar, CalendarProvider, CalendarEvent, FavoriteSportsTeam } from "@openframe/shared";
 import type { Kiosk } from "../../services/api";
 import { Button } from "../ui/Button";
+import { getEventStart } from "../../lib/event-dates";
 
 function formatTimeAgo(date: Date): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -26,6 +27,8 @@ interface CalendarConnectionsViewProps {
   onRevokeKioskAccess?: (calendarId: string, kioskId: string) => void;
   onUpdateCalendar: (id: string, updates: CalendarUpdate) => void;
   onDeleteCalendar?: (id: string) => void;
+  /** Sync one calendar now; rejects with the provider's error message */
+  onSyncCalendar?: (id: string) => Promise<void>;
   onConnect: (provider: CalendarProvider) => void;
   onManageTeams: () => void;
 }
@@ -54,6 +57,7 @@ export function CalendarConnectionsView({
   onRevokeKioskAccess,
   onUpdateCalendar,
   onDeleteCalendar,
+  onSyncCalendar,
   onConnect,
   onManageTeams,
 }: CalendarConnectionsViewProps) {
@@ -139,6 +143,7 @@ export function CalendarConnectionsView({
           onDelete={
             onDeleteCalendar ? () => onDeleteCalendar(cal.id) : undefined
           }
+          onSyncNow={onSyncCalendar ? () => onSyncCalendar(cal.id) : undefined}
         />
       ))}
 
@@ -188,7 +193,7 @@ export function CalendarConnectionsView({
 // --- Single calendar row (compact) ---
 
 function formatEventTime(event: CalendarEvent): string {
-  const start = new Date(event.startTime);
+  const start = getEventStart(event);
   const end = new Date(event.endTime);
   if (event.isAllDay) {
     return start.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " (all day)";
@@ -206,6 +211,7 @@ function CalendarRow({
   onRevokeKioskAccess,
   onUpdate,
   onDelete,
+  onSyncNow,
 }: {
   calendar: Calendar;
   events?: CalendarEvent[];
@@ -213,6 +219,7 @@ function CalendarRow({
   onRevokeKioskAccess?: (calendarId: string, kioskId: string) => void;
   onUpdate: (updates: CalendarUpdate) => void;
   onDelete?: () => void;
+  onSyncNow?: () => Promise<void>;
 }) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(calendar.name);
@@ -220,6 +227,23 @@ function CalendarRow({
   const [showEvents, setShowEvents] = useState(false);
   const [showKiosks, setShowKiosks] = useState(false);
   const [showSyncInterval, setShowSyncInterval] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const syncError = syncResult && !syncResult.ok ? syncResult.message : syncResult?.ok ? null : calendar.lastSyncError;
+
+  const handleSyncNow = async () => {
+    if (!onSyncNow) return;
+    setIsSyncing(true);
+    setSyncResult(null);
+    try {
+      await onSyncNow();
+      setSyncResult({ ok: true, message: "Synced" });
+    } catch (error) {
+      setSyncResult({ ok: false, message: error instanceof Error ? error.message : "Sync failed" });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
   const previewRef = useRef<HTMLDivElement>(null);
   const todayMarkerRef = useRef<HTMLDivElement>(null);
   const isLocal = calendar.provider === "local";
@@ -331,6 +355,15 @@ function CalendarRow({
                 <span className="text-xs text-muted-foreground truncate">
                   ({calendar.originalName})
                 </span>
+              )}
+              {syncError && (
+                <button
+                  onClick={() => setShowSyncInterval(true)}
+                  className="p-0.5 text-amber-500 hover:text-amber-600 shrink-0"
+                  title={`Sync failed: ${syncError}`}
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                </button>
               )}
               <button
                 onClick={() => { setRenameValue(calendar.name); setIsRenaming(true); }}
@@ -497,6 +530,26 @@ function CalendarRow({
               <> · Last synced {new Date(calendar.lastSyncAt).toLocaleString()} ({formatTimeAgo(new Date(calendar.lastSyncAt))})</>
             )}
           </p>
+          {syncError && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 flex items-start gap-1">
+              <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
+              <span>
+                Last sync failed
+                {!syncResult && calendar.lastSyncErrorAt && <> ({formatTimeAgo(new Date(calendar.lastSyncErrorAt))})</>}: {syncError}
+              </span>
+            </p>
+          )}
+          {syncResult?.ok && <p className="text-[11px] text-green-600 dark:text-green-400 mt-1">Synced just now</p>}
+          {onSyncNow && calendar.syncEnabled && (
+            <button
+              onClick={handleSyncNow}
+              disabled={isSyncing}
+              className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3 w-3 ${isSyncing ? "animate-spin" : ""}`} />
+              {isSyncing ? "Syncing…" : "Sync now"}
+            </button>
+          )}
         </div>
       )}
 
