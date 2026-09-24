@@ -15,19 +15,32 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import { eq, and, gte, lte } from "drizzle-orm";
-import { format, startOfDay, endOfDay, addDays, startOfWeek, endOfWeek } from "date-fns";
+import { eq, and } from "drizzle-orm";
+import { format, addDays, startOfWeek, endOfWeek } from "date-fns";
 import {
   telegramConfig,
   telegramChats,
   calendars,
-  events,
+  users,
   tasks,
   taskLists,
 } from "@openframe/database/schema";
-import { decryptEventFields } from "../lib/encryption.js";
+import type { events } from "@openframe/database/schema";
+import {
+  formatUtcDate,
+  fromZonedDisplayDate,
+  resolveTimeZone,
+  toZonedDisplayDate,
+  zonedDayRange,
+} from "../lib/timezone.js";
+import { queryEventsInRange } from "./calendar-events.js";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org/bot";
+
+/** Messages use Telegram's HTML parse mode; a stray "<" or "&" makes it reject the message */
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
 // Telegram API types
 export interface TelegramUser {
@@ -321,16 +334,17 @@ export class TelegramService {
    * Handle /today command
    */
   private async handleToday(chatId: string): Promise<void> {
+    const timeZone = await this.getTimeZone();
     const today = new Date();
-    const agenda = await this.getAgendaForDate(today);
+    const agenda = await this.getAgendaForDate(today, timeZone);
 
     if (agenda.length === 0) {
       await this.sendMessage(chatId, "📅 <b>Today's Schedule</b>\n\nNo events scheduled for today.");
       return;
     }
 
-    const header = `📅 <b>Today's Schedule</b>\n${format(today, "EEEE, MMMM d")}\n\n`;
-    const eventList = this.formatEventList(agenda);
+    const header = `📅 <b>Today's Schedule</b>\n${format(toZonedDisplayDate(today, timeZone), "EEEE, MMMM d")}\n\n`;
+    const eventList = this.formatEventList(agenda, timeZone);
     await this.sendMessage(chatId, header + eventList);
   }
 
@@ -338,16 +352,17 @@ export class TelegramService {
    * Handle /tomorrow command
    */
   private async handleTomorrow(chatId: string): Promise<void> {
+    const timeZone = await this.getTimeZone();
     const tomorrow = addDays(new Date(), 1);
-    const agenda = await this.getAgendaForDate(tomorrow);
+    const agenda = await this.getAgendaForDate(tomorrow, timeZone);
 
     if (agenda.length === 0) {
       await this.sendMessage(chatId, "📅 <b>Tomorrow's Schedule</b>\n\nNo events scheduled for tomorrow.");
       return;
     }
 
-    const header = `📅 <b>Tomorrow's Schedule</b>\n${format(tomorrow, "EEEE, MMMM d")}\n\n`;
-    const eventList = this.formatEventList(agenda);
+    const header = `📅 <b>Tomorrow's Schedule</b>\n${format(toZonedDisplayDate(tomorrow, timeZone), "EEEE, MMMM d")}\n\n`;
+    const eventList = this.formatEventList(agenda, timeZone);
     await this.sendMessage(chatId, header + eventList);
   }
 
@@ -355,11 +370,16 @@ export class TelegramService {
    * Handle /week command
    */
   private async handleWeek(chatId: string): Promise<void> {
-    const today = new Date();
+    const timeZone = await this.getTimeZone();
+    const today = toZonedDisplayDate(new Date(), timeZone);
     const weekStart = startOfWeek(today, { weekStartsOn: 1 });
     const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
 
-    const agenda = await this.getAgendaForRange(weekStart, weekEnd);
+    const agenda = await this.getAgendaForRange(
+      fromZonedDisplayDate(weekStart, timeZone),
+      fromZonedDisplayDate(weekEnd, timeZone),
+      timeZone
+    );
 
     if (agenda.length === 0) {
       await this.sendMessage(chatId, "📅 <b>This Week</b>\n\nNo events scheduled this week.");
@@ -367,7 +387,7 @@ export class TelegramService {
     }
 
     const header = `📅 <b>This Week</b>\n${format(weekStart, "MMM d")} - ${format(weekEnd, "MMM d")}\n\n`;
-    const eventList = this.formatEventListGrouped(agenda);
+    const eventList = this.formatEventListGrouped(agenda, timeZone);
     await this.sendMessage(chatId, header + eventList);
   }
 
@@ -433,7 +453,7 @@ export class TelegramService {
     // For now, just acknowledge - actual implementation would parse natural language
     await this.sendMessage(
       chatId,
-      `📝 Quick add is not yet implemented.\n\nYou tried to add: "${text}"\n\nPlease use the OpenFrame web interface to add events for now.`
+      `📝 Quick add is not yet implemented.\n\nYou tried to add: "${escapeHtml(text)}"\n\nPlease use the OpenFrame web interface to add events for now.`
     );
   }
 
@@ -467,18 +487,27 @@ export class TelegramService {
   /**
    * Get events for a specific date
    */
-  private async getAgendaForDate(date: Date): Promise<typeof events.$inferSelect[]> {
-    const start = startOfDay(date);
-    const end = endOfDay(date);
-    return this.getAgendaForRange(start, end);
+  private async getTimeZone(): Promise<string> {
+    const [user] = await this.db
+      .select({ timezone: users.timezone })
+      .from(users)
+      .where(eq(users.id, this.userId))
+      .limit(1);
+    return resolveTimeZone(user?.timezone);
+  }
+
+  private async getAgendaForDate(date: Date, timeZone: string): Promise<typeof events.$inferSelect[]> {
+    const { start, end } = zonedDayRange(date, timeZone);
+    return this.getAgendaForRange(start, end, timeZone);
   }
 
   /**
-   * Get events for a date range
+   * Get events for a date range (recurring events expanded)
    */
   private async getAgendaForRange(
     start: Date,
-    end: Date
+    end: Date,
+    timeZone: string
   ): Promise<typeof events.$inferSelect[]> {
     // Get user's visible calendars
     const userCalendars = await this.db
@@ -488,42 +517,26 @@ export class TelegramService {
         and(eq(calendars.userId, this.userId), eq(calendars.isVisible, true))
       );
 
-    if (userCalendars.length === 0) {
-      return [];
-    }
-
-    const calendarIds = userCalendars.map((c) => c.id);
-
-    // Get events in range
-    const allEvents = await this.db
-      .select()
-      .from(events)
-      .where(
-        and(
-          gte(events.startTime, start),
-          lte(events.startTime, end)
-        )
-      );
-
-    // Filter to user's calendars
-    return allEvents
-      .map(decryptEventFields)
-      .filter((e) => calendarIds.includes(e.calendarId))
-      .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    return queryEventsInRange(this.db, {
+      calendarIds: userCalendars.map((c) => c.id),
+      start,
+      end,
+      timeZone,
+    });
   }
 
   /**
    * Format a list of events for display
    */
-  private formatEventList(eventList: typeof events.$inferSelect[]): string {
+  private formatEventList(eventList: typeof events.$inferSelect[], timeZone: string): string {
     return eventList
       .map((e) => {
         if (e.isAllDay) {
-          return `🔵 <b>${e.title}</b> (All day)`;
+          return `🔵 <b>${escapeHtml(e.title)}</b> (All day)`;
         }
-        const time = format(new Date(e.startTime), "h:mm a");
-        const location = e.location ? `\n   📍 ${e.location}` : "";
-        return `⏰ ${time} - <b>${e.title}</b>${location}`;
+        const time = format(toZonedDisplayDate(e.startTime, timeZone), "h:mm a");
+        const location = e.location ? `\n   📍 ${escapeHtml(e.location)}` : "";
+        return `⏰ ${time} - <b>${escapeHtml(e.title)}</b>${location}`;
       })
       .join("\n\n");
   }
@@ -532,12 +545,16 @@ export class TelegramService {
    * Format events grouped by day
    */
   private formatEventListGrouped(
-    eventList: typeof events.$inferSelect[]
+    eventList: typeof events.$inferSelect[],
+    timeZone: string
   ): string {
     const grouped = new Map<string, typeof events.$inferSelect[]>();
 
     for (const event of eventList) {
-      const dateKey = format(new Date(event.startTime), "yyyy-MM-dd");
+      // All-day events are stored as UTC-midnight dates
+      const dateKey = event.isAllDay
+        ? formatUtcDate(event.startTime)
+        : format(toZonedDisplayDate(event.startTime, timeZone), "yyyy-MM-dd");
       if (!grouped.has(dateKey)) {
         grouped.set(dateKey, []);
       }
@@ -545,16 +562,16 @@ export class TelegramService {
     }
 
     const parts: string[] = [];
-    for (const [dateKey, dayEvents] of grouped) {
-      const date = new Date(dateKey);
-      const dayHeader = `<b>${format(date, "EEEE, MMM d")}</b>`;
+    for (const [dateKey, dayEvents] of [...grouped].sort(([a], [b]) => a.localeCompare(b))) {
+      const [year, month, day] = dateKey.split("-").map(Number);
+      const dayHeader = `<b>${format(new Date(year!, month! - 1, day!), "EEEE, MMM d")}</b>`;
       const eventLines = dayEvents
         .map((e) => {
           if (e.isAllDay) {
-            return `  🔵 ${e.title}`;
+            return `  🔵 ${escapeHtml(e.title)}`;
           }
-          const time = format(new Date(e.startTime), "h:mm a");
-          return `  ⏰ ${time} - ${e.title}`;
+          const time = format(toZonedDisplayDate(e.startTime, timeZone), "h:mm a");
+          return `  ⏰ ${time} - ${escapeHtml(e.title)}`;
         })
         .join("\n");
       parts.push(`${dayHeader}\n${eventLines}`);

@@ -7,10 +7,9 @@ import {
   homeAssistantRooms,
   haEntityTimers,
   calendars,
-  events,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
-import { encryptEventFields } from "../../lib/encryption.js";
+import { syncHomeAssistantEvents } from "../../services/calendar-sync/home-assistant.js";
 
 // Helper to check if a URL is a Home Assistant instance
 async function checkHomeAssistant(url: string, timeout = 2000): Promise<{ url: string; name?: string } | null> {
@@ -2218,96 +2217,5 @@ export async function syncHACalendar(
   calendarId: string,
   entityId: string
 ): Promise<void> {
-  // Fetch events for the next 90 days
-  const start = new Date();
-  const end = new Date();
-  end.setDate(end.getDate() + 90);
-
-  const response = await fetch(
-    `${haUrl.replace(/\/+$/, "")}/api/calendars/${entityId}?start=${start.toISOString()}&end=${end.toISOString()}`,
-    {
-      headers: {
-        Authorization: `Bearer ${haToken}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch events from Home Assistant: ${response.statusText}`);
-  }
-
-  const haEvents = await response.json() as Array<{
-    uid?: string;
-    summary: string;
-    description?: string;
-    location?: string;
-    start: { dateTime?: string; date?: string };
-    end: { dateTime?: string; date?: string };
-    recurrence_id?: string;
-    rrule?: string;
-  }>;
-
-  // Get existing events for this calendar
-  const existingEvents = await db
-    .select()
-    .from(events)
-    .where(eq(events.calendarId, calendarId));
-
-  const existingByExternalId = new Map(
-    existingEvents.map((e: typeof existingEvents[number]) => [e.externalId, e])
-  );
-
-  const processedIds = new Set<string>();
-
-  for (const haEvent of haEvents) {
-    const isAllDay = !haEvent.start.dateTime;
-    const startTime = haEvent.start.dateTime
-      ? new Date(haEvent.start.dateTime)
-      : new Date(haEvent.start.date + "T00:00:00");
-    const endTime = haEvent.end.dateTime
-      ? new Date(haEvent.end.dateTime)
-      : new Date(haEvent.end.date + "T00:00:00");
-
-    // HA returns expanded instances of recurring events, each with the correct
-    // DST-adjusted time. Use a unique externalId per occurrence so each instance
-    // is stored separately. Don't store the rrule — HA already handles expansion
-    // and our RRule expansion uses fixed UTC offsets that break across DST boundaries.
-    const dateKey = haEvent.start.dateTime || haEvent.start.date || "";
-    const externalId = haEvent.uid
-      ? (haEvent.rrule ? `${haEvent.uid}|${dateKey}` : haEvent.uid)
-      : `${haEvent.summary}-${dateKey}`;
-    processedIds.add(externalId);
-
-    const eventData = encryptEventFields({
-      calendarId,
-      externalId,
-      title: haEvent.summary,
-      description: haEvent.description || null,
-      location: haEvent.location || null,
-      startTime,
-      endTime,
-      isAllDay,
-      status: "confirmed" as const,
-      recurrenceRule: null,
-      updatedAt: new Date(),
-    });
-
-    const existing = existingByExternalId.get(externalId);
-    if (existing) {
-      await db
-        .update(events)
-        .set(eventData)
-        .where(eq(events.id, existing.id));
-    } else {
-      await db.insert(events).values(eventData);
-    }
-  }
-
-  // Delete events that no longer exist
-  for (const existing of existingEvents) {
-    if (!processedIds.has(existing.externalId)) {
-      await db.delete(events).where(eq(events.id, existing.id));
-    }
-  }
+  await syncHomeAssistantEvents(db, { calendarId, entityId, haUrl, haToken });
 }

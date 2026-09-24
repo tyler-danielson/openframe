@@ -74,6 +74,8 @@ export interface Calendar {
   showOnDashboard: boolean;
   kioskEnabled: boolean;
   lastSyncAt: Date | null;
+  lastSyncError?: string | null; // Why the last sync attempt failed (null when it succeeded)
+  lastSyncErrorAt?: Date | null;
   visibility: CalendarVisibility;
   sourceUrl?: string | null; // URL for ICS subscriptions
   oauthTokenId?: string | null; // Links to the OAuth account this calendar came from
@@ -92,6 +94,7 @@ export interface CalendarEvent {
   isAllDay: boolean;
   status: "confirmed" | "tentative" | "cancelled";
   recurrenceRule: string | null;
+  timeZone?: string | null; // IANA zone the event (and its recurrence) is defined in
   recurringEventId: string | null;
   attendees: EventAttendee[];
   reminders: EventReminder[];

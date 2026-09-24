@@ -1,220 +1,176 @@
-import { eq, and } from "drizzle-orm";
-import { events } from "@openframe/database/schema";
+import { createHash } from "crypto";
+import { eq } from "drizzle-orm";
+import { calendars, events, users } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
-import { encryptEventFields } from "../../lib/encryption.js";
+import { CalendarSyncError } from "./errors.js";
+import { deleteEventsMissingFromListing, upsertSyncedEvents, type SyncedEvent } from "./event-store.js";
+import { providerFetch, readTextLimited } from "./http.js";
+import { parseIcs, type IcsCalendar } from "./ics-parser.js";
 
-interface ICSEvent {
-  uid: string;
-  summary: string;
-  description?: string;
-  location?: string;
-  dtstart: Date;
-  dtend: Date;
-  isAllDay: boolean;
-  rrule?: string;
-  status?: string;
+type CalendarRecord = typeof calendars.$inferSelect;
+
+const MAX_FEED_BYTES = 20 * 1024 * 1024;
+
+export function normalizeFeedUrl(url: string): string {
+  return url.trim().replace(/^webcals?:\/\//i, "https://");
 }
 
-/**
- * Parse an ICS file and extract events
- */
-function parseICS(icsContent: string): ICSEvent[] {
-  const events: ICSEvent[] = [];
-  const lines = icsContent.replace(/\r\n /g, "").replace(/\r\n\t/g, "").split(/\r?\n/);
-
-  let currentEvent: Partial<ICSEvent> | null = null;
-  let inEvent = false;
-
-  for (const line of lines) {
-    if (line === "BEGIN:VEVENT") {
-      inEvent = true;
-      currentEvent = {};
-      continue;
-    }
-
-    if (line === "END:VEVENT") {
-      inEvent = false;
-      if (currentEvent?.uid && currentEvent.summary && currentEvent.dtstart && currentEvent.dtend) {
-        events.push(currentEvent as ICSEvent);
-      }
-      currentEvent = null;
-      continue;
-    }
-
-    if (!inEvent || !currentEvent) continue;
-
-    // Parse property:value pairs
-    const colonIndex = line.indexOf(":");
-    if (colonIndex === -1) continue;
-
-    const propertyPart = line.substring(0, colonIndex);
-    const value = line.substring(colonIndex + 1);
-
-    // Handle properties with parameters (e.g., DTSTART;VALUE=DATE:20240101)
-    const [property] = propertyPart.split(";");
-    const params = propertyPart.includes(";") ? propertyPart.substring(propertyPart.indexOf(";") + 1) : "";
-
-    switch (property) {
-      case "UID":
-        currentEvent.uid = value;
-        break;
-      case "SUMMARY":
-        currentEvent.summary = unescapeICS(value);
-        break;
-      case "DESCRIPTION":
-        currentEvent.description = unescapeICS(value);
-        break;
-      case "LOCATION":
-        currentEvent.location = unescapeICS(value);
-        break;
-      case "DTSTART":
-        currentEvent.dtstart = parseICSDate(value, params);
-        currentEvent.isAllDay = params.includes("VALUE=DATE") && !params.includes("VALUE=DATE-TIME");
-        break;
-      case "DTEND":
-        currentEvent.dtend = parseICSDate(value, params);
-        break;
-      case "RRULE":
-        currentEvent.rrule = value;
-        break;
-      case "STATUS":
-        currentEvent.status = value.toLowerCase();
-        break;
-    }
+/** Download an ICS feed (http/https/webcal), with a timeout and size cap. */
+export async function fetchIcsFeed(url: string): Promise<string> {
+  let parsed: URL;
+  try {
+    parsed = new URL(normalizeFeedUrl(url));
+  } catch {
+    throw new CalendarSyncError("Invalid calendar feed URL");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new CalendarSyncError("Calendar feed URL must start with https://, http:// or webcal://");
   }
 
-  return events;
-}
-
-/**
- * Parse an ICS date/datetime string
- */
-function parseICSDate(value: string, params: string): Date {
-  // All-day date format: YYYYMMDD
-  if (params.includes("VALUE=DATE") && !params.includes("VALUE=DATE-TIME")) {
-    const year = parseInt(value.substring(0, 4));
-    const month = parseInt(value.substring(4, 6)) - 1;
-    const day = parseInt(value.substring(6, 8));
-    return new Date(year, month, day);
-  }
-
-  // DateTime format: YYYYMMDDTHHMMSS or YYYYMMDDTHHMMSSZ
-  const year = parseInt(value.substring(0, 4));
-  const month = parseInt(value.substring(4, 6)) - 1;
-  const day = parseInt(value.substring(6, 8));
-  const hour = parseInt(value.substring(9, 11)) || 0;
-  const minute = parseInt(value.substring(11, 13)) || 0;
-  const second = parseInt(value.substring(13, 15)) || 0;
-
-  // If UTC (ends with Z)
-  if (value.endsWith("Z")) {
-    return new Date(Date.UTC(year, month, day, hour, minute, second));
-  }
-
-  // Otherwise treat as local time
-  return new Date(year, month, day, hour, minute, second);
-}
-
-/**
- * Unescape ICS special characters
- */
-function unescapeICS(value: string): string {
-  return value
-    .replace(/\\n/g, "\n")
-    .replace(/\\,/g, ",")
-    .replace(/\\;/g, ";")
-    .replace(/\\\\/g, "\\");
-}
-
-/**
- * Map ICS status to our event status
- */
-function mapStatus(icsStatus?: string): "confirmed" | "tentative" | "cancelled" {
-  switch (icsStatus) {
-    case "tentative":
-      return "tentative";
-    case "cancelled":
-      return "cancelled";
-    default:
-      return "confirmed";
-  }
-}
-
-/**
- * Sync events from an ICS calendar feed
- */
-export async function syncICSCalendar(
-  db: Database,
-  calendarId: string,
-  sourceUrl: string
-): Promise<void> {
-  // Fetch the ICS file
-  const response = await fetch(sourceUrl, {
-    headers: {
-      "User-Agent": "OpenFrame/1.0",
+  const response = await providerFetch(
+    parsed.toString(),
+    {
+      headers: { "User-Agent": "OpenFrame/1.0", Accept: "text/calendar, text/plain;q=0.9, */*;q=0.8" },
+      redirect: "follow",
     },
+    { timeoutMs: 30_000, retries: 1 }
+  );
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new CalendarSyncError(`Calendar feed returned HTTP ${response.status}`, response.status);
+  }
+  const content = await readTextLimited(response, MAX_FEED_BYTES);
+  if (!/BEGIN:VCALENDAR/i.test(content)) {
+    throw new CalendarSyncError("URL did not return an iCalendar (.ics) feed");
+  }
+  return content;
+}
+
+function contentHash(value: unknown): string {
+  return createHash("sha1").update(JSON.stringify(value)).digest("hex");
+}
+
+/**
+ * Turn a parsed feed into stored rows. Pure; exported for tests.
+ *
+ * - A VEVENT's UID is its externalId. Overrides (RECURRENCE-ID) share the
+ *   UID, so they get `uid::<original start>` and point at their series.
+ * - Cancelled overrides become exception dates on the series.
+ * - Feeds that reuse a UID for unrelated events get the start appended.
+ * - `etag` carries a hash of the row so unchanged events aren't rewritten.
+ */
+export function buildIcsRows(feed: IcsCalendar): SyncedEvent[] {
+  const standaloneUidCounts = new Map<string, number>();
+  for (const event of feed.events) {
+    if (!event.recurrenceId && event.uid) {
+      standaloneUidCounts.set(event.uid, (standaloneUidCounts.get(event.uid) ?? 0) + 1);
+    }
+  }
+
+  const cancelledByUid = new Map<string, string[]>();
+  for (const event of feed.events) {
+    if (event.recurrenceId && event.uid && event.status === "cancelled") {
+      const list = cancelledByUid.get(event.uid) ?? [];
+      list.push(event.recurrenceId.toISOString());
+      cancelledByUid.set(event.uid, list);
+    }
+  }
+
+  const rows = new Map<string, SyncedEvent>();
+  const seriesIdByUid = new Map<string, string>();
+
+  // Series and standalone events first, so overrides can find their series
+  for (const event of feed.events) {
+    if (event.recurrenceId || event.status === "cancelled") continue;
+    let externalId: string;
+    if (!event.uid) {
+      externalId = `nouid::${contentHash([event.summary, event.start.toISOString()]).slice(0, 16)}`;
+    } else if ((standaloneUidCounts.get(event.uid) ?? 0) > 1) {
+      externalId = `${event.uid}::${event.start.toISOString()}`;
+    } else {
+      externalId = event.uid;
+    }
+    if (event.uid && event.rrule && !seriesIdByUid.has(event.uid)) seriesIdByUid.set(event.uid, externalId);
+
+    const exdates = event.rrule
+      ? [...new Set([...event.exdates.map((d) => d.toISOString()), ...(event.uid ? (cancelledByUid.get(event.uid) ?? []) : [])])].sort()
+      : null;
+    const row: SyncedEvent = {
+      externalId,
+      title: event.summary,
+      description: event.description,
+      location: event.location,
+      startTime: event.start,
+      endTime: event.end,
+      isAllDay: event.isAllDay,
+      status: event.status === "tentative" ? "tentative" : "confirmed",
+      recurrenceRule: event.rrule,
+      timeZone: event.timeZone,
+      exdates,
+      recurringEventId: null,
+      originalStartTime: null,
+    };
+    rows.set(externalId, { ...row, etag: `ics:${contentHash(row)}` });
+  }
+
+  for (const event of feed.events) {
+    if (!event.recurrenceId || !event.uid || event.status === "cancelled") continue;
+    const externalId = `${event.uid}::${event.recurrenceId.toISOString()}`;
+    const row: SyncedEvent = {
+      externalId,
+      title: event.summary,
+      description: event.description,
+      location: event.location,
+      startTime: event.start,
+      endTime: event.end,
+      isAllDay: event.isAllDay,
+      status: event.status === "tentative" ? "tentative" : "confirmed",
+      recurrenceRule: null,
+      timeZone: event.timeZone,
+      exdates: null,
+      recurringEventId: seriesIdByUid.get(event.uid) ?? event.uid,
+      originalStartTime: event.recurrenceId,
+    };
+    rows.set(externalId, { ...row, etag: `ics:${contentHash(row)}` });
+  }
+
+  return [...rows.values()];
+}
+
+/**
+ * Sync a subscribed ICS feed. The feed is the source of truth: events it no
+ * longer contains are removed. Only new or changed events are written.
+ */
+export async function syncIcsCalendar(
+  db: Database,
+  calendar: CalendarRecord,
+  { force = false }: { force?: boolean } = {}
+): Promise<void> {
+  if (!calendar.sourceUrl) throw new CalendarSyncError("This calendar has no feed URL");
+  const content = await fetchIcsFeed(calendar.sourceUrl);
+
+  const [owner] = await db
+    .select({ timezone: users.timezone })
+    .from(users)
+    .where(eq(users.id, calendar.userId))
+    .limit(1);
+  const rows = buildIcsRows(parseIcs(content, { defaultTimeZone: owner?.timezone }));
+
+  const stored = await db
+    .select({ externalId: events.externalId, etag: events.etag })
+    .from(events)
+    .where(eq(events.calendarId, calendar.id));
+  const storedEtags = new Map(stored.map((row) => [row.externalId, row.etag]));
+  const changed = force ? rows : rows.filter((row) => storedEtags.get(row.externalId) !== row.etag);
+
+  await upsertSyncedEvents(db, calendar.id, changed);
+  await deleteEventsMissingFromListing(db, calendar.id, new Set(rows.map((row) => row.externalId)), {
+    providerRowsOnly: false,
   });
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ICS calendar: ${response.statusText}`);
-  }
-
-  const icsContent = await response.text();
-  const icsEvents = parseICS(icsContent);
-
-  // Get existing events for this calendar
-  const existingEvents = await db
-    .select()
-    .from(events)
-    .where(eq(events.calendarId, calendarId));
-
-  const existingByExternalId = new Map(
-    existingEvents.map((e) => [e.externalId, e])
-  );
-
-  const processedIds = new Set<string>();
-
-  // Upsert events
-  for (const icsEvent of icsEvents) {
-    processedIds.add(icsEvent.uid);
-    const existing = existingByExternalId.get(icsEvent.uid);
-
-    const eventData = {
-      calendarId,
-      externalId: icsEvent.uid,
-      title: icsEvent.summary,
-      description: icsEvent.description || null,
-      location: icsEvent.location || null,
-      startTime: icsEvent.dtstart,
-      // ICS uses exclusive end dates for all-day events (DTEND is day after).
-      // Subtract one day so we store inclusive end dates.
-      endTime: icsEvent.isAllDay
-        ? new Date(icsEvent.dtend.getFullYear(), icsEvent.dtend.getMonth(), icsEvent.dtend.getDate() - 1)
-        : icsEvent.dtend,
-      isAllDay: icsEvent.isAllDay,
-      status: mapStatus(icsEvent.status),
-      recurrenceRule: icsEvent.rrule || null,
-      updatedAt: new Date(),
-    };
-
-    const encryptedEventData = encryptEventFields(eventData);
-
-    if (existing) {
-      // Update existing event
-      await db
-        .update(events)
-        .set(encryptedEventData)
-        .where(eq(events.id, existing.id));
-    } else {
-      // Insert new event
-      await db.insert(events).values(encryptedEventData);
-    }
-  }
-
-  // Delete events that no longer exist in the feed
-  for (const existing of existingEvents) {
-    if (!processedIds.has(existing.externalId)) {
-      await db.delete(events).where(eq(events.id, existing.id));
-    }
-  }
+  const now = new Date();
+  await db
+    .update(calendars)
+    .set({ lastSyncAt: now, fullSyncAt: now, updatedAt: now })
+    .where(eq(calendars.id, calendar.id));
 }

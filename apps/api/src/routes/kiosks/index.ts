@@ -6,8 +6,8 @@ import {
   photoAlbums,
   photos,
   calendars,
-  events,
   customScreens,
+  users,
   type KioskDashboard,
   type DashboardType,
   type KioskEnabledFeatures,
@@ -15,7 +15,8 @@ import {
 } from "@openframe/database/schema";
 import { desc } from "drizzle-orm";
 import { getCurrentUser } from "../../plugins/auth.js";
-import { decryptEventFields } from "../../lib/encryption.js";
+import { isValidTimeZone } from "../../lib/timezone.js";
+import { queryEventsInRange } from "../../services/calendar-events.js";
 import { randomUUID } from "crypto";
 import fs from "fs/promises";
 import { createReadStream } from "fs";
@@ -1222,7 +1223,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const { token } = request.params as { token: string };
-      const { start, end } = request.query as { start?: string; end?: string };
+      const { start, end, tz } = request.query as { start?: string; end?: string; tz?: string };
 
       const [kiosk] = await fastify.db
         .select()
@@ -1278,22 +1279,20 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       const now = new Date();
       const startDate = start ? new Date(start) : now;
       const endDate = end ? new Date(end) : new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        return reply.badRequest("start and end must be valid dates");
+      }
 
-      const allEvents = await fastify.db
-        .select()
-        .from(events)
-        .where(
-          and(
-            // Filter by calendar IDs - note: drizzle doesn't have an in() helper for this case
-            // so we'll filter in JS
-          )
-        );
-
-      const filteredEvents = allEvents.map(decryptEventFields).filter((event) => {
-        if (!calendarIds.includes(event.calendarId)) return false;
-        const eventStart = new Date(event.startTime);
-        const eventEnd = new Date(event.endTime);
-        return eventEnd >= startDate && eventStart <= endDate;
+      const [owner] = await fastify.db
+        .select({ timezone: users.timezone })
+        .from(users)
+        .where(eq(users.id, kiosk.userId))
+        .limit(1);
+      const filteredEvents = await queryEventsInRange(fastify.db, {
+        calendarIds,
+        start: startDate,
+        end: endDate,
+        timeZone: tz && isValidTimeZone(tz) ? tz : owner?.timezone,
       });
 
       // Return events without sensitive data

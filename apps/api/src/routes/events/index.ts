@@ -1,13 +1,37 @@
 import type { FastifyPluginAsync } from "fastify";
 import { randomUUID } from "crypto";
-import { eq, and, or, gte, lte, inArray, isNotNull } from "drizzle-orm";
-import { calendars, events, oauthTokens } from "@openframe/database/schema";
-import { eventQuerySchema, createEventSchema, quickEventSchema } from "@openframe/shared/validators";
+import { eq, and } from "drizzle-orm";
+import { calendars, events } from "@openframe/database/schema";
+import type { Database } from "@openframe/database";
+import {
+  eventQuerySchema,
+  createEventSchema,
+  quickEventSchema,
+  updateEventSchema,
+} from "@openframe/shared/validators";
 import { getCurrentUser } from "../../plugins/auth.js";
-import { expandRecurringEvents } from "../../services/calendar-sync/recurrence.js";
-import { pushEventToGoogle, updateEventInGoogle, deleteEventFromGoogle } from "../../services/calendar-sync/google.js";
-import { pushEventToMicrosoft, updateEventInMicrosoft, deleteEventFromMicrosoft } from "../../services/calendar-sync/microsoft.js";
-import { encryptField, encryptEventFields, decryptEventFields } from "../../lib/encryption.js";
+import { queryEventsInRange } from "../../services/calendar-events.js";
+import { pushEventChange } from "../../services/calendar-sync/push.js";
+import { encryptEventFields, decryptEventFields } from "../../lib/encryption.js";
+import { isValidTimeZone, resolveTimeZone } from "../../lib/timezone.js";
+import { parseQuickEvent } from "../../services/quick-event.js";
+
+type CalendarRecord = typeof calendars.$inferSelect;
+
+/** Client-supplied zone if valid, else the user's configured one, else UTC. */
+function pickTimeZone(requested: string | null | undefined, userTimeZone: string | null | undefined): string {
+  if (requested && isValidTimeZone(requested)) return requested;
+  return resolveTimeZone(userTimeZone);
+}
+
+async function getOwnedCalendar(db: Database, calendarId: string, userId: string): Promise<CalendarRecord | undefined> {
+  const [calendar] = await db
+    .select()
+    .from(calendars)
+    .where(and(eq(calendars.id, calendarId), eq(calendars.userId, userId)))
+    .limit(1);
+  return calendar;
+}
 
 export const eventRoutes: FastifyPluginAsync = async (fastify) => {
   // Get events
@@ -26,6 +50,7 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
             end: { type: "string", format: "date-time" },
             calendarIds: { type: "string" },
             includeAllDay: { type: "boolean" },
+            tz: { type: "string", description: "Viewer's IANA time zone (defaults to the user's)" },
           },
           required: ["start", "end"],
         },
@@ -38,79 +63,39 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const query = eventQuerySchema.parse(request.query);
 
-      // Get user's calendars (all of them, filtering will be done by calendarIds param)
       const userCalendars = await fastify.db
         .select()
         .from(calendars)
         .where(eq(calendars.userId, user.id));
 
-      // Filter to only enabled calendars the user owns
-      // If calendarIds provided, use those (security + syncEnabled check)
-      // Otherwise fall back to visible + enabled calendars
-      const enabledCalendars = userCalendars.filter((c) => c.syncEnabled);
+      // Disabled calendars never show. With explicit calendarIds, use those
+      // (limited to the user's enabled calendars); otherwise, visible ones.
+      const enabledCalendars = userCalendars.filter((c) => c.syncEnabled || c.provider === "local");
       const calendarIds = query.calendarIds?.length
-        ? query.calendarIds.filter((id) =>
-            enabledCalendars.some((c) => c.id === id)
-          )
+        ? query.calendarIds.filter((id) => enabledCalendars.some((c) => c.id === id))
         : enabledCalendars.filter((c) => c.isVisible).map((c) => c.id);
 
-      if (calendarIds.length === 0) {
-        return {
-          success: true,
-          data: [],
-        };
-      }
+      const expandedEvents = await queryEventsInRange(fastify.db, {
+        calendarIds,
+        start: query.start,
+        end: query.end,
+        timeZone: pickTimeZone(query.tz, user.timezone),
+      });
 
-      // Get events in range, plus recurring master events that may have
-      // occurrences in range (their endTime is the first occurrence only)
-      const eventResults = await fastify.db
-        .select()
-        .from(events)
-        .where(
-          and(
-            inArray(events.calendarId, calendarIds),
-            or(
-              // Normal events: fall within the queried range
-              and(
-                lte(events.startTime, query.end),
-                gte(events.endTime, query.start)
-              ),
-              // Recurring master events: started before range end (may have future occurrences)
-              and(
-                isNotNull(events.recurrenceRule),
-                lte(events.startTime, query.end)
-              )
-            )
-          )
-        );
-
-      // Decrypt event fields before expanding
-      const decryptedResults = eventResults.map(decryptEventFields);
-
-      // Expand recurring events
-      const expandedEvents = expandRecurringEvents(
-        decryptedResults,
-        query.start,
-        query.end
-      );
-
-      // Include all events by default (no filtering)
-      const filteredEvents = expandedEvents;
-
-      // Add calendar info
       const calendarMap = new Map(userCalendars.map((c) => [c.id, c]));
-      const eventsWithCalendar = filteredEvents.map((event) => ({
-        ...event,
-        calendar: {
-          id: event.calendarId,
-          name: calendarMap.get(event.calendarId)?.name,
-          color: calendarMap.get(event.calendarId)?.color,
-        },
-      }));
-
       return {
         success: true,
-        data: eventsWithCalendar,
+        data: expandedEvents.map((event) => {
+          const calendar = calendarMap.get(event.calendarId);
+          return {
+            ...event,
+            calendar: {
+              id: event.calendarId,
+              name: calendar ? calendar.displayName || calendar.name : undefined,
+              color: calendar?.color,
+            },
+          };
+        }),
       };
     }
   );
@@ -140,25 +125,12 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { id } = request.params as { id: string };
 
-      const [event] = await fastify.db
-        .select()
-        .from(events)
-        .where(eq(events.id, id))
-        .limit(1);
-
+      const [event] = await fastify.db.select().from(events).where(eq(events.id, id)).limit(1);
       if (!event) {
         return reply.notFound("Event not found");
       }
 
-      // Verify user owns the calendar
-      const [calendar] = await fastify.db
-        .select()
-        .from(calendars)
-        .where(
-          and(eq(calendars.id, event.calendarId), eq(calendars.userId, user.id))
-        )
-        .limit(1);
-
+      const calendar = await getOwnedCalendar(fastify.db, event.calendarId, user.id);
       if (!calendar) {
         return reply.notFound("Event not found");
       }
@@ -197,6 +169,8 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
             endTime: { type: "string", format: "date-time" },
             isAllDay: { type: "boolean" },
             recurrenceRule: { type: "string" },
+            timeZone: { type: "string" },
+            metadata: { type: "object" },
           },
           required: ["calendarId", "title", "startTime", "endTime"],
         },
@@ -209,80 +183,51 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const input = createEventSchema.parse(request.body);
 
-      // Verify user owns the calendar
-      const [calendar] = await fastify.db
-        .select()
-        .from(calendars)
-        .where(
-          and(
-            eq(calendars.id, input.calendarId),
-            eq(calendars.userId, user.id)
-          )
-        )
-        .limit(1);
-
+      const calendar = await getOwnedCalendar(fastify.db, input.calendarId, user.id);
       if (!calendar) {
         return reply.notFound("Calendar not found");
       }
-
       if (calendar.isReadOnly) {
         return reply.badRequest("Calendar is read-only");
       }
+      if (input.endTime < input.startTime) {
+        return reply.badRequest("Event can't end before it starts");
+      }
 
-      // Create event in database (encrypt sensitive fields)
       const [event] = await fastify.db
         .insert(events)
-        .values(encryptEventFields({
-          calendarId: input.calendarId,
-          externalId: `local_${randomUUID()}`,
-          title: input.title,
-          description: input.description,
-          location: input.location,
-          startTime: input.startTime,
-          endTime: input.endTime,
-          isAllDay: input.isAllDay,
-          recurrenceRule: input.recurrenceRule,
-          attendees: input.attendees,
-          reminders: input.reminders,
-        }))
+        .values(
+          encryptEventFields({
+            calendarId: input.calendarId,
+            externalId: `local_${randomUUID()}`,
+            title: input.title,
+            description: input.description,
+            location: input.location,
+            startTime: input.startTime,
+            endTime: input.endTime,
+            isAllDay: input.isAllDay,
+            recurrenceRule: input.recurrenceRule,
+            timeZone: input.isAllDay ? null : pickTimeZone(input.timeZone, user.timezone),
+            attendees: input.attendees,
+            reminders: input.reminders,
+            metadata: input.metadata ?? {},
+          })
+        )
         .returning();
 
-      // Sync to external calendar provider
-      if ((calendar.provider === "google" || calendar.provider === "microsoft") && event) {
-        const [token] = await fastify.db
-          .select()
-          .from(oauthTokens)
-          .where(
-            and(
-              eq(oauthTokens.userId, user.id),
-              eq(oauthTokens.provider, calendar.provider as "google" | "microsoft")
-            )
-          )
-          .limit(1);
-
-        if (token) {
-          let syncWarning: string | undefined;
-          if (calendar.provider === "google") {
-            const result = await pushEventToGoogle(fastify.db, user.id, calendar, event, token);
-            if (!result.success) syncWarning = result.error;
-          } else {
-            await pushEventToMicrosoft(fastify.db, user.id, calendar, event, token);
-          }
-          // Re-fetch so response includes the updated externalId
-          const [updated] = await fastify.db
-            .select()
-            .from(events)
-            .where(eq(events.id, event.id))
-            .limit(1);
-          if (updated) {
-            return reply.status(201).send({ success: true, data: decryptEventFields(updated), ...(syncWarning ? { syncWarning } : {}) });
-          }
-        }
+      if (!event) {
+        return reply.internalServerError("Failed to create event");
       }
+
+      // Send to Google/Microsoft; a failure keeps the event locally and is
+      // retried on the next edit
+      const push = await pushEventChange(fastify.db, calendar, event, "create", user.timezone);
+      const [current] = await fastify.db.select().from(events).where(eq(events.id, event.id)).limit(1);
 
       return reply.status(201).send({
         success: true,
-        data: event ? decryptEventFields(event) : event,
+        data: decryptEventFields(current ?? event),
+        ...(push && !push.ok ? { syncWarning: push.error } : {}),
       });
     }
   );
@@ -301,6 +246,7 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
           properties: {
             text: { type: "string" },
             calendarId: { type: "string", format: "uuid" },
+            timeZone: { type: "string" },
           },
           required: ["text"],
         },
@@ -313,85 +259,54 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const input = quickEventSchema.parse(request.body);
 
-      // Get default calendar if not specified
-      let calendarId = input.calendarId;
-      if (!calendarId) {
-        const [primaryCalendar] = await fastify.db
+      let calendar: CalendarRecord | undefined;
+      if (input.calendarId) {
+        calendar = await getOwnedCalendar(fastify.db, input.calendarId, user.id);
+        if (!calendar) return reply.notFound("Calendar not found");
+      } else {
+        [calendar] = await fastify.db
           .select()
           .from(calendars)
-          .where(
-            and(eq(calendars.userId, user.id), eq(calendars.isPrimary, true))
-          )
+          .where(and(eq(calendars.userId, user.id), eq(calendars.isPrimary, true)))
           .limit(1);
-
-        if (!primaryCalendar) {
-          return reply.badRequest("No default calendar found");
-        }
-        calendarId = primaryCalendar.id;
+        if (!calendar) return reply.badRequest("No default calendar found");
+      }
+      if (calendar.isReadOnly) {
+        return reply.badRequest("Calendar is read-only");
       }
 
-      // Simple natural language parsing
-      const parsed = parseQuickEvent(input.text);
-
+      const timeZone = pickTimeZone(input.timeZone, user.timezone);
+      const parsed = parseQuickEvent(input.text, timeZone);
       if (!parsed) {
-        return reply.badRequest(
-          "Could not parse event. Try format: 'Meeting with John tomorrow at 2pm'"
-        );
+        return reply.badRequest("Could not parse event. Try format: 'Meeting with John tomorrow at 2pm'");
       }
 
       const [event] = await fastify.db
         .insert(events)
-        .values(encryptEventFields({
-          calendarId,
-          externalId: `local_${randomUUID()}`,
-          title: parsed.title,
-          startTime: parsed.startTime,
-          endTime: parsed.endTime,
-          isAllDay: parsed.isAllDay,
-        }))
+        .values(
+          encryptEventFields({
+            calendarId: calendar.id,
+            externalId: `local_${randomUUID()}`,
+            title: parsed.title,
+            startTime: parsed.startTime,
+            endTime: parsed.endTime,
+            isAllDay: parsed.isAllDay,
+            timeZone: parsed.isAllDay ? null : timeZone,
+          })
+        )
         .returning();
 
-      // Sync to external calendar provider
-      if (event) {
-        const [cal] = await fastify.db
-          .select()
-          .from(calendars)
-          .where(eq(calendars.id, calendarId))
-          .limit(1);
-
-        if (cal?.provider === "google" || cal?.provider === "microsoft") {
-          const [token] = await fastify.db
-            .select()
-            .from(oauthTokens)
-            .where(
-              and(
-                eq(oauthTokens.userId, user.id),
-                eq(oauthTokens.provider, cal.provider as "google" | "microsoft")
-              )
-            )
-            .limit(1);
-
-          if (token) {
-            if (cal.provider === "google") {
-              await pushEventToGoogle(fastify.db, user.id, cal, event, token);
-            } else {
-              await pushEventToMicrosoft(fastify.db, user.id, cal, event, token);
-            }
-            const [updated] = await fastify.db
-              .select()
-              .from(events)
-              .where(eq(events.id, event.id))
-              .limit(1);
-            if (updated) {
-              return reply.status(201).send({ success: true, data: decryptEventFields(updated) });
-            }
-          }
-        }
+      if (!event) {
+        return reply.internalServerError("Failed to create event");
       }
+
+      const push = await pushEventChange(fastify.db, calendar, event, "create", timeZone);
+      const [current] = await fastify.db.select().from(events).where(eq(events.id, event.id)).limit(1);
 
       return reply.status(201).send({
         success: true,
-        data: event ? decryptEventFields(event) : event,
+        data: decryptEventFields(current ?? event),
+        ...(push && !push.ok ? { syncWarning: push.error } : {}),
       });
     }
   );
@@ -420,111 +335,94 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
       const { id } = request.params as { id: string };
-      const body = request.body as Partial<{
-        title: string;
-        description: string;
-        location: string;
-        startTime: string | Date;
-        endTime: string | Date;
-        isAllDay: boolean;
-        metadata: Record<string, unknown>;
-      }>;
+      const parsedBody = updateEventSchema.safeParse(request.body ?? {});
+      if (!parsedBody.success) {
+        return reply.badRequest(parsedBody.error.issues[0]?.message ?? "Invalid event update");
+      }
+      const body = parsedBody.data;
 
-      // Parse date strings into Date objects and encrypt sensitive fields
-      const updates: Partial<{
-        title: string;
-        description: string;
-        location: string;
-        startTime: Date;
-        endTime: Date;
-        isAllDay: boolean;
-        metadata: Record<string, unknown>;
-      }> = {
-        ...body,
-        ...(body.title !== undefined ? { title: encryptField(body.title) ?? body.title } : {}),
-        ...(body.description !== undefined ? { description: encryptField(body.description) ?? body.description } : {}),
-        ...(body.location !== undefined ? { location: encryptField(body.location) ?? body.location } : {}),
-        startTime: body.startTime ? new Date(body.startTime) : undefined,
-        endTime: body.endTime ? new Date(body.endTime) : undefined,
-      };
-
-      // Get event and verify ownership
-      const [existingEvent] = await fastify.db
-        .select()
-        .from(events)
-        .where(eq(events.id, id))
-        .limit(1);
-
+      const [existingEvent] = await fastify.db.select().from(events).where(eq(events.id, id)).limit(1);
       if (!existingEvent) {
         return reply.notFound("Event not found");
       }
 
-      const [calendar] = await fastify.db
-        .select()
-        .from(calendars)
-        .where(
-          and(
-            eq(calendars.id, existingEvent.calendarId),
-            eq(calendars.userId, user.id)
-          )
-        )
-        .limit(1);
-
+      const calendar = await getOwnedCalendar(fastify.db, existingEvent.calendarId, user.id);
       if (!calendar) {
         return reply.notFound("Event not found");
       }
-
-      // Merge metadata (shallow merge new keys into existing)
-      if (body.metadata !== undefined) {
-        const existingMetadata = (existingEvent.metadata as Record<string, unknown>) ?? {};
-        updates.metadata = { ...existingMetadata, ...body.metadata };
+      if (body.calendarId && body.calendarId !== existingEvent.calendarId) {
+        return reply.badRequest("Moving events between calendars isn't supported");
       }
 
+      // Metadata holds OpenFrame-only settings (countdowns): shallow-merge it
+      const metadata =
+        body.metadata !== undefined
+          ? { ...((existingEvent.metadata as Record<string, unknown>) ?? {}), ...body.metadata }
+          : undefined;
+
+      const updates = {
+        ...(body.title !== undefined ? { title: body.title } : {}),
+        ...(body.description !== undefined ? { description: body.description || null } : {}),
+        ...(body.location !== undefined ? { location: body.location || null } : {}),
+        ...(body.startTime !== undefined ? { startTime: body.startTime } : {}),
+        ...(body.endTime !== undefined ? { endTime: body.endTime } : {}),
+        ...(body.isAllDay !== undefined ? { isAllDay: body.isAllDay } : {}),
+        ...(body.recurrenceRule !== undefined ? { recurrenceRule: body.recurrenceRule || null } : {}),
+        ...(body.timeZone !== undefined ? { timeZone: body.timeZone && isValidTimeZone(body.timeZone) ? body.timeZone : null } : {}),
+      };
+      const changesEventFields = Object.keys(updates).length > 0;
+
       // Read-only calendars only allow metadata updates (e.g. countdown settings)
-      if (calendar.isReadOnly) {
-        const metadataOnly = Object.keys(body).every((k) => k === "metadata");
-        if (!metadataOnly) {
-          return reply.badRequest("Calendar is read-only");
-        }
-        const [event] = await fastify.db
-          .update(events)
-          .set({ metadata: updates.metadata, updatedAt: new Date() })
-          .where(eq(events.id, id))
-          .returning();
-        return decryptEventFields(event);
+      if (calendar.isReadOnly && changesEventFields) {
+        return reply.badRequest("Calendar is read-only");
+      }
+
+      const startTime = updates.startTime ?? existingEvent.startTime;
+      const endTime = updates.endTime ?? existingEvent.endTime;
+      if (endTime < startTime) {
+        return reply.badRequest("Event can't end before it starts");
       }
 
       const [event] = await fastify.db
         .update(events)
-        .set({ ...updates, updatedAt: new Date() })
+        .set({
+          ...encryptEventFields(updates),
+          ...(metadata !== undefined ? { metadata } : {}),
+          updatedAt: new Date(),
+        })
         .where(eq(events.id, id))
         .returning();
 
-      // Sync update to external calendar provider
-      if ((calendar.provider === "google" || calendar.provider === "microsoft") && event && !event.externalId.startsWith("local_")) {
-        const [token] = await fastify.db
-          .select()
-          .from(oauthTokens)
-          .where(
-            and(
-              eq(oauthTokens.userId, user.id),
-              eq(oauthTokens.provider, calendar.provider as "google" | "microsoft")
-            )
-          )
-          .limit(1);
+      if (!event) {
+        return reply.notFound("Event not found");
+      }
 
-        if (token) {
-          if (calendar.provider === "google") {
-            await updateEventInGoogle(fastify.db, calendar, event, token);
-          } else {
-            await updateEventInMicrosoft(fastify.db, calendar, event, token);
-          }
+      if (changesEventFields) {
+        const push = await pushEventChange(fastify.db, calendar, event, "update", user.timezone);
+        if (push && !push.ok) {
+          // Keep OpenFrame and the provider consistent: undo the local edit
+          await fastify.db
+            .update(events)
+            .set({
+              title: existingEvent.title,
+              description: existingEvent.description,
+              location: existingEvent.location,
+              startTime: existingEvent.startTime,
+              endTime: existingEvent.endTime,
+              isAllDay: existingEvent.isAllDay,
+              recurrenceRule: existingEvent.recurrenceRule,
+              timeZone: existingEvent.timeZone,
+              updatedAt: existingEvent.updatedAt,
+            })
+            .where(eq(events.id, id));
+          return reply.code(502).send({ success: false, error: "sync_failed", message: push.error });
         }
       }
 
+      const [current] = await fastify.db.select().from(events).where(eq(events.id, id)).limit(1);
       return {
         success: true,
-        data: event ? decryptEventFields(event) : event,
+        data: decryptEventFields(current ?? event),
       };
     }
   );
@@ -554,55 +452,24 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { id } = request.params as { id: string };
 
-      const [event] = await fastify.db
-        .select()
-        .from(events)
-        .where(eq(events.id, id))
-        .limit(1);
-
+      const [event] = await fastify.db.select().from(events).where(eq(events.id, id)).limit(1);
       if (!event) {
         return reply.notFound("Event not found");
       }
 
-      const [calendar] = await fastify.db
-        .select()
-        .from(calendars)
-        .where(
-          and(
-            eq(calendars.id, event.calendarId),
-            eq(calendars.userId, user.id)
-          )
-        )
-        .limit(1);
-
+      const calendar = await getOwnedCalendar(fastify.db, event.calendarId, user.id);
       if (!calendar) {
         return reply.notFound("Event not found");
       }
-
       if (calendar.isReadOnly) {
         return reply.badRequest("Calendar is read-only");
       }
 
-      // Sync delete to external calendar before removing locally
-      if ((calendar.provider === "google" || calendar.provider === "microsoft") && !event.externalId.startsWith("local_")) {
-        const [token] = await fastify.db
-          .select()
-          .from(oauthTokens)
-          .where(
-            and(
-              eq(oauthTokens.userId, user.id),
-              eq(oauthTokens.provider, calendar.provider as "google" | "microsoft")
-            )
-          )
-          .limit(1);
-
-        if (token) {
-          if (calendar.provider === "google") {
-            await deleteEventFromGoogle(fastify.db, calendar, event, token);
-          } else {
-            await deleteEventFromMicrosoft(fastify.db, calendar, event, token);
-          }
-        }
+      // Delete upstream first: if that fails, keep the event rather than have
+      // it silently reappear on the next full sync
+      const push = await pushEventChange(fastify.db, calendar, event, "delete", user.timezone);
+      if (push && !push.ok) {
+        return reply.code(502).send({ success: false, error: "sync_failed", message: push.error });
       }
 
       await fastify.db.delete(events).where(eq(events.id, id));
@@ -611,73 +478,3 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 };
-
-// Simple natural language parsing
-function parseQuickEvent(text: string): {
-  title: string;
-  startTime: Date;
-  endTime: Date;
-  isAllDay: boolean;
-} | null {
-  const now = new Date();
-  const lowerText = text.toLowerCase();
-
-  // Extract time patterns
-  const timeMatch = lowerText.match(
-    /(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i
-  );
-
-  // Extract relative date patterns
-  let date = new Date(now);
-  if (lowerText.includes("tomorrow")) {
-    date.setDate(date.getDate() + 1);
-  } else if (lowerText.includes("next week")) {
-    date.setDate(date.getDate() + 7);
-  }
-
-  // Set time
-  let isAllDay = !timeMatch;
-  if (timeMatch) {
-    let hours = parseInt(timeMatch[1]!, 10);
-    const minutes = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
-    const period = timeMatch[3]?.toLowerCase();
-
-    if (period === "pm" && hours < 12) {
-      hours += 12;
-    } else if (period === "am" && hours === 12) {
-      hours = 0;
-    }
-
-    date.setHours(hours, minutes, 0, 0);
-  } else {
-    date.setHours(0, 0, 0, 0);
-  }
-
-  // Extract title (remove time/date phrases)
-  let title = text
-    .replace(
-      /\b(at\s+)?\d{1,2}(:\d{2})?\s*(am|pm)?\b/gi,
-      ""
-    )
-    .replace(/\b(tomorrow|today|next week)\b/gi, "")
-    .trim();
-
-  if (!title) {
-    return null;
-  }
-
-  // Default duration: 1 hour for timed events, full day for all-day
-  const endTime = new Date(date);
-  if (isAllDay) {
-    endTime.setHours(23, 59, 59, 999);
-  } else {
-    endTime.setHours(endTime.getHours() + 1);
-  }
-
-  return {
-    title,
-    startTime: date,
-    endTime,
-    isAllDay,
-  };
-}
