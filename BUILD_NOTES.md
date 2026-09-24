@@ -108,7 +108,7 @@ const service = new ServiceClass(db, userId);
 - **User Scoping:** All tables have `userId` column with index
 - **Naming:** snake_case columns in DB, camelCase in TypeScript
 - **Validation:** Zod schemas in `@openframe/shared`
-- **Migrations:** Drizzle Kit for schema changes
+- **Migrations:** SQL files in `packages/database/src/migrations`, applied at startup by `apps/api/src/migrate.ts`. Drizzle's migrator only runs files registered in `meta/_journal.json` whose `when` is newer than the last applied one, so hand-written migrations must be added there (`check:migrations` fails CI otherwise). Write them idempotently (`IF NOT EXISTS`), since older installs may already have some of the objects.
 
 ---
 
