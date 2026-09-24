@@ -1,0 +1,89 @@
+name: Docker build
+
+# Builds the images that docker-publish.yml ships (without pushing) and boots
+# the app image against an empty Postgres, so a broken Dockerfile, base image
+# or migration shows up on the pull request instead of after merge.
+on:
+  pull_request:
+    paths:
+      - "docker/**"
+      - "**/package.json"
+      - "pnpm-lock.yaml"
+      - "packages/database/src/migrations/**"
+      - ".github/workflows/docker-build.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: App image (build and boot)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: openframe
+          POSTGRES_PASSWORD: openframe
+          POSTGRES_DB: openframe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openframe -d openframe"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Build app image
+        run: docker build -f docker/Dockerfile.combined -t openframe-app:ci .
+
+      - name: Boot against an empty database
+        run: |
+          docker run -d --name app --network host \
+            -e DATABASE_URL=postgres://openframe:openframe@localhost:5432/openframe \
+            -e PORT=3001 \
+            openframe-app:ci
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:3001/api/v1/health/ready > /dev/null 2>&1 && break
+            sleep 2
+          done
+          docker logs app
+          curl -fsS http://localhost:3001/api/v1/health/ready
+          # The entrypoint starts the server even when migrations fail
+          docker logs app 2>&1 | grep -q "Migrations completed successfully"
+
+      - name: Every migration in the journal was applied
+        run: |
+          expected=$(node -p "require('./packages/database/src/migrations/meta/_journal.json').entries.length")
+          applied=$(docker run --rm --network host postgres:16-alpine \
+            psql postgres://openframe:openframe@localhost:5432/openframe -Atc \
+            "select count(*) from drizzle.__drizzle_migrations")
+          echo "applied $applied of $expected migrations"
+          test "$applied" = "$expected"
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f app || true
+
+  bot:
+    name: Bot image (build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Build bot image
+        run: docker build -f docker/Dockerfile.bot -t openframe-bot:ci .
