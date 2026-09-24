@@ -1279,17 +1279,17 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
 
                 let pageToken: string | undefined;
                 let imported = 0;
-                let accessToken = await getAccessToken(token);
+                let accessToken = await getAccessToken(fastify.db, token);
                 let photoCount = 0;
 
                 do {
-                  const page = await listAlbumPhotos(token, album.googleAlbumId, pageToken);
+                  const page = await listAlbumPhotos(fastify.db, token, album.googleAlbumId, pageToken);
 
                   for (const item of page.photos) {
                     if (existingIds.has(item.id)) continue;
 
                     photoCount++;
-                    if (photoCount % 50 === 0) accessToken = await getAccessToken(token);
+                    if (photoCount % 50 === 0) accessToken = await getAccessToken(fastify.db, token);
 
                     try {
                       const downloadUrl = `${item.baseUrl}=d`;

@@ -26,13 +26,11 @@ import {
   deletePickerSession,
   getPhotoUrl,
   getAccessToken,
-  setGoogleOAuthCredentials,
   listAlbums,
   listAlbumPhotos,
 } from "../../services/google-photos.js";
 import { fetchSubredditPhotos } from "../../services/reddit-photos.js";
 import { decryptOAuthToken } from "../../lib/encryption.js";
-import { getCategorySettings } from "../settings/index.js";
 import { randomUUID } from "crypto";
 import { mkdir, unlink, stat } from "fs/promises";
 import { createReadStream } from "fs";
@@ -53,14 +51,6 @@ function getMimeType(filePath: string): string {
 export const photoRoutes: FastifyPluginAsync = async (fastify) => {
   const uploadDir = process.env.UPLOAD_DIR ?? "./uploads";
 
-  // Set Google OAuth credentials from DB for the google-photos service
-  const googleSettings = await getCategorySettings(fastify.db, "google");
-  if (googleSettings.client_id || googleSettings.client_secret) {
-    setGoogleOAuthCredentials({
-      clientId: googleSettings.client_id || undefined,
-      clientSecret: googleSettings.client_secret || undefined,
-    });
-  }
 
   // Photo usage stats (for showing plan limits in UI)
   fastify.get(
@@ -801,7 +791,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
-        const session = await createPickerSession(token);
+        const session = await createPickerSession(fastify.db, token);
         return {
           success: true,
           data: {
@@ -857,7 +847,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
-        const session = await getPickerSession(token, sessionId);
+        const session = await getPickerSession(fastify.db, token, sessionId);
         return {
           success: true,
           data: {
@@ -911,7 +901,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
-        const mediaItems = await listPickedMediaItems(token, sessionId);
+        const mediaItems = await listPickedMediaItems(fastify.db, token, sessionId);
         return {
           success: true,
           data: mediaItems.map((item) => ({
@@ -967,7 +957,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
-        await deletePickerSession(token, sessionId);
+        await deletePickerSession(fastify.db, token, sessionId);
         return { success: true };
       } catch (error) {
         console.error("Failed to delete picker session:", error);
@@ -1084,7 +1074,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       let mediaItems;
       try {
         console.log(`Fetching media items for session: ${sessionId}`);
-        mediaItems = await listPickedMediaItems(token, sessionId);
+        mediaItems = await listPickedMediaItems(fastify.db, token, sessionId);
         console.log(`Found ${mediaItems.length} media items to import`);
       } catch (error) {
         console.error("Failed to get picked media items:", error);
@@ -1131,7 +1121,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
       // Get access token for downloading images
       let accessToken: string;
       try {
-        accessToken = await getAccessToken(token);
+        accessToken = await getAccessToken(fastify.db, token);
       } catch (error) {
         console.error("Failed to get access token for download:", error);
         return reply.internalServerError("Failed to authenticate with Google Photos");
@@ -1226,7 +1216,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Clean up the picker session
       try {
-        await deletePickerSession(token, sessionId);
+        await deletePickerSession(fastify.db, token, sessionId);
       } catch {
         // Ignore cleanup errors
       }
@@ -1283,11 +1273,11 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
     let imported = 0;
     let skipped = 0;
     let pageToken: string | undefined;
-    let accessToken = await getAccessToken(token);
+    let accessToken = await getAccessToken(fastify.db, token);
     let photoCount = 0;
 
     do {
-      const page = await listAlbumPhotos(token, googleAlbumId, pageToken);
+      const page = await listAlbumPhotos(fastify.db, token, googleAlbumId, pageToken);
 
       for (const item of page.photos) {
         if (existingIds.has(item.id)) {
@@ -1298,7 +1288,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         // Refresh token every 50 photos
         photoCount++;
         if (photoCount % 50 === 0) {
-          accessToken = await getAccessToken(token);
+          accessToken = await getAccessToken(fastify.db, token);
         }
 
         try {
@@ -1419,7 +1409,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      const googleAlbums = await listAlbums(token);
+      const googleAlbums = await listAlbums(fastify.db, token);
 
       // Get linked albums from DB
       const linkedAlbums = await fastify.db
