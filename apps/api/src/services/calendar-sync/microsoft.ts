@@ -1,83 +1,92 @@
-import { eq, and, notInArray, isNotNull, inArray } from "drizzle-orm";
+import rrule from "rrule";
+const { RRule } = rrule;
+import { and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
 import { calendars, events, oauthTokens } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
-import { encryptField, decryptField, encryptEventFields, decryptEventFields } from "../../lib/encryption.js";
-
-// --- Interfaces ---
+import { decryptEventFields } from "../../lib/encryption.js";
+import {
+  WINDOWS_TIME_ZONE_IDS,
+  addUtcDays,
+  formatUtcDate,
+  getZonedParts,
+  normalizeTimeZone,
+  parseDateOnlyUtc,
+  resolveTimeZone,
+  zonedTimeToUtc,
+} from "../../lib/timezone.js";
+import { allDayDateSpan } from "./all-day.js";
+import { CalendarNotFoundError, CalendarSyncError, SyncStateExpiredError, describeSyncError } from "./errors.js";
+import {
+  deleteEventsByExternalId,
+  deleteEventsMissingFromListing,
+  getExistingEvents,
+  upsertSyncedEvents,
+  type SyncedEvent,
+} from "./event-store.js";
+import type { CalendarOutcome, PushResult } from "./google.js";
+import { FULL_SYNC_INTERVAL_MS } from "./google.js";
+import { providerFetch } from "./http.js";
+import { getValidAccessToken, type OAuthToken } from "./oauth.js";
+import { extractRRuleValue } from "./recurrence.js";
 
 interface MSCalendar {
   id: string;
   name: string;
-  color: string;
-  isDefaultCalendar: boolean;
-  canEdit: boolean;
+  color?: string;
+  hexColor?: string;
+  isDefaultCalendar?: boolean;
+  canEdit?: boolean;
   owner?: { name?: string; address?: string };
 }
 
-interface MSEvent {
+interface MSDateTime {
+  dateTime: string;
+  timeZone?: string;
+}
+
+interface MSEmailAddress {
+  address?: string;
+  name?: string;
+}
+
+export interface MSEvent {
   id: string;
+  type?: "singleInstance" | "occurrence" | "exception" | "seriesMaster";
   subject?: string;
   body?: { contentType?: string; content?: string };
   bodyPreview?: string;
-  location?: { displayName?: string };
-  start?: { dateTime: string; timeZone: string };
-  end?: { dateTime: string; timeZone: string };
+  location?: { displayName?: string } | null;
+  start?: MSDateTime;
+  end?: MSDateTime;
   isAllDay?: boolean;
   isCancelled?: boolean;
-  seriesMasterId?: string;
-  recurrence?: {
-    pattern: {
-      type: string;
-      interval: number;
-      daysOfWeek?: string[];
-      dayOfMonth?: number;
-      month?: number;
-      index?: string;
-    };
-    range: {
-      type: string;
-      endDate?: string;
-      numberOfOccurrences?: number;
-    };
-  };
+  seriesMasterId?: string | null;
+  originalStart?: string | null;
   attendees?: Array<{
-    emailAddress: { address: string; name?: string };
+    emailAddress?: MSEmailAddress;
     status?: { response?: string };
     type?: string;
   }>;
+  organizer?: { emailAddress?: MSEmailAddress };
   "@odata.etag"?: string;
   "@removed"?: { reason?: string };
 }
 
-interface MSCalendarListResponse {
-  value: MSCalendar[];
-}
-
-interface MSDeltaResponse {
-  value: MSEvent[];
+interface MSCollection<T> {
+  value?: T[];
   "@odata.nextLink"?: string;
   "@odata.deltaLink"?: string;
 }
 
-type OAuthToken = typeof oauthTokens.$inferSelect;
+type CalendarRecord = typeof calendars.$inferSelect;
+type EventRecord = typeof events.$inferSelect;
 
-export interface MicrosoftCalendarCredentials {
-  clientId?: string;
-  clientSecret?: string;
-  tenantId?: string;
-}
-
-// Module-level credentials that can be set by the route layer
-let _calendarCredentials: MicrosoftCalendarCredentials = {};
-
-export function setMicrosoftCalendarCredentials(creds: MicrosoftCalendarCredentials) {
-  _calendarCredentials = creds;
-}
-
-// --- HTML stripping for body content ---
+const GRAPH = "https://graph.microsoft.com/v1.0";
+const WINDOW_PAST_DAYS = 90;
+const WINDOW_FUTURE_DAYS = 400;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function stripHtml(html: string): string {
-  // Remove HTML tags, decode common entities, and trim
   return html
     .replace(/<[^>]*>/g, "")
     .replace(/&nbsp;/g, " ")
@@ -90,8 +99,6 @@ function stripHtml(html: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
-
-// --- Color mapping ---
 
 const MS_COLOR_MAP: Record<string, string> = {
   auto: "#3B82F6",
@@ -107,612 +114,496 @@ const MS_COLOR_MAP: Record<string, string> = {
   maxColor: "#3B82F6",
 };
 
-function msColorToHex(color: string): string {
-  return MS_COLOR_MAP[color] ?? "#3B82F6";
+function calendarColor(mcal: MSCalendar): string {
+  if (mcal.hexColor && /^#[0-9a-f]{6}$/i.test(mcal.hexColor)) return mcal.hexColor;
+  return MS_COLOR_MAP[mcal.color ?? "auto"] ?? "#3B82F6";
 }
 
-// --- Date helpers ---
-
-/**
- * Parse a date-only string (YYYY-MM-DD) as local midnight.
- * Needed for all-day events to avoid UTC timezone issues.
- */
-function parseLocalDate(dateStr: string): Date {
-  const parts = dateStr.split("-").map(Number);
-  const year = parts[0] ?? 0;
-  const month = (parts[1] ?? 1) - 1;
-  const day = parts[2] ?? 1;
-  return new Date(year, month, day, 0, 0, 0, 0);
+/** Parse Graph's zone-less dateTime ("2026-02-17T09:00:00.0000000") in its zone. */
+export function parseGraphDateTime(value: MSDateTime): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/.exec(value.dateTime);
+  if (!match) return new Date(value.dateTime);
+  const wall = {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4]),
+    minute: Number(match[5]),
+    second: Number(match[6]),
+    millisecond: Number((match[7] ?? "0").slice(0, 3).padEnd(3, "0")),
+  };
+  const zone = normalizeTimeZone(value.timeZone) ?? "UTC";
+  return zonedTimeToUtc(wall, zone);
 }
 
-/**
- * Parse MS Graph datetime. MS sends "dateTime": "2026-02-17T09:00:00.0000000"
- * with a separate "timeZone" field. For all-day events, extract just the date part.
- */
-function parseMSDateTime(dt: { dateTime: string; timeZone: string }, isAllDay: boolean): Date {
+/** Map a Graph event to the stored form. Pure; exported for tests. */
+export function mapMicrosoftEvent(mevent: MSEvent, fallback?: Partial<SyncedEvent>): SyncedEvent | null {
+  if (!mevent.start || !mevent.end) return null;
+  const isAllDay = mevent.isAllDay ?? false;
+
+  let start: Date;
+  let end: Date;
   if (isAllDay) {
-    // Extract date portion only
-    const datePart = dt.dateTime.split("T")[0]!;
-    return parseLocalDate(datePart);
+    // All-day values are midnights; the end is exclusive
+    start = parseDateOnlyUtc(mevent.start.dateTime.slice(0, 10));
+    end = addUtcDays(parseDateOnlyUtc(mevent.end.dateTime.slice(0, 10)), -1);
+  } else {
+    start = parseGraphDateTime(mevent.start);
+    end = parseGraphDateTime(mevent.end);
   }
-  // For timed events, the dateTime is already in the specified timezone
-  // MS Graph sends datetime without offset - treat as UTC-like and parse directly
-  // The dateTime string is like "2026-02-17T09:00:00.0000000"
-  return new Date(dt.dateTime + "Z");
-}
+  if (end < start) end = start;
 
-// --- Recurrence conversion ---
+  const organizer = mevent.organizer?.emailAddress?.address?.toLowerCase();
+  const description =
+    mevent.body !== undefined
+      ? mevent.body?.content
+        ? stripHtml(mevent.body.content)
+        : (mevent.bodyPreview ?? null)
+      : (fallback?.description ?? null);
 
-const MS_DAY_MAP: Record<string, string> = {
-  sunday: "SU",
-  monday: "MO",
-  tuesday: "TU",
-  wednesday: "WE",
-  thursday: "TH",
-  friday: "FR",
-  saturday: "SA",
-};
-
-const MS_INDEX_MAP: Record<string, string> = {
-  first: "1",
-  second: "2",
-  third: "3",
-  fourth: "4",
-  last: "-1",
-};
-
-function msRecurrenceToRRule(recurrence: MSEvent["recurrence"]): string | null {
-  if (!recurrence) return null;
-
-  const { pattern, range } = recurrence;
-  const parts: string[] = [];
-
-  switch (pattern.type) {
-    case "daily":
-      parts.push(`FREQ=DAILY;INTERVAL=${pattern.interval}`);
-      break;
-    case "weekly":
-      parts.push(`FREQ=WEEKLY;INTERVAL=${pattern.interval}`);
-      if (pattern.daysOfWeek?.length) {
-        const days = pattern.daysOfWeek.map((d) => MS_DAY_MAP[d] ?? d.substring(0, 2).toUpperCase()).join(",");
-        parts.push(`BYDAY=${days}`);
-      }
-      break;
-    case "absoluteMonthly":
-      parts.push(`FREQ=MONTHLY;INTERVAL=${pattern.interval}`);
-      if (pattern.dayOfMonth) {
-        parts.push(`BYMONTHDAY=${pattern.dayOfMonth}`);
-      }
-      break;
-    case "relativeMonthly": {
-      parts.push(`FREQ=MONTHLY;INTERVAL=${pattern.interval}`);
-      const idx = pattern.index ? MS_INDEX_MAP[pattern.index] ?? "1" : "1";
-      if (pattern.daysOfWeek?.length) {
-        const day = MS_DAY_MAP[pattern.daysOfWeek[0]!] ?? "MO";
-        parts.push(`BYDAY=${idx}${day}`);
-      }
-      break;
-    }
-    case "absoluteYearly":
-      parts.push(`FREQ=YEARLY;INTERVAL=${pattern.interval}`);
-      if (pattern.month) {
-        parts.push(`BYMONTH=${pattern.month}`);
-      }
-      if (pattern.dayOfMonth) {
-        parts.push(`BYMONTHDAY=${pattern.dayOfMonth}`);
-      }
-      break;
-    default:
-      return null;
-  }
-
-  // Range
-  if (range.type === "endDate" && range.endDate) {
-    const until = range.endDate.replace(/-/g, "");
-    parts.push(`UNTIL=${until}T235959Z`);
-  } else if (range.type === "numbered" && range.numberOfOccurrences) {
-    parts.push(`COUNT=${range.numberOfOccurrences}`);
-  }
-  // "noEnd" → omit, which means infinite
-
-  return parts.join(";");
-}
-
-// --- Token refresh ---
-
-async function refreshMicrosoftToken(
-  db: Database,
-  token: OAuthToken
-): Promise<string> {
-  const plainAccessToken = decryptField(token.accessToken) ?? token.accessToken;
-  const plainRefreshToken = decryptField(token.refreshToken) ?? token.refreshToken;
-
-  if (!plainRefreshToken) {
-    throw new Error("No refresh token available");
-  }
-
-  if (token.expiresAt && token.expiresAt > new Date()) {
-    return plainAccessToken;
-  }
-
-  const clientId =
-    _calendarCredentials.clientId || process.env.MICROSOFT_CLIENT_ID!;
-  const clientSecret =
-    _calendarCredentials.clientSecret || process.env.MICROSOFT_CLIENT_SECRET!;
-  const tenantId =
-    _calendarCredentials.tenantId ||
-    process.env.MICROSOFT_TENANT_ID ||
-    "common";
-
-  const response = await fetch(
-    `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: plainRefreshToken,
-        grant_type: "refresh_token",
-        scope: "offline_access Calendars.ReadWrite",
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    console.error(
-      `[Microsoft Sync] Token refresh failed (${response.status}): ${errorText}`
-    );
-    throw new Error(
-      `Failed to refresh Microsoft token: ${response.status}`
-    );
-  }
-
-  const data = (await response.json()) as {
-    access_token: string;
-    expires_in?: number;
-    refresh_token?: string;
+  return {
+    externalId: mevent.id,
+    title: mevent.subject !== undefined ? mevent.subject || "(No title)" : (fallback?.title ?? "(No title)"),
+    description: description || null,
+    location:
+      mevent.location !== undefined ? mevent.location?.displayName || null : (fallback?.location ?? null),
+    startTime: start,
+    endTime: end,
+    isAllDay,
+    status: "confirmed",
+    // Graph expands series into occurrences for calendarView; nothing to expand locally
+    recurrenceRule: null,
+    timeZone: null,
+    exdates: null,
+    recurringEventId: mevent.seriesMasterId ?? null,
+    originalStartTime: mevent.originalStart ? new Date(mevent.originalStart) : null,
+    attendees:
+      mevent.attendees !== undefined
+        ? mevent.attendees
+            .filter((a) => a.emailAddress?.address)
+            .map((a) => ({
+              email: a.emailAddress!.address!,
+              name: a.emailAddress?.name,
+              responseStatus: (a.status?.response === "none" ? "needsAction" : a.status?.response === "tentativelyAccepted" ? "tentative" : a.status?.response) as
+                | "needsAction"
+                | "accepted"
+                | "declined"
+                | "tentative"
+                | undefined,
+              organizer: !!organizer && a.emailAddress!.address!.toLowerCase() === organizer,
+            }))
+        : (fallback?.attendees ?? []),
+    reminders: [],
+    etag: mevent["@odata.etag"] ?? null,
   };
-
-  // Persist the refreshed token back to the database
-  const updates: Record<string, unknown> = {
-    accessToken: encryptField(data.access_token) ?? data.access_token,
-    updatedAt: new Date(),
-  };
-  if (data.expires_in) {
-    updates.expiresAt = new Date(Date.now() + data.expires_in * 1000);
-  }
-  // Microsoft rotates refresh tokens — always save the new one
-  if (data.refresh_token) {
-    updates.refreshToken = encryptField(data.refresh_token) ?? data.refresh_token;
-  }
-
-  await db
-    .update(oauthTokens)
-    .set(updates)
-    .where(eq(oauthTokens.id, token.id));
-
-  return data.access_token;
 }
 
-// --- Main sync entry point ---
-
-export async function syncMicrosoftCalendars(
-  db: Database,
-  userId: string,
-  token: OAuthToken,
-  syncToken?: string,
-  calendarId?: string
-): Promise<void> {
-  const accessToken = await refreshMicrosoftToken(db, token);
-
-  // If no specific calendar, sync the calendar list first
-  if (!calendarId) {
-    await syncCalendarList(db, userId, accessToken, token.id);
-  }
-
-  // Get calendars to sync
-  const calendarsToSync = calendarId
-    ? await db
-        .select()
-        .from(calendars)
-        .where(
-          and(
-            eq(calendars.id, calendarId),
-            eq(calendars.userId, userId),
-            eq(calendars.provider, "microsoft")
-          )
-        )
-    : await db
-        .select()
-        .from(calendars)
-        .where(
-          and(
-            eq(calendars.userId, userId),
-            eq(calendars.provider, "microsoft"),
-            eq(calendars.syncEnabled, true)
-          )
-        );
-
-  // Sync events for each calendar
-  for (const calendar of calendarsToSync) {
-    await syncCalendarEvents(
-      db,
-      calendar.id,
-      calendar.externalId,
-      accessToken,
-      syncToken ?? calendar.syncToken ?? undefined
-    );
-  }
+function preferHeader(): string {
+  return 'outlook.timezone="UTC", outlook.body-content-type="text", odata.maxpagesize=200';
 }
 
-// --- Calendar list sync ---
-
-async function syncCalendarList(
-  db: Database,
-  userId: string,
-  accessToken: string,
-  oauthTokenId?: string
-): Promise<void> {
-  const response = await fetch("https://graph.microsoft.com/v1.0/me/calendars?$select=id,name,color,isDefaultCalendar,canEdit,owner", {
-    headers: { Authorization: `Bearer ${accessToken}` },
+async function graphGet<T>(url: string, accessToken: string): Promise<T> {
+  // Only ever send the bearer token to Graph (delta links are stored in the DB)
+  if (!url.startsWith(`${GRAPH}/`)) throw new CalendarSyncError("Unexpected Microsoft Graph URL");
+  const response = await providerFetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}`, Prefer: preferHeader() },
   });
+  if (response.ok) return (await response.json()) as T;
+  const text = await response.text().catch(() => "");
+  const code = /"code"\s*:\s*"([^"]+)"/.exec(text)?.[1] ?? "";
+  if (response.status === 410 || /syncstate|resync/i.test(code)) throw new SyncStateExpiredError();
+  if (response.status === 404) throw new CalendarNotFoundError("Microsoft");
+  if (response.status === 401) throw new CalendarSyncError("Microsoft rejected the access token", 401);
+  throw new CalendarSyncError(`Microsoft Graph returned HTTP ${response.status}${code ? ` (${code})` : ""}`, response.status);
+}
 
-  if (!response.ok) {
-    throw new Error("Failed to fetch Microsoft calendars");
+// --- Calendar list ---------------------------------------------------------
+
+async function syncCalendarList(db: Database, token: OAuthToken, accessToken: string): Promise<void> {
+  const listed: MSCalendar[] = [];
+  let url: string | undefined =
+    `${GRAPH}/me/calendars?$top=100&$select=id,name,color,hexColor,isDefaultCalendar,canEdit,owner`;
+  while (url) {
+    const page: MSCollection<MSCalendar> = await graphGet<MSCollection<MSCalendar>>(url, accessToken);
+    listed.push(...(page.value ?? []));
+    url = page["@odata.nextLink"];
   }
 
-  const data = (await response.json()) as MSCalendarListResponse;
-
-  // Detect duplicate calendar names across mailboxes and disambiguate with owner
+  // Disambiguate same-named calendars from different mailboxes
   const nameCounts = new Map<string, number>();
-  for (const mcal of data.value) {
-    nameCounts.set(mcal.name, (nameCounts.get(mcal.name) ?? 0) + 1);
-  }
+  for (const mcal of listed) nameCounts.set(mcal.name, (nameCounts.get(mcal.name) ?? 0) + 1);
 
-  for (const mcal of data.value) {
-    const isDuplicateName = (nameCounts.get(mcal.name) ?? 0) > 1;
+  for (const mcal of listed) {
     const ownerLabel = mcal.owner?.name || mcal.owner?.address;
-    const displayName = isDuplicateName && ownerLabel
-      ? `${mcal.name} (${ownerLabel})`
-      : mcal.name;
-
+    const name = (nameCounts.get(mcal.name) ?? 0) > 1 && ownerLabel ? `${mcal.name} (${ownerLabel})` : mcal.name;
     await db
       .insert(calendars)
       .values({
-        userId,
+        userId: token.userId,
         provider: "microsoft",
         externalId: mcal.id,
-        name: displayName,
-        color: msColorToHex(mcal.color),
-        isPrimary: mcal.isDefaultCalendar,
-        isReadOnly: !mcal.canEdit,
-        ...(oauthTokenId ? { oauthTokenId } : {}),
+        name,
+        color: calendarColor(mcal),
+        isPrimary: mcal.isDefaultCalendar ?? false,
+        isReadOnly: !(mcal.canEdit ?? true),
+        oauthTokenId: token.id,
       })
       .onConflictDoUpdate({
         target: [calendars.userId, calendars.provider, calendars.externalId],
         set: {
-          name: displayName,
-          color: msColorToHex(mcal.color),
-          isReadOnly: !mcal.canEdit,
-          ...(oauthTokenId ? { oauthTokenId } : {}),
+          name,
+          color: calendarColor(mcal),
+          isReadOnly: !(mcal.canEdit ?? true),
+          oauthTokenId: token.id,
           updatedAt: new Date(),
         },
       });
   }
 
-  // Remove calendars no longer returned by the API (stale/orphaned from previous sessions)
-  const currentExternalIds = data.value.map((mcal) => mcal.id);
-  if (currentExternalIds.length > 0) {
-    await db
-      .delete(calendars)
-      .where(
-        and(
-          eq(calendars.userId, userId),
-          eq(calendars.provider, "microsoft"),
-          notInArray(calendars.externalId, currentExternalIds)
+  // Remove calendars this account no longer lists — never another account's
+  if (listed.length === 0) return;
+  const msTokens = await db
+    .select({ id: oauthTokens.id })
+    .from(oauthTokens)
+    .where(and(eq(oauthTokens.userId, token.userId), eq(oauthTokens.provider, "microsoft")));
+  const ownership =
+    msTokens.length === 1
+      ? or(eq(calendars.oauthTokenId, token.id), isNull(calendars.oauthTokenId))
+      : eq(calendars.oauthTokenId, token.id);
+  await db
+    .delete(calendars)
+    .where(
+      and(
+        eq(calendars.userId, token.userId),
+        eq(calendars.provider, "microsoft"),
+        ownership,
+        notInArray(
+          calendars.externalId,
+          listed.map((c) => c.id)
         )
-      );
-  }
+      )
+    );
 }
 
-// --- Event sync ---
+// --- Events ----------------------------------------------------------------
 
 async function syncCalendarEvents(
   db: Database,
-  calendarDbId: string,
-  msCalendarId: string,
+  calendar: CalendarRecord,
   accessToken: string,
-  syncToken?: string
+  full: boolean
 ): Promise<void> {
-  let url: string;
+  const now = new Date();
+  const window = {
+    start: new Date(now.getTime() - WINDOW_PAST_DAYS * DAY_MS),
+    end: new Date(now.getTime() + WINDOW_FUTURE_DAYS * DAY_MS),
+  };
 
-  if (syncToken) {
-    // Incremental sync: use the stored deltaLink directly
-    url = syncToken;
-  } else {
-    // Initial sync: get events from 3 months ago to 1 year ahead
-    const startDateTime = new Date();
-    startDateTime.setMonth(startDateTime.getMonth() - 3);
-    const endDateTime = new Date();
-    endDateTime.setFullYear(endDateTime.getFullYear() + 1);
+  // The delta link encodes the window it was created with, so a full sync
+  // (fresh window) is also how the window moves forward over time.
+  let url: string | undefined = full
+    ? `${GRAPH}/me/calendars/${encodeURIComponent(calendar.externalId)}/calendarView/delta?${new URLSearchParams({
+        startDateTime: window.start.toISOString(),
+        endDateTime: window.end.toISOString(),
+      })}`
+    : calendar.syncToken!;
 
-    const params = new URLSearchParams({
-      startDateTime: startDateTime.toISOString(),
-      endDateTime: endDateTime.toISOString(),
-      $select: "id,subject,body,bodyPreview,location,start,end,isAllDay,isCancelled,seriesMasterId,recurrence,attendees",
-    });
-    url = `https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(msCalendarId)}/calendarView/delta?${params.toString()}`;
-  }
-
-  let nextLink: string | undefined;
+  const seen = new Set<string>();
+  const seriesMasters = new Map<string, MSEvent | null>();
   let deltaLink: string | undefined;
 
-  do {
-    const fetchUrl = nextLink ?? url;
+  while (url) {
+    const page: MSCollection<MSEvent> = await graphGet<MSCollection<MSEvent>>(url, accessToken);
+    const items = page.value ?? [];
 
-    const response = await fetch(fetchUrl, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Prefer: 'outlook.body-content-type="text"',
-      },
-    });
+    const removed = items.filter((e) => e["@removed"] || e.isCancelled).map((e) => e.id);
+    const live = items.filter((e) => !e["@removed"] && !e.isCancelled && e.type !== "seriesMaster");
 
-    if (!response.ok) {
-      if (response.status === 410) {
-        // Delta token expired, do full sync
-        await syncCalendarEvents(db, calendarDbId, msCalendarId, accessToken);
-        return;
+    // Occurrences can arrive without their series' subject/body/location
+    const existing = await getExistingEvents(
+      db,
+      calendar.id,
+      live.map((e) => e.id)
+    );
+    const upserts: SyncedEvent[] = [];
+    for (const item of live) {
+      let fallback: Partial<SyncedEvent> | undefined = existing.get(item.id);
+      if (item.subject === undefined && item.seriesMasterId) {
+        // Prefer the series' current details over what we stored before
+        const master = await getSeriesMaster(calendar, item.seriesMasterId, accessToken, seriesMasters);
+        const fromMaster = master ? mapMicrosoftEvent({ ...master, start: item.start, end: item.end, id: item.id }) : null;
+        if (fromMaster) fallback = { ...fallback, ...fromMaster };
       }
-      throw new Error(`Failed to fetch Microsoft events: ${response.status}`);
+      const mapped = mapMicrosoftEvent(item, fallback);
+      if (!mapped) continue;
+      seen.add(mapped.externalId);
+      upserts.push(mapped);
     }
 
-    const data = (await response.json()) as MSDeltaResponse;
+    await deleteEventsByExternalId(db, calendar.id, removed);
+    await upsertSyncedEvents(db, calendar.id, upserts);
 
-    for (const mevent of data.value ?? []) {
-      await upsertEvent(db, calendarDbId, mevent);
-    }
-
-    nextLink = data["@odata.nextLink"];
-    deltaLink = data["@odata.deltaLink"];
-  } while (nextLink);
-
-  // Backfill recurring instances that are missing inherited properties
-  // (calendarView/delta doesn't populate subject/body/location for unmodified occurrences)
-  await backfillRecurringInstances(db, calendarDbId, accessToken);
-
-  // Save delta link as syncToken for incremental sync
-  if (deltaLink) {
-    await db
-      .update(calendars)
-      .set({
-        syncToken: deltaLink,
-        lastSyncAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(calendars.id, calendarDbId));
+    url = page["@odata.nextLink"];
+    deltaLink = page["@odata.deltaLink"] ?? deltaLink;
   }
+
+  if (full) {
+    await deleteEventsMissingFromListing(db, calendar.id, seen, { providerRowsOnly: true, window });
+  }
+
+  await db
+    .update(calendars)
+    .set({
+      syncToken: deltaLink ?? (full ? null : calendar.syncToken),
+      lastSyncAt: now,
+      ...(full ? { fullSyncAt: now } : {}),
+      updatedAt: now,
+    })
+    .where(eq(calendars.id, calendar.id));
 }
 
-// --- Backfill recurring instances from series masters ---
+async function getSeriesMaster(
+  calendar: CalendarRecord,
+  masterId: string,
+  accessToken: string,
+  cache: Map<string, MSEvent | null>
+): Promise<MSEvent | null> {
+  if (cache.has(masterId)) return cache.get(masterId)!;
+  let master: MSEvent | null = null;
+  try {
+    master = await graphGet<MSEvent>(
+      `${GRAPH}/me/calendars/${encodeURIComponent(calendar.externalId)}/events/${encodeURIComponent(masterId)}?$select=subject,body,bodyPreview,location,attendees,organizer`,
+      accessToken
+    );
+  } catch (err) {
+    console.error(`[Microsoft Sync] Could not load series ${masterId}: ${describeSyncError(err)}`);
+  }
+  cache.set(masterId, master);
+  return master;
+}
 
-async function backfillRecurringInstances(
+function needsFullSync(calendar: CalendarRecord, forced: boolean): boolean {
+  if (forced || !calendar.syncToken || !calendar.fullSyncAt) return true;
+  return Date.now() - calendar.fullSyncAt.getTime() > FULL_SYNC_INTERVAL_MS;
+}
+
+/**
+ * Sync one Microsoft account: refresh its calendar list, then the events of
+ * its enabled calendars (or just `calendarId`). Each calendar gets its own
+ * outcome; token errors throw.
+ */
+export async function syncMicrosoftAccount(
   db: Database,
-  calendarDbId: string,
-  accessToken: string
-): Promise<void> {
-  // Find instances with "(No title)" that have a recurringEventId (seriesMasterId)
-  const incomplete = await db
-    .select({
-      id: events.id,
-      recurringEventId: events.recurringEventId,
-    })
-    .from(events)
+  token: OAuthToken,
+  options: { calendarId?: string; calendarIds?: string[]; fullSync?: boolean } = {}
+): Promise<CalendarOutcome[]> {
+  const accessToken = await getValidAccessToken(db, token, "microsoft");
+
+  if (!options.calendarId) {
+    await syncCalendarList(db, token, accessToken);
+  }
+
+  const calendarsToSync = await db
+    .select()
+    .from(calendars)
     .where(
       and(
-        eq(events.calendarId, calendarDbId),
-        eq(events.title, "(No title)"),
-        isNotNull(events.recurringEventId)
+        eq(calendars.userId, token.userId),
+        eq(calendars.provider, "microsoft"),
+        or(eq(calendars.oauthTokenId, token.id), isNull(calendars.oauthTokenId)),
+        options.calendarId
+          ? eq(calendars.id, options.calendarId)
+          : and(
+              eq(calendars.syncEnabled, true),
+              options.calendarIds ? inArray(calendars.id, options.calendarIds) : undefined
+            )
       )
     );
 
-  if (incomplete.length === 0) return;
-
-  // Group by seriesMasterId to batch API calls
-  const masterIds = [...new Set(incomplete.map((e) => e.recurringEventId!))];
-
-  for (const masterId of masterIds) {
+  const outcomes: CalendarOutcome[] = [];
+  for (const calendar of calendarsToSync) {
     try {
-      const response = await fetch(
-        `https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(masterId)}?$select=subject,body,bodyPreview,location,attendees`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            Prefer: 'outlook.body-content-type="text"',
-          },
-        }
-      );
-
-      if (!response.ok) continue;
-
-      const master = (await response.json()) as MSEvent;
-
-      const description = master.body?.content
-        ? stripHtml(master.body.content)
-        : (master.bodyPreview ?? null);
-
-      const attendees =
-        master.attendees?.map((a) => ({
-          email: a.emailAddress.address,
-          name: a.emailAddress.name,
-          responseStatus: a.status?.response as
-            | "needsAction"
-            | "accepted"
-            | "declined"
-            | "tentative"
-            | undefined,
-          organizer: a.type === "required",
-        })) ?? [];
-
-      const instanceIds = incomplete
-        .filter((e) => e.recurringEventId === masterId)
-        .map((e) => e.id);
-
-      await db
-        .update(events)
-        .set({
-          title: master.subject || "(No title)",
-          description,
-          location: master.location?.displayName ?? null,
-          attendees,
-          updatedAt: new Date(),
-        })
-        .where(inArray(events.id, instanceIds));
+      const full = needsFullSync(calendar, options.fullSync ?? false);
+      try {
+        await syncCalendarEvents(db, calendar, accessToken, full);
+      } catch (err) {
+        if (!(err instanceof SyncStateExpiredError) || full) throw err;
+        await syncCalendarEvents(db, calendar, accessToken, true);
+      }
+      outcomes.push({ calendarId: calendar.id, error: null });
     } catch (err) {
-      console.error(
-        `[Microsoft Sync] Failed to fetch series master ${masterId}:`,
-        err
-      );
+      console.error(`[Microsoft Sync] Calendar ${calendar.id} failed: ${describeSyncError(err)}`);
+      outcomes.push({ calendarId: calendar.id, error: describeSyncError(err) });
     }
   }
+  return outcomes;
 }
 
-// --- Upsert event ---
+// --- Outgoing sync: OpenFrame → Microsoft ----------------------------------
 
-async function upsertEvent(
-  db: Database,
-  calendarId: string,
-  mevent: MSEvent
-): Promise<void> {
-  // Handle removed events (delta sync returns @removed for deleted events)
-  if (mevent["@removed"] || mevent.isCancelled) {
-    await db
-      .delete(events)
-      .where(
-        and(
-          eq(events.calendarId, calendarId),
-          eq(events.externalId, mevent.id)
-        )
-      );
-    return;
+const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+// rrule.js weekday numbering: MO=0 … SU=6
+const RRULE_WEEKDAY_TO_GRAPH = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+const INDEX_NAMES: Record<number, string> = { 1: "first", 2: "second", 3: "third", 4: "fourth", [-1]: "last" };
+
+const IANA_TO_WINDOWS = new Map<string, string>();
+for (const [windows, iana] of Object.entries(WINDOWS_TIME_ZONE_IDS)) {
+  if (!IANA_TO_WINDOWS.has(iana)) IANA_TO_WINDOWS.set(iana, windows);
+}
+
+/** Graph time zone name: Windows ID where one maps, else the IANA name. */
+export function graphTimeZoneName(timeZone: string): string {
+  if (timeZone === "UTC" || timeZone === "Etc/UTC") return "UTC";
+  return IANA_TO_WINDOWS.get(timeZone) ?? timeZone;
+}
+
+type WeekdaySpec = { weekday: number; n?: number };
+
+function asWeekdays(value: unknown): WeekdaySpec[] {
+  const list = Array.isArray(value) ? value : value == null ? [] : [value];
+  return list.map((d) => (typeof d === "number" ? { weekday: d } : (d as WeekdaySpec)));
+}
+
+function asNumbers(value: unknown): number[] {
+  return Array.isArray(value) ? (value as number[]) : typeof value === "number" ? [value] : [];
+}
+
+/**
+ * Convert an RRULE to a Graph `patternedRecurrence`, or null when the rule
+ * uses features Outlook can't represent. `start` is the first occurrence in
+ * `timeZone`. Exported for tests.
+ */
+export function rruleToGraphRecurrence(
+  ruleText: string,
+  start: Date,
+  timeZone: string,
+  isAllDay: boolean
+): Record<string, unknown> | null {
+  const rule = extractRRuleValue(ruleText);
+  if (!rule) return null;
+  let options: ReturnType<typeof RRule.parseString>;
+  try {
+    options = RRule.parseString(rule);
+  } catch {
+    return null;
+  }
+  if (options.byhour != null || options.byminute != null || options.bysecond != null || options.byweekno != null || options.byyearday != null) {
+    return null;
   }
 
-  // Skip events without start/end (shouldn't happen for non-removed events, but guard against it)
-  if (!mevent.start || !mevent.end) {
-    console.warn(`[Microsoft Sync] Skipping event ${mevent.id} — missing start/end`);
-    return;
+  const zone = isAllDay ? "UTC" : timeZone;
+  const local = getZonedParts(start, zone);
+  const interval = options.interval ?? 1;
+  const days = asWeekdays(options.byweekday);
+  const monthDays = asNumbers(options.bymonthday);
+  const months = asNumbers(options.bymonth);
+  const setPos = asNumbers(options.bysetpos);
+  const startWeekday = WEEKDAY_NAMES[new Date(Date.UTC(local.year, local.month - 1, local.day)).getUTCDay()]!;
+
+  let pattern: Record<string, unknown>;
+  switch (options.freq) {
+    case RRule.DAILY:
+      if (days.length || monthDays.length || months.length) return null;
+      pattern = { type: "daily", interval };
+      break;
+    case RRule.WEEKLY:
+      if (monthDays.length || months.length) return null;
+      pattern = {
+        type: "weekly",
+        interval,
+        daysOfWeek: days.length ? days.map((d) => RRULE_WEEKDAY_TO_GRAPH[d.weekday]) : [startWeekday],
+        firstDayOfWeek:
+          options.wkst != null
+            ? RRULE_WEEKDAY_TO_GRAPH[typeof options.wkst === "number" ? options.wkst : options.wkst.weekday]
+            : "sunday",
+      };
+      break;
+    case RRule.MONTHLY:
+    case RRule.YEARLY: {
+      const yearly = options.freq === RRule.YEARLY;
+      if (months.length > 1 || (!yearly && months.length)) return null;
+      const month = months[0] ?? local.month;
+      const relative = days.length === 1 ? (days[0]!.n ?? (setPos.length === 1 ? setPos[0] : undefined)) : undefined;
+      if (days.length === 1 && relative !== undefined && INDEX_NAMES[relative]) {
+        pattern = {
+          type: yearly ? "relativeYearly" : "relativeMonthly",
+          interval,
+          daysOfWeek: [RRULE_WEEKDAY_TO_GRAPH[days[0]!.weekday]],
+          index: INDEX_NAMES[relative],
+          ...(yearly ? { month } : {}),
+        };
+      } else if (!days.length && monthDays.length <= 1) {
+        pattern = {
+          type: yearly ? "absoluteYearly" : "absoluteMonthly",
+          interval,
+          dayOfMonth: monthDays[0] ?? local.day,
+          ...(yearly ? { month } : {}),
+        };
+      } else {
+        return null;
+      }
+      break;
+    }
+    default:
+      return null;
   }
 
-  const startTime = parseMSDateTime(mevent.start, mevent.isAllDay ?? false);
-  // Microsoft uses exclusive end dates for all-day events (single-day event on
-  // Apr 5 has end="2026-04-06"). Subtract one day so we store inclusive end dates.
-  const endTime = parseMSDateTime(mevent.end, mevent.isAllDay ?? false);
-  if (mevent.isAllDay) {
-    endTime.setDate(endTime.getDate() - 1);
-  }
-
-  // Parse recurrence rule
-  const recurrenceRule = msRecurrenceToRRule(mevent.recurrence);
-
-  // Parse attendees
-  const attendees =
-    mevent.attendees?.map((a) => ({
-      email: a.emailAddress.address,
-      name: a.emailAddress.name,
-      responseStatus: a.status?.response as
-        | "needsAction"
-        | "accepted"
-        | "declined"
-        | "tentative"
-        | undefined,
-      organizer: a.type === "required",
-    })) ?? [];
-
-  // Extract description from body.content (full text), falling back to bodyPreview
-  const description = mevent.body?.content
-    ? stripHtml(mevent.body.content)
-    : (mevent.bodyPreview ?? null);
-
-  const [existing] = await db
-    .select()
-    .from(events)
-    .where(
-      and(eq(events.calendarId, calendarId), eq(events.externalId, mevent.id))
-    )
-    .limit(1);
-
-  // Delta sync may omit unchanged fields — preserve existing values when
-  // the delta response doesn't include them (field is undefined).
-  // Decrypt existing fields since they're encrypted in DB.
-  const existingDecrypted = existing ? decryptEventFields(existing) : null;
-  const title =
-    mevent.subject !== undefined
-      ? (mevent.subject || "(No title)")
-      : (existingDecrypted?.title ?? "(No title)");
-
-  const eventData = {
-    calendarId,
-    externalId: mevent.id,
-    title,
-    description:
-      mevent.body !== undefined ? description : (existingDecrypted?.description ?? null),
-    location:
-      mevent.location !== undefined
-        ? (mevent.location?.displayName ?? null)
-        : (existingDecrypted?.location ?? null),
-    startTime,
-    endTime,
-    isAllDay: mevent.isAllDay ?? existing?.isAllDay ?? false,
-    status: "confirmed" as const,
-    recurrenceRule,
-    recurringEventId: mevent.seriesMasterId ?? null,
-    attendees,
-    reminders: [] as Array<{ method: "email" | "popup"; minutes: number }>,
-    etag: mevent["@odata.etag"] ?? null,
-    updatedAt: new Date(),
-  };
-
-  const encryptedEventData = encryptEventFields(eventData);
-
-  if (existing) {
-    await db.update(events).set(encryptedEventData).where(eq(events.id, existing.id));
+  const startDate = formatUtcDate(new Date(Date.UTC(local.year, local.month - 1, local.day)));
+  let range: Record<string, unknown>;
+  if (options.count) {
+    range = { type: "numbered", startDate, numberOfOccurrences: options.count };
+  } else if (options.until) {
+    const untilLocal = getZonedParts(options.until, zone);
+    range = {
+      type: "endDate",
+      startDate,
+      endDate: formatUtcDate(new Date(Date.UTC(untilLocal.year, untilLocal.month - 1, untilLocal.day))),
+    };
   } else {
-    await db.insert(events).values(encryptedEventData);
+    range = { type: "noEnd", startDate };
   }
+  if (!isAllDay) range.recurrenceTimeZone = graphTimeZoneName(zone);
+
+  return { pattern, range };
 }
 
-// --- Outgoing sync: local → Microsoft Calendar ---
-
-type CalendarRecord = typeof calendars.$inferSelect;
-type EventRecord = typeof events.$inferSelect;
-
-function buildMSEventBody(event: EventRecord): Record<string, unknown> {
-  // Decrypt event fields since they're encrypted in DB
+export function buildMSEventBody(event: EventRecord, fallbackTimeZone?: string): Record<string, unknown> {
   const decrypted = decryptEventFields(event);
   const body: Record<string, unknown> = {
     subject: decrypted.title,
-    body: decrypted.description ? { contentType: "text", content: decrypted.description } : undefined,
+    body: { contentType: "text", content: decrypted.description ?? "" },
+    location: { displayName: decrypted.location ?? "" },
   };
 
-  if (decrypted.location) {
-    body.location = { displayName: decrypted.location };
-  }
-
+  const timeZone = resolveTimeZone(event.timeZone, resolveTimeZone(fallbackTimeZone));
   if (event.isAllDay) {
-    const startDate = event.startTime.toISOString().slice(0, 10);
-    const endDate = new Date(event.endTime);
-    endDate.setDate(endDate.getDate() + 1);
-    body.start = { dateTime: `${startDate}T00:00:00.0000000`, timeZone: "UTC" };
-    body.end = { dateTime: `${endDate.toISOString().slice(0, 10)}T00:00:00.0000000`, timeZone: "UTC" };
+    const span = allDayDateSpan(event.startTime, event.endTime);
+    body.start = { dateTime: `${span.start}T00:00:00.0000000`, timeZone: "UTC" };
+    body.end = { dateTime: `${span.endExclusive}T00:00:00.0000000`, timeZone: "UTC" };
     body.isAllDay = true;
+  } else if (event.recurrenceRule) {
+    // Recurring events need wall-clock times in their zone to survive DST
+    const wallClock = (date: Date) => {
+      const p = getZonedParts(date, timeZone);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}.0000000`;
+    };
+    body.start = { dateTime: wallClock(event.startTime), timeZone: graphTimeZoneName(timeZone) };
+    body.end = { dateTime: wallClock(event.endTime), timeZone: graphTimeZoneName(timeZone) };
+    body.isAllDay = false;
   } else {
     body.start = { dateTime: event.startTime.toISOString().replace("Z", ""), timeZone: "UTC" };
     body.end = { dateTime: event.endTime.toISOString().replace("Z", ""), timeZone: "UTC" };
+    body.isAllDay = false;
+  }
+
+  if (event.recurrenceRule) {
+    const recurrence = rruleToGraphRecurrence(event.recurrenceRule, event.startTime, timeZone, event.isAllDay);
+    if (recurrence) body.recurrence = recurrence;
   }
 
   if (Array.isArray(event.attendees) && event.attendees.length > 0) {
-    body.attendees = (event.attendees as Array<{ email: string; name?: string }>).map((a) => ({
+    body.attendees = event.attendees.map((a) => ({
       emailAddress: { address: a.email, name: a.name },
       type: "required",
     }));
@@ -721,48 +612,49 @@ function buildMSEventBody(event: EventRecord): Record<string, unknown> {
   return body;
 }
 
+async function describeFailure(response: Response): Promise<string> {
+  const text = await response.text().catch(() => "");
+  const message = /"message"\s*:\s*"([^"]+)"/.exec(text)?.[1];
+  return `Outlook rejected the change (HTTP ${response.status}${message ? `: ${message}` : ""})`;
+}
+
+function eventUrl(calendar: CalendarRecord, eventId?: string): string {
+  const base = `${GRAPH}/me/calendars/${encodeURIComponent(calendar.externalId)}/events`;
+  return eventId ? `${base}/${encodeURIComponent(eventId)}` : base;
+}
+
+function isLocalOnly(event: EventRecord): boolean {
+  return !event.etag && /^(local_|companion-|remarkable_|bot_)/.test(event.externalId);
+}
+
 export async function pushEventToMicrosoft(
   db: Database,
-  userId: string,
   calendar: CalendarRecord,
   event: EventRecord,
-  token: OAuthToken
-): Promise<void> {
+  token: OAuthToken,
+  fallbackTimeZone?: string
+): Promise<PushResult> {
   try {
-    const accessToken = await refreshMicrosoftToken(db, token);
-    const body = buildMSEventBody(event);
-
-    const response = await fetch(
-      `https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(calendar.externalId)}/events`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      }
-    );
-
+    const accessToken = await getValidAccessToken(db, token, "microsoft");
+    const response = await providerFetch(eventUrl(calendar), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify(buildMSEventBody(event, fallbackTimeZone)),
+    });
     if (!response.ok) {
-      const text = await response.text();
-      console.error(`[Microsoft Sync] Failed to push event: ${response.status} ${text}`);
-      return;
+      const error = await describeFailure(response);
+      console.error(`[Microsoft Sync] Failed to create event ${event.id}: ${error}`);
+      return { ok: false, error };
     }
-
     const created = (await response.json()) as MSEvent;
-
-    // Update local event with Microsoft's ID and etag
     await db
       .update(events)
-      .set({
-        externalId: created.id,
-        etag: created["@odata.etag"] ?? null,
-        updatedAt: new Date(),
-      })
+      .set({ externalId: created.id, etag: created["@odata.etag"] ?? null, updatedAt: new Date() })
       .where(eq(events.id, event.id));
+    return { ok: true };
   } catch (err) {
-    console.error("[Microsoft Sync] Error pushing event:", err);
+    console.error(`[Microsoft Sync] Error creating event ${event.id}: ${describeSyncError(err)}`);
+    return { ok: false, error: describeSyncError(err) };
   }
 }
 
@@ -770,44 +662,31 @@ export async function updateEventInMicrosoft(
   db: Database,
   calendar: CalendarRecord,
   event: EventRecord,
-  token: OAuthToken
-): Promise<void> {
-  // Never synced to Microsoft — nothing to update
-  if (event.externalId.startsWith("local_")) return;
-
+  token: OAuthToken,
+  fallbackTimeZone?: string
+): Promise<PushResult> {
+  if (isLocalOnly(event)) return pushEventToMicrosoft(db, calendar, event, token, fallbackTimeZone);
   try {
-    const accessToken = await refreshMicrosoftToken(db, token);
-    const body = buildMSEventBody(event);
-
-    const response = await fetch(
-      `https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(event.externalId)}`,
-      {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      }
-    );
-
+    const accessToken = await getValidAccessToken(db, token, "microsoft");
+    const response = await providerFetch(eventUrl(calendar, event.externalId), {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify(buildMSEventBody(event, fallbackTimeZone)),
+    });
     if (!response.ok) {
-      const text = await response.text();
-      console.error(`[Microsoft Sync] Failed to update event: ${response.status} ${text}`);
-      return;
+      const error = await describeFailure(response);
+      console.error(`[Microsoft Sync] Failed to update event ${event.id}: ${error}`);
+      return { ok: false, error };
     }
-
     const updated = (await response.json()) as MSEvent;
-
     await db
       .update(events)
-      .set({
-        etag: updated["@odata.etag"] ?? null,
-        updatedAt: new Date(),
-      })
+      .set({ etag: updated["@odata.etag"] ?? null, updatedAt: new Date() })
       .where(eq(events.id, event.id));
+    return { ok: true };
   } catch (err) {
-    console.error("[Microsoft Sync] Error updating event:", err);
+    console.error(`[Microsoft Sync] Error updating event ${event.id}: ${describeSyncError(err)}`);
+    return { ok: false, error: describeSyncError(err) };
   }
 }
 
@@ -816,28 +695,20 @@ export async function deleteEventFromMicrosoft(
   calendar: CalendarRecord,
   event: EventRecord,
   token: OAuthToken
-): Promise<void> {
-  // Never synced to Microsoft — nothing to delete
-  if (event.externalId.startsWith("local_")) return;
-
+): Promise<PushResult> {
+  if (isLocalOnly(event)) return { ok: true };
   try {
-    const accessToken = await refreshMicrosoftToken(db, token);
-
-    const response = await fetch(
-      `https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(event.externalId)}`,
-      {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
-
-    if (!response.ok && response.status !== 404) {
-      const text = await response.text();
-      console.error(`[Microsoft Sync] Failed to delete event: ${response.status} ${text}`);
-    }
+    const accessToken = await getValidAccessToken(db, token, "microsoft");
+    const response = await providerFetch(eventUrl(calendar, event.externalId), {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (response.ok || response.status === 404 || response.status === 410) return { ok: true };
+    const error = await describeFailure(response);
+    console.error(`[Microsoft Sync] Failed to delete event ${event.id}: ${error}`);
+    return { ok: false, error };
   } catch (err) {
-    console.error("[Microsoft Sync] Error deleting event:", err);
+    console.error(`[Microsoft Sync] Error deleting event ${event.id}: ${describeSyncError(err)}`);
+    return { ok: false, error: describeSyncError(err) };
   }
 }

@@ -188,9 +188,12 @@ export function SiriusXMPage() {
           enableWorker: true,
           lowLatencyMode: false,
           xhrSetup: (xhr: XMLHttpRequest) => {
-            const token = useAuthStore.getState().accessToken;
-            if (token) {
-              xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+            // Same precedence as the API client: kiosks authenticate with a key
+            const { accessToken, apiKey } = useAuthStore.getState();
+            if (apiKey) {
+              xhr.setRequestHeader("x-api-key", apiKey);
+            } else if (accessToken) {
+              xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`);
             }
           },
         });

@@ -4,7 +4,7 @@
  */
 
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import {
   familyProfiles,
   profileCalendars,
@@ -13,7 +13,6 @@ import {
   profileRemarkableSettings,
   calendars,
   newsFeeds,
-  events,
   taskLists,
   tasks,
   newsArticles,
@@ -22,7 +21,7 @@ import {
   users,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
-import { decryptEventFields } from "../../lib/encryption.js";
+import { queryEventsInRange } from "../../services/calendar-events.js";
 import type { PlannerLayoutConfig } from "@openframe/shared";
 import { generatePlannerPdf, type CalendarEvent, type TaskItem, type NewsItem, type WeatherData, type PlannerGeneratorOptions } from "../../services/planner-generator.js";
 import { getRemarkableClient } from "../../services/remarkable/client.js";
@@ -93,18 +92,14 @@ async function gatherPlannerData(
 
     // Fetch events from visible calendars
     if (visibleCalendarIds.length > 0) {
-      const allEvents = await fastify.db
-        .select()
-        .from(events)
-        .where(
-          and(
-            inArray(events.calendarId, visibleCalendarIds),
-            lte(events.startTime, dayEnd),
-            gte(events.endTime, dayStart)
-          )
-        );
+      const allEvents = await queryEventsInRange(fastify.db, {
+        calendarIds: visibleCalendarIds.filter(id => calendarMap.has(id)),
+        start: dayStart,
+        end: dayEnd,
+        timeZone: tz,
+      });
 
-      calendarEvents = allEvents.map(decryptEventFields).map(e => ({
+      calendarEvents = allEvents.map(e => ({
         id: e.id,
         title: e.title,
         startTime: e.startTime,

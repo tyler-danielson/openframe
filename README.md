@@ -207,7 +207,17 @@ pnpm build
 
 # Lint
 pnpm lint
+
+# Typecheck & test (CI runs these on every pull request)
+pnpm typecheck
+pnpm --filter @openframe/api test
+# Include the calendar-sync integration tests (drops and re-creates the schema!)
+TEST_DATABASE_URL=postgres://localhost/openframe_test pnpm --filter @openframe/api test
 ```
+
+New SQL migrations go in `packages/database/src/migrations` **and** must be registered in
+`meta/_journal.json` with a `when` newer than every earlier entry — the migrator ignores anything
+else. `pnpm --filter @openframe/database check:migrations` verifies this (it runs in CI).
 
 ## Tech Stack
 

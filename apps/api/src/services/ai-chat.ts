@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import {
   calendars,
   events,
@@ -12,9 +12,11 @@ import {
   homeAssistantRooms,
   homeAssistantEntities,
   assumptions,
+  users,
 } from "@openframe/database/schema";
 import { getSystemSetting, getCategorySettings } from "../routes/settings/index.js";
-import { decryptEventFields } from "../lib/encryption.js";
+import { resolveTimeZone, zonedDayRange } from "../lib/timezone.js";
+import { queryEventsInRange } from "./calendar-events.js";
 
 interface ChatContext {
   systemPrompt: string;
@@ -29,8 +31,10 @@ export async function buildChatContext(
   userName?: string
 ): Promise<ChatContext> {
   const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const threeDaysOut = new Date(todayStart.getTime() + 3 * 24 * 60 * 60 * 1000);
+  // Dates and times in the prompt are the user's local ones
+  const [owner] = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+  const timeZone = resolveTimeZone(owner?.timezone);
+  const { start: todayStart, end: threeDaysOut } = zonedDayRange(now, timeZone, 3);
 
   // Fetch all context in parallel
   const [
@@ -43,7 +47,7 @@ export async function buildChatContext(
     customInstructions,
     userAssumptions,
   ] = await Promise.all([
-    fetchUpcomingEvents(db, userId, todayStart, threeDaysOut),
+    fetchUpcomingEvents(db, userId, todayStart, threeDaysOut, timeZone),
     fetchIncompleteTasks(db, userId),
     fetchWeather(db),
     fetchSportsGames(db, userId),
@@ -57,7 +61,7 @@ export async function buildChatContext(
   const sections: string[] = [
     `You are a helpful personal assistant for ${userName || "the user"}. You have access to their calendar, tasks, weather, sports, news, and smart home data. Be concise, friendly, and helpful. When answering questions about their schedule, be specific with times and details.`,
     "",
-    `Current date/time: ${now.toLocaleString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })}`,
+    `Current date/time: ${now.toLocaleString("en-US", { timeZone, weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })} (${timeZone})`,
   ];
 
   // Calendar events
@@ -66,10 +70,11 @@ export async function buildChatContext(
     sections.push("## UPCOMING EVENTS (next 3 days)");
     for (const e of eventsData) {
       const start = new Date(e.startTime);
-      const dateStr = start.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-      const timeStr = e.isAllDay ? "All day" : start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      // All-day events are floating dates stored as UTC midnight
+      const dateStr = start.toLocaleDateString("en-US", { timeZone: e.isAllDay ? "UTC" : timeZone, weekday: "short", month: "short", day: "numeric" });
+      const timeStr = e.isAllDay ? "All day" : start.toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" });
       const end = new Date(e.endTime);
-      const endStr = e.isAllDay ? "" : ` - ${end.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+      const endStr = e.isAllDay ? "" : ` - ${end.toLocaleTimeString("en-US", { timeZone, hour: "numeric", minute: "2-digit" })}`;
       const location = e.location ? ` @ ${e.location}` : "";
       sections.push(`- ${dateStr} ${timeStr}${endStr}: ${e.title}${location} [${e.calendarName}]`);
     }
@@ -160,7 +165,7 @@ export async function buildChatContext(
 
 // ---- Data fetchers ----
 
-async function fetchUpcomingEvents(db: any, userId: string, start: Date, end: Date) {
+async function fetchUpcomingEvents(db: any, userId: string, start: Date, end: Date, timeZone: string) {
   const userCalendars = await db
     .select({ id: calendars.id, name: calendars.name })
     .from(calendars)
@@ -169,21 +174,17 @@ async function fetchUpcomingEvents(db: any, userId: string, start: Date, end: Da
   if (userCalendars.length === 0) return [];
 
   const calendarMap = new Map(userCalendars.map((c: any) => [c.id, c.name]));
-  const calendarIds = userCalendars.map((c: any) => c.id);
+  const upcoming = await queryEventsInRange(db, {
+    calendarIds: userCalendars.map((c: any) => c.id),
+    start,
+    end,
+    timeZone,
+  });
 
-  const allEvents = (await db
-    .select()
-    .from(events)
-    .where(eq(events.status, "confirmed"))).map(decryptEventFields);
-
-  return allEvents
-    .filter((e: any) => {
-      const st = new Date(e.startTime);
-      return calendarIds.includes(e.calendarId) && st >= start && st < end;
-    })
-    .sort((a: any, b: any) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+  return upcoming
+    .filter((e) => e.status === "confirmed" && (e.isAllDay || e.startTime >= start))
     .slice(0, 30)
-    .map((e: any) => ({
+    .map((e) => ({
       ...e,
       calendarName: calendarMap.get(e.calendarId) || "Unknown",
     }));

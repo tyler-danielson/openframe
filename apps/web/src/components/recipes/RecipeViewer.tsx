@@ -91,7 +91,7 @@ export function RecipeViewer({
         {recipe.sourceImagePath && (
           <div className="relative h-64 bg-accent">
             <img
-              src={`/api/v1/recipes/image/${recipe.sourceImagePath}`}
+              src={api.getRecipeImageUrl(recipe.sourceImagePath)}
               alt={recipe.title}
               className="w-full h-full object-cover"
             />

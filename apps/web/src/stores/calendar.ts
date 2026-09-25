@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Calendar, CalendarEvent } from "@openframe/shared";
+import { isCalendarEnabled } from "../lib/event-dates";
 
 type CalendarView = "month" | "week" | "day" | "agenda" | "schedule";
 type WeekStartDay = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0 = Sunday, 1 = Monday, etc.
@@ -112,7 +113,7 @@ export const useCalendarStore = create<CalendarState>()(
       .filter((c) => c.isVisible)
       .map((c) => c.id);
     const dashboardIds = calendars
-      .filter((c) => c.showOnDashboard && c.syncEnabled)
+      .filter((c) => c.showOnDashboard && isCalendarEnabled(c))
       .map((c) => c.id);
     set({ calendars, selectedCalendarIds: visibleIds, dashboardCalendarIds: dashboardIds });
   },

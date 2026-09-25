@@ -6,6 +6,7 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "test": "turbo test",
+    "typecheck": "turbo typecheck",
     "db:generate": "turbo db:generate",
     "db:migrate": "turbo db:migrate",
     "db:push": "turbo db:push",

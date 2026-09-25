@@ -297,7 +297,8 @@ export function TelegramSettings({ onClose }: TelegramSettingsProps) {
                 <div className="space-y-2">
                   <h3 className="font-medium">Link a Chat</h3>
                   <p className="text-sm text-muted-foreground">
-                    Send /start to your bot to link a new chat:
+                    Open this link in the Telegram chat you want to link. The bot only answers
+                    chats linked this way.
                   </p>
                   <div className="flex gap-2">
                     <input
@@ -322,7 +323,7 @@ export function TelegramSettings({ onClose }: TelegramSettingsProps) {
                 <h3 className="font-medium">Linked Chats</h3>
                 {status.chats.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No chats linked yet. Send /start to your bot.
+                    No chats linked yet. Open the link above to link one.
                   </p>
                 ) : (
                   <div className="space-y-2">

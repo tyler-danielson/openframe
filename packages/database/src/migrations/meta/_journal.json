@@ -176,6 +176,328 @@
       "when": 1772000000000,
       "tag": "0054_photo_album_storage_source",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790000000000,
+      "tag": "0011_add_automations",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790000001000,
+      "tag": "0012_add_news_feeds",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790000002000,
+      "tag": "0013_add_calendar_source_url",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1790000003000,
+      "tag": "0014_add_homeassistant_calendar_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790000004000,
+      "tag": "0015_rename_side_by_side_to_informational",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790000005000,
+      "tag": "0016_add_builder_layout",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790000006000,
+      "tag": "0018_add_remarkable_templates",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790000007000,
+      "tag": "0019_add_recipes",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790000008000,
+      "tag": "0020_add_family_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790000009000,
+      "tag": "0021_add_kiosk_display_modes",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1790000010000,
+      "tag": "0022_add_kiosk_start_fullscreen",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790000011000,
+      "tag": "0023_add_kiosk_display_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790000012000,
+      "tag": "0024_add_user_password_and_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1790000013000,
+      "tag": "0025_add_chat_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1790000014000,
+      "tag": "0026_add_youtube",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790000015000,
+      "tag": "0032_add_support_tickets",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790000016000,
+      "tag": "0035_add_fullscreen_delay",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1790000017000,
+      "tag": "0036_add_shopping_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1790000018000,
+      "tag": "0037_add_kiosk_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1790000019000,
+      "tag": "0038_add_local_calendar_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1790000020000,
+      "tag": "0039_add_custom_screens",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1790000021000,
+      "tag": "0040_add_screensaver_screen_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1790000022000,
+      "tag": "0041_add_kiosk_dashboards",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1790000023000,
+      "tag": "0042_add_calendar_kiosk_enabled",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1790000024000,
+      "tag": "0043_add_calendar_display_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1790000025000,
+      "tag": "0044_add_join_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1790000026000,
+      "tag": "0045_join_requests_email",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1790000027000,
+      "tag": "0046_companion_invites",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1790000028000,
+      "tag": "0047_add_allowed_album_ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1790000029000,
+      "tag": "0048_add_calendar_sync_interval",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1790000030000,
+      "tag": "0049_iptv_hidden_channels",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1790000031000,
+      "tag": "0050_google_photo_albums",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1790000032000,
+      "tag": "0051_add_news_feed_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1790000033000,
+      "tag": "0052_whatsapp_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1790000034000,
+      "tag": "0055_kiosk_saved_files",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1790000035000,
+      "tag": "0056_siriusxm",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1790000036000,
+      "tag": "0057_add_households",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1790000037000,
+      "tag": "0058_add_sticky_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1790000038000,
+      "tag": "0059_add_chores",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1790000039000,
+      "tag": "0060_add_package_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1790000040000,
+      "tag": "0061_add_ai_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1790000041000,
+      "tag": "0062_add_user_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1790000042000,
+      "tag": "0063_add_habits_goals_gamification",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1790000043000,
+      "tag": "0064_add_show_on_calendar",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1790000044000,
+      "tag": "0065_add_recurrence_rule",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1790000045000,
+      "tag": "0066_calendar_sync_reliability",
+      "breakpoints": true
     }
   ]
 }

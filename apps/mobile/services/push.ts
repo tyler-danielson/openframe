@@ -22,7 +22,9 @@ export async function setupNotificationHandler() {
 
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: true,
+      // shouldShowAlert was split into these two in expo-notifications (SDK 53+)
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: true,
       shouldSetBadge: true,
     }),

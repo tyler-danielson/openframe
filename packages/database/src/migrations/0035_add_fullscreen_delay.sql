@@ -1,1 +1,1 @@
-ALTER TABLE kiosks ADD COLUMN fullscreen_delay_minutes INTEGER;
+ALTER TABLE kiosks ADD COLUMN IF NOT EXISTS fullscreen_delay_minutes INTEGER;

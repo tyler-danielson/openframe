@@ -250,7 +250,7 @@ export const companionAccess = pgTable(
     // Scoped access (null = all)
     allowedCalendarIds: jsonb("allowed_calendar_ids").$type<string[] | null>().default(null),
     allowedTaskListIds: jsonb("allowed_task_list_ids").$type<string[] | null>().default(null),
-    allowedAlbumIds: jsonb("allowed_album_ids").$type<string[] | null>().default(null),
+    allowedAlbumIds: jsonb("allowed_album_ids").$type<string[] | null>(),
 
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -317,7 +317,10 @@ export const calendars = pgTable(
     syncInterval: integer("sync_interval"), // sync interval in minutes (null = system default)
     syncToken: text("sync_token"), // for incremental sync
     sourceUrl: text("source_url"), // for ICS subscriptions - the URL to fetch from
-    lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    lastSyncAt: timestamp("last_sync_at", { withTimezone: true }), // last successful sync
+    lastSyncError: text("last_sync_error"), // null when the last sync attempt succeeded
+    lastSyncErrorAt: timestamp("last_sync_error_at", { withTimezone: true }),
+    fullSyncAt: timestamp("full_sync_at", { withTimezone: true }), // last full (non-incremental) sync
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -328,6 +331,7 @@ export const calendars = pgTable(
   (table) => [
     index("calendars_user_idx").on(table.userId),
     uniqueIndex("calendars_user_provider_external_idx").on(table.userId, table.provider, table.externalId),
+    index("calendars_source_url_idx").on(table.sourceUrl).where(sql`source_url IS NOT NULL`),
   ]
 );
 
@@ -348,6 +352,8 @@ export const events = pgTable(
     isAllDay: boolean("is_all_day").default(false).notNull(),
     status: eventStatusEnum("status").default("confirmed").notNull(),
     recurrenceRule: text("recurrence_rule"), // RRULE string
+    timeZone: text("time_zone"), // IANA zone the recurrence is defined in (null = viewer's zone)
+    exdates: jsonb("exdates").$type<string[]>(), // ISO starts of deleted occurrences (EXDATE / cancelled instances)
     recurringEventId: text("recurring_event_id"), // parent event for instances
     originalStartTime: timestamp("original_start_time", { withTimezone: true }), // for recurring instances
     attendees: jsonb("attendees").$type<EventAttendee[]>().default([]),
@@ -464,7 +470,10 @@ export const photoAlbums = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (table) => [index("photo_albums_user_idx").on(table.userId)]
+  (table) => [
+    index("photo_albums_user_idx").on(table.userId),
+    index("photo_albums_google_album_idx").on(table.googleAlbumId).where(sql`google_album_id IS NOT NULL`),
+  ]
 );
 
 // Photo source enum
@@ -701,8 +710,9 @@ export const kiosks = pgTable(
     screensaverEnabled: boolean("screensaver_enabled").default(true).notNull(),
     screensaverTimeout: integer("screensaver_timeout").default(300).notNull(), // seconds
     screensaverInterval: integer("screensaver_interval").default(15).notNull(), // seconds between slides
+    // Matches the migrations; kiosks created in Settings ask for "builder" explicitly
     screensaverLayout: screensaverLayoutEnum("screensaver_layout")
-      .default("builder")
+      .default("fullscreen")
       .notNull(),
     screensaverTransition: screensaverTransitionEnum("screensaver_transition")
       .default("fade")
@@ -981,6 +991,7 @@ export const iptvChannels = pgTable(
     index("iptv_channels_server_idx").on(table.serverId),
     index("iptv_channels_category_idx").on(table.categoryId),
     index("iptv_channels_external_idx").on(table.serverId, table.externalId),
+    index("iptv_channels_hidden_idx").on(table.isHidden).where(sql`is_hidden = true`),
   ]
 );
 
@@ -1578,6 +1589,7 @@ export const newsArticles = pgTable(
   (table) => [
     index("news_articles_feed_idx").on(table.feedId),
     index("news_articles_published_idx").on(table.publishedAt),
+    uniqueIndex("news_articles_guid_idx").on(table.feedId, table.guid),
   ]
 );
 

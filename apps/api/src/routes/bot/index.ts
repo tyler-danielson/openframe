@@ -1,9 +1,39 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { calendars, events } from "@openframe/database/schema";
-import { format, startOfDay, endOfDay, addDays } from "date-fns";
 import { getCurrentUser } from "../../plugins/auth.js";
-import { decryptEventFields } from "../../lib/encryption.js";
+import { decryptEventFields, encryptEventFields } from "../../lib/encryption.js";
+import {
+  addUtcDays,
+  formatUtcDate,
+  getZonedParts,
+  parseDateOnlyUtc,
+  resolveTimeZone,
+  zonedDayRange,
+  zonedTimeToUtc,
+} from "../../lib/timezone.js";
+import { queryEventsInRange } from "../../services/calendar-events.js";
+import { pushEventChange } from "../../services/calendar-sync/push.js";
+
+// Bot replies are read by people, so format in the user's time zone
+function formatLongDate(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatTime(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit" }).format(date);
+}
+
+function dayKey(date: Date, timeZone: string): string {
+  const p = getZonedParts(date, timeZone);
+  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
 
 export const botRoutes: FastifyPluginAsync = async (fastify) => {
   // Get today's events summary
@@ -22,16 +52,14 @@ export const botRoutes: FastifyPluginAsync = async (fastify) => {
       if (!user) {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
+      const timeZone = resolveTimeZone(user.timezone);
       const today = new Date();
-      const start = startOfDay(today);
-      const end = endOfDay(today);
+      const { start, end } = zonedDayRange(today, timeZone);
 
       const userCalendars = await fastify.db
         .select()
         .from(calendars)
-        .where(
-          and(eq(calendars.userId, user.id), eq(calendars.isVisible, true))
-        );
+        .where(and(eq(calendars.userId, user.id), eq(calendars.isVisible, true)));
 
       const calendarIds = userCalendars.map((c) => c.id);
 
@@ -39,41 +67,21 @@ export const botRoutes: FastifyPluginAsync = async (fastify) => {
         return {
           success: true,
           data: {
-            date: format(today, "EEEE, MMMM d, yyyy"),
+            date: formatLongDate(today, timeZone),
             events: [],
             summary: "No calendars configured.",
           },
         };
       }
 
-      // Get events for today
-      const todayEvents = [];
-      for (const calId of calendarIds) {
-        const calEvents = await fastify.db
-          .select()
-          .from(events)
-          .where(
-            and(
-              eq(events.calendarId, calId),
-              lte(events.startTime, end),
-              gte(events.endTime, start)
-            )
-          );
-        todayEvents.push(...calEvents.map(decryptEventFields));
-      }
-
-      // Sort by start time
-      todayEvents.sort(
-        (a, b) => a.startTime.getTime() - b.startTime.getTime()
-      );
-
+      const todayEvents = await queryEventsInRange(fastify.db, { calendarIds, start, end, timeZone });
       const calendarMap = new Map(userCalendars.map((c) => [c.id, c]));
 
       const formattedEvents = todayEvents.map((event) => ({
         title: event.title,
         time: event.isAllDay
           ? "All day"
-          : `${format(event.startTime, "h:mm a")} - ${format(event.endTime, "h:mm a")}`,
+          : `${formatTime(event.startTime, timeZone)} - ${formatTime(event.endTime, timeZone)}`,
         calendar: calendarMap.get(event.calendarId)?.name ?? "Unknown",
         location: event.location,
       }));
@@ -90,7 +98,7 @@ export const botRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         success: true,
         data: {
-          date: format(today, "EEEE, MMMM d, yyyy"),
+          date: formatLongDate(today, timeZone),
           events: formattedEvents,
           summary,
         },
@@ -121,17 +129,14 @@ export const botRoutes: FastifyPluginAsync = async (fastify) => {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
       const { days = 7 } = request.query as { days?: number };
-
+      const timeZone = resolveTimeZone(user.timezone);
       const today = new Date();
-      const start = startOfDay(today);
-      const end = endOfDay(addDays(today, days));
+      const { start, end } = zonedDayRange(today, timeZone, days + 1);
 
       const userCalendars = await fastify.db
         .select()
         .from(calendars)
-        .where(
-          and(eq(calendars.userId, user.id), eq(calendars.isVisible, true))
-        );
+        .where(and(eq(calendars.userId, user.id), eq(calendars.isVisible, true)));
 
       const calendarIds = userCalendars.map((c) => c.id);
 
@@ -139,61 +144,40 @@ export const botRoutes: FastifyPluginAsync = async (fastify) => {
         return {
           success: true,
           data: {
-            startDate: format(start, "yyyy-MM-dd"),
-            endDate: format(end, "yyyy-MM-dd"),
+            startDate: dayKey(start, timeZone),
+            endDate: dayKey(end, timeZone),
             days: [],
           },
         };
       }
 
-      // Get events
-      const upcomingEvents = [];
-      for (const calId of calendarIds) {
-        const calEvents = await fastify.db
-          .select()
-          .from(events)
-          .where(
-            and(
-              eq(events.calendarId, calId),
-              lte(events.startTime, end),
-              gte(events.endTime, start)
-            )
-          );
-        upcomingEvents.push(...calEvents.map(decryptEventFields));
-      }
+      const upcomingEvents = await queryEventsInRange(fastify.db, { calendarIds, start, end, timeZone });
 
-      // Group by day
+      // Group by day (all-day events are stored as UTC-midnight dates)
       const eventsByDay = new Map<string, typeof upcomingEvents>();
       for (const event of upcomingEvents) {
-        const dayKey = format(event.startTime, "yyyy-MM-dd");
-        if (!eventsByDay.has(dayKey)) {
-          eventsByDay.set(dayKey, []);
-        }
-        eventsByDay.get(dayKey)!.push(event);
+        const key = event.isAllDay ? formatUtcDate(event.startTime) : dayKey(event.startTime, timeZone);
+        const list = eventsByDay.get(key) ?? [];
+        list.push(event);
+        eventsByDay.set(key, list);
       }
 
       const calendarMap = new Map(userCalendars.map((c) => [c.id, c]));
+      const todayParts = getZonedParts(today, timeZone);
+      const firstDay = new Date(Date.UTC(todayParts.year, todayParts.month - 1, todayParts.day));
 
-      // Format by day
       const daysData = [];
       for (let i = 0; i <= days; i++) {
-        const date = addDays(today, i);
-        const dayKey = format(date, "yyyy-MM-dd");
-        const dayEvents = eventsByDay.get(dayKey) ?? [];
-
-        // Sort events by start time
-        dayEvents.sort(
-          (a, b) => a.startTime.getTime() - b.startTime.getTime()
-        );
+        const date = addUtcDays(firstDay, i);
+        const key = formatUtcDate(date);
+        const dayEvents = eventsByDay.get(key) ?? [];
 
         daysData.push({
-          date: dayKey,
-          dayName: format(date, "EEEE"),
+          date: key,
+          dayName: new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "long" }).format(date),
           events: dayEvents.map((event) => ({
             title: event.title,
-            time: event.isAllDay
-              ? "All day"
-              : format(event.startTime, "h:mm a"),
+            time: event.isAllDay ? "All day" : formatTime(event.startTime, timeZone),
             calendar: calendarMap.get(event.calendarId)?.name ?? "Unknown",
             location: event.location,
           })),
@@ -203,8 +187,8 @@ export const botRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         success: true,
         data: {
-          startDate: format(start, "yyyy-MM-dd"),
-          endDate: format(end, "yyyy-MM-dd"),
+          startDate: dayKey(start, timeZone),
+          endDate: dayKey(end, timeZone),
           days: daysData.filter((d) => d.events.length > 0),
         },
       };
@@ -247,108 +231,102 @@ export const botRoutes: FastifyPluginAsync = async (fastify) => {
       };
 
       // Get calendar (always verify ownership)
-      let calendarId = body.calendarId;
-      if (calendarId) {
-        // Verify the specified calendar belongs to this user
-        const [ownedCalendar] = await fastify.db
+      let calendar: typeof calendars.$inferSelect | undefined;
+      if (body.calendarId) {
+        [calendar] = await fastify.db
           .select()
           .from(calendars)
-          .where(
-            and(eq(calendars.id, calendarId), eq(calendars.userId, user.id))
-          )
+          .where(and(eq(calendars.id, body.calendarId), eq(calendars.userId, user.id)))
           .limit(1);
-
-        if (!ownedCalendar) {
+        if (!calendar) {
           return reply.forbidden("Calendar not found or not owned by you");
         }
       } else {
-        const [primaryCalendar] = await fastify.db
-          .select()
-          .from(calendars)
-          .where(
-            and(eq(calendars.userId, user.id), eq(calendars.isPrimary, true))
-          )
-          .limit(1);
-
-        if (!primaryCalendar) {
-          const [anyCalendar] = await fastify.db
-            .select()
-            .from(calendars)
-            .where(eq(calendars.userId, user.id))
-            .limit(1);
-
-          if (!anyCalendar) {
-            return reply.badRequest("No calendars available");
-          }
-          calendarId = anyCalendar.id;
-        } else {
-          calendarId = primaryCalendar.id;
+        const owned = await fastify.db.select().from(calendars).where(eq(calendars.userId, user.id));
+        const writable = owned.filter((c) => !c.isReadOnly);
+        calendar = writable.find((c) => c.isPrimary) ?? writable[0];
+        if (!calendar) {
+          return reply.badRequest("No calendars available");
         }
       }
+      if (calendar.isReadOnly) {
+        return reply.badRequest("Calendar is read-only");
+      }
 
-      // Parse date and time
-      const eventDate = new Date(body.date);
+      const timeZone = resolveTimeZone(user.timezone);
+      const eventDate = parseDateOnlyUtc(body.date);
       let startTime: Date;
       let endTime: Date;
       let isAllDay = false;
 
       if (body.time) {
         // Parse time like "14:00" or "2:00 PM"
-        const timeMatch = body.time.match(
-          /^(\d{1,2}):?(\d{2})?\s*(am|pm)?$/i
-        );
-        if (timeMatch) {
-          let hours = parseInt(timeMatch[1]!, 10);
-          const minutes = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
-          const period = timeMatch[3]?.toLowerCase();
-
-          if (period === "pm" && hours < 12) hours += 12;
-          if (period === "am" && hours === 12) hours = 0;
-
-          startTime = new Date(eventDate);
-          startTime.setHours(hours, minutes, 0, 0);
-
-          // Default duration: 1 hour
-          const durationMinutes = body.duration ?? 60;
-          endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
-        } else {
+        const timeMatch = body.time.trim().match(/^(\d{1,2}):?(\d{2})?\s*(am|pm)?$/i);
+        if (!timeMatch) {
           return reply.badRequest("Invalid time format");
         }
+        let hours = parseInt(timeMatch[1]!, 10);
+        const minutes = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
+        const period = timeMatch[3]?.toLowerCase();
+        if (period === "pm" && hours < 12) hours += 12;
+        if (period === "am" && hours === 12) hours = 0;
+        if (hours > 23 || minutes > 59) {
+          return reply.badRequest("Invalid time format");
+        }
+
+        startTime = zonedTimeToUtc(
+          {
+            year: eventDate.getUTCFullYear(),
+            month: eventDate.getUTCMonth() + 1,
+            day: eventDate.getUTCDate(),
+            hour: hours,
+            minute: minutes,
+            second: 0,
+          },
+          timeZone
+        );
+        const durationMinutes = body.duration ?? 60;
+        endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
       } else {
-        // All-day event
+        // All-day events are stored as UTC midnight of the (inclusive) date
         isAllDay = true;
-        startTime = startOfDay(eventDate);
-        endTime = endOfDay(eventDate);
+        startTime = eventDate;
+        endTime = eventDate;
       }
 
       const [event] = await fastify.db
         .insert(events)
-        .values({
-          calendarId,
-          externalId: `bot_${crypto.randomUUID()}`,
-          title: body.title,
-          startTime,
-          endTime,
-          isAllDay,
-        })
+        .values(
+          encryptEventFields({
+            calendarId: calendar.id,
+            externalId: `bot_${crypto.randomUUID()}`,
+            title: body.title,
+            startTime,
+            endTime,
+            isAllDay,
+            timeZone: isAllDay ? null : timeZone,
+          })
+        )
         .returning();
 
-      const [calendar] = await fastify.db
-        .select()
-        .from(calendars)
-        .where(eq(calendars.id, calendarId))
-        .limit(1);
+      if (!event) {
+        return reply.internalServerError("Failed to create event");
+      }
+
+      const push = await pushEventChange(fastify.db, calendar, event, "create", timeZone);
+      const created = decryptEventFields(event);
 
       return reply.status(201).send({
         success: true,
         data: {
-          id: event!.id,
-          title: event!.title,
-          date: format(startTime, "EEEE, MMMM d, yyyy"),
-          time: isAllDay ? "All day" : format(startTime, "h:mm a"),
-          calendar: calendar?.name ?? "Unknown",
+          id: created.id,
+          title: created.title,
+          date: isAllDay ? formatLongDate(startTime, "UTC") : formatLongDate(startTime, timeZone),
+          time: isAllDay ? "All day" : formatTime(startTime, timeZone),
+          calendar: calendar.displayName || calendar.name,
         },
-        message: `Event "${body.title}" added to ${calendar?.name ?? "calendar"}`,
+        message: `Event "${body.title}" added to ${calendar.displayName || calendar.name}`,
+        ...(push && !push.ok ? { syncWarning: push.error } : {}),
       });
     }
   );

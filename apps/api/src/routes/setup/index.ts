@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { getCategorySettings } from "../settings/index.js";
+import { clearOAuthClientCredentialsCache } from "../../services/calendar-sync/oauth.js";
 
 export const setupRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /status - Check if setup is needed (unauthenticated)
@@ -239,13 +240,17 @@ export const setupRoutes: FastifyPluginAsync = async (fastify) => {
         const isSecret = secretKeys.has(key);
         const storedValue = isSecret && value ? encrypt(value) : value;
 
+        // Global rows only (user_id IS NULL): those are what sign-in and
+        // calendar sync read. A user-scoped row with the same key must not be
+        // the one updated, or the global value silently stays stale.
         const [existing] = await fastify.db
           .select()
           .from(systemSettings)
           .where(
             and(
               eq(systemSettings.category, category),
-              eq(systemSettings.key, key)
+              eq(systemSettings.key, key),
+              isNull(systemSettings.userId)
             )
           )
           .limit(1);
@@ -267,6 +272,11 @@ export const setupRoutes: FastifyPluginAsync = async (fastify) => {
             isSecret,
           });
         }
+      }
+
+      // Rotated OAuth app credentials apply to the next token refresh
+      if (category === "google" || category === "microsoft") {
+        clearOAuthClientCredentialsCache();
       }
 
       return {

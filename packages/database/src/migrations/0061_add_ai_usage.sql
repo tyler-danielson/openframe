@@ -10,31 +10,33 @@ CREATE TABLE IF NOT EXISTS ai_usage (
 
 CREATE UNIQUE INDEX IF NOT EXISTS ai_usage_user_month_idx ON ai_usage(user_id, month);
 
--- Update existing user_plans JSONB to include new fields (backward compat)
+-- Update existing user_plans JSONB to include new fields (backward compat).
+-- Plans that already have them are left alone, so re-applying this migration
+-- can't reset limits changed since.
 -- Pro plans
 UPDATE user_plans
 SET limits = limits
   || '{"aiQueriesPerMonth": 1000, "aiSoftCap": true, "maxPhotos": -1, "maxPhotoResolution": 0}'::jsonb
   || jsonb_build_object('features', (COALESCE(limits->'features', '{}'::jsonb) || '{"cameras": true, "sports": true, "news": true, "recipes": true}'::jsonb))
-WHERE plan_id = 'pro';
+WHERE plan_id = 'pro' AND NOT (limits ? 'aiQueriesPerMonth');
 
 -- Home plans
 UPDATE user_plans
 SET limits = limits
   || '{"aiQueriesPerMonth": 200, "aiSoftCap": true, "maxPhotos": 500, "maxPhotoResolution": 0}'::jsonb
   || jsonb_build_object('features', (COALESCE(limits->'features', '{}'::jsonb) || '{"cameras": true, "sports": true, "news": true, "recipes": true}'::jsonb))
-WHERE plan_id = 'home';
+WHERE plan_id = 'home' AND NOT (limits ? 'aiQueriesPerMonth');
 
 -- Free plans
 UPDATE user_plans
 SET limits = limits
   || '{"aiQueriesPerMonth": 25, "aiSoftCap": true, "maxPhotos": 100, "maxPhotoResolution": 1080}'::jsonb
   || jsonb_build_object('features', (COALESCE(limits->'features', '{}'::jsonb) || '{"cameras": true, "sports": true, "news": true, "recipes": true}'::jsonb))
-WHERE plan_id = 'free';
+WHERE plan_id = 'free' AND NOT (limits ? 'aiQueriesPerMonth');
 
 -- Enterprise plans
 UPDATE user_plans
 SET limits = limits
   || '{"aiQueriesPerMonth": -1, "aiSoftCap": false, "maxPhotos": -1, "maxPhotoResolution": 0}'::jsonb
   || jsonb_build_object('features', (COALESCE(limits->'features', '{}'::jsonb) || '{"cameras": true, "sports": true, "news": true, "recipes": true}'::jsonb))
-WHERE plan_id = 'enterprise';
+WHERE plan_id = 'enterprise' AND NOT (limits ? 'aiQueriesPerMonth');

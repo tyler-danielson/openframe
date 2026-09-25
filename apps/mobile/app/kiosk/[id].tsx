@@ -101,6 +101,9 @@ export default function KioskControlScreen() {
     [sendCommand, id]
   );
 
+  // Declared before handleNavigate, whose dependency list reads it during render
+  const [screensaverOn, setScreensaverOn] = useState(false);
+
   const handleNavigate = useCallback(
     (path: string) => {
       if (screensaverOn) {
@@ -111,8 +114,6 @@ export default function KioskControlScreen() {
     },
     [handleCommand, screensaverOn]
   );
-
-  const [screensaverOn, setScreensaverOn] = useState(false);
 
   const handleToggleScreensaver = useCallback(() => {
     const newState = !screensaverOn;
@@ -381,7 +382,7 @@ export default function KioskControlScreen() {
                 marginBottom: 24,
               }}
             >
-              {iptvState.state.currentChannel && (
+              {!!iptvState.state.currentChannel && (
                 <Text
                   style={{
                     color: colors.foreground,
@@ -486,7 +487,7 @@ export default function KioskControlScreen() {
         )}
 
         {/* Spotify Status */}
-        {spotifyState && spotifyState.state.currentTrack && (
+        {spotifyState && !!spotifyState.state.currentTrack && (
           <>
             <Text
               style={{
@@ -529,7 +530,7 @@ export default function KioskControlScreen() {
                 >
                   {String(spotifyState.state.currentTrack)}
                 </Text>
-                {spotifyState.state.currentArtist && (
+                {!!spotifyState.state.currentArtist && (
                   <Text
                     style={{
                       color: colors.mutedForeground,

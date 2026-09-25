@@ -9,7 +9,7 @@
  */
 
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { format, startOfDay, endOfDay, addDays, startOfWeek } from "date-fns";
 import * as path from "path";
 import { renderNotebookToPdf } from "../../services/remarkable/rm-parser.js";
@@ -28,7 +28,14 @@ import {
   type ConfirmedEventSummary,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
-import { decryptEventFields } from "../../lib/encryption.js";
+import {
+  eventDisplayTimes,
+  resolveTimeZone,
+  toZonedDisplayDate,
+  zonedDateToInstant,
+  zonedDayRange,
+} from "../../lib/timezone.js";
+import { queryEventsInRange } from "../../services/calendar-events.js";
 import { getRemarkableClient } from "../../services/remarkable/client.js";
 import {
   generateAgendaPdf,
@@ -291,9 +298,9 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { date: dateStr } = request.body;
 
-      const targetDate = dateStr ? new Date(dateStr) : new Date();
-      const start = startOfDay(targetDate);
-      const end = endOfDay(targetDate);
+      const timeZone = resolveTimeZone(user.timezone);
+      const targetDate = dateStr ? zonedDateToInstant(dateStr, timeZone) : new Date();
+      const { start, end } = zonedDayRange(targetDate, timeZone);
 
       // Get settings
       const [settings] = await fastify.db
@@ -320,48 +327,26 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Get events for the date
-      const dayEvents: AgendaEvent[] = [];
-      const calendarMap = new Map<string, typeof calendars.$inferSelect>();
-
-      for (const calId of calendarIds) {
-        const [cal] = await fastify.db
-          .select()
-          .from(calendars)
-          .where(eq(calendars.id, calId))
-          .limit(1);
-
-        if (cal) {
-          calendarMap.set(calId, cal);
-        }
-
-        const calEvents = await fastify.db
-          .select()
-          .from(events)
-          .where(
-            and(
-              eq(events.calendarId, calId),
-              eq(events.startTime, start),
-              eq(events.endTime, end)
-            )
-          );
-
-        for (const event of calEvents.map(decryptEventFields)) {
-          dayEvents.push({
-            title: event.title,
-            startTime: event.startTime,
-            endTime: event.endTime,
-            isAllDay: event.isAllDay,
-            location: event.location,
-            description: event.description,
-            calendarName: calendarMap.get(calId)?.name,
-            calendarColor: calendarMap.get(calId)?.color ?? undefined,
-          });
-        }
-      }
+      const ownedCalendars = await fastify.db
+        .select()
+        .from(calendars)
+        .where(and(eq(calendars.userId, user.id), inArray(calendars.id, calendarIds.length ? calendarIds : [""])));
+      const calendarMap = new Map(ownedCalendars.map((c) => [c.id, c]));
+      const dayEvents: AgendaEvent[] = (
+        await queryEventsInRange(fastify.db, { calendarIds: [...calendarMap.keys()], start, end, timeZone })
+      ).map((event) => ({
+        title: event.title,
+        ...eventDisplayTimes(event, timeZone),
+        isAllDay: event.isAllDay,
+        location: event.location,
+        description: event.description,
+        calendarName: calendarMap.get(event.calendarId)?.name,
+        calendarColor: calendarMap.get(event.calendarId)?.color ?? undefined,
+      }));
 
       // Generate PDF
       const pdfBuffer = await generateAgendaPdf({
-        date: targetDate,
+        date: toZonedDisplayDate(targetDate, timeZone),
         events: dayEvents,
         showLocation: settings.showLocation,
         showDescription: settings.showDescription,
@@ -439,9 +424,9 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { date: dateStr } = request.query;
 
-      const targetDate = dateStr ? new Date(dateStr) : new Date();
-      const start = startOfDay(targetDate);
-      const end = endOfDay(targetDate);
+      const timeZone = resolveTimeZone(user.timezone);
+      const targetDate = dateStr ? zonedDateToInstant(dateStr, timeZone) : new Date();
+      const { start, end } = zonedDayRange(targetDate, timeZone);
 
       // Get settings
       const [settings] = await fastify.db
@@ -459,37 +444,25 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
       const calendarIds = userCalendars.map((c) => c.id);
 
       // Get events for the date
-      const dayEvents: AgendaEvent[] = [];
-
-      for (const cal of userCalendars) {
-        const calEvents = await fastify.db
-          .select()
-          .from(events)
-          .where(
-            and(
-              eq(events.calendarId, cal.id),
-              eq(events.startTime, start),
-              eq(events.endTime, end)
-            )
-          );
-
-        for (const event of calEvents.map(decryptEventFields)) {
-          dayEvents.push({
-            title: event.title,
-            startTime: event.startTime,
-            endTime: event.endTime,
-            isAllDay: event.isAllDay,
-            location: event.location,
-            description: event.description,
-            calendarName: cal.displayName || cal.name,
-            calendarColor: cal.color ?? undefined,
-          });
-        }
-      }
+      const calendarMap = new Map(userCalendars.map((c) => [c.id, c]));
+      const dayEvents: AgendaEvent[] = (
+        await queryEventsInRange(fastify.db, { calendarIds, start, end, timeZone })
+      ).map((event) => {
+        const cal = calendarMap.get(event.calendarId);
+        return {
+          title: event.title,
+          ...eventDisplayTimes(event, timeZone),
+          isAllDay: event.isAllDay,
+          location: event.location,
+          description: event.description,
+          calendarName: cal ? cal.displayName || cal.name : undefined,
+          calendarColor: cal?.color ?? undefined,
+        };
+      });
 
       // Generate PDF
       const pdfBuffer = await generateAgendaPdf({
-        date: targetDate,
+        date: toZonedDisplayDate(targetDate, timeZone),
         events: dayEvents,
         showLocation: settings?.showLocation ?? true,
         showDescription: settings?.showDescription ?? false,
@@ -1377,32 +1350,30 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
         ? template.config.includeCalendarIds
         : userCalendars.map((c) => c.id);
 
-      const templateEvents: TemplateEvent[] = [];
-      for (const calId of calendarIds) {
-        const cal = userCalendars.find((c) => c.id === calId);
-        if (!cal) continue;
-
-        const calEvents = await fastify.db
-          .select()
-          .from(events)
-          .where(eq(events.calendarId, calId));
-
-        for (const event of calEvents.map(decryptEventFields)) {
-          if (event.startTime >= dateRange.start && event.startTime <= dateRange.end) {
-            templateEvents.push({
-              id: event.id,
-              title: event.title,
-              startTime: event.startTime,
-              endTime: event.endTime,
-              isAllDay: event.isAllDay,
-              location: event.location,
-              description: event.description,
-              calendarName: cal.displayName || cal.name,
-              calendarColor: cal.color ?? undefined,
-            });
-          }
-        }
-      }
+      const allowedCalendars = new Map(userCalendars.map((c) => [c.id, c]));
+      const templateEvents: TemplateEvent[] = (
+        await queryEventsInRange(fastify.db, {
+          calendarIds: calendarIds.filter((id: string) => allowedCalendars.has(id)),
+          start: dateRange.start,
+          end: dateRange.end,
+          timeZone: user.timezone,
+        })
+      )
+        .filter((event) => event.startTime >= dateRange.start || event.isAllDay)
+        .map((event) => {
+          const cal = allowedCalendars.get(event.calendarId)!;
+          return {
+            id: event.id,
+            title: event.title,
+            startTime: event.startTime,
+            endTime: event.endTime,
+            isAllDay: event.isAllDay,
+            location: event.location,
+            description: event.description,
+            calendarName: cal.displayName || cal.name,
+            calendarColor: cal.color ?? undefined,
+          };
+        });
 
       // Generate template
       const result = await generateTemplate(template.templateType as TemplateType, {
@@ -1487,32 +1458,30 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
         ? template.config.includeCalendarIds
         : userCalendars.map((c) => c.id);
 
-      const templateEvents: TemplateEvent[] = [];
-      for (const calId of calendarIds) {
-        const cal = userCalendars.find((c) => c.id === calId);
-        if (!cal) continue;
-
-        const calEvents = await fastify.db
-          .select()
-          .from(events)
-          .where(eq(events.calendarId, calId));
-
-        for (const event of calEvents.map(decryptEventFields)) {
-          if (event.startTime >= dateRange.start && event.startTime <= dateRange.end) {
-            templateEvents.push({
-              id: event.id,
-              title: event.title,
-              startTime: event.startTime,
-              endTime: event.endTime,
-              isAllDay: event.isAllDay,
-              location: event.location,
-              description: event.description,
-              calendarName: cal.displayName || cal.name,
-              calendarColor: cal.color ?? undefined,
-            });
-          }
-        }
-      }
+      const allowedCalendars = new Map(userCalendars.map((c) => [c.id, c]));
+      const templateEvents: TemplateEvent[] = (
+        await queryEventsInRange(fastify.db, {
+          calendarIds: calendarIds.filter((id: string) => allowedCalendars.has(id)),
+          start: dateRange.start,
+          end: dateRange.end,
+          timeZone: user.timezone,
+        })
+      )
+        .filter((event) => event.startTime >= dateRange.start || event.isAllDay)
+        .map((event) => {
+          const cal = allowedCalendars.get(event.calendarId)!;
+          return {
+            id: event.id,
+            title: event.title,
+            startTime: event.startTime,
+            endTime: event.endTime,
+            isAllDay: event.isAllDay,
+            location: event.location,
+            description: event.description,
+            calendarName: cal.displayName || cal.name,
+            calendarColor: cal.color ?? undefined,
+          };
+        });
 
       // Generate template
       const result = await generateTemplate(template.templateType as TemplateType, {

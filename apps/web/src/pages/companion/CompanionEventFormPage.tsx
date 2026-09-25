@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Trash2, ChevronDown } from "lucide-react";
 import { api } from "../../services/api";
+import { allDayDateToStorage, getEventEnd, getEventStart } from "../../lib/event-dates";
 import { Button } from "../../components/ui/Button";
 import { CompanionPageHeader } from "./components/CompanionPageHeader";
 import { useCompanion } from "./CompanionContext";
@@ -72,12 +73,7 @@ export function CompanionEventFormPage() {
   // Load event for editing
   const { data: existingEvent, isLoading: eventLoading } = useQuery({
     queryKey: ["companion-event", eventId],
-    queryFn: async () => {
-      const start = new Date(2000, 0, 1);
-      const end = new Date(2100, 0, 1);
-      const events = await api.getCompanionEvents(start, end);
-      return events.find((e: any) => e.id === eventId);
-    },
+    queryFn: () => api.getCompanionEvent(eventId!),
     enabled: isEdit,
   });
 
@@ -86,8 +82,9 @@ export function CompanionEventFormPage() {
       setTitle(existingEvent.title || "");
       setCalendarId(existingEvent.calendarId || "");
       setIsAllDay(existingEvent.isAllDay || false);
-      const s = new Date(existingEvent.startTime);
-      const e = new Date(existingEvent.endTime);
+      // All-day events are UTC-midnight dates; read them as calendar dates
+      const s = getEventStart(existingEvent);
+      const e = getEventEnd(existingEvent);
       setStartDate(toDateStr(s));
       setStartTime(toTimeStr(s));
       setEndDate(toDateStr(e));
@@ -128,10 +125,10 @@ export function CompanionEventFormPage() {
     if (!title.trim()) return;
 
     const startDT = isAllDay
-      ? new Date(startDate + "T00:00:00")
+      ? allDayDateToStorage(startDate)
       : combineDateAndTime(startDate, startTime);
     const endDT = isAllDay
-      ? new Date(endDate + "T23:59:59")
+      ? allDayDateToStorage(endDate)
       : combineDateAndTime(endDate, endTime);
 
     const data = {

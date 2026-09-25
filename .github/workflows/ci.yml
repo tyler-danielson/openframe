@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# A newer push to the same branch/PR supersedes the running check
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Typecheck & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      # Disposable database for the calendar-sync integration tests; they drop
+      # and re-create its schema by running every migration from scratch
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: openframe
+          POSTGRES_PASSWORD: openframe
+          POSTGRES_DB: openframe_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openframe -d openframe_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      # Same as the Dockerfiles: pnpm at the version in package.json's packageManager
+      - name: Set up pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check every migration is registered in the journal
+        run: pnpm --filter @openframe/database check:migrations
+
+      - name: Check the Drizzle schema matches the migrations
+        run: pnpm --filter @openframe/database check:schema
+        env:
+          DATABASE_URL: postgres://openframe:openframe@localhost:5432/openframe_test
+
+      - name: Build shared packages
+        run: pnpm --filter @openframe/shared --filter @openframe/database build
+
+      - name: Typecheck API
+        run: pnpm --filter @openframe/api typecheck
+
+      - name: Typecheck web
+        run: pnpm --filter @openframe/web typecheck
+
+      - name: Typecheck mobile
+        run: pnpm --filter @openframe/mobile typecheck
+
+      - name: API tests (unit + Postgres integration)
+        run: pnpm --filter @openframe/api test
+        env:
+          TEST_DATABASE_URL: postgres://openframe:openframe@localhost:5432/openframe_test
+
+      # Date handling must not depend on the server's zone
+      - name: API unit tests in a non-UTC time zone
+        run: pnpm --filter @openframe/api test
+        env:
+          TZ: America/Denver

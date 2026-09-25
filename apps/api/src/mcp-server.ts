@@ -19,7 +19,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { createDatabase } from "@openframe/database";
-import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
 import {
   calendars,
   events,
@@ -36,6 +36,8 @@ import {
 } from "@openframe/database/schema";
 import crypto from "crypto";
 import { decryptEventFields } from "./lib/encryption.js";
+import { resolveTimeZone, zonedDateToInstant, zonedDayRange } from "./lib/timezone.js";
+import { queryEventsInRange } from "./services/calendar-events.js";
 
 // ---- Database setup ----
 
@@ -116,9 +118,11 @@ server.tool(
     const userId = await getDefaultUserId();
     if (!userId) return { content: [{ type: "text", text: "No users found" }] };
 
-    const start = new Date(start_date);
-    const end = new Date(end_date);
-    end.setHours(23, 59, 59, 999);
+    // Dates are the user's calendar dates
+    const [owner] = await db.select({ timezone: users.timezone }).from(users).where(eq(users.id, userId)).limit(1);
+    const timeZone = resolveTimeZone(owner?.timezone);
+    const start = zonedDayRange(zonedDateToInstant(start_date, timeZone), timeZone).start;
+    const end = zonedDayRange(zonedDateToInstant(end_date, timeZone), timeZone).end;
 
     const userCals = await db
       .select({ id: calendars.id, name: calendars.name })
@@ -126,29 +130,22 @@ server.tool(
       .where(eq(calendars.userId, userId));
 
     const calMap = new Map(userCals.map((c) => [c.id, c.name]));
-    const calIds = userCals.map((c) => c.id);
 
-    const allEvents = await db
-      .select({
-        id: events.id, title: events.title, startTime: events.startTime,
-        endTime: events.endTime, location: events.location, isAllDay: events.isAllDay,
-        calendarId: events.calendarId, status: events.status,
-      })
-      .from(events)
-      .where(eq(events.status, "confirmed"));
+    const inRange = await queryEventsInRange(db, {
+      calendarIds: userCals.map((c) => c.id),
+      start,
+      end,
+      timeZone,
+    });
 
-    const filtered = allEvents
-      .map(decryptEventFields)
-      .filter((e) => {
-        const st = new Date(e.startTime);
-        return calIds.includes(e.calendarId) && st >= start && st <= end;
-      })
-      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+    const filtered = inRange
+      .filter((e) => e.status === "confirmed")
       .map((e) => ({
-        ...e,
+        id: e.id, title: e.title, location: e.location, isAllDay: e.isAllDay,
+        calendarId: e.calendarId, status: e.status,
         calendar: calMap.get(e.calendarId),
-        startTime: new Date(e.startTime).toISOString(),
-        endTime: new Date(e.endTime).toISOString(),
+        startTime: e.startTime.toISOString(),
+        endTime: e.endTime.toISOString(),
       }));
 
     return {
@@ -172,12 +169,13 @@ server.tool(
     const calIds = userCals.map((c) => c.id);
     const calMap = new Map(userCals.map((c) => [c.id, c.name]));
 
-    const allEvents = await db.select().from(events);
+    // Titles are encrypted, so matching happens after decryption
+    const allEvents = calIds.length > 0 ? await db.select().from(events).where(inArray(events.calendarId, calIds)) : [];
     const lowerQuery = query.toLowerCase();
 
     const matches = allEvents
       .map(decryptEventFields)
-      .filter((e) => calIds.includes(e.calendarId) && e.title.toLowerCase().includes(lowerQuery))
+      .filter((e) => e.title.toLowerCase().includes(lowerQuery))
       .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
       .slice(0, 20)
       .map((e) => ({

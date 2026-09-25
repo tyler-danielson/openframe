@@ -1,28 +1,49 @@
-import { eq, and } from "drizzle-orm";
+import { and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
 import { calendars, events, oauthTokens } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
-import { encryptField, decryptField, encryptEventFields, decryptEventFields } from "../../lib/encryption.js";
+import { decryptEventFields } from "../../lib/encryption.js";
+import { addUtcDays, getZonedParts, normalizeTimeZone, parseDateOnlyUtc, resolveTimeZone } from "../../lib/timezone.js";
+import { allDayDateSpan } from "./all-day.js";
+import { CalendarNotFoundError, CalendarSyncError, SyncStateExpiredError, describeSyncError } from "./errors.js";
+import {
+  deleteEventsByExternalId,
+  deleteEventsMissingFromListing,
+  getExistingEvents,
+  upsertSyncedEvents,
+  type SyncedEvent,
+} from "./event-store.js";
+import { providerFetch } from "./http.js";
+import { parseDatePropertyLine } from "./ics-parser.js";
+import { getValidAccessToken, type OAuthToken } from "./oauth.js";
+import { extractRRuleValue } from "./recurrence.js";
 
 interface GoogleCalendar {
   id: string;
   summary: string;
+  summaryOverride?: string;
   description?: string;
   backgroundColor?: string;
   primary?: boolean;
   accessRole: string;
 }
 
-interface GoogleEvent {
+interface GoogleDateTime {
+  dateTime?: string;
+  date?: string;
+  timeZone?: string;
+}
+
+export interface GoogleEvent {
   id: string;
   summary?: string;
   description?: string;
   location?: string;
-  start: { dateTime?: string; date?: string; timeZone?: string };
-  end: { dateTime?: string; date?: string; timeZone?: string };
-  status: string;
+  start?: GoogleDateTime;
+  end?: GoogleDateTime;
+  status?: string;
   recurrence?: string[];
   recurringEventId?: string;
-  originalStartTime?: { dateTime?: string; date?: string };
+  originalStartTime?: GoogleDateTime;
   attendees?: Array<{
     email: string;
     displayName?: string;
@@ -37,394 +58,430 @@ interface GoogleEvent {
 }
 
 interface GoogleCalendarListResponse {
-  items: GoogleCalendar[];
+  items?: GoogleCalendar[];
   nextPageToken?: string;
 }
 
 interface GoogleEventsResponse {
-  items: GoogleEvent[];
+  items?: GoogleEvent[];
   nextPageToken?: string;
   nextSyncToken?: string;
 }
 
-type OAuthToken = typeof oauthTokens.$inferSelect;
+type CalendarRecord = typeof calendars.$inferSelect;
+type EventRecord = typeof events.$inferSelect;
 
-export interface GoogleCalendarCredentials {
-  clientId?: string;
-  clientSecret?: string;
+export interface CalendarOutcome {
+  calendarId: string;
+  error: string | null;
 }
 
-// Module-level credentials that can be set by the route layer
-let _calendarCredentials: GoogleCalendarCredentials = {};
+export interface PushResult {
+  ok: boolean;
+  error?: string;
+}
 
-export function setGoogleCalendarCredentials(creds: GoogleCalendarCredentials) {
-  _calendarCredentials = creds;
+const API = "https://www.googleapis.com/calendar/v3";
+/** Full syncs re-baseline the window and catch deletions missed while offline */
+export const FULL_SYNC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+const WINDOW_PAST_DAYS = 90;
+const WINDOW_FUTURE_DAYS = 400;
+
+function syncWindow(now = new Date()) {
+  return {
+    start: new Date(now.getTime() - WINDOW_PAST_DAYS * 24 * 60 * 60 * 1000),
+    end: new Date(now.getTime() + WINDOW_FUTURE_DAYS * 24 * 60 * 60 * 1000),
+  };
+}
+
+function parseGoogleTime(value: GoogleDateTime | undefined): Date | null {
+  if (value?.dateTime) return new Date(value.dateTime);
+  if (value?.date) return parseDateOnlyUtc(value.date);
+  return null;
+}
+
+/** Map a Google event resource to the stored form. Pure; exported for tests. */
+export function mapGoogleEvent(gevent: GoogleEvent): SyncedEvent | null {
+  const start = parseGoogleTime(gevent.start);
+  if (!start || !gevent.end) return null;
+  const isAllDay = !gevent.start?.dateTime;
+
+  let end: Date;
+  if (isAllDay) {
+    // Google's all-day end date is exclusive; store the inclusive last day
+    const exclusiveEnd = gevent.end.date ? parseDateOnlyUtc(gevent.end.date) : addUtcDays(start, 1);
+    end = addUtcDays(exclusiveEnd, -1);
+  } else {
+    end = parseGoogleTime(gevent.end) ?? start;
+  }
+  if (end < start) end = start;
+
+  const timeZone = isAllDay ? null : normalizeTimeZone(gevent.start?.timeZone);
+  let recurrenceRule: string | null = null;
+  const exdates: string[] = [];
+  for (const line of gevent.recurrence ?? []) {
+    if (/^RRULE:/i.test(line)) {
+      recurrenceRule = extractRRuleValue(line);
+    } else if (/^EXDATE[;:]/i.test(line)) {
+      for (const date of parseDatePropertyLine(line, timeZone ?? "UTC")) exdates.push(date.toISOString());
+    }
+  }
+
+  return {
+    externalId: gevent.id,
+    title: gevent.summary || "(No title)",
+    description: gevent.description ?? null,
+    location: gevent.location ?? null,
+    startTime: start,
+    endTime: end,
+    isAllDay,
+    status: gevent.status === "tentative" ? "tentative" : "confirmed",
+    recurrenceRule,
+    timeZone,
+    exdates: recurrenceRule ? exdates : null,
+    recurringEventId: gevent.recurringEventId ?? null,
+    originalStartTime: parseGoogleTime(gevent.originalStartTime),
+    attendees:
+      gevent.attendees?.map((a) => ({
+        email: a.email,
+        name: a.displayName,
+        responseStatus: a.responseStatus as "needsAction" | "accepted" | "declined" | "tentative" | undefined,
+        organizer: a.organizer,
+      })) ?? [],
+    reminders:
+      gevent.reminders?.overrides?.map((r) => ({
+        method: r.method === "email" ? ("email" as const) : ("popup" as const),
+        minutes: r.minutes,
+      })) ?? [],
+    etag: gevent.etag ?? null,
+  };
 }
 
 /**
- * Parse a date-only string (YYYY-MM-DD) as local midnight.
- * This is needed for all-day events because:
- * - Google sends date-only strings like "2026-02-02" for all-day events
- * - new Date("2026-02-02") parses this as UTC midnight, causing timezone issues
- * - All-day events should be treated as "floating" dates (the same date everywhere)
+ * For a cancelled item, the recurring series and occurrence it removes.
+ * Incremental results may carry only the id, whose `<master>_<start>` form
+ * still identifies the occurrence.
  */
-function parseLocalDate(dateStr: string): Date {
-  const parts = dateStr.split("-").map(Number);
-  const year = parts[0] ?? 0;
-  const month = (parts[1] ?? 1) - 1;
-  const day = parts[2] ?? 1;
-  return new Date(year, month, day, 0, 0, 0, 0);
-}
-
-async function refreshGoogleToken(
-  db: Database,
-  token: OAuthToken
-): Promise<string> {
-  const plainAccessToken = decryptField(token.accessToken) ?? token.accessToken;
-  const plainRefreshToken = decryptField(token.refreshToken) ?? token.refreshToken;
-
-  if (!plainRefreshToken) {
-    throw new Error("No refresh token available");
+export function cancelledInstanceRef(gevent: GoogleEvent): { masterId: string; originalStart: Date } | null {
+  const originalStart = parseGoogleTime(gevent.originalStartTime);
+  if (gevent.recurringEventId && originalStart) {
+    return { masterId: gevent.recurringEventId, originalStart };
   }
-
-  if (token.expiresAt && token.expiresAt > new Date()) {
-    return plainAccessToken;
-  }
-
-  const clientId =
-    _calendarCredentials.clientId || process.env.GOOGLE_CLIENT_ID!;
-  const clientSecret =
-    _calendarCredentials.clientSecret || process.env.GOOGLE_CLIENT_SECRET!;
-
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: plainRefreshToken,
-      grant_type: "refresh_token",
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    console.error(
-      `[Google Sync] Token refresh failed (${response.status}): ${errorText}`
-    );
-    throw new Error(
-      `Failed to refresh Google token: ${response.status}`
-    );
-  }
-
-  const data = (await response.json()) as {
-    access_token: string;
-    expires_in?: number;
-    refresh_token?: string;
+  const match = /^(.+)_(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})Z)?$/.exec(gevent.id);
+  if (!match) return null;
+  const [, masterId, y, mo, d, h, mi, s] = match;
+  return {
+    masterId: masterId!,
+    originalStart: new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h ?? 0), Number(mi ?? 0), Number(s ?? 0))),
   };
-
-  // Persist the refreshed token back to the database
-  const updates: Record<string, unknown> = {
-    accessToken: encryptField(data.access_token) ?? data.access_token,
-    updatedAt: new Date(),
-  };
-  if (data.expires_in) {
-    updates.expiresAt = new Date(Date.now() + data.expires_in * 1000);
-  }
-  // Google may issue a new refresh token (rare but possible)
-  if (data.refresh_token) {
-    updates.refreshToken = encryptField(data.refresh_token) ?? data.refresh_token;
-  }
-
-  await db
-    .update(oauthTokens)
-    .set(updates)
-    .where(eq(oauthTokens.id, token.id));
-
-  return data.access_token;
 }
 
-export async function syncGoogleCalendars(
-  db: Database,
-  userId: string,
-  token: OAuthToken,
-  syncToken?: string,
-  calendarId?: string
-): Promise<void> {
-  const accessToken = await refreshGoogleToken(db, token);
-
-  // If no specific calendar, sync the calendar list first
-  if (!calendarId) {
-    await syncCalendarList(db, userId, accessToken, token.id);
-  }
-
-  // Get calendars to sync
-  const calendarsToSync = calendarId
-    ? await db
-        .select()
-        .from(calendars)
-        .where(
-          and(
-            eq(calendars.id, calendarId),
-            eq(calendars.userId, userId),
-            eq(calendars.provider, "google")
-          )
-        )
-    : await db
-        .select()
-        .from(calendars)
-        .where(
-          and(
-            eq(calendars.userId, userId),
-            eq(calendars.provider, "google"),
-            eq(calendars.syncEnabled, true)
-          )
-        );
-
-  // Sync events for each calendar
-  for (const calendar of calendarsToSync) {
-    await syncCalendarEvents(
-      db,
-      calendar.id,
-      calendar.externalId,
-      accessToken,
-      syncToken ?? calendar.syncToken ?? undefined
-    );
-  }
+async function googleGet<T>(url: string, accessToken: string): Promise<T> {
+  const response = await providerFetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (response.ok) return (await response.json()) as T;
+  const text = await response.text().catch(() => "");
+  if (response.status === 410) throw new SyncStateExpiredError();
+  if (response.status === 404) throw new CalendarNotFoundError("Google");
+  if (response.status === 401) throw new CalendarSyncError("Google rejected the access token", 401);
+  const reason = /"reason"\s*:\s*"([^"]+)"/.exec(text)?.[1];
+  throw new CalendarSyncError(`Google Calendar returned HTTP ${response.status}${reason ? ` (${reason})` : ""}`, response.status);
 }
 
-async function syncCalendarList(
-  db: Database,
-  userId: string,
-  accessToken: string,
-  oauthTokenId?: string
-): Promise<void> {
-  const response = await fetch(
-    "https://www.googleapis.com/calendar/v3/users/me/calendarList",
-    {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }
-  );
+// --- Calendar list ---------------------------------------------------------
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    console.error(`[Google Sync] Calendar list fetch failed (${response.status}): ${errorText}`);
-    throw new Error(`Failed to fetch Google calendars: ${response.status}`);
-  }
+async function syncCalendarList(db: Database, token: OAuthToken, accessToken: string): Promise<void> {
+  const listed: GoogleCalendar[] = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL(`${API}/users/me/calendarList`);
+    url.searchParams.set("showHidden", "true"); // hidden in Google's UI ≠ removed
+    url.searchParams.set("maxResults", "250");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const page = await googleGet<GoogleCalendarListResponse>(url.toString(), accessToken);
+    listed.push(...(page.items ?? []));
+    pageToken = page.nextPageToken;
+  } while (pageToken);
 
-  const data = (await response.json()) as GoogleCalendarListResponse;
-
-  for (const gcal of data.items) {
-    // Note: isPrimary is intentionally excluded from the update set —
-    // it's a user-controlled setting that shouldn't be overwritten by sync
+  for (const gcal of listed) {
+    const name = gcal.summaryOverride || gcal.summary || gcal.id;
+    const isReadOnly = gcal.accessRole === "reader" || gcal.accessRole === "freeBusyReader";
+    // isPrimary is user-controlled in OpenFrame, so it's only set on insert
     await db
       .insert(calendars)
       .values({
-        userId,
+        userId: token.userId,
         provider: "google",
         externalId: gcal.id,
-        name: gcal.summary,
+        name,
         description: gcal.description,
         color: gcal.backgroundColor ?? "#3B82F6",
         isPrimary: gcal.primary ?? false,
-        isReadOnly: gcal.accessRole === "reader",
-        ...(oauthTokenId ? { oauthTokenId } : {}),
+        isReadOnly,
+        oauthTokenId: token.id,
       })
       .onConflictDoUpdate({
         target: [calendars.userId, calendars.provider, calendars.externalId],
         set: {
-          name: gcal.summary,
+          name,
           description: gcal.description,
           color: gcal.backgroundColor ?? "#3B82F6",
-          isReadOnly: gcal.accessRole === "reader",
-          ...(oauthTokenId ? { oauthTokenId } : {}),
+          isReadOnly,
+          oauthTokenId: token.id,
           updatedAt: new Date(),
         },
       });
+  }
+
+  // Calendars this account no longer lists were deleted or unsubscribed
+  // upstream. Only touch this account's calendars (and legacy rows without an
+  // account, when this is the user's only Google account).
+  if (listed.length === 0) return;
+  const googleTokens = await db
+    .select({ id: oauthTokens.id })
+    .from(oauthTokens)
+    .where(and(eq(oauthTokens.userId, token.userId), eq(oauthTokens.provider, "google")));
+  const ownership =
+    googleTokens.length === 1
+      ? or(eq(calendars.oauthTokenId, token.id), isNull(calendars.oauthTokenId))
+      : eq(calendars.oauthTokenId, token.id);
+  await db
+    .delete(calendars)
+    .where(
+      and(
+        eq(calendars.userId, token.userId),
+        eq(calendars.provider, "google"),
+        ownership,
+        notInArray(
+          calendars.externalId,
+          listed.map((c) => c.id)
+        )
+      )
+    );
+}
+
+// --- Events ----------------------------------------------------------------
+
+interface ExdateChange {
+  add: Set<string>;
+  remove: Set<string>;
+}
+
+async function applyExdateChanges(db: Database, calendarId: string, changes: Map<string, ExdateChange>): Promise<void> {
+  if (changes.size === 0) return;
+  const masters = await getExistingEvents(db, calendarId, [...changes.keys()]);
+  for (const [masterId, change] of changes) {
+    const master = masters.get(masterId);
+    if (!master?.recurrenceRule) continue;
+    const next = new Set(master.exdates ?? []);
+    for (const iso of change.add) next.add(iso);
+    for (const iso of change.remove) next.delete(iso);
+    const before = [...(master.exdates ?? [])].sort().join();
+    const after = [...next].sort();
+    if (after.join() === before) continue;
+    await db
+      .update(events)
+      .set({ exdates: after, updatedAt: new Date() })
+      .where(eq(events.id, master.id));
   }
 }
 
 async function syncCalendarEvents(
   db: Database,
-  calendarDbId: string,
-  googleCalendarId: string,
+  calendar: CalendarRecord,
   accessToken: string,
-  syncToken?: string
+  full: boolean
 ): Promise<void> {
-  const url = new URL(
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(googleCalendarId)}/events`
-  );
-
-  if (syncToken) {
-    url.searchParams.set("syncToken", syncToken);
+  const now = new Date();
+  const window = syncWindow(now);
+  const params = new URLSearchParams({ maxResults: "2500" });
+  if (full) {
+    params.set("timeMin", window.start.toISOString());
+    params.set("timeMax", window.end.toISOString());
+    params.set("singleEvents", "false"); // recurring masters, expanded locally
   } else {
-    // Initial sync: get events from 3 months ago to 1 year ahead
-    const timeMin = new Date();
-    timeMin.setMonth(timeMin.getMonth() - 3);
-    const timeMax = new Date();
-    timeMax.setFullYear(timeMax.getFullYear() + 1);
-
-    url.searchParams.set("timeMin", timeMin.toISOString());
-    url.searchParams.set("timeMax", timeMax.toISOString());
-    url.searchParams.set("singleEvents", "false"); // Get recurring event masters
+    params.set("syncToken", calendar.syncToken!);
   }
 
-  url.searchParams.set("maxResults", "2500");
-
-  let pageToken: string | undefined;
-  let newSyncToken: string | undefined;
-
-  do {
-    if (pageToken) {
-      url.searchParams.set("pageToken", pageToken);
+  const seen = new Set<string>();
+  const exdateChanges = new Map<string, ExdateChange>();
+  const changeFor = (masterId: string) => {
+    let change = exdateChanges.get(masterId);
+    if (!change) {
+      change = { add: new Set(), remove: new Set() };
+      exdateChanges.set(masterId, change);
     }
-
-    const response = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-
-    if (!response.ok) {
-      if (response.status === 410) {
-        // Sync token expired, do full sync
-        await syncCalendarEvents(db, calendarDbId, googleCalendarId, accessToken);
-        return;
-      }
-      throw new Error(`Failed to fetch events: ${response.status}`);
-    }
-
-    const data = (await response.json()) as GoogleEventsResponse;
-
-    for (const gevent of data.items ?? []) {
-      await upsertEvent(db, calendarDbId, gevent);
-    }
-
-    pageToken = data.nextPageToken;
-    newSyncToken = data.nextSyncToken;
-  } while (pageToken);
-
-  // Save new sync token
-  if (newSyncToken) {
-    await db
-      .update(calendars)
-      .set({
-        syncToken: newSyncToken,
-        lastSyncAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(calendars.id, calendarDbId));
-  }
-}
-
-async function upsertEvent(
-  db: Database,
-  calendarId: string,
-  gevent: GoogleEvent
-): Promise<void> {
-  // Handle cancelled events
-  if (gevent.status === "cancelled") {
-    await db
-      .delete(events)
-      .where(
-        and(
-          eq(events.calendarId, calendarId),
-          eq(events.externalId, gevent.id)
-        )
-      );
-    return;
-  }
-
-  // For all-day events, use parseLocalDate to avoid UTC timezone issues
-  const startTime = gevent.start.dateTime
-    ? new Date(gevent.start.dateTime)
-    : parseLocalDate(gevent.start.date!);
-
-  // Google uses exclusive end dates for all-day events (a single-day event on
-  // Apr 5 has end="2026-04-06"). Subtract one day so we store inclusive end dates.
-  let endTime: Date;
-  if (gevent.end.dateTime) {
-    endTime = new Date(gevent.end.dateTime);
-  } else {
-    endTime = parseLocalDate(gevent.end.date!);
-    endTime.setDate(endTime.getDate() - 1);
-  }
-
-  const isAllDay = !gevent.start.dateTime;
-
-  // Parse recurrence rule
-  let recurrenceRule: string | null = null;
-  if (gevent.recurrence?.length) {
-    const rrule = gevent.recurrence.find((r) => r.startsWith("RRULE:"));
-    recurrenceRule = rrule?.replace("RRULE:", "") ?? null;
-  }
-
-  // Parse attendees
-  const attendees =
-    gevent.attendees?.map((a) => ({
-      email: a.email,
-      name: a.displayName,
-      responseStatus: a.responseStatus as
-        | "needsAction"
-        | "accepted"
-        | "declined"
-        | "tentative"
-        | undefined,
-      organizer: a.organizer,
-    })) ?? [];
-
-  // Parse reminders
-  const reminders =
-    gevent.reminders?.overrides?.map((r) => ({
-      method: r.method as "email" | "popup",
-      minutes: r.minutes,
-    })) ?? [];
-
-  const eventData = {
-    calendarId,
-    externalId: gevent.id,
-    title: gevent.summary ?? "(No title)",
-    description: gevent.description ?? null,
-    location: gevent.location ?? null,
-    startTime,
-    endTime,
-    isAllDay,
-    status: gevent.status as "confirmed" | "tentative" | "cancelled",
-    recurrenceRule,
-    recurringEventId: gevent.recurringEventId ?? null,
-    originalStartTime: gevent.originalStartTime?.dateTime
-      ? new Date(gevent.originalStartTime.dateTime)
-      : gevent.originalStartTime?.date
-        ? parseLocalDate(gevent.originalStartTime.date)
-        : null,
-    attendees,
-    reminders,
-    etag: gevent.etag ?? null,
-    updatedAt: new Date(),
+    return change;
   };
 
-  const [existing] = await db
-    .select()
-    .from(events)
-    .where(
-      and(eq(events.calendarId, calendarId), eq(events.externalId, gevent.id))
-    )
-    .limit(1);
+  let pageToken: string | undefined;
+  let nextSyncToken: string | undefined;
+  do {
+    const url = new URL(`${API}/calendars/${encodeURIComponent(calendar.externalId)}/events`);
+    url.search = params.toString();
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const page = await googleGet<GoogleEventsResponse>(url.toString(), accessToken);
 
-  const encryptedEventData = encryptEventFields(eventData);
+    const upserts: SyncedEvent[] = [];
+    const deletedInstances: string[] = [];
+    const deletedSeries: string[] = [];
+    for (const item of page.items ?? []) {
+      if (item.status === "cancelled") {
+        const instance = cancelledInstanceRef(item);
+        if (instance) {
+          // A deleted occurrence of a series: record it as an exception date
+          const iso = instance.originalStart.toISOString();
+          changeFor(instance.masterId).add.add(iso);
+          changeFor(instance.masterId).remove.delete(iso);
+          deletedInstances.push(item.id);
+        } else {
+          deletedSeries.push(item.id);
+        }
+        continue;
+      }
+      const mapped = mapGoogleEvent(item);
+      if (!mapped) continue;
+      seen.add(mapped.externalId);
+      if (mapped.recurringEventId && mapped.originalStartTime) {
+        // A restored/modified occurrence is no longer an exception date
+        const iso = mapped.originalStartTime.toISOString();
+        changeFor(mapped.recurringEventId).remove.add(iso);
+        changeFor(mapped.recurringEventId).add.delete(iso);
+      }
+      upserts.push(mapped);
+    }
 
-  if (existing) {
-    await db.update(events).set(encryptedEventData).where(eq(events.id, existing.id));
-  } else {
-    await db.insert(events).values(encryptedEventData);
+    if (!full) {
+      // Master updates don't list cancelled occurrences; keep the ones we know
+      const masters = upserts.filter((e) => e.recurrenceRule);
+      if (masters.length > 0) {
+        const existing = await getExistingEvents(
+          db,
+          calendar.id,
+          masters.map((m) => m.externalId)
+        );
+        for (const master of masters) {
+          const known = existing.get(master.externalId)?.exdates ?? [];
+          master.exdates = [...new Set([...known, ...(master.exdates ?? [])])];
+        }
+      }
+    }
+
+    await deleteEventsByExternalId(db, calendar.id, deletedInstances);
+    await deleteEventsByExternalId(db, calendar.id, deletedSeries, { includeInstances: true });
+    await upsertSyncedEvents(db, calendar.id, upserts);
+
+    pageToken = page.nextPageToken;
+    nextSyncToken = page.nextSyncToken ?? nextSyncToken;
+  } while (pageToken);
+
+  await applyExdateChanges(db, calendar.id, exdateChanges);
+  if (full) {
+    await deleteEventsMissingFromListing(db, calendar.id, seen, { providerRowsOnly: true, window });
   }
+
+  await db
+    .update(calendars)
+    .set({
+      syncToken: nextSyncToken ?? (full ? null : calendar.syncToken),
+      lastSyncAt: now,
+      ...(full ? { fullSyncAt: now } : {}),
+      updatedAt: now,
+    })
+    .where(eq(calendars.id, calendar.id));
 }
 
-// --- Outgoing sync: local → Google Calendar ---
+function needsFullSync(calendar: CalendarRecord, forced: boolean): boolean {
+  if (forced || !calendar.syncToken || !calendar.fullSyncAt) return true;
+  return Date.now() - calendar.fullSyncAt.getTime() > FULL_SYNC_INTERVAL_MS;
+}
 
-type CalendarRecord = typeof calendars.$inferSelect;
-type EventRecord = typeof events.$inferSelect;
+/**
+ * Sync one Google account: refresh its calendar list, then the events of its
+ * enabled calendars (or just `calendarId`). A failing calendar doesn't stop
+ * the others; each gets its own outcome. Token errors throw.
+ */
+export async function syncGoogleAccount(
+  db: Database,
+  token: OAuthToken,
+  options: { calendarId?: string; calendarIds?: string[]; fullSync?: boolean } = {}
+): Promise<CalendarOutcome[]> {
+  const accessToken = await getValidAccessToken(db, token, "google");
 
-function buildGoogleEventBody(event: EventRecord, timeZone?: string) {
-  // Decrypt event fields since they're encrypted in DB
+  if (!options.calendarId) {
+    await syncCalendarList(db, token, accessToken);
+  }
+
+  const calendarsToSync = await db
+    .select()
+    .from(calendars)
+    .where(
+      and(
+        eq(calendars.userId, token.userId),
+        eq(calendars.provider, "google"),
+        or(eq(calendars.oauthTokenId, token.id), isNull(calendars.oauthTokenId)),
+        options.calendarId
+          ? eq(calendars.id, options.calendarId)
+          : and(
+              eq(calendars.syncEnabled, true),
+              options.calendarIds ? inArray(calendars.id, options.calendarIds) : undefined
+            )
+      )
+    );
+
+  const outcomes: CalendarOutcome[] = [];
+  for (const calendar of calendarsToSync) {
+    try {
+      const full = needsFullSync(calendar, options.fullSync ?? false);
+      try {
+        await syncCalendarEvents(db, calendar, accessToken, full);
+      } catch (err) {
+        if (!(err instanceof SyncStateExpiredError) || full) throw err;
+        // Google invalidated the sync token: start over with a full sync
+        await syncCalendarEvents(db, calendar, accessToken, true);
+      }
+      outcomes.push({ calendarId: calendar.id, error: null });
+    } catch (err) {
+      console.error(`[Google Sync] Calendar ${calendar.id} failed: ${describeSyncError(err)}`);
+      outcomes.push({ calendarId: calendar.id, error: describeSyncError(err) });
+    }
+  }
+  return outcomes;
+}
+
+// --- Outgoing sync: OpenFrame → Google Calendar -----------------------------
+
+const pad = (n: number, width = 2) => String(n).padStart(width, "0");
+
+function utcStamp(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+
+function dateStamp(date: Date): string {
+  return date.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+/** EXDATE lines for a series' excluded occurrences, in the form Google returns them. */
+function exdateLines(event: EventRecord, timeZone: string): string[] {
+  const dates = [...new Set(event.exdates ?? [])]
+    .map((iso) => new Date(iso))
+    .filter((d) => !Number.isNaN(d.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime());
+  return dates.map((d) => {
+    if (event.isAllDay) return `EXDATE;VALUE=DATE:${dateStamp(d)}`;
+    const p = getZonedParts(d, timeZone);
+    return `EXDATE;TZID=${timeZone}:${p.year}${pad(p.month)}${pad(p.day)}T${pad(p.hour)}${pad(p.minute)}${pad(p.second)}`;
+  });
+}
+
+/**
+ * Google's id for one occurrence of a recurring event: the series id plus the
+ * occurrence's original start (UTC), or its date for all-day events.
+ */
+export function googleInstanceId(seriesExternalId: string, originalStart: Date, isAllDay: boolean): string {
+  return `${seriesExternalId}_${isAllDay ? dateStamp(originalStart) : utcStamp(originalStart)}`;
+}
+
+export function buildGoogleEventBody(event: EventRecord, fallbackTimeZone?: string): Record<string, unknown> {
   const decrypted = decryptEventFields(event);
   const body: Record<string, unknown> = {
     summary: decrypted.title,
@@ -432,92 +489,83 @@ function buildGoogleEventBody(event: EventRecord, timeZone?: string) {
     location: decrypted.location ?? undefined,
   };
 
+  // Google requires a zone for recurring events; it also controls how the
+  // event is displayed, so prefer the zone it was created in
+  const timeZone = resolveTimeZone(event.timeZone, resolveTimeZone(fallbackTimeZone));
   if (event.isAllDay) {
-    // For all-day events, extract the UTC date directly
-    const start = event.startTime;
-    const startDate = `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, "0")}-${String(start.getUTCDate()).padStart(2, "0")}`;
-    // Google uses exclusive end date for all-day events, so add 1 day
-    const end = new Date(event.endTime);
-    end.setUTCDate(end.getUTCDate() + 1);
-    const endDate = `${end.getUTCFullYear()}-${String(end.getUTCMonth() + 1).padStart(2, "0")}-${String(end.getUTCDate()).padStart(2, "0")}`;
-    body.start = { date: startDate };
-    body.end = { date: endDate };
+    const span = allDayDateSpan(event.startTime, event.endTime);
+    body.start = { date: span.start };
+    body.end = { date: span.endExclusive };
   } else {
-    body.start = { dateTime: event.startTime.toISOString(), ...(timeZone ? { timeZone } : {}) };
-    body.end = { dateTime: event.endTime.toISOString(), ...(timeZone ? { timeZone } : {}) };
+    body.start = { dateTime: event.startTime.toISOString(), timeZone };
+    body.end = { dateTime: event.endTime.toISOString(), timeZone };
   }
 
   if (event.recurrenceRule) {
-    body.recurrence = [`RRULE:${event.recurrenceRule}`];
+    const rule = extractRRuleValue(event.recurrenceRule);
+    // Sending `recurrence` replaces it, so include the excluded occurrences:
+    // leaving them out would bring deleted occurrences back
+    if (rule) body.recurrence = [`RRULE:${rule}`, ...exdateLines(event, timeZone)];
   }
 
   if (Array.isArray(event.attendees) && event.attendees.length > 0) {
-    body.attendees = (event.attendees as Array<{ email: string; name?: string }>).map((a) => ({
-      email: a.email,
-      displayName: a.name,
-    }));
+    body.attendees = event.attendees.map((a) => ({ email: a.email, displayName: a.name }));
   }
 
   if (Array.isArray(event.reminders) && event.reminders.length > 0) {
     body.reminders = {
       useDefault: false,
-      overrides: (event.reminders as Array<{ method: string; minutes: number }>).map((r) => ({
-        method: r.method,
-        minutes: r.minutes,
-      })),
+      overrides: event.reminders.map((r) => ({ method: r.method, minutes: r.minutes })),
     };
   }
 
   return body;
 }
 
+async function describeFailure(response: Response): Promise<string> {
+  const text = await response.text().catch(() => "");
+  const message = /"message"\s*:\s*"([^"]+)"/.exec(text)?.[1];
+  return `Google Calendar rejected the change (HTTP ${response.status}${message ? `: ${message}` : ""})`;
+}
+
+function eventUrl(calendar: CalendarRecord, eventId?: string): string {
+  const base = `${API}/calendars/${encodeURIComponent(calendar.externalId)}/events`;
+  return eventId ? `${base}/${encodeURIComponent(eventId)}` : base;
+}
+
+/** Created in OpenFrame and not (yet) on Google. */
+export function isLocalOnly(event: Pick<EventRecord, "etag" | "externalId">): boolean {
+  return !event.etag && /^(local_|companion-|remarkable_|bot_)/.test(event.externalId);
+}
+
 export async function pushEventToGoogle(
   db: Database,
-  userId: string,
   calendar: CalendarRecord,
   event: EventRecord,
-  token: OAuthToken
-): Promise<{ success: boolean; error?: string }> {
+  token: OAuthToken,
+  fallbackTimeZone?: string
+): Promise<PushResult> {
   try {
-    const accessToken = await refreshGoogleToken(db, token);
-    const body = buildGoogleEventBody(event);
-
-    console.log("[Google Sync] Pushing event body:", JSON.stringify(body));
-
-    const response = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.externalId)}/events`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      }
-    );
-
+    const accessToken = await getValidAccessToken(db, token, "google");
+    const response = await providerFetch(eventUrl(calendar), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify(buildGoogleEventBody(event, fallbackTimeZone)),
+    });
     if (!response.ok) {
-      const text = await response.text();
-      console.error(`[Google Sync] Failed to push event: ${response.status} ${text}`);
-      return { success: false, error: `Google Calendar sync failed (${response.status})` };
+      const error = await describeFailure(response);
+      console.error(`[Google Sync] Failed to create event ${event.id}: ${error}`);
+      return { ok: false, error };
     }
-
     const created = (await response.json()) as GoogleEvent;
-
-    // Update local event with Google's ID and etag
     await db
       .update(events)
-      .set({
-        externalId: created.id,
-        etag: created.etag ?? null,
-        updatedAt: new Date(),
-      })
+      .set({ externalId: created.id, etag: created.etag ?? null, updatedAt: new Date() })
       .where(eq(events.id, event.id));
-
-    return { success: true };
+    return { ok: true };
   } catch (err) {
-    console.error("[Google Sync] Error pushing event:", err);
-    return { success: false, error: "Failed to sync event to Google Calendar" };
+    console.error(`[Google Sync] Error creating event ${event.id}: ${describeSyncError(err)}`);
+    return { ok: false, error: describeSyncError(err) };
   }
 }
 
@@ -525,44 +573,32 @@ export async function updateEventInGoogle(
   db: Database,
   calendar: CalendarRecord,
   event: EventRecord,
-  token: OAuthToken
-): Promise<void> {
-  // Never synced to Google — nothing to update
-  if (event.externalId.startsWith("local_")) return;
-
+  token: OAuthToken,
+  fallbackTimeZone?: string
+): Promise<PushResult> {
+  // Never reached Google: create it now instead
+  if (isLocalOnly(event)) return pushEventToGoogle(db, calendar, event, token, fallbackTimeZone);
   try {
-    const accessToken = await refreshGoogleToken(db, token);
-    const body = buildGoogleEventBody(event);
-
-    const response = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.externalId)}/events/${encodeURIComponent(event.externalId)}`,
-      {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      }
-    );
-
+    const accessToken = await getValidAccessToken(db, token, "google");
+    const response = await providerFetch(eventUrl(calendar, event.externalId), {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify(buildGoogleEventBody(event, fallbackTimeZone)),
+    });
     if (!response.ok) {
-      const text = await response.text();
-      console.error(`[Google Sync] Failed to update event: ${response.status} ${text}`);
-      return;
+      const error = await describeFailure(response);
+      console.error(`[Google Sync] Failed to update event ${event.id}: ${error}`);
+      return { ok: false, error };
     }
-
     const updated = (await response.json()) as GoogleEvent;
-
     await db
       .update(events)
-      .set({
-        etag: updated.etag ?? null,
-        updatedAt: new Date(),
-      })
+      .set({ etag: updated.etag ?? null, updatedAt: new Date() })
       .where(eq(events.id, event.id));
+    return { ok: true };
   } catch (err) {
-    console.error("[Google Sync] Error updating event:", err);
+    console.error(`[Google Sync] Error updating event ${event.id}: ${describeSyncError(err)}`);
+    return { ok: false, error: describeSyncError(err) };
   }
 }
 
@@ -571,28 +607,21 @@ export async function deleteEventFromGoogle(
   calendar: CalendarRecord,
   event: EventRecord,
   token: OAuthToken
-): Promise<void> {
-  // Never synced to Google — nothing to delete
-  if (event.externalId.startsWith("local_")) return;
-
+): Promise<PushResult> {
+  if (isLocalOnly(event)) return { ok: true };
   try {
-    const accessToken = await refreshGoogleToken(db, token);
-
-    const response = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.externalId)}/events/${encodeURIComponent(event.externalId)}`,
-      {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
-
-    if (!response.ok && response.status !== 410) {
-      const text = await response.text();
-      console.error(`[Google Sync] Failed to delete event: ${response.status} ${text}`);
-    }
+    const accessToken = await getValidAccessToken(db, token, "google");
+    const response = await providerFetch(eventUrl(calendar, event.externalId), {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    // Already gone is fine
+    if (response.ok || response.status === 404 || response.status === 410) return { ok: true };
+    const error = await describeFailure(response);
+    console.error(`[Google Sync] Failed to delete event ${event.id}: ${error}`);
+    return { ok: false, error };
   } catch (err) {
-    console.error("[Google Sync] Error deleting event:", err);
+    console.error(`[Google Sync] Error deleting event ${event.id}: ${describeSyncError(err)}`);
+    return { ok: false, error: describeSyncError(err) };
   }
 }

@@ -1,4 +1,6 @@
+import type { Database } from "@openframe/database";
 import type { OAuthToken } from "@openframe/database/schema";
+import { getValidAccessToken } from "./calendar-sync/oauth.js";
 
 const PICKER_API = "https://photospicker.googleapis.com/v1";
 const LIBRARY_API = "https://photoslibrary.googleapis.com/v1";
@@ -30,54 +32,13 @@ interface ListMediaItemsResponse {
   nextPageToken?: string;
 }
 
-export interface GoogleOAuthCredentials {
-  clientId?: string;
-  clientSecret?: string;
-}
-
-// Module-level credentials that can be set by the route layer
-let _oauthCredentials: GoogleOAuthCredentials = {};
-
-export function setGoogleOAuthCredentials(creds: GoogleOAuthCredentials) {
-  _oauthCredentials = creds;
-}
-
-export async function getAccessToken(token: OAuthToken): Promise<string> {
-  if (!token.refreshToken) {
-    throw new Error("No refresh token available");
-  }
-
-  // Check if token is still valid (with 5 minute buffer)
-  const tokenExpiry = token.expiresAt ? new Date(token.expiresAt).getTime() : 0;
-  const isValid = tokenExpiry > Date.now() + 5 * 60 * 1000;
-
-  if (isValid && token.accessToken) {
-    return token.accessToken;
-  }
-
-  // Refresh the token
-  const clientId = _oauthCredentials.clientId || process.env.GOOGLE_CLIENT_ID!;
-  const clientSecret = _oauthCredentials.clientSecret || process.env.GOOGLE_CLIENT_SECRET!;
-
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: token.refreshToken,
-      grant_type: "refresh_token",
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("Token refresh failed:", errorText);
-    throw new Error("Failed to refresh Google access token");
-  }
-
-  const data = await response.json() as { access_token: string };
-  return data.access_token;
+/**
+ * A usable access token for `token`, refreshed (and saved) through the shared
+ * OAuth helper when it's about to expire. The OAuth client credentials are read
+ * from settings when refreshing, so rotating them in Settings needs no restart.
+ */
+export async function getAccessToken(db: Database, token: OAuthToken): Promise<string> {
+  return getValidAccessToken(db, token, "google");
 }
 
 /**
@@ -85,9 +46,10 @@ export async function getAccessToken(token: OAuthToken): Promise<string> {
  * Returns a session with a pickerUri that the user should be directed to.
  */
 export async function createPickerSession(
+  db: Database,
   token: OAuthToken
 ): Promise<PickerSession> {
-  const accessToken = await getAccessToken(token);
+  const accessToken = await getAccessToken(db, token);
 
   const response = await fetch(`${PICKER_API}/sessions`, {
     method: "POST",
@@ -114,10 +76,11 @@ export async function createPickerSession(
  * Poll this until mediaItemsSet is true.
  */
 export async function getPickerSession(
+  db: Database,
   token: OAuthToken,
   sessionId: string
 ): Promise<PickerSession> {
-  const accessToken = await getAccessToken(token);
+  const accessToken = await getAccessToken(db, token);
 
   const response = await fetch(`${PICKER_API}/sessions/${sessionId}`, {
     headers: {
@@ -140,10 +103,11 @@ export async function getPickerSession(
  * List the media items that were selected in a completed Picker session.
  */
 export async function listPickedMediaItems(
+  db: Database,
   token: OAuthToken,
   sessionId: string
 ): Promise<PickedMediaItem[]> {
-  const accessToken = await getAccessToken(token);
+  const accessToken = await getAccessToken(db, token);
   const items: PickedMediaItem[] = [];
   let nextPageToken: string | undefined;
 
@@ -191,10 +155,11 @@ export async function listPickedMediaItems(
  * Delete a Picker session (cleanup).
  */
 export async function deletePickerSession(
+  db: Database,
   token: OAuthToken,
   sessionId: string
 ): Promise<void> {
-  const accessToken = await getAccessToken(token);
+  const accessToken = await getAccessToken(db, token);
 
   await fetch(`${PICKER_API}/sessions/${sessionId}`, {
     method: "DELETE",
@@ -262,8 +227,8 @@ interface SearchMediaItemsResponse {
 /**
  * List all albums from Google Photos
  */
-export async function listAlbums(token: OAuthToken): Promise<GoogleAlbum[]> {
-  const accessToken = await getAccessToken(token);
+export async function listAlbums(db: Database, token: OAuthToken): Promise<GoogleAlbum[]> {
+  const accessToken = await getAccessToken(db, token);
   const albums: GoogleAlbum[] = [];
   let nextPageToken: string | undefined;
 
@@ -300,11 +265,12 @@ export async function listAlbums(token: OAuthToken): Promise<GoogleAlbum[]> {
  * List photos in a specific album
  */
 export async function listAlbumPhotos(
+  db: Database,
   token: OAuthToken,
   albumId: string,
   pageToken?: string
 ): Promise<{ photos: GoogleMediaItem[]; nextPageToken?: string }> {
-  const accessToken = await getAccessToken(token);
+  const accessToken = await getAccessToken(db, token);
 
   const response = await fetch(`${LIBRARY_API}/mediaItems:search`, {
     method: "POST",

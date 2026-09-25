@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HandwritingCanvas } from "../ui/HandwritingCanvas";
 import { parseEventText } from "../../utils/parseEventText";
 import { api } from "../../services/api";
+import { allDayDateToStorage } from "../../lib/event-dates";
 import type { Calendar } from "@openframe/shared";
 
 interface HandwritingOverlayProps {
@@ -80,17 +81,14 @@ export function HandwritingOverlay({
         isAllDay: false,
       });
     } else {
-      // All-day event (no time specified)
-      const startOfDay = new Date(targetDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(targetDate);
-      endOfDay.setHours(23, 59, 59, 999);
+      // All-day event (no time specified), stored as UTC midnight of the day
+      const day = allDayDateToStorage(format(targetDate, "yyyy-MM-dd"));
 
       createEventMutation.mutate({
         calendarId: primaryCalendar.id,
         title: parsed.title,
-        startTime: startOfDay,
-        endTime: endOfDay,
+        startTime: day,
+        endTime: day,
         isAllDay: true,
       });
     }

@@ -1,8 +1,9 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and, inArray, gte, lte } from "drizzle-orm";
-import { calendars, events, tasks, taskLists, newsArticles, newsFeeds } from "@openframe/database/schema";
+import { eq, and, inArray } from "drizzle-orm";
+import { calendars, tasks, taskLists, newsArticles, newsFeeds } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
-import { decryptEventFields } from "../../lib/encryption.js";
+import { resolveTimeZone, zonedDayRange } from "../../lib/timezone.js";
+import { queryEventsInRange } from "../../services/calendar-events.js";
 import { getSystemSetting } from "../settings/index.js";
 import { generateDailyBriefing, checkBriefingStatus } from "../../services/ai-briefing.js";
 import type { CalendarEvent, Task, NewsHeadline } from "@openframe/shared";
@@ -123,10 +124,10 @@ export const briefingRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("Anthropic API key not configured. Add it in Settings.");
       }
 
-      // Get today's date range
+      // Today, in the user's time zone
       const now = new Date();
-      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      const timeZone = resolveTimeZone(user.timezone);
+      const { start: startOfDay, end: endOfDay } = zonedDayRange(now, timeZone);
 
       // Fetch today's events
       const userCalendars = await fastify.db
@@ -138,20 +139,11 @@ export const briefingRoutes: FastifyPluginAsync = async (fastify) => {
 
       let todayEvents: CalendarEvent[] = [];
       if (calendarIds.length > 0) {
-        const filteredEvents = await fastify.db
-          .select()
-          .from(events)
-          .where(
-            and(
-              inArray(events.calendarId, calendarIds),
-              eq(events.status, "confirmed"),
-              gte(events.startTime, startOfDay),
-              lte(events.startTime, endOfDay)
-            )
-          );
+        const filteredEvents = (
+          await queryEventsInRange(fastify.db, { calendarIds, start: startOfDay, end: endOfDay, timeZone })
+        ).filter((e) => e.status === "confirmed" && (e.isAllDay || e.startTime >= startOfDay));
 
         todayEvents = filteredEvents
-          .map(decryptEventFields)
           .map((e) => ({
             ...e,
             attendees: (e.attendees as any) || [],

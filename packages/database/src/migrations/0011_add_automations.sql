@@ -11,7 +11,7 @@ EXCEPTION
 END $$;
 
 -- Create ha_automations table
-CREATE TABLE ha_automations (
+CREATE TABLE IF NOT EXISTS ha_automations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,

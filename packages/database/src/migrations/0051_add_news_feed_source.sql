@@ -1,6 +1,6 @@
 -- Add source column to news_feeds for per-source connection management
 DO $$ BEGIN
-  ALTER TABLE news_feeds ADD COLUMN source TEXT;
+  ALTER TABLE news_feeds ADD COLUMN IF NOT EXISTS source TEXT;
 EXCEPTION WHEN duplicate_column THEN null;
 END $$;
 

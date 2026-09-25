@@ -13,19 +13,29 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import { eq, and, gte, lte } from "drizzle-orm";
-import { format, startOfDay, endOfDay, addDays, startOfWeek, endOfWeek } from "date-fns";
+import { eq, and } from "drizzle-orm";
+import { format, addDays, startOfWeek, endOfWeek } from "date-fns";
 import path from "path";
 import fs from "fs";
 import {
   whatsappConfig,
   whatsappChats,
   calendars,
-  events,
+  users,
   tasks,
   taskLists,
 } from "@openframe/database/schema";
-import { decryptEventFields } from "../lib/encryption.js";
+import type { events } from "@openframe/database/schema";
+import {
+  formatUtcDate,
+  fromZonedDisplayDate,
+  resolveTimeZone,
+  toZonedDisplayDate,
+  zonedDayRange,
+} from "../lib/timezone.js";
+import { queryEventsInRange } from "./calendar-events.js";
+import { isValidChatLinkCode } from "../lib/chat-link.js";
+import { createQuickEvent, describeEventTime } from "./quick-event.js";
 
 // Baileys - dynamic import to handle ESM/CJS differences
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -76,40 +86,44 @@ export class WhatsAppService {
 
   // --- Command Handlers ---
 
-  async handleMessage(jid: string, messageText: string): Promise<void> {
+  async handleMessage(jid: string, messageText: string, senderName: string | null = null): Promise<void> {
     const text = messageText.trim();
+    if (!text.startsWith("/")) return;
 
-    if (text.startsWith("/")) {
-      const parts = text.split(" ");
-      const command = parts[0] || "";
-      const args = parts.slice(1);
-      const cmdName = command.substring(1).toLowerCase();
+    const parts = text.split(" ");
+    const command = parts[0] || "";
+    const args = parts.slice(1);
+    const cmdName = command.substring(1).toLowerCase();
 
-      switch (cmdName) {
-        case "start":
-          await this.handleStart(jid);
-          break;
-        case "today":
-          await this.handleToday(jid);
-          break;
-        case "tomorrow":
-          await this.handleTomorrow(jid);
-          break;
-        case "week":
-          await this.handleWeek(jid);
-          break;
-        case "tasks":
-          await this.handleTasks(jid);
-          break;
-        case "quick":
-          await this.handleQuickAdd(jid, args.join(" "));
-          break;
-        case "help":
-          await this.handleHelp(jid);
-          break;
-        default:
-          await this.sendMessage(jid, "Unknown command. Send /help to see available commands.");
-      }
+    if (cmdName === "start") {
+      await this.handleStart(jid, args[0], senderName);
+      return;
+    }
+    // This is a real WhatsApp number that anyone can message: stay silent in
+    // chats the owner hasn't linked
+    if (!(await this.isLinkedChat(jid))) return;
+
+    switch (cmdName) {
+      case "today":
+        await this.handleToday(jid);
+        break;
+      case "tomorrow":
+        await this.handleTomorrow(jid);
+        break;
+      case "week":
+        await this.handleWeek(jid);
+        break;
+      case "tasks":
+        await this.handleTasks(jid);
+        break;
+      case "quick":
+        await this.handleQuickAdd(jid, args.join(" "));
+        break;
+      case "help":
+        await this.handleHelp(jid);
+        break;
+      default:
+        await this.sendMessage(jid, "Unknown command. Send /help to see available commands.");
     }
 
     // Update last message time for this chat
@@ -124,8 +138,18 @@ export class WhatsAppService {
       );
   }
 
-  private async handleStart(jid: string): Promise<void> {
-    // Auto-link the chat
+  /** Whether `jid` has been linked (and not disabled) by the account owner. */
+  private async isLinkedChat(jid: string): Promise<boolean> {
+    const [chat] = await this.db
+      .select({ isActive: whatsappChats.isActive })
+      .from(whatsappChats)
+      .where(and(eq(whatsappChats.userId, this.userId), eq(whatsappChats.jid, jid)))
+      .limit(1);
+    return !!chat?.isActive;
+  }
+
+  /** Link a chat that sends `/start <code>` with the code from the owner's settings. */
+  private async handleStart(jid: string, linkCode: string | undefined, chatName: string | null): Promise<void> {
     const [existing] = await this.db
       .select()
       .from(whatsappChats)
@@ -138,11 +162,19 @@ export class WhatsAppService {
       .limit(1);
 
     if (!existing) {
+      if (!isValidChatLinkCode("whatsapp", this.userId, linkCode)) {
+        await this.sendMessage(
+          jid,
+          "To link this chat to OpenFrame, send /start followed by the code shown in OpenFrame → Settings → WhatsApp."
+        );
+        return;
+      }
       const isGroup = jid.endsWith("@g.us");
       await this.db.insert(whatsappChats).values({
         userId: this.userId,
         jid,
         chatType: isGroup ? "group" : "private",
+        chatName,
         isActive: true,
       });
     }
@@ -164,39 +196,46 @@ Your chat has been linked. You'll receive calendar notifications here.
   }
 
   private async handleToday(jid: string): Promise<void> {
+    const timeZone = await this.getTimeZone();
     const today = new Date();
-    const agenda = await this.getAgendaForDate(today);
+    const agenda = await this.getAgendaForDate(today, timeZone);
 
     if (agenda.length === 0) {
       await this.sendMessage(jid, "📅 *Today's Schedule*\n\nNo events scheduled for today.");
       return;
     }
 
-    const header = `📅 *Today's Schedule*\n${format(today, "EEEE, MMMM d")}\n\n`;
-    const eventList = this.formatEventList(agenda);
+    const header = `📅 *Today's Schedule*\n${format(toZonedDisplayDate(today, timeZone), "EEEE, MMMM d")}\n\n`;
+    const eventList = this.formatEventList(agenda, timeZone);
     await this.sendMessage(jid, header + eventList);
   }
 
   private async handleTomorrow(jid: string): Promise<void> {
+    const timeZone = await this.getTimeZone();
     const tomorrow = addDays(new Date(), 1);
-    const agenda = await this.getAgendaForDate(tomorrow);
+    const agenda = await this.getAgendaForDate(tomorrow, timeZone);
 
     if (agenda.length === 0) {
       await this.sendMessage(jid, "📅 *Tomorrow's Schedule*\n\nNo events scheduled for tomorrow.");
       return;
     }
 
-    const header = `📅 *Tomorrow's Schedule*\n${format(tomorrow, "EEEE, MMMM d")}\n\n`;
-    const eventList = this.formatEventList(agenda);
+    const header = `📅 *Tomorrow's Schedule*\n${format(toZonedDisplayDate(tomorrow, timeZone), "EEEE, MMMM d")}\n\n`;
+    const eventList = this.formatEventList(agenda, timeZone);
     await this.sendMessage(jid, header + eventList);
   }
 
   private async handleWeek(jid: string): Promise<void> {
-    const today = new Date();
+    const timeZone = await this.getTimeZone();
+    const today = toZonedDisplayDate(new Date(), timeZone);
     const weekStart = startOfWeek(today, { weekStartsOn: 1 });
     const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
 
-    const agenda = await this.getAgendaForRange(weekStart, weekEnd);
+    const agenda = await this.getAgendaForRange(
+      fromZonedDisplayDate(weekStart, timeZone),
+      fromZonedDisplayDate(weekEnd, timeZone),
+      timeZone
+    );
 
     if (agenda.length === 0) {
       await this.sendMessage(jid, "📅 *This Week*\n\nNo events scheduled this week.");
@@ -204,7 +243,7 @@ Your chat has been linked. You'll receive calendar notifications here.
     }
 
     const header = `📅 *This Week*\n${format(weekStart, "MMM d")} - ${format(weekEnd, "MMM d")}\n\n`;
-    const eventList = this.formatEventListGrouped(agenda);
+    const eventList = this.formatEventListGrouped(agenda, timeZone);
     await this.sendMessage(jid, header + eventList);
   }
 
@@ -259,9 +298,19 @@ Your chat has been linked. You'll receive calendar notifications here.
       return;
     }
 
+    const [user] = await this.db.select().from(users).where(eq(users.id, this.userId)).limit(1);
+    if (!user) return;
+    const result = await createQuickEvent(this.db, user, text);
+    if (!result.ok) {
+      await this.sendMessage(jid, `⚠️ ${result.message}`);
+      return;
+    }
+
+    const { event, calendar, timeZone } = result;
+    const warning = result.syncWarning ? `\n\n⚠️ Saved in OpenFrame, but not synced: ${result.syncWarning}` : "";
     await this.sendMessage(
       jid,
-      `📝 Quick add is not yet implemented.\n\nYou tried to add: "${text}"\n\nPlease use the OpenFrame web interface to add events for now.`
+      `✅ Added *${event.title}*\n📅 ${describeEventTime(event, timeZone)}\n🗂 ${calendar.displayName || calendar.name}${warning}`
     );
   }
 
@@ -277,7 +326,7 @@ Your chat has been linked. You'll receive calendar notifications here.
 /tasks - Show pending tasks
 
 📝 *Quick Actions*
-/quick [text] - Quick add an event (coming soon)
+/quick [text] - Quick add an event, e.g. /quick Dentist tomorrow at 3pm
 
 ℹ️ *Other*
 /help - Show this help message
@@ -289,16 +338,29 @@ _Tip: You'll receive automatic reminders for upcoming events!_`;
 
   // --- Helper Methods ---
 
-  private async getAgendaForDate(date: Date): Promise<typeof events.$inferSelect[]> {
-    const start = startOfDay(date);
-    const end = endOfDay(date);
-    return this.getAgendaForRange(start, end);
+  private async getTimeZone(): Promise<string> {
+    const [user] = await this.db
+      .select({ timezone: users.timezone })
+      .from(users)
+      .where(eq(users.id, this.userId))
+      .limit(1);
+    return resolveTimeZone(user?.timezone);
   }
 
+  private async getAgendaForDate(date: Date, timeZone: string): Promise<typeof events.$inferSelect[]> {
+    const { start, end } = zonedDayRange(date, timeZone);
+    return this.getAgendaForRange(start, end, timeZone);
+  }
+
+  /**
+   * Get events for a date range (recurring events expanded)
+   */
   private async getAgendaForRange(
     start: Date,
-    end: Date
+    end: Date,
+    timeZone: string
   ): Promise<typeof events.$inferSelect[]> {
+    // Get user's visible calendars
     const userCalendars = await this.db
       .select()
       .from(calendars)
@@ -306,48 +368,41 @@ _Tip: You'll receive automatic reminders for upcoming events!_`;
         and(eq(calendars.userId, this.userId), eq(calendars.isVisible, true))
       );
 
-    if (userCalendars.length === 0) {
-      return [];
-    }
-
-    const calendarIds = userCalendars.map((c) => c.id);
-
-    const allEvents = await this.db
-      .select()
-      .from(events)
-      .where(
-        and(
-          gte(events.startTime, start),
-          lte(events.startTime, end)
-        )
-      );
-
-    return allEvents
-      .map(decryptEventFields)
-      .filter((e) => calendarIds.includes(e.calendarId))
-      .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    return queryEventsInRange(this.db, {
+      calendarIds: userCalendars.map((c) => c.id),
+      start,
+      end,
+      timeZone,
+    });
   }
 
-  private formatEventList(eventList: typeof events.$inferSelect[]): string {
+  private formatEventList(eventList: typeof events.$inferSelect[], timeZone: string): string {
     return eventList
       .map((e) => {
         if (e.isAllDay) {
           return `🔵 *${e.title}* (All day)`;
         }
-        const time = format(new Date(e.startTime), "h:mm a");
+        const time = format(toZonedDisplayDate(e.startTime, timeZone), "h:mm a");
         const location = e.location ? `\n   📍 ${e.location}` : "";
         return `⏰ ${time} - *${e.title}*${location}`;
       })
       .join("\n\n");
   }
 
+  /**
+   * Format events grouped by day
+   */
   private formatEventListGrouped(
-    eventList: typeof events.$inferSelect[]
+    eventList: typeof events.$inferSelect[],
+    timeZone: string
   ): string {
     const grouped = new Map<string, typeof events.$inferSelect[]>();
 
     for (const event of eventList) {
-      const dateKey = format(new Date(event.startTime), "yyyy-MM-dd");
+      // All-day events are stored as UTC-midnight dates
+      const dateKey = event.isAllDay
+        ? formatUtcDate(event.startTime)
+        : format(toZonedDisplayDate(event.startTime, timeZone), "yyyy-MM-dd");
       if (!grouped.has(dateKey)) {
         grouped.set(dateKey, []);
       }
@@ -355,15 +410,15 @@ _Tip: You'll receive automatic reminders for upcoming events!_`;
     }
 
     const parts: string[] = [];
-    for (const [dateKey, dayEvents] of grouped) {
-      const date = new Date(dateKey);
-      const dayHeader = `*${format(date, "EEEE, MMM d")}*`;
+    for (const [dateKey, dayEvents] of [...grouped].sort(([a], [b]) => a.localeCompare(b))) {
+      const [year, month, day] = dateKey.split("-").map(Number);
+      const dayHeader = `*${format(new Date(year!, month! - 1, day!), "EEEE, MMM d")}*`;
       const eventLines = dayEvents
         .map((e) => {
           if (e.isAllDay) {
             return `  🔵 ${e.title}`;
           }
-          const time = format(new Date(e.startTime), "h:mm a");
+          const time = format(toZonedDisplayDate(e.startTime, timeZone), "h:mm a");
           return `  ⏰ ${time} - ${e.title}`;
         })
         .join("\n");
@@ -515,33 +570,10 @@ _Tip: You'll receive automatic reminders for upcoming events!_`;
         if (!jid) continue;
 
         try {
+          // Chats are linked only through /start with the owner's code;
+          // messages from anyone else are ignored
           const service = new WhatsAppService(fastify, userId);
-
-          // Auto-link chat if not linked yet
-          const [existingChat] = await fastify.db
-            .select()
-            .from(whatsappChats)
-            .where(
-              and(
-                eq(whatsappChats.userId, userId),
-                eq(whatsappChats.jid, jid)
-              )
-            )
-            .limit(1);
-
-          if (!existingChat) {
-            const isGroup = jid.endsWith("@g.us");
-            const chatName = msg.pushName || null;
-            await fastify.db.insert(whatsappChats).values({
-              userId,
-              jid,
-              chatType: isGroup ? "group" : "private",
-              chatName,
-              isActive: true,
-            });
-          }
-
-          await service.handleMessage(jid, text);
+          await service.handleMessage(jid, text, msg.pushName || null);
         } catch (err) {
           logger.error({ err, jid }, "Error handling WhatsApp message");
         }

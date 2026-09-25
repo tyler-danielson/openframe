@@ -32,6 +32,32 @@ declare module "@fastify/jwt" {
   }
 }
 
+/**
+ * Media elements (<img>, <audio>, <video>) and download links can't send
+ * headers, so GET/HEAD requests may carry credentials in the query string
+ * instead: `?apiKey=<key>` or `?token=<jwt>`. The web app also sends kiosk and
+ * API keys as `?token=`, so those are recognised by their prefix. Headers win
+ * when both are present.
+ */
+function applyQueryCredentials(request: FastifyRequest): void {
+  if (request.method !== "GET" && request.method !== "HEAD") return;
+  if (request.headers.authorization || request.headers["x-api-key"]) return;
+
+  const query = (request.query ?? {}) as Record<string, unknown>;
+  const apiKey = typeof query.apiKey === "string" && query.apiKey ? query.apiKey : null;
+  const token = typeof query.token === "string" && query.token ? query.token : null;
+
+  if (apiKey) {
+    request.headers["x-api-key"] = apiKey;
+  } else if (token) {
+    if (token.startsWith("kiosk_") || token.startsWith("openframe_")) {
+      request.headers["x-api-key"] = token;
+    } else {
+      request.headers.authorization = `Bearer ${token}`;
+    }
+  }
+}
+
 export const authPlugin = fp(
   async (fastify) => {
     // JWT authentication
@@ -40,7 +66,7 @@ export const authPlugin = fp(
       async (request: FastifyRequest, reply: FastifyReply) => {
         try {
           await request.jwtVerify();
-        } catch (err) {
+        } catch {
           reply.unauthorized("Invalid or expired token");
         }
       }
@@ -127,6 +153,7 @@ export const authPlugin = fp(
     fastify.decorate(
       "authenticateAny",
       async (request: FastifyRequest, reply: FastifyReply) => {
+        applyQueryCredentials(request);
         const authHeader = request.headers.authorization;
         const apiKey = request.headers["x-api-key"];
         const relaySecret = request.headers["x-relay-secret"];
@@ -200,38 +227,14 @@ export const authPlugin = fp(
       }
     );
 
-    // Kiosk mode authentication - checks kiosk first, then falls back to normal auth
+    // Kiosk devices authenticate with their kiosk key (X-API-Key: kiosk_<token>,
+    // or ?apiKey= / ?token= on media URLs), which authenticateAny accepts.
+    // Deliberately no anonymous fallback (such as acting as the owner of an
+    // active kiosk): anyone who can reach the server could use it.
     fastify.decorate(
       "authenticateKioskOrAny",
       async (request: FastifyRequest, reply: FastifyReply) => {
-        const authHeader = request.headers.authorization;
-        const apiKey = request.headers["x-api-key"];
-        const relaySecret = request.headers["x-relay-secret"];
-
-        // If user has auth credentials, use normal authentication
-        if (authHeader?.startsWith("Bearer ") || apiKey || relaySecret) {
-          return fastify.authenticateAny(request, reply);
-        }
-
-        // In hosted mode, always require explicit auth - no anonymous kiosk fallback
-        if (fastify.hostedMode) {
-          return reply.unauthorized("Authentication required");
-        }
-
-        // Self-hosted only: check if any active kiosk device exists
-        const [kiosk] = await fastify.db
-          .select()
-          .from(kiosks)
-          .where(eq(kiosks.isActive, true))
-          .limit(1);
-
-        if (kiosk) {
-          // Use the kiosk owner's user ID
-          request.user = { userId: kiosk.userId };
-          return;
-        }
-
-        reply.unauthorized("Authentication required");
+        return fastify.authenticateAny(request, reply);
       }
     );
   },

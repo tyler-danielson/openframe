@@ -1,7 +1,7 @@
 -- Migration: Add family profiles for per-member planner configurations
 
 -- Family profiles table
-CREATE TABLE "family_profiles" (
+CREATE TABLE IF NOT EXISTS "family_profiles" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "user_id" uuid NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
   "name" text NOT NULL,
@@ -15,7 +15,7 @@ CREATE TABLE "family_profiles" (
 CREATE INDEX IF NOT EXISTS "family_profiles_user_idx" ON "family_profiles"("user_id");
 
 -- Per-profile calendar visibility
-CREATE TABLE "profile_calendars" (
+CREATE TABLE IF NOT EXISTS "profile_calendars" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "profile_id" uuid NOT NULL REFERENCES "family_profiles"("id") ON DELETE CASCADE,
   "calendar_id" uuid NOT NULL REFERENCES "calendars"("id") ON DELETE CASCADE,
@@ -26,7 +26,7 @@ CREATE INDEX IF NOT EXISTS "profile_calendars_profile_idx" ON "profile_calendars
 CREATE INDEX IF NOT EXISTS "profile_calendars_calendar_idx" ON "profile_calendars"("calendar_id");
 
 -- Per-profile news feed selection
-CREATE TABLE "profile_news_feeds" (
+CREATE TABLE IF NOT EXISTS "profile_news_feeds" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "profile_id" uuid NOT NULL REFERENCES "family_profiles"("id") ON DELETE CASCADE,
   "news_feed_id" uuid NOT NULL REFERENCES "news_feeds"("id") ON DELETE CASCADE,
@@ -37,7 +37,7 @@ CREATE INDEX IF NOT EXISTS "profile_news_feeds_profile_idx" ON "profile_news_fee
 CREATE INDEX IF NOT EXISTS "profile_news_feeds_feed_idx" ON "profile_news_feeds"("news_feed_id");
 
 -- Per-profile planner layout configuration (widget-based)
-CREATE TABLE "profile_planner_config" (
+CREATE TABLE IF NOT EXISTS "profile_planner_config" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "profile_id" uuid NOT NULL UNIQUE REFERENCES "family_profiles"("id") ON DELETE CASCADE,
   "layout_config" jsonb DEFAULT '{}',
@@ -46,7 +46,7 @@ CREATE TABLE "profile_planner_config" (
 );
 
 -- Per-profile reMarkable delivery settings
-CREATE TABLE "profile_remarkable_settings" (
+CREATE TABLE IF NOT EXISTS "profile_remarkable_settings" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "profile_id" uuid NOT NULL UNIQUE REFERENCES "family_profiles"("id") ON DELETE CASCADE,
   "enabled" boolean NOT NULL DEFAULT true,

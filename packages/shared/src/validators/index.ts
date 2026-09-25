@@ -35,6 +35,9 @@ export const eventQuerySchema = z.object({
     .transform((s) => s.split(",").filter(Boolean))
     .optional(),
   includeAllDay: z.coerce.boolean().default(true),
+  // Viewer's IANA time zone: which calendar dates the range covers for
+  // all-day events, and how to expand recurring events without their own zone
+  tz: z.string().max(64).optional(),
 });
 
 export const createEventSchema = z.object({
@@ -45,7 +48,9 @@ export const createEventSchema = z.object({
   startTime: z.coerce.date(),
   endTime: z.coerce.date(),
   isAllDay: z.boolean().default(false),
-  recurrenceRule: z.string().optional(),
+  recurrenceRule: z.string().max(1000).optional(),
+  timeZone: z.string().max(64).optional(),
+  metadata: z.record(z.unknown()).optional(),
   attendees: z
     .array(
       z.object({
@@ -67,6 +72,21 @@ export const createEventSchema = z.object({
 export const quickEventSchema = z.object({
   text: z.string().min(1).max(500),
   calendarId: z.string().uuid().optional(),
+  timeZone: z.string().max(64).optional(),
+});
+
+// Fields a client may change on an existing event
+export const updateEventSchema = z.object({
+  calendarId: z.string().uuid().optional(),
+  title: z.string().min(1).max(500).optional(),
+  description: z.string().max(100_000).nullable().optional(),
+  location: z.string().max(2000).nullable().optional(),
+  startTime: z.coerce.date().optional(),
+  endTime: z.coerce.date().optional(),
+  isAllDay: z.boolean().optional(),
+  recurrenceRule: z.string().max(1000).nullable().optional(),
+  timeZone: z.string().max(64).nullable().optional(),
+  metadata: z.record(z.unknown()).optional(),
 });
 
 // Task validators
@@ -178,6 +198,7 @@ export type CreateApiKeyInput = z.infer<typeof createApiKeySchema>;
 export type CalendarQuery = z.infer<typeof calendarQuerySchema>;
 export type EventQuery = z.infer<typeof eventQuerySchema>;
 export type CreateEventInput = z.infer<typeof createEventSchema>;
+export type UpdateEventInput = z.infer<typeof updateEventSchema>;
 export type TaskQuery = z.infer<typeof taskQuerySchema>;
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;

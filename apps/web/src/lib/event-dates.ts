@@ -58,3 +58,27 @@ export function eventFallsOnDay(event: CalendarEvent, day: Date): boolean {
 
   return eventStart <= dayEnd && eventEnd > dayStart;
 }
+
+/**
+ * Storage form of an all-day date picked in the UI ("2026-04-05"): UTC
+ * midnight of that calendar date. The API stores all-day events as UTC
+ * midnight of the first and last (inclusive) day, so send this for both
+ * startTime and endTime rather than browser-local midnight/23:59.
+ */
+export function allDayDateToStorage(dateStr: string): Date {
+  return new Date(`${dateStr}T00:00:00.000Z`);
+}
+
+/** The browser's IANA time zone (e.g. "America/Denver"), if available. */
+export function browserTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Calendars whose events show: sync-enabled ones, plus local calendars (which never sync). */
+export function isCalendarEnabled(calendar: { syncEnabled: boolean; provider: string }): boolean {
+  return calendar.syncEnabled || calendar.provider === "local";
+}

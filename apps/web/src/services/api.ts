@@ -1,4 +1,5 @@
 import { useAuthStore } from "../stores/auth";
+import { browserTimeZone } from "../lib/event-dates";
 import type {
   Calendar,
   CalendarEvent,
@@ -120,6 +121,8 @@ export interface WhatsAppStatus {
   connected: boolean;
   phoneNumber?: string;
   displayName?: string;
+  /** Chats link themselves by sending "/start <linkCode>" to the number */
+  linkCode?: string;
   settings: {
     dailyAgendaEnabled: boolean;
     dailyAgendaTime: string;
@@ -414,6 +417,9 @@ class ApiClient {
     if (calendarIds?.length) {
       params.set("calendarIds", calendarIds.join(","));
     }
+    // Lets the server match all-day events to this viewer's calendar dates
+    const tz = browserTimeZone();
+    if (tz) params.set("tz", tz);
 
     return this.fetch<CalendarEvent[]>(`/events?${params}`);
   }
@@ -427,6 +433,7 @@ class ApiClient {
     location?: string;
     isAllDay?: boolean;
     recurrenceRule?: string;
+    timeZone?: string;
     metadata?: Record<string, unknown>;
   }): Promise<CalendarEvent & { syncWarning?: string }> {
     const { accessToken, refreshToken, apiKey } = useAuthStore.getState();
@@ -472,6 +479,25 @@ class ApiClient {
 
   async deleteEvent(id: string): Promise<void> {
     await this.fetch(`/events/${id}`, { method: "DELETE" });
+  }
+
+  /** Change one occurrence of a recurring event, identified by its original start. */
+  async updateEventOccurrence(
+    seriesId: string,
+    originalStart: Date | string,
+    data: Partial<CalendarEvent>
+  ): Promise<CalendarEvent> {
+    const start = encodeURIComponent(new Date(originalStart).toISOString());
+    return this.fetch<CalendarEvent>(`/events/${seriesId}/occurrences/${start}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  /** Delete one occurrence of a recurring event, identified by its original start. */
+  async deleteEventOccurrence(seriesId: string, originalStart: Date | string): Promise<void> {
+    const start = encodeURIComponent(new Date(originalStart).toISOString());
+    await this.fetch(`/events/${seriesId}/occurrences/${start}`, { method: "DELETE" });
   }
 
   // Tasks
@@ -1014,6 +1040,8 @@ class ApiClient {
     const params = new URLSearchParams();
     if (start) params.set("start", start.toISOString());
     if (end) params.set("end", end.toISOString());
+    const tz = browserTimeZone();
+    if (tz) params.set("tz", tz);
     const queryString = params.toString();
     const response = await fetch(`${API_BASE}/kiosks/public/${token}/events${queryString ? `?${queryString}` : ""}`);
     if (!response.ok) {
@@ -3302,8 +3330,7 @@ class ApiClient {
   }
 
   getRecipeImageUrl(path: string): string {
-    const { accessToken } = useAuthStore.getState();
-    return `${API_BASE}/recipes/image/${path}?token=${accessToken}`;
+    return withAuthParams(`${API_BASE}/recipes/image/${path}`);
   }
 
   // Kitchen Timers
@@ -3785,7 +3812,7 @@ class ApiClient {
 
   getPlexThumbUrl(serverId: string, path: string): string {
     const params = new URLSearchParams({ path });
-    return `/api/v1/plex/servers/${serverId}/thumb?${params}`;
+    return withAuthParams(`/api/v1/plex/servers/${serverId}/thumb?${params}`);
   }
 
   // Audiobookshelf
@@ -3825,7 +3852,7 @@ class ApiClient {
 
   getAudiobookshelfCoverUrl(serverId: string, itemId: string): string {
     const params = new URLSearchParams({ itemId });
-    return `/api/v1/audiobookshelf/servers/${serverId}/cover?${params}`;
+    return withAuthParams(`/api/v1/audiobookshelf/servers/${serverId}/cover?${params}`);
   }
 
   // ============ Storage Servers ============
@@ -3890,7 +3917,7 @@ class ApiClient {
 
   getStorageDownloadUrl(serverId: string, filePath: string): string {
     const params = new URLSearchParams({ path: filePath });
-    return `/api/v1/storage/servers/${serverId}/download?${params}`;
+    return withAuthParams(`/api/v1/storage/servers/${serverId}/download?${params}`);
   }
 
   async uploadStorageFile(serverId: string, destPath: string, file: File): Promise<{ path: string }> {
@@ -3974,7 +4001,13 @@ class ApiClient {
       start: start.toISOString(),
       end: end.toISOString(),
     });
+    const tz = browserTimeZone();
+    if (tz) params.set("tz", tz);
     return this.fetch<CalendarEvent[]>(`/companion/data/events?${params}`);
+  }
+
+  async getCompanionEvent(id: string): Promise<CalendarEvent> {
+    return this.fetch<CalendarEvent>(`/companion/data/events/${id}`);
   }
 
   async getCompanionCalendars(): Promise<Calendar[]> {
@@ -5837,6 +5870,19 @@ export interface MatterDeviceWithState extends MatterDevice {
 export const api = new ApiClient();
 
 /**
+ * Append the current credentials to an API URL that the browser loads itself
+ * (<img>, <audio>, download links), since those requests can't carry
+ * Authorization/X-API-Key headers. The API accepts them on GET requests.
+ */
+export function withAuthParams(url: string): string {
+  const { accessToken, apiKey } = useAuthStore.getState();
+  const sep = url.includes("?") ? "&" : "?";
+  if (apiKey) return `${url}${sep}apiKey=${encodeURIComponent(apiKey)}`;
+  if (accessToken) return `${url}${sep}token=${encodeURIComponent(accessToken)}`;
+  return url;
+}
+
+/**
  * Append auth token as a query param to local photo file URLs so <img> tags
  * can load them. Browsers can't set Authorization headers on image requests.
  * External URLs (Reddit, Google, etc.) are returned unchanged.
@@ -5844,9 +5890,5 @@ export const api = new ApiClient();
 export function getPhotoUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
   if (!url.startsWith("/api/v1/photos/files/")) return url;
-  const { accessToken, apiKey } = useAuthStore.getState();
-  const sep = url.includes("?") ? "&" : "?";
-  if (apiKey) return `${url}${sep}apiKey=${encodeURIComponent(apiKey)}`;
-  if (accessToken) return `${url}${sep}token=${encodeURIComponent(accessToken)}`;
-  return url;
+  return withAuthParams(url);
 }

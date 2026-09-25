@@ -4,7 +4,7 @@ ALTER TYPE routine_frequency ADD VALUE IF NOT EXISTS 'yearly';
 
 -- Add recurrence_rule JSONB column
 DO $$ BEGIN
-  ALTER TABLE routines ADD COLUMN recurrence_rule JSONB;
+  ALTER TABLE routines ADD COLUMN IF NOT EXISTS recurrence_rule JSONB;
 EXCEPTION WHEN duplicate_column THEN null;
 END $$;
 

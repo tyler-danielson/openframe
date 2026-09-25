@@ -15,6 +15,7 @@ import { timingSafeEqual } from "crypto";
 import { telegramConfig, telegramChats } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { TelegramService, type TelegramUpdate } from "../../services/telegram.js";
+import { chatLinkCode } from "../../lib/chat-link.js";
 
 export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
   const { authenticate } = fastify;
@@ -611,8 +612,8 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.badRequest("Bot username not available");
       }
 
-      // Create deep link with user ID for identification
-      const startLink = `https://t.me/${config.botUsername}?start=${user.id}`;
+      // The bot links a chat only when /start carries this code
+      const startLink = `https://t.me/${config.botUsername}?start=${chatLinkCode("telegram", user.id)}`;
 
       return {
         success: true,
