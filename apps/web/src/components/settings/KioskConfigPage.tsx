@@ -393,7 +393,7 @@ export function KioskConfigPage({ kioskId }: KioskConfigPageProps) {
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 py-3">
               <SettingRow label="Display mode">
                 <select
-                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm w-full"
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm w-full sm:w-auto"
                   value={kiosk.displayMode}
                   onChange={(e) => updateKiosk.mutate({ displayMode: e.target.value as any })}
                 >
@@ -405,7 +405,7 @@ export function KioskConfigPage({ kioskId }: KioskConfigPageProps) {
 
               <SettingRow label="Display type">
                 <select
-                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm w-full"
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm w-full sm:w-auto"
                   value={kiosk.displayType}
                   onChange={(e) => updateKiosk.mutate({ displayType: e.target.value as any })}
                 >
@@ -417,7 +417,7 @@ export function KioskConfigPage({ kioskId }: KioskConfigPageProps) {
 
               <SettingRow label="Color scheme">
                 <select
-                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm w-full"
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm w-full sm:w-auto"
                   value={kiosk.colorScheme}
                   onChange={(e) => updateKiosk.mutate({ colorScheme: e.target.value as ColorScheme })}
                 >
@@ -431,7 +431,7 @@ export function KioskConfigPage({ kioskId }: KioskConfigPageProps) {
 
               <SettingRow label="Fullscreen delay">
                 <select
-                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm w-full"
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-sm w-full sm:w-auto"
                   value={kiosk.fullscreenDelayMinutes ?? 0}
                   onChange={(e) => updateKiosk.mutate({ fullscreenDelayMinutes: Number(e.target.value) || null })}
                 >

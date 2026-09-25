@@ -820,7 +820,7 @@ export function CalendarPage() {
           </div>
 
           {/* Row 2: Date range + Ticker + Navigation (spans full width) */}
-          <div className="col-span-2 flex items-center gap-2 min-w-0">
+          <div className="col-span-2 flex flex-wrap items-center gap-2 min-w-0">
             <p className="text-sm text-muted-foreground whitespace-nowrap shrink-0">{headerText}</p>
             {/* Ticker area - fills available space, or spacer when no games */}
             {todaysGames.length > 0 ? (
@@ -873,8 +873,8 @@ export function CalendarPage() {
               <div className="flex-1" />
             )}
 
-            {/* Navigation controls */}
-            <div className="flex items-center gap-2 shrink-0">
+            {/* Navigation controls (on their own line when the screen is too narrow) */}
+            <div className="ml-auto flex items-center gap-2 shrink-0">
               <Select value={view} onValueChange={(v) => setView(v as "month" | "week" | "day" | "agenda" | "schedule")}>
                 <SelectTrigger className="w-[100px]">
                   <SelectValue />
