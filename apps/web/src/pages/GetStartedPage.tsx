@@ -134,8 +134,8 @@ function generateResults(
         {
           title: "Clone and start OpenFrame",
           description: "Download and run the OpenFrame Docker stack. This sets up the app, database, and cache automatically.",
-          code: `git clone https://github.com/openframe-org/openframe-cloud.git
-cd openframe-cloud/docker
+          code: `git clone https://github.com/tyler-danielson/openframe.git
+cd openframe/docker
 docker compose up -d`,
         },
         { title: "Open the setup wizard", description: "Navigate to your server in a browser to complete initial setup (create admin account, connect calendars).", code: "# Open in your browser:\nhttp://YOUR_SERVER_IP:8080/setup" },
@@ -151,8 +151,8 @@ docker compose up -d`,
         {
           title: "Option B: Self-Hosted (Full Control)",
           description: "Run OpenFrame on your own hardware using Docker. You'll need a Linux server, NAS, Raspberry Pi, or VPS.",
-          code: `git clone https://github.com/openframe-org/openframe-cloud.git
-cd openframe-cloud/docker
+          code: `git clone https://github.com/tyler-danielson/openframe.git
+cd openframe/docker
 docker compose up -d`,
         },
       ],
