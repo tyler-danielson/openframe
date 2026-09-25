@@ -3,6 +3,7 @@ import { oauthTokens } from "@openframe/database/schema";
 import type { calendars } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
 import { decryptField, encryptField } from "../../lib/encryption.js";
+import { credentialValue } from "../../utils/oauth-helpers.js";
 import { providerFetch } from "./http.js";
 import { CalendarSyncError, ReauthRequiredError } from "./errors.js";
 
@@ -46,14 +47,14 @@ export async function getOAuthClientCredentials(
   const value: ClientCredentials =
     provider === "google"
       ? {
-          clientId: settings.client_id || process.env.GOOGLE_CLIENT_ID,
-          clientSecret: settings.client_secret || process.env.GOOGLE_CLIENT_SECRET,
+          clientId: credentialValue(settings.client_id, process.env.GOOGLE_CLIENT_ID),
+          clientSecret: credentialValue(settings.client_secret, process.env.GOOGLE_CLIENT_SECRET),
           tenantId: "common",
         }
       : {
-          clientId: settings.client_id || process.env.MICROSOFT_CLIENT_ID,
-          clientSecret: settings.client_secret || process.env.MICROSOFT_CLIENT_SECRET,
-          tenantId: settings.tenant_id || process.env.MICROSOFT_TENANT_ID || "common",
+          clientId: credentialValue(settings.client_id, process.env.MICROSOFT_CLIENT_ID),
+          clientSecret: credentialValue(settings.client_secret, process.env.MICROSOFT_CLIENT_SECRET),
+          tenantId: credentialValue(settings.tenant_id, process.env.MICROSOFT_TENANT_ID) ?? "common",
         };
   credentialsCache.set(provider, { value, expiresAt: Date.now() + CREDENTIALS_TTL_MS });
   return value;
