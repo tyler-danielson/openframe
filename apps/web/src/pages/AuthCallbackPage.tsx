@@ -1,13 +1,12 @@
 import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { useAuthStore } from "../stores/auth";
 import { api } from "../services/api";
+import { startSession } from "../lib/session";
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const setTokens = useAuthStore((state) => state.setTokens);
 
   useEffect(() => {
     const accessToken = searchParams.get("accessToken");
@@ -15,7 +14,8 @@ export function AuthCallbackPage() {
     const returnTo = searchParams.get("returnTo");
 
     if (accessToken && refreshToken) {
-      setTokens(accessToken, refreshToken);
+      // Forgets what the browser kept for anyone else who was signed in here
+      startSession(accessToken, refreshToken);
 
       // Use returnTo from URL params, fall back to localStorage, then default to dashboard
       let returnUrl = returnTo;
@@ -45,7 +45,7 @@ export function AuthCallbackPage() {
     } else {
       navigate("/login", { replace: true });
     }
-  }, [searchParams, setTokens, navigate]);
+  }, [searchParams, navigate]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">

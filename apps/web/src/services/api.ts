@@ -1,10 +1,9 @@
-import { useAuthStore } from "../stores/auth";
+import { useAuthStore, getRequestCredentials, type AuthUser, type RequestCredentials } from "../stores/auth";
 import { browserTimeZone } from "../lib/event-dates";
 import type {
   Calendar,
   CalendarEvent,
   CalendarVisibility,
-  User,
   AuthTokens,
   PhotoAlbum,
   Photo,
@@ -152,12 +151,44 @@ export interface TelegramWebhookInfo {
 
 const API_BASE = "/api/v1";
 
+/** Headers carrying the current page's credentials (see getRequestCredentials). */
+function credentialHeaders(credentials: RequestCredentials = getRequestCredentials()): Record<string, string> {
+  if (credentials.apiKey) return { "x-api-key": credentials.apiKey };
+  if (credentials.accessToken) return { Authorization: `Bearer ${credentials.accessToken}` };
+  return {};
+}
+
+/**
+ * Whether a 401 for a request sent with these credentials may be fixed by
+ * refreshing the session: only the signed-in user's token expires that way,
+ * and a kiosk page never falls back to that user's session.
+ */
+function canRefreshFor(credentials: RequestCredentials): boolean {
+  return !!credentials.accessToken && !!useAuthStore.getState().refreshToken;
+}
+
+// What happens when the session can't be refreshed. lib/session installs its
+// signOut() here at startup (it imports this module, so this one can't import it).
+let sessionExpiredHandler: (() => void) | null = null;
+
+export function setSessionExpiredHandler(handler: () => void): void {
+  sessionExpiredHandler = handler;
+}
+
+function endExpiredSession(): void {
+  if (sessionExpiredHandler) {
+    sessionExpiredHandler();
+  } else {
+    useAuthStore.getState().logout();
+  }
+}
+
 class ApiClient {
   // Mutex for token refresh to prevent race conditions
   private refreshPromise: Promise<boolean> | null = null;
 
   private async refreshTokens(): Promise<boolean> {
-    const { refreshToken, setTokens, logout } = useAuthStore.getState();
+    const { refreshToken, setTokens } = useAuthStore.getState();
 
     if (!refreshToken) {
       return false;
@@ -175,11 +206,11 @@ class ApiClient {
         setTokens(data.data.accessToken, data.data.refreshToken);
         return true;
       } else {
-        logout();
+        endExpiredSession();
         return false;
       }
     } catch {
-      logout();
+      endExpiredSession();
       return false;
     }
   }
@@ -203,38 +234,33 @@ class ApiClient {
     options: RequestInit = {},
     skipAuth = false
   ): Promise<T> {
-    const { accessToken, refreshToken, apiKey } =
-      useAuthStore.getState();
+    const credentials: RequestCredentials = skipAuth
+      ? { accessToken: null, apiKey: null }
+      : getRequestCredentials();
 
-    const headers: HeadersInit = {
-      ...options.headers,
+    const headers: Record<string, string> = {
+      ...(options.headers as Record<string, string> | undefined),
     };
 
     // Only set Content-Type for requests with a body
     if (options.body) {
-      (headers as Record<string, string>)["Content-Type"] = "application/json";
+      headers["Content-Type"] = "application/json";
     }
 
-    // Use API key if available, otherwise use Bearer token
-    if (apiKey && !skipAuth) {
-      (headers as Record<string, string>)["x-api-key"] = apiKey;
-    } else if (accessToken && !skipAuth) {
-      (headers as Record<string, string>).Authorization = `Bearer ${accessToken}`;
-    }
+    // A kiosk page sends the kiosk's key, any other page the signed-in user's token
+    Object.assign(headers, credentialHeaders(credentials));
 
     let response = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers,
     });
 
-    // Handle token refresh (only if we have tokens and aren't in pure kiosk mode)
-    if (response.status === 401 && refreshToken && !skipAuth) {
+    // Expired access token: refresh the session and retry
+    if (response.status === 401 && canRefreshFor(credentials)) {
       const refreshed = await this.ensureValidTokens();
 
       if (refreshed) {
-        // Get the new access token and retry
-        const { accessToken: newAccessToken } = useAuthStore.getState();
-        (headers as Record<string, string>).Authorization = `Bearer ${newAccessToken}`;
+        Object.assign(headers, credentialHeaders());
         response = await fetch(`${API_BASE}${path}`, {
           ...options,
           headers,
@@ -262,8 +288,8 @@ class ApiClient {
   }
 
   // Auth
-  async getMe(): Promise<User> {
-    return this.fetch<User>("/auth/me");
+  async getMe(): Promise<AuthUser> {
+    return this.fetch<AuthUser>("/auth/me");
   }
 
   async updatePreferences(prefs: Partial<import("@openframe/shared").UserPreferences>): Promise<import("@openframe/shared").UserPreferences> {
@@ -273,12 +299,32 @@ class ApiClient {
     });
   }
 
-  async logout(): Promise<void> {
-    const { refreshToken } = useAuthStore.getState();
-    await this.fetch("/auth/logout", {
+  /**
+   * Revoke a refresh token on the server (signing out: see lib/session).
+   * keepalive lets the request finish even if the page reloads first.
+   */
+  async revokeRefreshToken(refreshToken: string): Promise<void> {
+    await fetch(`${API_BASE}/auth/logout`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken }),
+      keepalive: true,
     });
+  }
+
+  /**
+   * A one-time ticket for connecting a Google, Microsoft or Spotify account
+   * to the signed-in user (single use, valid for 2 minutes, in this browser
+   * only: the server also sets a cookie, hence credentials). Pass it as
+   * ?linkTicket= when sending the browser to the provider's start URL; see
+   * utils/oauth-scopes.
+   */
+  async getOAuthLinkTicket(): Promise<string> {
+    const { ticket } = await this.fetch<{ ticket: string }>("/auth/oauth/link-ticket", {
+      method: "POST",
+      credentials: "include",
+    });
+    return ticket;
   }
 
   // API Keys
@@ -436,13 +482,10 @@ class ApiClient {
     timeZone?: string;
     metadata?: Record<string, unknown>;
   }): Promise<CalendarEvent & { syncWarning?: string }> {
-    const { accessToken, refreshToken, apiKey } = useAuthStore.getState();
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (apiKey) {
-      headers["x-api-key"] = apiKey;
-    } else if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
-    }
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...credentialHeaders(),
+    };
     const response = await fetch(`${API_BASE}/events`, {
       method: "POST",
       headers,
@@ -595,15 +638,12 @@ class ApiClient {
   }
 
   async uploadPhoto(albumId: string, file: File): Promise<Photo> {
-    const { accessToken } = useAuthStore.getState();
     const formData = new FormData();
     formData.append("file", file);
 
     const response = await fetch(`${API_BASE}/photos/albums/${albumId}/photos`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
+      headers: credentialHeaders(),
       body: formData,
     });
 
@@ -779,15 +819,12 @@ class ApiClient {
   }
 
   async updatePhoto(id: string, file: File): Promise<Photo> {
-    const { accessToken } = useAuthStore.getState();
     const formData = new FormData();
     formData.append("file", file);
 
     const response = await fetch(`${API_BASE}/photos/${id}`, {
       method: "PUT",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
+      headers: credentialHeaders(),
       body: formData,
     });
 
@@ -853,9 +890,8 @@ class ApiClient {
     colorScheme: ColorScheme;
     layoutConfig?: Record<string, unknown> | null;
   }> {
-    const response = await fetch(`${API_BASE}/auth/kiosk/screensaver`);
-    const result = await response.json();
-    return result.data;
+    // Signed in (or a kiosk with its key): that account's settings
+    return this.fetch("/auth/kiosk/screensaver");
   }
 
   async updateScreensaverSettings(settings: {
@@ -999,6 +1035,20 @@ class ApiClient {
     }
     const result = await response.json();
     return result.data;
+  }
+
+  /**
+   * The code for a kiosk's "Join" QR: it only lets someone ask the owner for
+   * access. The kiosk's own token must never go in the QR, since it can be
+   * exchanged for the owner's API key.
+   */
+  async getKioskJoinCode(token: string): Promise<string> {
+    const response = await fetch(`${API_BASE}/join-requests/join-code/${encodeURIComponent(token)}`);
+    if (!response.ok) {
+      throw new Error("Failed to get a join code for this kiosk");
+    }
+    const result = await response.json();
+    return result.data.joinCode;
   }
 
   async getKioskCommandsByToken(token: string, since?: number): Promise<{ commands: KioskCommand[]; fastPoll?: boolean }> {
@@ -1668,15 +1718,8 @@ class ApiClient {
   }
 
   async getHomeAssistantCameraSnapshot(entityId: string): Promise<Blob> {
-    const { accessToken, apiKey } = useAuthStore.getState();
-    const headers: HeadersInit = {};
-    if (apiKey) {
-      headers["x-api-key"] = apiKey;
-    } else if (accessToken) {
-      headers["Authorization"] = `Bearer ${accessToken}`;
-    }
     const response = await fetch(this.getHACameraSnapshotUrl(entityId), {
-      headers,
+      headers: credentialHeaders(),
     });
     if (!response.ok) {
       throw new Error(`Failed to fetch camera snapshot: ${response.statusText}`);
@@ -1767,11 +1810,6 @@ class ApiClient {
       method: "PATCH",
       body: JSON.stringify(data),
     });
-  }
-
-  getSpotifyAuthUrl(): string {
-    const { accessToken } = useAuthStore.getState();
-    return `${API_BASE}/spotify/auth?token=${encodeURIComponent(accessToken || '')}`;
   }
 
   async disconnectSpotify(accountId?: string): Promise<void> {
@@ -2148,17 +2186,15 @@ class ApiClient {
     }
 
     // Use XMLHttpRequest for upload progress tracking
-    const { accessToken, apiKey } = useAuthStore.getState();
+    const authHeaders = credentialHeaders();
     const body = JSON.stringify({ settings, mode });
 
     return new Promise<ImportResult>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `${API_BASE}/settings/import`);
       xhr.setRequestHeader("Content-Type", "application/json");
-      if (apiKey) {
-        xhr.setRequestHeader("x-api-key", apiKey);
-      } else if (accessToken) {
-        xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`);
+      for (const [name, value] of Object.entries(authHeaders)) {
+        xhr.setRequestHeader(name, value);
       }
 
       xhr.upload.onprogress = (e) => {
@@ -2481,20 +2517,12 @@ class ApiClient {
   // Custom Icons
 
   async uploadIcon(file: File): Promise<{ icon: string }> {
-    const { accessToken, apiKey } = useAuthStore.getState();
     const formData = new FormData();
     formData.append("file", file);
 
-    const headers: Record<string, string> = {};
-    if (apiKey) {
-      headers["x-api-key"] = apiKey;
-    } else if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
-    }
-
     const response = await fetch(`${API_BASE}/icons/upload`, {
       method: "POST",
-      headers,
+      headers: credentialHeaders(),
       body: formData,
     });
 
@@ -2708,33 +2736,25 @@ class ApiClient {
   }
 
   getRemarkableAgendaPreviewUrl(date?: string): string {
-    const { accessToken } = useAuthStore.getState();
-    const params = new URLSearchParams();
-    if (date) params.set("date", date);
-    if (accessToken) params.set("token", accessToken);
-    const qs = params.toString();
-    return `${API_BASE}/remarkable/agenda/preview${qs ? `?${qs}` : ""}`;
+    const qs = date ? `?${new URLSearchParams({ date }).toString()}` : "";
+    return withAuthParams(`${API_BASE}/remarkable/agenda/preview${qs}`);
   }
 
   async fetchAgendaPreviewBlob(date?: string): Promise<Blob> {
-    const { accessToken, apiKey, refreshToken } = useAuthStore.getState();
+    const credentials = getRequestCredentials();
     const params = date ? `?date=${date}` : "";
-    const headers: Record<string, string> = {};
-    if (apiKey) {
-      headers["x-api-key"] = apiKey;
-    } else if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
-    }
 
-    let response = await fetch(`${API_BASE}/remarkable/agenda/preview${params}`, { headers });
+    let response = await fetch(`${API_BASE}/remarkable/agenda/preview${params}`, {
+      headers: credentialHeaders(credentials),
+    });
 
     // Handle token refresh
-    if (response.status === 401 && refreshToken) {
+    if (response.status === 401 && canRefreshFor(credentials)) {
       const refreshed = await this.ensureValidTokens();
       if (refreshed) {
-        const { accessToken: newToken } = useAuthStore.getState();
-        headers.Authorization = `Bearer ${newToken}`;
-        response = await fetch(`${API_BASE}/remarkable/agenda/preview${params}`, { headers });
+        response = await fetch(`${API_BASE}/remarkable/agenda/preview${params}`, {
+          headers: credentialHeaders(),
+        });
       }
     }
 
@@ -2745,30 +2765,21 @@ class ApiClient {
   }
 
   async fetchPlannerPreviewBlob(profileId: string, date?: string): Promise<Blob> {
-    const { accessToken, apiKey, refreshToken } = useAuthStore.getState();
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (apiKey) {
-      headers["x-api-key"] = apiKey;
-    } else if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
-    }
-
+    const credentials = getRequestCredentials();
     const body = JSON.stringify({ date: date || new Date().toISOString().split("T")[0] });
 
     let response = await fetch(`${API_BASE}/profiles/${profileId}/preview`, {
       method: "POST",
-      headers,
+      headers: { "Content-Type": "application/json", ...credentialHeaders(credentials) },
       body,
     });
 
-    if (response.status === 401 && refreshToken) {
+    if (response.status === 401 && canRefreshFor(credentials)) {
       const refreshed = await this.ensureValidTokens();
       if (refreshed) {
-        const { accessToken: newToken } = useAuthStore.getState();
-        headers.Authorization = `Bearer ${newToken}`;
         response = await fetch(`${API_BASE}/profiles/${profileId}/preview`, {
           method: "POST",
-          headers,
+          headers: { "Content-Type": "application/json", ...credentialHeaders() },
           body,
         });
       }
@@ -2781,24 +2792,20 @@ class ApiClient {
   }
 
   async fetchDocumentViewBlob(docPath: string): Promise<Blob> {
-    const { accessToken, apiKey, refreshToken } = useAuthStore.getState();
-    const headers: Record<string, string> = {};
-    if (apiKey) {
-      headers["x-api-key"] = apiKey;
-    } else if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
-    }
+    const credentials = getRequestCredentials();
 
     const rawPath = docPath.startsWith("/") ? docPath.slice(1) : docPath;
     const encodedPath = rawPath.split("/").map(encodeURIComponent).join("/");
-    let response = await fetch(`${API_BASE}/remarkable/documents/view/${encodedPath}`, { headers });
+    let response = await fetch(`${API_BASE}/remarkable/documents/view/${encodedPath}`, {
+      headers: credentialHeaders(credentials),
+    });
 
-    if (response.status === 401 && refreshToken) {
+    if (response.status === 401 && canRefreshFor(credentials)) {
       const refreshed = await this.ensureValidTokens();
       if (refreshed) {
-        const { accessToken: newToken } = useAuthStore.getState();
-        headers.Authorization = `Bearer ${newToken}`;
-        response = await fetch(`${API_BASE}/remarkable/documents/view/${encodedPath}`, { headers });
+        response = await fetch(`${API_BASE}/remarkable/documents/view/${encodedPath}`, {
+          headers: credentialHeaders(),
+        });
       }
     }
 
@@ -2918,16 +2925,9 @@ class ApiClient {
   }
 
   async previewRemarkableTemplate(id: string, date?: string): Promise<Blob> {
-    const { accessToken, apiKey } = useAuthStore.getState();
-    const headers: HeadersInit = {};
-    if (apiKey) {
-      headers["x-api-key"] = apiKey;
-    } else if (accessToken) {
-      headers["Authorization"] = `Bearer ${accessToken}`;
-    }
     const params = date ? `?date=${date}` : "";
     const response = await fetch(`${API_BASE}/remarkable/templates/${id}/preview${params}`, {
-      headers,
+      headers: credentialHeaders(),
     });
     if (!response.ok) {
       throw new Error("Failed to generate preview");
@@ -2937,21 +2937,16 @@ class ApiClient {
 
   async fetchRemarkableTemplatePreviewBlob(id: string, date?: string): Promise<Blob> {
     const url = `${API_BASE}/remarkable/templates/${id}/preview`;
+    const credentials = getRequestCredentials();
     const send = () => {
-      const { accessToken, apiKey } = useAuthStore.getState();
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (apiKey) {
-        headers["x-api-key"] = apiKey;
-      } else if (accessToken) {
-        headers.Authorization = `Bearer ${accessToken}`;
-      }
+      const headers: Record<string, string> = { "Content-Type": "application/json", ...credentialHeaders() };
       return fetch(url, { method: "POST", headers, body: JSON.stringify(date ? { date } : {}) });
     };
 
     let response = await send();
 
     // Handle token refresh
-    if (response.status === 401 && useAuthStore.getState().refreshToken) {
+    if (response.status === 401 && canRefreshFor(credentials)) {
       if (await this.ensureValidTokens()) {
         response = await send();
       }
@@ -3671,17 +3666,10 @@ class ApiClient {
     model?: string;
   }): Promise<Response> {
     // Return raw Response for SSE streaming — bypass the normal fetch wrapper
-    const { accessToken, apiKey } = useAuthStore.getState();
-
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      ...credentialHeaders(),
     };
-
-    if (apiKey) {
-      headers["x-api-key"] = apiKey;
-    } else if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
-    }
 
     const response = await fetch(`${API_BASE}/chat`, {
       method: "POST",
@@ -4108,16 +4096,9 @@ class ApiClient {
   async uploadCompanionPhoto(albumId: string, file: File): Promise<{ id: string }> {
     const formData = new FormData();
     formData.append("file", file);
-    const { accessToken, apiKey } = useAuthStore.getState();
-    const headers: HeadersInit = {};
-    if (apiKey) {
-      headers["x-api-key"] = apiKey;
-    } else if (accessToken) {
-      headers["Authorization"] = `Bearer ${accessToken}`;
-    }
     const response = await fetch(`${API_BASE}/companion/data/albums/${albumId}/photos`, {
       method: "POST",
-      headers,
+      headers: credentialHeaders(),
       body: formData,
     });
     if (!response.ok) {
@@ -4478,20 +4459,12 @@ class ApiClient {
   // ==================== FILE SHARE ====================
 
   async uploadFileShare(file: File): Promise<FileShareResult> {
-    const { accessToken, apiKey } = useAuthStore.getState();
     const formData = new FormData();
     formData.append("file", file);
 
-    const headers: Record<string, string> = {};
-    if (apiKey) {
-      headers["X-API-Key"] = apiKey;
-    } else if (accessToken) {
-      headers["Authorization"] = `Bearer ${accessToken}`;
-    }
-
     const response = await fetch(`${API_BASE}/fileshare/upload`, {
       method: "POST",
-      headers,
+      headers: credentialHeaders(),
       body: formData,
     });
 
@@ -5898,7 +5871,7 @@ export const api = new ApiClient();
  * Authorization/X-API-Key headers. The API accepts them on GET requests.
  */
 export function withAuthParams(url: string): string {
-  const { accessToken, apiKey } = useAuthStore.getState();
+  const { accessToken, apiKey } = getRequestCredentials();
   const sep = url.includes("?") ? "&" : "?";
   if (apiKey) return `${url}${sep}apiKey=${encodeURIComponent(apiKey)}`;
   if (accessToken) return `${url}${sep}token=${encodeURIComponent(accessToken)}`;

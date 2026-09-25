@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { api } from "../../services/api";
-import { useAuthStore } from "../../stores/auth";
+import { useRequestCredentials } from "../../stores/auth";
 import { WebRTCPlayer } from "./WebRTCPlayer";
 import type { Camera } from "@openframe/shared";
 
@@ -69,7 +69,7 @@ export function CameraFeed({
   const imgRef = useRef<HTMLImageElement>(null);
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval>>();
   const forceReconnectRef = useRef<ReturnType<typeof setInterval>>();
-  const { accessToken, apiKey } = useAuthStore();
+  const { accessToken, apiKey } = useRequestCredentials();
   const authToken = accessToken || apiKey;
 
   const FORCE_RECONNECT_MS = 15 * 60 * 1000;

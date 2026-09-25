@@ -37,12 +37,16 @@ export function AdminLayout() {
 
   const currentUser = user || fetchedUser;
 
-  // Guard: redirect if not cloud mode or not admin (only after user is loaded)
+  // Only the server's admins (on the hosted service: its operators, not the
+  // "admin" every household account is of its own household)
+  const isServerAdmin = currentUser?.isServerAdmin === true;
+
+  // Guard: redirect if not cloud mode or not a server admin (only after user is loaded)
   useEffect(() => {
-    if (currentUser && (!isCloudMode || currentUser.role !== "admin")) {
+    if (currentUser && (!isCloudMode || !isServerAdmin)) {
       navigate("/", { replace: true });
     }
-  }, [currentUser, navigate]);
+  }, [currentUser, isServerAdmin, navigate]);
 
   // Show loading while fetching user data
   if (isLoading || (!currentUser && isAuthenticated)) {
@@ -53,7 +57,7 @@ export function AdminLayout() {
     );
   }
 
-  if (!isCloudMode || !currentUser || currentUser.role !== "admin") {
+  if (!isCloudMode || !currentUser || !isServerAdmin) {
     return null;
   }
 

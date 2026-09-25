@@ -6,11 +6,11 @@ import { useAuthStore } from "../stores/auth";
 import { useEffect, useState } from "react";
 import { api } from "../services/api";
 import { appUrl } from "../lib/cloud";
+import { startSession } from "../lib/session";
 
 export function LoginPage() {
   const navigate = useNavigate();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const setTokens = useAuthStore((state) => state.setTokens);
 
   const isSafeRedirect = (u: string) => u.startsWith("/") && !u.startsWith("//");
   const rawReturnTo = new URLSearchParams(window.location.search).get("returnTo");
@@ -82,7 +82,7 @@ export function LoginPage() {
     setError(null);
     try {
       const result = await api.loginWithPassword(email, password);
-      setTokens(result.accessToken, result.refreshToken);
+      startSession(result.accessToken, result.refreshToken);
       navigate(returnTo);
     } catch (err: any) {
       setError(err.message || "Invalid email or password");
@@ -98,7 +98,7 @@ export function LoginPage() {
     setError(null);
     try {
       const result = await api.demoLogin();
-      setTokens(result.accessToken, result.refreshToken);
+      startSession(result.accessToken, result.refreshToken);
       navigate("/dashboard");
     } catch (err: any) {
       // Fall back to client-side demo if API demo isn't available

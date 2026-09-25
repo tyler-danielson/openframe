@@ -42,8 +42,8 @@ import { resolveLucideIcon as sharedResolveLucideIcon, isCustomIcon } from "../.
 import { DashboardIcon } from "./DashboardIcon";
 import { api, type KioskEnabledFeatures, type KioskDisplayType, type KioskDashboard } from "../../services/api";
 import { getDashboardTypeOption } from "../../data/kiosk-options";
-import { useAuthStore } from "../../stores/auth";
-import { isCloudMode, appPath } from "../../lib/cloud";
+import { useAuthStore, useAuthScope } from "../../stores/auth";
+import { isCloudMode, appPath, isKioskRoute } from "../../lib/cloud";
 import { useSidebarStore, SIDEBAR_FEATURES, type SidebarFeature } from "../../stores/sidebar";
 import { useModuleStore } from "../../stores/modules";
 import { isSidebarFeatureAvailable, isMediaFeatureAvailable, type CustomScreen } from "@openframe/shared";
@@ -102,8 +102,11 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
   const location = useLocation();
   const queryClient = useQueryClient();
   const { setUser, isAuthenticated, isDemo, user: authUser } = useAuthStore();
+  // Who this page's requests act as (on a kiosk: the kiosk's owner, via its key)
+  const authScope = useAuthScope();
 
-  const isKioskPath = window.location.pathname.startsWith("/kiosk/");
+  // Kiosk display (/kiosk/<token>/..., under the app's base path on openframe.us)
+  const isKioskPath = isKioskRoute();
   const setScreensaverActive = useScreensaverStore((state) => state.setActive);
   const screensaverEnabled = useScreensaverStore((state) => state.enabled);
   const setScreensaverEnabled = useScreensaverStore((state) => state.setEnabled);
@@ -205,7 +208,7 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
     queryKey: ["me"],
     queryFn: () => api.getMe(),
     retry: false,
-    enabled: isAuthenticated, // Only fetch if authenticated
+    enabled: authScope !== null, // Only fetch with credentials (a user's, or a kiosk's)
   });
 
   useEffect(() => {
@@ -376,8 +379,10 @@ export function Layout({ kioskEnabledFeatures, kioskDisplayType, kioskDashboards
       if (isModuleEnabled("remarkable")) {
         authItems.unshift({ to: "/remarkable", icon: PenTool, label: "reMarkable", feature: undefined, moduleId: "remarkable" });
       }
-      // Admin link (cloud mode + admin role only)
-      if (isCloudMode && authUser?.role === "admin") {
+      // Admin link (cloud mode + server admins only: on the hosted service every
+      // household's owner has the "admin" role, but only platform operators
+      // administer the server)
+      if (isCloudMode && authUser?.isServerAdmin === true) {
         authItems.push({ to: "/admin", icon: Shield, label: "Admin", feature: undefined, moduleId: null });
       }
       filteredItems.push(...authItems);

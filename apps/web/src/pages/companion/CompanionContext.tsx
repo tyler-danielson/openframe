@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, type CompanionPermissions } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
+import { signOut } from "../../lib/session";
 import { LogOut, ShieldX, Loader2 } from "lucide-react";
 
 interface CompanionContextValue {
@@ -46,8 +46,6 @@ export function useCompanion() {
 }
 
 export function CompanionProvider({ children }: { children: React.ReactNode }) {
-  const navigate = useNavigate();
-  const logout = useAuthStore((s) => s.logout);
   const accessToken = useAuthStore((s) => s.accessToken);
 
   const { data, isLoading, error } = useQuery({
@@ -101,8 +99,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
         </p>
         <button
           onClick={() => {
-            logout();
-            navigate("/companion/login", { replace: true });
+            void signOut({ redirectTo: "/companion/login" });
           }}
           className="flex items-center gap-2 px-6 py-3 rounded-xl border border-destructive/30 text-destructive text-sm font-medium hover:bg-destructive/5 transition-colors"
         >

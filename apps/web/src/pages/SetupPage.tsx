@@ -5,8 +5,8 @@ import { Button } from "../components/ui/Button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/Card";
 import { SetupGuide } from "../components/ui/SetupGuide";
 import { SETUP_GUIDES } from "../data/setup-guides";
-import { useAuthStore } from "../stores/auth";
 import { api } from "../services/api";
+import { startSession } from "../lib/session";
 
 type SetupStep = "welcome" | "admin" | "server" | "google" | "microsoft" | "weather" | "location" | "complete";
 
@@ -25,7 +25,6 @@ const STEP_LABELS: Record<SetupStep, string> = {
 
 export function SetupPage() {
   const navigate = useNavigate();
-  const setTokens = useAuthStore((s) => s.setTokens);
 
   const [currentStep, setCurrentStep] = useState<SetupStep>("welcome");
   const [loading, setLoading] = useState(false);
@@ -100,7 +99,7 @@ export function SetupPage() {
         password: adminPassword,
         name: adminName,
       });
-      setTokens(result.accessToken, result.refreshToken);
+      startSession(result.accessToken, result.refreshToken);
       goNext();
     } catch (err: any) {
       setError(err.message || "Failed to create admin");

@@ -21,6 +21,12 @@ interface HAWebSocketState {
   // Actions
   connect: () => Promise<void>;
   disconnect: () => void;
+  /**
+   * Close the connection for good and forget everything it received: the
+   * account it belonged to is signing out or being replaced. connect() starts
+   * a new one.
+   */
+  reset: () => void;
   getEntityState: (entityId: string) => HAEntityState | undefined;
   callService: (domain: string, service: string, data?: Record<string, unknown>) => Promise<void>;
 
@@ -29,6 +35,8 @@ interface HAWebSocketState {
   _messageId: number;
   _pendingPromises: Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>;
   _subscriptionId: number | null;
+  // Bumped by reset(): a connect() or reconnect from before it must not finish
+  _generation: number;
 }
 
 export const useHAWebSocket = create<HAWebSocketState>((set, get) => ({
@@ -40,16 +48,19 @@ export const useHAWebSocket = create<HAWebSocketState>((set, get) => ({
   _messageId: 1,
   _pendingPromises: new Map(),
   _subscriptionId: null,
+  _generation: 0,
 
   connect: async () => {
     const state = get();
     if (state.connected || state.connecting) return;
 
+    const generation = state._generation;
     set({ connecting: true, error: null });
 
     try {
       // Get HA WebSocket config (includes access token)
       const config = await api.getHomeAssistantWebSocketConfig();
+      if (get()._generation !== generation) return; // reset() while fetching
       if (!config?.url || !config?.accessToken) {
         set({ connecting: false, error: "Home Assistant not configured" });
         return;
@@ -70,6 +81,11 @@ export const useHAWebSocket = create<HAWebSocketState>((set, get) => ({
       };
 
       ws.onmessage = async (event) => {
+        if (get()._generation !== generation) {
+          // A connection reset() didn't know about yet (still authenticating)
+          ws.close();
+          return;
+        }
         const message = JSON.parse(event.data);
         const state = get();
 
@@ -153,17 +169,19 @@ export const useHAWebSocket = create<HAWebSocketState>((set, get) => ({
 
       ws.onerror = (error) => {
         console.error("HA WebSocket error:", error);
+        if (get()._generation !== generation) return;
         set({ error: "WebSocket connection error" });
       };
 
       ws.onclose = () => {
         console.log("HA WebSocket closed");
+        if (get()._generation !== generation) return; // reset() closed it
         set({ connected: false, connecting: false, _ws: null, _subscriptionId: null });
 
         // Attempt to reconnect after 5 seconds
         setTimeout(() => {
           const state = get();
-          if (!state.connected && !state.connecting) {
+          if (state._generation === generation && !state.connected && !state.connecting) {
             console.log("HA WebSocket: Attempting to reconnect...");
             get().connect();
           }
@@ -172,6 +190,7 @@ export const useHAWebSocket = create<HAWebSocketState>((set, get) => ({
 
     } catch (error) {
       console.error("Failed to connect to HA WebSocket:", error);
+      if (get()._generation !== generation) return;
       set({ connecting: false, error: String(error) });
     }
   },
@@ -182,6 +201,25 @@ export const useHAWebSocket = create<HAWebSocketState>((set, get) => ({
       _ws.close();
       set({ connected: false, _ws: null, _subscriptionId: null });
     }
+  },
+
+  reset: () => {
+    const { _ws, _pendingPromises, _generation } = get();
+    set({
+      _generation: _generation + 1,
+      connected: false,
+      connecting: false,
+      error: null,
+      entityStates: new Map(),
+      _ws: null,
+      _messageId: 1,
+      _pendingPromises: new Map(),
+      _subscriptionId: null,
+    });
+    for (const pending of _pendingPromises.values()) {
+      pending.reject(new Error("Disconnected from Home Assistant"));
+    }
+    _ws?.close();
   },
 
   getEntityState: (entityId: string) => {

@@ -4,7 +4,6 @@ import {
   haAutomations,
   homeAssistantConfig,
   homeAssistantEntities,
-  systemSettings,
   assumptions,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";

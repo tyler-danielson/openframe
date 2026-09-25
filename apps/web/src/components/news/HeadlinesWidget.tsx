@@ -5,6 +5,7 @@ import { api } from "../../services/api";
 import type { NewsHeadline } from "@openframe/shared";
 import { useDataFreshness } from "../../hooks/useDataFreshness";
 import { STALE_THRESHOLDS } from "../../lib/stale-thresholds";
+import { safeHref } from "../../lib/safe-url";
 
 interface HeadlinesWidgetProps {
   limit?: number;
@@ -82,7 +83,8 @@ function HeadlineItem({ headline }: { headline: NewsHeadline }) {
 
   return (
     <a
-      href={headline.link}
+      // Feed-supplied: web links only (no javascript: URLs)
+      href={safeHref(headline.link)}
       target="_blank"
       rel="noopener noreferrer"
       className="group block rounded-lg border border-border p-3 hover:bg-muted/50 transition-colors"

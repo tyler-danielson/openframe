@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Home, Camera } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { api, type HACamera } from "../../services/api";
-import { useAuthStore } from "../../stores/auth";
+import { useRequestCredentials } from "../../stores/auth";
 import type { Camera as CameraType } from "@openframe/shared";
 
 interface CameraThumbnailProps {
@@ -23,7 +23,7 @@ export function CameraThumbnail({
   const [imageLoaded, setImageLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
-  const { accessToken, apiKey } = useAuthStore();
+  const { accessToken, apiKey } = useRequestCredentials();
   const authToken = accessToken || apiKey;
 
   const name = type === "standalone"

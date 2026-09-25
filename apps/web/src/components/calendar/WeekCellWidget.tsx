@@ -14,7 +14,7 @@ import type { CalendarEvent, HomeAssistantEntity } from "@openframe/shared";
 import { cn } from "../../lib/utils";
 import { api, type HACamera } from "../../services/api";
 import { useHAWebSocket, useHALocations } from "../../stores/homeassistant-ws";
-import { useAuthStore } from "../../stores/auth";
+import { useRequestCredentials } from "../../stores/auth";
 import type { WeekCellWidget as WeekCellWidgetType } from "../../stores/calendar";
 
 // Lazy load the LocationMap component
@@ -108,7 +108,7 @@ function NextWeekWidget({
 
 // Camera Widget - shows first available camera feed
 function CameraWidget() {
-  const { accessToken, apiKey } = useAuthStore();
+  const { accessToken, apiKey } = useRequestCredentials();
   const authToken = accessToken || apiKey;
   const [imageLoaded, setImageLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);

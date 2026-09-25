@@ -7,8 +7,10 @@ import { Users, UserPlus } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { Camera, Invitation, Calendar as CalendarType } from "@openframe/shared";
 import { api, type SettingCategoryDefinition, type SystemSetting, type HAAvailableCamera, COLOR_SCHEMES, type ColorScheme, type Kiosk, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type CompanionUser, type CompanionPermissions, type CloudInstance, type CloudBillingInfo, type PlanLimits, type SupportTicketSummary, type MyTicketDetail, type JoinRequest } from "../services/api";
-import { useAuthStore } from "../stores/auth";
+import { useAuthStore, useRequestCredentials } from "../stores/auth";
 import { isCloudMode, appPath, appUrl } from "../lib/cloud";
+import { signOut } from "../lib/session";
+import { safeHref } from "../lib/safe-url";
 import { useCalendarStore, type WeekCellWidget } from "../stores/calendar";
 import { useScreensaverStore, type ScreensaverLayout, type ScreensaverTransition, type ClockPosition, type ClockSize, type InfoPaneWidget, type InfoPaneWidgetConfig, type WidgetSize, type WidgetGridSize, LIST_WIDGETS, DEFAULT_WIDGET_CONFIGS, type CompositeWidgetId, type CompositeWidgetConfig, type SubItemConfig, DEFAULT_COMPOSITE_CONFIGS, DEFAULT_SUB_ITEMS } from "../stores/screensaver";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -47,7 +49,7 @@ import { useModuleStore } from "../stores/modules";
 import { MODULE_REGISTRY, MODULE_CATEGORIES, type ModuleId, isSettingsTabAvailable } from "@openframe/shared";
 import type { CalendarProvider } from "@openframe/shared";
 import { CameraFeed } from "../components/cameras/CameraFeed";
-import { buildOAuthUrl } from "../utils/oauth-scopes";
+import { startOAuthLink, startSpotifyLink } from "../utils/oauth-scopes";
 import type { HomeAssistantRoom, FavoriteSportsTeam, Automation, AutomationParseResult, AutomationTriggerType, AutomationActionType, TimeTriggerConfig, StateTriggerConfig, DurationTriggerConfig, ServiceCallActionConfig, NotificationActionConfig, NewsFeed, PresetFeed, ExportedSettings, ExportCategory, EncryptedBackup, PlannerLayoutConfig, PlannerWidgetInstance, FamilyProfile } from "@openframe/shared";
 import { TemplateGallery } from "../components/planner/TemplateGallery";
 import { LayoutSettings } from "../components/planner/LayoutSettings";
@@ -3947,7 +3949,7 @@ function CameraTroubleshooting({ cameras }: { cameras: Camera[] }) {
 
 function CamerasSettings() {
   const queryClient = useQueryClient();
-  const { accessToken, apiKey } = useAuthStore();
+  const { accessToken, apiKey } = useRequestCredentials();
   const authToken = accessToken || apiKey;
 
   const [showAddForm, setShowAddForm] = useState(false);
@@ -6987,7 +6989,7 @@ function HomeAssistantSettings({ mode = "full" }: { mode?: "full" | "rooms-only"
                     <p className="text-xs text-gray-600 dark:text-gray-400">
                       Create a new token at{" "}
                       <a
-                        href={`${url || config?.url}/profile/security`}
+                        href={safeHref(`${url || config?.url}/profile/security`)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-blue-600 dark:text-blue-400 hover:underline"
@@ -7082,7 +7084,7 @@ function HomeAssistantSettings({ mode = "full" }: { mode?: "full" | "rooms-only"
                         <>
                           Create one at{" "}
                           <a
-                            href={`${url}/profile/security`}
+                            href={safeHref(`${url}/profile/security`)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-blue-600 dark:text-blue-400 hover:underline"
@@ -7858,16 +7860,6 @@ function ApiKeysSettings() {
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Fetch server config to get the frontend URL
-  const { data: serverConfig } = useQuery({
-    queryKey: ["server-config"],
-    queryFn: () => api.getServerConfig(),
-    staleTime: Infinity, // Config doesn't change often
-  });
-
-  // Use configured frontend URL, fallback to current origin
-  const frontendUrl = serverConfig?.frontendUrl || window.location.origin;
-
   const { data: apiKeys = [], isLoading } = useQuery({
     queryKey: ["api-keys"],
     queryFn: () => api.getApiKeys(),
@@ -7908,15 +7900,6 @@ function ApiKeysSettings() {
   const handleCopyKey = async () => {
     if (createdKey) {
       await copyToClipboard(createdKey);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  const handleCopyKioskUrl = async () => {
-    if (createdKey) {
-      const kioskUrl = `${frontendUrl}?apiKey=${createdKey}`;
-      await copyToClipboard(kioskUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -7965,19 +7948,9 @@ function ApiKeysSettings() {
                 {copied ? "Copied!" : "Copy"}
               </Button>
             </div>
-            <div className="pt-2 border-t border-primary/30">
-              <p className="text-sm text-primary mb-2 font-medium">
-                For kiosk devices, use this URL to auto-authenticate:
-              </p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 rounded bg-background px-3 py-2 text-xs font-mono border border-border text-foreground overflow-x-auto">
-                  {frontendUrl}?apiKey={createdKey}
-                </code>
-                <Button size="sm" variant="outline" className="border-primary text-primary hover:bg-primary/10" onClick={handleCopyKioskUrl}>
-                  Copy URL
-                </Button>
-              </div>
-            </div>
+            <p className="pt-2 border-t border-primary/30 text-sm text-primary">
+              Send it in the <code className="font-mono">x-api-key</code> header. For a kiosk display, use the kiosk's own link (Settings &rarr; Kiosks) instead.
+            </p>
             <Button
               variant="outline"
               size="sm"
@@ -8862,13 +8835,14 @@ function SpotifySettings() {
             )}
 
             {/* Add Account Button */}
-            <a
-              href={api.getSpotifyAuthUrl()}
+            <button
+              type="button"
+              onClick={() => void startSpotifyLink()}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-500 px-4 py-2 font-medium text-white hover:bg-green-600 transition-colors"
             >
               <Plus className="h-5 w-5" />
               {accounts.length > 0 ? "Add Another Spotify Account" : "Connect Spotify"}
-            </a>
+            </button>
 
             {accounts.length === 0 && (
               <div className="rounded-lg border border-border p-4">
@@ -9040,7 +9014,7 @@ function CloudSettings() {
                     Open the link below and sign in to claim this instance:
                   </p>
                   <a
-                    href={connectMutation.data.claimUrl}
+                    href={safeHref(connectMutation.data.claimUrl)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sm text-primary hover:underline flex items-center gap-1 justify-center"
@@ -10384,7 +10358,6 @@ export function SettingsPage() {
   const currentDefaultCalendar = calendars.find((c) => c.isPrimary);
 
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const logout = useAuthStore((state) => state.logout);
 
   return (
     <div className="flex h-full flex-col relative">
@@ -10406,9 +10379,7 @@ export function SettingsPage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  api.logout().catch(() => {});
-                  logout();
-                  window.location.href = appPath("/login");
+                  void signOut({ redirectTo: "/login" });
                 }}
                 className="text-sm"
               >
@@ -10431,8 +10402,7 @@ export function SettingsPage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  logout();
-                  window.location.href = appPath("/login");
+                  void signOut({ redirectTo: "/login" });
                 }}
                 className="text-sm"
               >
@@ -10643,8 +10613,7 @@ export function SettingsPage() {
                               variant="outline"
                               size="sm"
                               onClick={() => {
-                                const authToken = useAuthStore.getState().accessToken;
-                                window.location.href = buildOAuthUrl(provider as "google" | "microsoft", "calendar", authToken, appUrl("/settings/connections"));
+                                void startOAuthLink(provider as "google" | "microsoft", "calendar", appUrl("/settings/connections"));
                               }}
                             >
                               <LogIn className="h-3.5 w-3.5 mr-1.5" />
@@ -10701,12 +10670,10 @@ export function SettingsPage() {
                       onClose={() => setAddAccountModalView(null)}
                       initialView={addAccountModalView ?? "select"}
                       onConnectGoogle={() => {
-                        const authToken = useAuthStore.getState().accessToken;
-                        window.location.href = buildOAuthUrl("google", "calendar", authToken, appUrl("/settings/connections?connected=1"));
+                        void startOAuthLink("google", "calendar", appUrl("/settings/connections?connected=1"));
                       }}
                       onConnectMicrosoft={() => {
-                        const authToken = useAuthStore.getState().accessToken;
-                        window.location.href = buildOAuthUrl("microsoft", "calendar", authToken, appUrl("/settings/connections?connected=1"));
+                        void startOAuthLink("microsoft", "calendar", appUrl("/settings/connections?connected=1"));
                       }}
                       onConnectCalDAV={async (url, username, password) => {
                         console.log("CalDAV connection:", { url, username });
@@ -11010,8 +10977,7 @@ export function SettingsPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        const token = useAuthStore.getState().accessToken;
-                        window.location.href = buildOAuthUrl("google", "base", token, appUrl("/settings/account"));
+                        void startOAuthLink("google", "base", appUrl("/settings/account"));
                       }}
                     >
                       {user?.linkedProviders?.includes("google") ? (
@@ -11047,8 +11013,7 @@ export function SettingsPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        const token = useAuthStore.getState().accessToken;
-                        window.location.href = buildOAuthUrl("microsoft", "base", token, appUrl("/settings/account"));
+                        void startOAuthLink("microsoft", "base", appUrl("/settings/account"));
                       }}
                     >
                       {user?.linkedProviders?.includes("microsoft") ? (

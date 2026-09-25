@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { api, type HACamera } from "../../services/api";
-import { useAuthStore } from "../../stores/auth";
+import { useRequestCredentials } from "../../stores/auth";
 
 interface HACameraFeedProps {
   camera: HACamera;
@@ -35,7 +35,7 @@ export function HACameraFeed({
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval>>();
   const forceReconnectRef = useRef<ReturnType<typeof setInterval>>();
   const streamTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
-  const { accessToken, apiKey } = useAuthStore();
+  const { accessToken, apiKey } = useRequestCredentials();
   const authToken = accessToken || apiKey;
 
   const FORCE_RECONNECT_MS = 15 * 60 * 1000;

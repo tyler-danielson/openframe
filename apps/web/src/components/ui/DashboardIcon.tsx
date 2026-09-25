@@ -1,5 +1,5 @@
 import { isCustomIcon, getCustomIconUrl, resolveLucideIcon } from "../../lib/icon-utils";
-import { useAuthStore } from "../../stores/auth";
+import { useRequestCredentials } from "../../stores/auth";
 
 interface DashboardIconProps {
   icon: string;
@@ -7,8 +7,8 @@ interface DashboardIconProps {
 }
 
 export function DashboardIcon({ icon, className }: DashboardIconProps) {
+  const { accessToken, apiKey } = useRequestCredentials();
   if (isCustomIcon(icon)) {
-    const { accessToken, apiKey } = useAuthStore.getState();
     const authParam = accessToken
       ? `token=${encodeURIComponent(accessToken)}`
       : apiKey

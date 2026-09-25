@@ -12,6 +12,7 @@ import { TouchTimePicker } from "../ui/TouchTimePicker";
 import { useCalendarStore } from "../../stores/calendar";
 import { api } from "../../services/api";
 import { allDayDateToStorage, getEventEnd, getEventStart } from "../../lib/event-dates";
+import { safeHref } from "../../lib/safe-url";
 import { useDemoGuard } from "../../hooks/useDemoGuard";
 
 interface EventModalProps {
@@ -41,32 +42,44 @@ function parseDescriptionWithLinks(text: string): ReactNode[] {
       parts.push(text.slice(lastIndex, match.index));
     }
 
-    // Check if it's an HTML anchor tag or plain URL
+    // Check if it's an HTML anchor tag or plain URL. Descriptions come from
+    // whoever wrote the event (shared and subscribed calendars included), so
+    // only web, mail and phone links become links: never javascript: and co.
     if (match[1]) {
       // HTML anchor tag - use the href and display text
+      const href = safeHref(match[1]);
       parts.push(
-        <a
-          key={keyIndex++}
-          href={match[1]}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary hover:underline break-all"
-        >
-          {match[2] || match[1]}
-        </a>
+        href ? (
+          <a
+            key={keyIndex++}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline break-all"
+          >
+            {match[2] || match[1]}
+          </a>
+        ) : (
+          <span key={keyIndex++}>{match[2] || match[1]}</span>
+        )
       );
     } else {
       // Plain URL
+      const href = safeHref(match[0]);
       parts.push(
-        <a
-          key={keyIndex++}
-          href={match[0]}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary hover:underline break-all"
-        >
-          {match[0]}
-        </a>
+        href ? (
+          <a
+            key={keyIndex++}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline break-all"
+          >
+            {match[0]}
+          </a>
+        ) : (
+          match[0]
+        )
       );
     }
 
@@ -678,7 +691,6 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
                     height="100%"
                     style={{ border: 0 }}
                     loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
                     src={
                       showRoutes && homeAddress
                         ? `https://www.google.com/maps/embed/v1/directions?key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ""}&origin=${encodeURIComponent(homeAddress)}&destination=${encodeURIComponent(event.location)}&mode=driving`

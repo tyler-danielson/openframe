@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { X, Maximize2, Home, RefreshCw, Video, AlertCircle } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { api } from "../../services/api";
-import { useAuthStore } from "../../stores/auth";
+import { useRequestCredentials } from "../../stores/auth";
 import type { Camera } from "@openframe/shared";
 import type { HACamera } from "../../services/api";
 
@@ -26,7 +26,7 @@ export function CameraViewer({
   const imgRef = useRef<HTMLImageElement>(null);
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval>>();
   const forceReconnectRef = useRef<ReturnType<typeof setInterval>>();
-  const { accessToken, apiKey } = useAuthStore();
+  const { accessToken, apiKey } = useRequestCredentials();
   const authToken = accessToken || apiKey;
 
   const FORCE_RECONNECT_MS = 15 * 60 * 1000;

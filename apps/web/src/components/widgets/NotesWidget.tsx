@@ -1,6 +1,7 @@
 import type { WidgetStyle } from "../../stores/screensaver";
 import { getFontSizeConfig } from "../../lib/font-size";
 import { cn } from "../../lib/utils";
+import { safeHref } from "../../lib/safe-url";
 
 interface NotesWidgetProps {
   config: Record<string, unknown>;
@@ -119,17 +120,22 @@ function renderLineContent(text: string): React.ReactNode {
       if (linkMatch.index > 0) {
         parts.push(<span key={key++}>{remaining.slice(0, linkMatch.index)}</span>);
       }
-      // The link itself
+      // The link itself: web, mail and phone links only (never javascript:)
+      const href = safeHref(linkMatch[2]);
       parts.push(
-        <a
-          key={key++}
-          href={linkMatch[2]}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary underline underline-offset-2 hover:text-primary/80"
-        >
-          {linkMatch[1]}
-        </a>
+        href ? (
+          <a
+            key={key++}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline underline-offset-2 hover:text-primary/80"
+          >
+            {linkMatch[1]}
+          </a>
+        ) : (
+          <span key={key++}>{linkMatch[1]}</span>
+        )
       );
       remaining = remaining.slice(linkMatch.index + linkMatch[0].length);
     } else {

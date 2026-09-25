@@ -44,7 +44,7 @@ import { Button } from "../ui/Button";
 import { cn } from "../../lib/utils";
 import type { HomeAssistantEntityState, HomeAssistantEntitySettings } from "@openframe/shared";
 import { api } from "../../services/api";
-import { useAuthStore } from "../../stores/auth";
+import { getRequestCredentials } from "../../stores/auth";
 
 // Custom vacuum icon component
 function VacuumIcon({ className, isAnimated }: { className?: string; isAnimated?: boolean }) {
@@ -287,7 +287,7 @@ export function VacuumControlModal({
       const images: string[] = [];
 
       // Get auth headers
-      const { accessToken, apiKey } = useAuthStore.getState();
+      const { accessToken, apiKey } = getRequestCredentials();
       const headers: HeadersInit = {};
       if (apiKey) {
         headers["x-api-key"] = apiKey;
