@@ -10469,7 +10469,8 @@ export function SettingsPage() {
         <div className="px-4 py-3 flex items-center gap-2 bg-red-500/10 border-b border-red-500/20">
           <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
           <span className="text-sm text-red-700 dark:text-red-400 flex-1">
-            {decodeURIComponent(searchParams.get("error")!)}
+            {/* Already decoded: decoding again garbles messages and throws on a stray '%' */}
+            {searchParams.get("error")}
           </span>
           <button
             type="button"

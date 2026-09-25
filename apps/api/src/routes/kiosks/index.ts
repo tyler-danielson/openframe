@@ -221,7 +221,7 @@ setInterval(() => {
       kioskCommands.set(kioskId, validCommands);
     }
   }
-}, 5 * 60 * 1000);
+}, 5 * 60 * 1000).unref(); // housekeeping only: never what keeps the process alive
 
 export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
   // ========== PROTECTED ENDPOINTS (require auth) ==========

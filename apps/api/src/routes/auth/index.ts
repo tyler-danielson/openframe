@@ -1,4 +1,5 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply } from "fastify";
+import type { Database } from "@openframe/database";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import {
   users,
@@ -20,8 +21,17 @@ import { nanoid } from "nanoid";
 import bcrypt from "bcryptjs";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { encryptField, decryptField } from "../../lib/encryption.js";
-import { getCategorySettings } from "../settings/index.js";
-import { isPrivateIp, getRequestOrigin } from "../../utils/oauth-helpers.js";
+import { getCategorySettings, getUnreadableSecretKeys } from "../settings/index.js";
+import {
+  credentialValue,
+  describeOAuthError,
+  describeOAuthTokenError,
+  getRequestOrigin,
+  isPrivateIp,
+  oauthNotConfiguredMessage,
+  oauthSecretUnreadableMessage,
+  type OAuthProvider,
+} from "../../utils/oauth-helpers.js";
 import { getScopesForFeature, mergeScopes, type OAuthFeature } from "../../utils/oauth-scopes.js";
 import { resetDemoData } from "./demo-seed.js";
 import { kioskCommands as kioskCommandsById } from "../kiosks/index.js";
@@ -103,7 +113,7 @@ setInterval(() => {
       tvConnectStore.delete(regId);
     }
   }
-}, 2 * 60 * 1000);
+}, 2 * 60 * 1000).unref(); // housekeeping only: never what keeps the process alive
 
 // Helper to get the frontend/external URL from DB settings, falling back to env vars
 async function getFrontendUrl(db: any): Promise<string> {
@@ -113,6 +123,55 @@ async function getFrontendUrl(db: any): Promise<string> {
 
 // SPA base path (e.g. "/app" in cloud mode, "" in self-hosted)
 const spaBasePath = (process.env.SPA_BASE_PATH || "").replace(/\/+$/, "");
+
+/**
+ * An OAuth sign-in or account connection failed. When a signed-in user was
+ * connecting an account from one of this server's pages (Settings), send them
+ * back there with the reason in ?error=, which Settings shows; otherwise
+ * answer with it.
+ */
+function sendOAuthFailure(
+  reply: FastifyReply,
+  flow: { linkUserId?: string; returnUrl?: string; requestOrigin?: string } | undefined,
+  status: 400 | 502,
+  message: string
+) {
+  if (flow?.linkUserId && flow.returnUrl && flow.requestOrigin) {
+    try {
+      const url = new URL(flow.returnUrl);
+      // Never redirect to another site from here
+      if (url.host === new URL(flow.requestOrigin).host) {
+        url.searchParams.delete("connected");
+        url.searchParams.set("error", message);
+        return reply.redirect(url.toString());
+      }
+    } catch {
+      // Not a usable URL: answer instead
+    }
+  }
+  return status === 502 ? reply.badGateway(message) : reply.badRequest(message);
+}
+
+/**
+ * Why this OAuth client can't complete a sign-in, or null when it can: a
+ * missing client ID or secret (the code exchange needs the secret too), or a
+ * saved secret that can't be decrypted.
+ */
+async function oauthConfigProblem(
+  db: Database,
+  provider: OAuthProvider,
+  config: { clientId?: string; clientSecret?: string; redirectUri?: string }
+): Promise<string | null> {
+  const missing = [!config.clientId && "client ID", !config.clientSecret && "client secret"].filter(
+    (item): item is string => typeof item === "string"
+  );
+  if (!config.clientSecret && (await getUnreadableSecretKeys(db, provider)).includes("client_secret")) {
+    return oauthSecretUnreadableMessage(provider);
+  }
+  if (missing.length > 0) return oauthNotConfiguredMessage(provider, missing);
+  if (!config.redirectUri) return `${provider === "microsoft" ? "Microsoft" : "Google"} OAuth not configured`;
+  return null;
+}
 
 // Helper to get OAuth config from DB settings, falling back to env vars
 // When requestOrigin is provided, use it as the base URL for redirect URIs (derived from the actual HTTP request).
@@ -125,17 +184,17 @@ async function getOAuthConfig(db: any, provider: "google" | "microsoft", request
 
   if (provider === "google") {
     return {
-      clientId: settings.client_id || process.env.GOOGLE_CLIENT_ID,
-      clientSecret: settings.client_secret || process.env.GOOGLE_CLIENT_SECRET,
+      clientId: credentialValue(settings.client_id, process.env.GOOGLE_CLIENT_ID),
+      clientSecret: credentialValue(settings.client_secret, process.env.GOOGLE_CLIENT_SECRET),
       redirectUri: baseUrl
         ? `${baseUrl}/api/v1/auth/oauth/google/callback`
         : process.env.GOOGLE_REDIRECT_URI,
     };
   }
   return {
-    clientId: settings.client_id || process.env.MICROSOFT_CLIENT_ID,
-    clientSecret: settings.client_secret || process.env.MICROSOFT_CLIENT_SECRET,
-    tenantId: settings.tenant_id || process.env.MICROSOFT_TENANT_ID || "common",
+    clientId: credentialValue(settings.client_id, process.env.MICROSOFT_CLIENT_ID),
+    clientSecret: credentialValue(settings.client_secret, process.env.MICROSOFT_CLIENT_SECRET),
+    tenantId: credentialValue(settings.tenant_id, process.env.MICROSOFT_TENANT_ID) ?? "common",
     redirectUri: baseUrl
       ? `${baseUrl}/api/v1/auth/oauth/microsoft/callback`
       : process.env.MICROSOFT_REDIRECT_URI,
@@ -796,14 +855,6 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.redirect(`${requestOrigin}${spaBasePath}/settings?tab=system&error=${errorMsg}`);
       }
 
-      const googleConfig = await getOAuthConfig(fastify.db, "google", requestOrigin);
-      const clientId = googleConfig.clientId;
-      const redirectUri = googleConfig.redirectUri;
-
-      if (!clientId || !redirectUri) {
-        return reply.badRequest("Google OAuth not configured");
-      }
-
       // If a token is provided, verify it and store linkUserId to link this OAuth to an existing user
       const query = request.query as Record<string, string>;
       let linkUserId: string | undefined;
@@ -814,6 +865,16 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         } catch {
           return reply.unauthorized("Invalid or expired token");
         }
+      }
+
+      const googleConfig = await getOAuthConfig(fastify.db, "google", requestOrigin);
+      const clientId = googleConfig.clientId;
+      const redirectUri = googleConfig.redirectUri;
+
+      // Don't send anyone to Google when the code exchange can't succeed
+      const problem = await oauthConfigProblem(fastify.db, "google", googleConfig);
+      if (problem || !clientId || !redirectUri) {
+        return sendOAuthFailure(reply, { linkUserId, returnUrl: query.returnUrl, requestOrigin }, 400, problem ?? "Google OAuth not configured");
       }
 
       const state = randomBytes(16).toString("hex");
@@ -920,29 +981,32 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const { code, state, error } = request.query as Record<string, string | undefined>;
 
+      // Look the flow up first, so a failure can be reported where it started
+      const storedState = state ? oauthStateStore.get(state) : undefined;
+      if (state) oauthStateStore.delete(state);
+
       if (error) {
-        return reply.badRequest(`OAuth error: ${error}`);
+        fastify.log.warn(`Google OAuth error: ${error}`);
+        return sendOAuthFailure(reply, storedState, 400, describeOAuthError("google", { error }));
       }
 
       if (!state) {
         return reply.badRequest("Missing OAuth state");
       }
-
-      // Verify state from in-memory store
-      const storedState = oauthStateStore.get(state);
       if (!storedState) {
         return reply.badRequest("Invalid OAuth state");
       }
 
-      // Remove used state
-      oauthStateStore.delete(state);
-
       if (!code) {
-        return reply.badRequest("Missing OAuth code");
+        return sendOAuthFailure(reply, storedState, 400, "Google didn't return a sign-in code. Try connecting again.");
       }
 
       // Exchange code for tokens using the same redirect URI from initiation
       const googleConfig = await getOAuthConfig(fastify.db, "google", storedState.requestOrigin);
+      const problem = await oauthConfigProblem(fastify.db, "google", googleConfig);
+      if (problem || !googleConfig.clientId || !googleConfig.clientSecret || !googleConfig.redirectUri) {
+        return sendOAuthFailure(reply, storedState, 400, problem ?? "Google OAuth not configured");
+      }
 
       const tokenResponse = await fetch(
         "https://oauth2.googleapis.com/token",
@@ -951,16 +1015,18 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
             code,
-            client_id: googleConfig.clientId!,
-            client_secret: googleConfig.clientSecret!,
-            redirect_uri: googleConfig.redirectUri!,
+            client_id: googleConfig.clientId,
+            client_secret: googleConfig.clientSecret,
+            redirect_uri: googleConfig.redirectUri,
             grant_type: "authorization_code",
           }),
         }
       );
 
       if (!tokenResponse.ok) {
-        return reply.internalServerError("Failed to exchange OAuth code");
+        const errorBody = await tokenResponse.text();
+        fastify.log.error(`Google token exchange failed (${tokenResponse.status}): ${errorBody}`);
+        return sendOAuthFailure(reply, storedState, 502, describeOAuthTokenError("google", tokenResponse.status, errorBody));
       }
 
       const tokens = await tokenResponse.json() as {
@@ -979,7 +1045,14 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       );
 
       if (!userInfoResponse.ok) {
-        return reply.internalServerError("Failed to get user info");
+        const errorBody = await userInfoResponse.text();
+        fastify.log.error(`Google user info failed (${userInfoResponse.status}): ${errorBody}`);
+        return sendOAuthFailure(
+          reply,
+          storedState,
+          502,
+          `Signed in to Google, but reading the account's profile failed (HTTP ${userInfoResponse.status}). Try connecting again.`
+        );
       }
 
       const userInfo = await userInfoResponse.json() as {
@@ -1152,15 +1225,6 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.redirect(`${requestOrigin}${spaBasePath}/settings?tab=system&error=${errorMsg}`);
       }
 
-      const msConfig = await getOAuthConfig(fastify.db, "microsoft", requestOrigin);
-      const clientId = msConfig.clientId;
-      const redirectUri = msConfig.redirectUri;
-      const tenantId = "tenantId" in msConfig ? msConfig.tenantId : "common";
-
-      if (!clientId || !redirectUri) {
-        return reply.badRequest("Microsoft OAuth not configured");
-      }
-
       // If a token is provided, verify it and store linkUserId to link this OAuth to an existing user
       const query = request.query as Record<string, string>;
       let linkUserId: string | undefined;
@@ -1171,6 +1235,17 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         } catch {
           return reply.unauthorized("Invalid or expired token");
         }
+      }
+
+      const msConfig = await getOAuthConfig(fastify.db, "microsoft", requestOrigin);
+      const clientId = msConfig.clientId;
+      const redirectUri = msConfig.redirectUri;
+      const tenantId = ("tenantId" in msConfig && msConfig.tenantId) || "common";
+
+      // Don't send anyone to Microsoft when the code exchange can't succeed
+      const problem = await oauthConfigProblem(fastify.db, "microsoft", msConfig);
+      if (problem || !clientId || !redirectUri) {
+        return sendOAuthFailure(reply, { linkUserId, returnUrl: query.returnUrl, requestOrigin }, 400, problem ?? "Microsoft OAuth not configured");
       }
 
       const state = randomBytes(16).toString("hex");
@@ -1185,7 +1260,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       const uniqueScopes = [...new Set(scopes)];
 
       const url = new URL(
-        `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`
+        `https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/oauth2/v2.0/authorize`
       );
       url.searchParams.set("client_id", clientId);
       url.searchParams.set("redirect_uri", redirectUri);
@@ -1237,44 +1312,55 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const { code, state, error, error_description } = request.query as Record<string, string | undefined>;
 
+      // Look the flow up first, so a failure can be reported where it started
+      const storedState = state ? oauthStateStore.get(state) : undefined;
+      if (state) oauthStateStore.delete(state);
+
       if (error) {
-        return reply.badRequest(`OAuth error: ${error}${error_description ? ` - ${error_description}` : ""}`);
+        fastify.log.warn(`Microsoft OAuth error: ${error}${error_description ? ` - ${error_description}` : ""}`);
+        return sendOAuthFailure(reply, storedState, 400, describeOAuthError("microsoft", { error, description: error_description }));
       }
 
       if (!state) {
         return reply.badRequest("Missing OAuth state");
       }
-
-      // Verify state from in-memory store
-      const storedState = oauthStateStore.get(state);
       if (!storedState) {
         return reply.badRequest("Invalid OAuth state");
       }
 
-      // Remove used state
-      oauthStateStore.delete(state);
-
       fastify.log.info(`Microsoft OAuth callback: linkUserId=${storedState.linkUserId || "none"}, returnUrl=${storedState.returnUrl || "none"}`);
 
       if (!code) {
-        return reply.badRequest("Missing OAuth code");
+        return sendOAuthFailure(reply, storedState, 400, "Microsoft didn't return a sign-in code. Try connecting again.");
       }
 
       // Exchange code for tokens using the same redirect URI from initiation
       const msConfig = await getOAuthConfig(fastify.db, "microsoft", storedState.requestOrigin);
-      const tenantId = "tenantId" in msConfig ? msConfig.tenantId : "common";
+      const tenantId = ("tenantId" in msConfig && msConfig.tenantId) || "common";
+      const problem = await oauthConfigProblem(fastify.db, "microsoft", msConfig);
+      if (problem || !msConfig.clientId || !msConfig.clientSecret || !msConfig.redirectUri) {
+        return sendOAuthFailure(reply, storedState, 400, problem ?? "Microsoft OAuth not configured");
+      }
+      // Ask for the same scopes as the authorization request did
+      const scopes = [
+        ...new Set([
+          ...getScopesForFeature("microsoft", "base"),
+          ...getScopesForFeature("microsoft", storedState.feature ?? "base"),
+        ]),
+      ];
 
       const tokenResponse = await fetch(
-        `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+        `https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/oauth2/v2.0/token`,
         {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
             code,
-            client_id: msConfig.clientId!,
-            client_secret: msConfig.clientSecret!,
-            redirect_uri: msConfig.redirectUri!,
+            client_id: msConfig.clientId,
+            client_secret: msConfig.clientSecret,
+            redirect_uri: msConfig.redirectUri,
             grant_type: "authorization_code",
+            scope: scopes.join(" "),
           }),
         }
       );
@@ -1282,7 +1368,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       if (!tokenResponse.ok) {
         const errorBody = await tokenResponse.text();
         fastify.log.error(`Microsoft token exchange failed (${tokenResponse.status}): ${errorBody}`);
-        return reply.internalServerError("Failed to exchange OAuth code");
+        return sendOAuthFailure(reply, storedState, 502, describeOAuthTokenError("microsoft", tokenResponse.status, errorBody));
       }
 
       const tokens = await tokenResponse.json() as {
@@ -1303,7 +1389,12 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       if (!userInfoResponse.ok) {
         const errorBody = await userInfoResponse.text();
         fastify.log.error(`Microsoft user info failed (${userInfoResponse.status}): ${errorBody}`);
-        return reply.internalServerError("Failed to get user info");
+        return sendOAuthFailure(
+          reply,
+          storedState,
+          502,
+          `Signed in to Microsoft, but reading the account's profile failed (HTTP ${userInfoResponse.status}). Try connecting again.`
+        );
       }
 
       const userInfo = await userInfoResponse.json() as {
@@ -1315,7 +1406,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       const email = userInfo.mail || userInfo.userPrincipalName;
       if (!email) {
         fastify.log.error(`Microsoft user info missing email: ${JSON.stringify(userInfo)}`);
-        return reply.internalServerError("Failed to get user email");
+        return sendOAuthFailure(reply, storedState, 502, "Microsoft didn't return an email address for this account.");
       }
 
       // In link mode, use the authenticated user; otherwise find by email or linked OAuth

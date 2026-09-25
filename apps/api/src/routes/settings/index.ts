@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import type { Database } from "@openframe/database";
 import { eq, and, or, isNull, inArray } from "drizzle-orm";
 import { readFile, writeFile, mkdir } from "fs/promises";
 import { join } from "path";
@@ -2073,6 +2074,36 @@ export async function getSystemSetting(
   }
 
   return setting.value;
+}
+
+/**
+ * Keys of a category's global secret settings that are saved but can't be
+ * decrypted (getCategorySettings reports those as null), typically because
+ * ENCRYPTION_KEY changed after they were saved.
+ */
+export async function getUnreadableSecretKeys(db: Database, category: string): Promise<string[]> {
+  const secrets = await db
+    .select({ key: systemSettings.key, value: systemSettings.value })
+    .from(systemSettings)
+    .where(
+      and(
+        eq(systemSettings.category, category),
+        isNull(systemSettings.userId),
+        eq(systemSettings.isSecret, true)
+      )
+    );
+
+  return secrets
+    .filter((setting) => {
+      if (!setting.value) return false;
+      try {
+        decrypt(setting.value);
+        return false;
+      } catch {
+        return true;
+      }
+    })
+    .map((setting) => setting.key);
 }
 
 // Helper to get multiple settings for a category
