@@ -50,6 +50,7 @@ import {
   zonedDayRange,
 } from "../lib/timezone.js";
 import { queryEventsInRange } from "../services/calendar-events.js";
+import { sendDueBotNotifications } from "../services/bot-notifications.js";
 import { listAlbumPhotos, getAccessToken, getPhotoUrl } from "../services/google-photos.js";
 import { randomUUID } from "crypto";
 import { processImage } from "../services/photos/processor.js";
@@ -104,6 +105,9 @@ const MAX_RMAPI_FAILURES = 3;
 
 // Matter device reachability check interval (2 minutes)
 const MATTER_REACHABILITY_INTERVAL_MS = 2 * 60 * 1000;
+
+// Telegram/WhatsApp daily agenda and event reminder check interval (1 minute)
+const BOT_NOTIFICATION_CHECK_INTERVAL_MS = 60 * 1000;
 
 // Calendar sync check interval (runs every 60s, respects per-calendar intervals)
 const CALENDAR_SYNC_CHECK_INTERVAL_MS = 60 * 1000;
@@ -163,6 +167,7 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
   let profilePlannerInterval: NodeJS.Timeout | null = null;
   let calendarSyncInterval: NodeJS.Timeout | null = null;
   let matterReachabilityInterval: NodeJS.Timeout | null = null;
+  let botNotificationInterval: NodeJS.Timeout | null = null;
   let currentSportsPollingInterval = SPORTS_POLL_IDLE;
   // Track which users have already pushed agenda today
   const agendaPushedToday = new Map<string, string>(); // userId -> dateString
@@ -1162,6 +1167,33 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     }, STARTUP_DELAY_MS + 30000); // Start 30 seconds after IPTV
   };
 
+  // Start Telegram/WhatsApp notification scheduler (daily agenda at the
+  // user's local time, event reminders); what was sent is recorded on the
+  // bot configs, see services/bot-notifications.ts
+  const startBotNotificationScheduler = () => {
+    let running = false;
+    const checkBotNotifications = async () => {
+      // A slow run (e.g. an unreachable chat API) must not overlap the next,
+      // which would read the same "already sent" state and send twice
+      if (running) return;
+      running = true;
+      try {
+        await sendDueBotNotifications(fastify);
+      } catch (error) {
+        fastify.log.error({ err: error }, "Bot notification scheduler error");
+      } finally {
+        running = false;
+      }
+    };
+
+    setTimeout(async () => {
+      fastify.log.info("Starting bot notification scheduler (1 min interval)...");
+      await checkBotNotifications();
+
+      botNotificationInterval = setInterval(checkBotNotifications, BOT_NOTIFICATION_CHECK_INTERVAL_MS);
+    }, STARTUP_DELAY_MS + 45000); // Start 45 seconds after IPTV (WhatsApp sessions reconnect first)
+  };
+
   // Start Matter device reachability checker
   const startMatterReachabilityScheduler = () => {
     const checkReachability = async () => {
@@ -1469,6 +1501,7 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
     startRemarkableAgendaScheduler();
     startProfilePlannerScheduler();
     startMatterReachabilityScheduler();
+    startBotNotificationScheduler();
     startGooglePhotosSyncScheduler();
     startAutoBackupScheduler();
   });
@@ -1524,6 +1557,11 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
       clearInterval(matterReachabilityInterval);
       matterReachabilityInterval = null;
       fastify.log.info("Matter reachability scheduler stopped");
+    }
+    if (botNotificationInterval) {
+      clearInterval(botNotificationInterval);
+      botNotificationInterval = null;
+      fastify.log.info("Bot notification scheduler stopped");
     }
     if (googlePhotosSyncInterval) {
       clearInterval(googlePhotosSyncInterval);
