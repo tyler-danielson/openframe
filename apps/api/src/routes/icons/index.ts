@@ -152,7 +152,7 @@ export const iconRoutes: FastifyPluginAsync = async (fastify) => {
       const stream = createReadStream(fullPath);
       return reply
         .header("Content-Type", "image/png")
-        .header("Cache-Control", "public, max-age=31536000")
+        .header("Cache-Control", "private, max-age=31536000, immutable")
         .send(stream);
     }
   );

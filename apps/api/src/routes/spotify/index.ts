@@ -7,6 +7,12 @@ import { SpotifyService, setSpotifyCredentials, type SpotifyAccount } from "../.
 import { encryptField } from "../../lib/encryption.js";
 import { getCategorySettings } from "../settings/index.js";
 import { isPrivateIp, getRequestOrigin } from "../../utils/oauth-helpers.js";
+import {
+  isAllowedSignInRedirect,
+  isOAuthBrowser,
+  oauthBrowserBinding,
+  redeemOAuthLinkTicket,
+} from "../../utils/oauth-security.js";
 
 // Helper to get Spotify OAuth config from DB settings, falling back to env vars
 // When requestOrigin is provided, use it as the base URL for redirect URIs.
@@ -32,7 +38,14 @@ async function getFrontendUrl(db: any): Promise<string> {
 }
 
 // In-memory OAuth state store
-const oauthStateStore = new Map<string, { createdAt: number; returnUrl?: string; userId?: string; requestOrigin?: string }>();
+const oauthStateStore = new Map<string, {
+  createdAt: number;
+  returnUrl?: string;
+  userId?: string;
+  requestOrigin?: string;
+  /** oauthBrowserBinding() of the browser that started the flow */
+  browser: string;
+}>();
 
 // Clean up expired states every 5 minutes
 setInterval(() => {
@@ -230,27 +243,20 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
         querystring: {
           type: "object",
           properties: {
-            token: { type: "string" },
+            linkTicket: { type: "string" },
             returnUrl: { type: "string" },
           },
         },
       },
     },
     async (request, reply) => {
-      // Get token from query parameter (since this is accessed via link, not fetch)
+      // Who to connect Spotify to: the ticket the signed-in user got from
+      // POST /auth/oauth/link-ticket in this browser (this is opened as a link,
+      // which can't carry the session)
       const query = request.query as Record<string, string>;
-      const token = query.token;
-
-      if (!token) {
-        return reply.badRequest("Missing authentication token");
-      }
-
-      let userId: string;
-      try {
-        const decoded = fastify.jwt.verify(token) as { userId: string };
-        userId = decoded.userId;
-      } catch {
-        return reply.unauthorized("Invalid or expired token");
+      const userId = redeemOAuthLinkTicket(request, query.linkTicket);
+      if (!userId) {
+        return reply.unauthorized("This link to connect Spotify has expired. Start again from OpenFrame.");
       }
 
       // Derive redirect URI from the actual request origin
@@ -307,9 +313,20 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
           }
         }
       }
+      // Only back to this server's own pages
+      const { external_url: externalUrl } = await getCategorySettings(fastify.db, "server");
+      if (returnUrl && !isAllowedSignInRedirect(returnUrl, requestOrigin, externalUrl)) {
+        returnUrl = undefined;
+      }
 
       // Store userId and requestOrigin in state so we can retrieve them in callback
-      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl, userId, requestOrigin });
+      oauthStateStore.set(state, {
+        createdAt: Date.now(),
+        returnUrl,
+        userId,
+        requestOrigin,
+        browser: oauthBrowserBinding(request, reply),
+      });
 
       return reply.redirect(url.toString());
     }
@@ -352,6 +369,11 @@ export const spotifyRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       oauthStateStore.delete(state);
+
+      // Only the browser that started connecting Spotify may finish it
+      if (!isOAuthBrowser(request, storedState.browser)) {
+        return reply.badRequest("Connecting Spotify was started in a different browser. Start again from OpenFrame.");
+      }
 
       if (!code) {
         return reply.badRequest("Missing OAuth code");

@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, asc, inArray } from "drizzle-orm";
 import {
   users,
   companionAccess,
@@ -42,7 +42,9 @@ async function resolveCompanionContext(
     return { ownerId: user.id, permissions: null };
   }
 
-  // Look up companion_access for this user
+  // Look up companion_access for this user. Nothing in a request names the
+  // owner, so a user given access by several owners gets the earliest grant
+  // every time rather than whichever row the database returns first.
   const [access] = await db
     .select()
     .from(companionAccess)
@@ -52,6 +54,7 @@ async function resolveCompanionContext(
         eq(companionAccess.isActive, true)
       )
     )
+    .orderBy(asc(companionAccess.createdAt), asc(companionAccess.id))
     .limit(1);
 
   if (!access) return null;
@@ -82,8 +85,21 @@ export const companionDataRoutes: FastifyPluginAsync = async (fastify) => {
         return { success: true, data: [] };
       }
 
+      // What the companion calendar pages show: not the owner's sync
+      // details (feed URLs, sync tokens, OAuth links, errors)
       let result = await fastify.db
-        .select()
+        .select({
+          id: calendars.id,
+          name: calendars.name,
+          displayName: calendars.displayName,
+          color: calendars.color,
+          icon: calendars.icon,
+          provider: calendars.provider,
+          isPrimary: calendars.isPrimary,
+          isReadOnly: calendars.isReadOnly,
+          isVisible: calendars.isVisible,
+          visibility: calendars.visibility,
+        })
         .from(calendars)
         .where(eq(calendars.userId, ctx.ownerId));
 
@@ -591,6 +607,10 @@ export const companionDataRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!list) return reply.notFound("Task not found");
 
+      if (ctx.permissions?.allowedTaskListIds && !ctx.permissions.allowedTaskListIds.includes(task.taskListId)) {
+        return reply.forbidden("Access to this task list is not allowed");
+      }
+
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (body.title !== undefined) updates.title = body.title;
       if (body.notes !== undefined) updates.notes = body.notes;
@@ -648,6 +668,10 @@ export const companionDataRoutes: FastifyPluginAsync = async (fastify) => {
         .limit(1);
 
       if (!list) return reply.notFound("Task not found");
+
+      if (ctx.permissions?.allowedTaskListIds && !ctx.permissions.allowedTaskListIds.includes(task.taskListId)) {
+        return reply.forbidden("Access to this task list is not allowed");
+      }
 
       await fastify.db.delete(tasks).where(eq(tasks.id, id));
 

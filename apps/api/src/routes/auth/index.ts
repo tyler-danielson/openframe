@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import type { Database } from "@openframe/database";
-import { eq, and, sql, inArray } from "drizzle-orm";
+import { eq, and, sql, inArray, isNull } from "drizzle-orm";
 import {
   users,
   refreshTokens,
@@ -33,12 +33,32 @@ import {
   type OAuthProvider,
 } from "../../utils/oauth-helpers.js";
 import { getScopesForFeature, mergeScopes, type OAuthFeature } from "../../utils/oauth-scopes.js";
+import {
+  isAllowedSignInRedirect,
+  isOAuthBrowser,
+  issueOAuthLinkTicket,
+  microsoftAccountSubject,
+  microsoftEmailVerified,
+  oauthBrowserBinding,
+  readIdTokenClaims,
+  redeemOAuthLinkTicket,
+} from "../../utils/oauth-security.js";
+import { isServerAdmin } from "../../lib/server-admin.js";
 import { resetDemoData } from "./demo-seed.js";
 import { kioskCommands as kioskCommandsById } from "../kiosks/index.js";
 
 // In-memory OAuth state store (for single-server deployments)
 // States expire after 10 minutes
-const oauthStateStore = new Map<string, { createdAt: number; returnUrl?: string; callbackUrl?: string; requestOrigin?: string; linkUserId?: string; feature?: OAuthFeature }>();
+const oauthStateStore = new Map<string, {
+  createdAt: number;
+  returnUrl?: string;
+  callbackUrl?: string;
+  requestOrigin?: string;
+  linkUserId?: string;
+  feature?: OAuthFeature;
+  /** oauthBrowserBinding() of the browser that started the flow */
+  browser: string;
+}>();
 
 // In-memory kiosk command store
 // Commands expire after 60 seconds (kiosks should poll every 10-30 seconds)
@@ -123,6 +143,86 @@ async function getFrontendUrl(db: any): Promise<string> {
 
 // SPA base path (e.g. "/app" in cloud mode, "" in self-hosted)
 const spaBasePath = (process.env.SPA_BASE_PATH || "").replace(/\/+$/, "");
+
+/**
+ * The return and callback URLs an OAuth flow may send the browser back to,
+ * from the request that starts it. A sign-in hands its new session to the
+ * callback URL, so an address this server doesn't serve is refused; a return
+ * URL elsewhere (from ?returnUrl= or the Referer) is just dropped.
+ */
+async function oauthReturnTargets(
+  db: Database,
+  query: Record<string, string>,
+  referer: string | undefined,
+  requestOrigin: string
+): Promise<{ returnUrl?: string; callbackUrl?: string; refused?: string }> {
+  const { external_url: externalUrl } = await getCategorySettings(db, "server");
+
+  let returnUrl = query.returnUrl;
+  if (!returnUrl && referer) {
+    try {
+      const refererUrl = new URL(referer);
+      returnUrl = refererUrl.origin + refererUrl.pathname + refererUrl.search;
+    } catch {
+      // Ignore
+    }
+  }
+  if (returnUrl && !isAllowedSignInRedirect(returnUrl, requestOrigin, externalUrl)) {
+    returnUrl = undefined;
+  }
+
+  const callbackUrl = query.callbackUrl;
+  if (callbackUrl && !isAllowedSignInRedirect(callbackUrl, requestOrigin, externalUrl)) {
+    return { refused: "This sign-in can't return to that address." };
+  }
+  return { returnUrl, callbackUrl };
+}
+
+/**
+ * Someone just signed up at openframe.us with this account's email address,
+ * which the cloud verified. If the account was made by someone else (a
+ * household member created it for them, an invitation, a password sign-up)
+ * whoever made it may still hold a way in. Close those, and make the account
+ * its owner's own: a password someone else chose, sessions, API keys, and
+ * connected accounts with another address, which could be used to sign in.
+ */
+async function claimForVerifiedOwner(db: Database, user: typeof users.$inferSelect): Promise<void> {
+  if (user.role === "admin" && !user.passwordHash) return; // made by the cloud: nothing to close
+
+  await db
+    .update(users)
+    .set({ passwordHash: null, role: "admin", updatedAt: new Date() })
+    .where(eq(users.id, user.id));
+  await db
+    .update(refreshTokens)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(refreshTokens.userId, user.id), isNull(refreshTokens.revokedAt)));
+  await db.delete(apiKeys).where(eq(apiKeys.userId, user.id));
+
+  // Google and Microsoft accounts sign in, too
+  const connected = await db
+    .select({ id: oauthTokens.id, externalAccountId: oauthTokens.externalAccountId })
+    .from(oauthTokens)
+    .where(and(eq(oauthTokens.userId, user.id), inArray(oauthTokens.provider, ["google", "microsoft"])));
+  const foreign = connected
+    .filter((token) => token.externalAccountId?.toLowerCase() !== user.email.toLowerCase())
+    .map((token) => token.id);
+  if (foreign.length > 0) {
+    await db.delete(oauthTokens).where(inArray(oauthTokens.id, foreign));
+  }
+}
+
+/**
+ * The role of an account someone creates for themselves. On the hosted
+ * service every account is its own household's "admin" (which grants nothing
+ * server-wide there). On a self-hosted server only the first account
+ * administers the server; later ones are members.
+ */
+async function roleForNewAccount(db: Database, hostedMode: boolean): Promise<"admin" | "member"> {
+  if (hostedMode) return "admin";
+  const [admin] = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin")).limit(1);
+  return admin ? "member" : "admin";
+}
 
 /**
  * An OAuth sign-in or account connection failed. When a signed-in user was
@@ -253,6 +353,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         .limit(1);
 
       if (existing) {
+        if (fastify.hostedMode) {
+          await claimForVerifiedOwner(fastify.db, existing);
+        }
         return {
           success: true,
           data: { userId: existing.id, existing: true },
@@ -379,7 +482,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           google: googleConfig.clientId ? { clientId: googleConfig.clientId } : null,
           microsoft: msConfig.clientId ? { available: true } : null,
           emailPassword: true,
-          signup: true,
+          signup: !fastify.hostedMode,
         },
       };
     }
@@ -405,6 +508,13 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
+      // Hosted accounts are created by signing up at openframe.us, which
+      // verifies the email address. A password sign-up here would let anyone
+      // claim someone else's address before they sign up.
+      if (fastify.hostedMode) {
+        return reply.notFound("Sign up at openframe.us");
+      }
+
       const { email, name, password } = request.body as {
         email: string;
         name: string;
@@ -427,9 +537,10 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Create user
       const passwordHash = await bcrypt.hash(password, 12);
+      const role = await roleForNewAccount(fastify.db, fastify.hostedMode);
       const [user] = await fastify.db
         .insert(users)
-        .values({ email, name, passwordHash, role: "admin" as const })
+        .values({ email, name, passwordHash, role })
         .returning();
 
       // Issue tokens so the user is immediately logged in
@@ -553,7 +664,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             email: tokenInfo.email,
             name: tokenInfo.name,
             avatarUrl: tokenInfo.picture,
-            role: "admin" as const,
+            role: await roleForNewAccount(fastify.db, fastify.hostedMode),
           })
           .returning();
       }
@@ -828,6 +939,26 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
+  // A ticket to start connecting a Google, Microsoft or Spotify account to
+  // the signed-in user: pass it as ?linkTicket= when opening the provider's
+  // /oauth/... URL in this browser
+  fastify.post(
+    "/oauth/link-ticket",
+    {
+      onRequest: [fastify.authenticate],
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+      schema: {
+        description: "Get a one-time ticket to connect an account to the signed-in user",
+        tags: ["Auth", "OAuth"],
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request, reply) => {
+      const ticket = issueOAuthLinkTicket(request, reply, request.user.userId);
+      return { success: true, data: { ticket } };
+    }
+  );
+
   // Google OAuth initiation
   fastify.get(
     "/oauth/google",
@@ -855,15 +986,14 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.redirect(`${requestOrigin}${spaBasePath}/settings?tab=system&error=${errorMsg}`);
       }
 
-      // If a token is provided, verify it and store linkUserId to link this OAuth to an existing user
+      // Connecting the account to a signed-in user: the ticket they got from
+      // POST /auth/oauth/link-ticket in this browser
       const query = request.query as Record<string, string>;
       let linkUserId: string | undefined;
-      if (query.token) {
-        try {
-          const decoded = fastify.jwt.verify(query.token) as { userId: string };
-          linkUserId = decoded.userId;
-        } catch {
-          return reply.unauthorized("Invalid or expired token");
+      if (query.linkTicket || query.token) {
+        linkUserId = redeemOAuthLinkTicket(request, query.linkTicket) ?? undefined;
+        if (!linkUserId) {
+          return reply.unauthorized("This link to connect an account has expired. Start again from OpenFrame.");
         }
       }
 
@@ -938,24 +1068,23 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         url.searchParams.set("login_hint", query.login_hint);
       }
 
-      // Get the return URL from query param (most reliable) or construct from referer
-      let returnUrl = query.returnUrl;
-      const callbackUrl = query.callbackUrl;
-
-      if (!returnUrl) {
-        const referer = request.headers.referer;
-        if (referer) {
-          try {
-            const refererUrl = new URL(referer);
-            returnUrl = refererUrl.origin + refererUrl.pathname + refererUrl.search;
-          } catch {
-            // Ignore
-          }
-        }
+      // Where the browser goes afterwards: the return URL from the query param
+      // (most reliable) or the referer, and the web app's callback URL
+      const targets = await oauthReturnTargets(fastify.db, query, request.headers.referer, requestOrigin);
+      if (targets.refused) {
+        return reply.badRequest(targets.refused);
       }
 
       // Store state in memory for verification (works across proxy boundaries)
-      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl, callbackUrl, requestOrigin, linkUserId, feature });
+      oauthStateStore.set(state, {
+        createdAt: Date.now(),
+        returnUrl: targets.returnUrl,
+        callbackUrl: targets.callbackUrl,
+        requestOrigin,
+        linkUserId,
+        feature,
+        browser: oauthBrowserBinding(request, reply),
+      });
 
       return reply.redirect(url.toString());
     }
@@ -995,6 +1124,10 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       }
       if (!storedState) {
         return reply.badRequest("Invalid OAuth state");
+      }
+      // Only the browser that started the flow may finish it
+      if (!isOAuthBrowser(request, storedState.browser)) {
+        return reply.badRequest("This sign-in was started in a different browser. Start it again from OpenFrame.");
       }
 
       if (!code) {
@@ -1057,9 +1190,16 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
       const userInfo = await userInfoResponse.json() as {
         email: string;
+        verified_email?: boolean;
         name?: string;
         picture?: string;
       };
+
+      // Signing in finds the account by its email address, so Google must
+      // have verified that the address belongs to whoever signed in
+      if (!storedState.linkUserId && userInfo.verified_email !== true) {
+        return sendOAuthFailure(reply, storedState, 400, "Google hasn't verified this account's email address, so it can't be used to sign in.");
+      }
 
       // In link mode, use the authenticated user; otherwise find by email or linked OAuth
       let user;
@@ -1225,15 +1365,14 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.redirect(`${requestOrigin}${spaBasePath}/settings?tab=system&error=${errorMsg}`);
       }
 
-      // If a token is provided, verify it and store linkUserId to link this OAuth to an existing user
+      // Connecting the account to a signed-in user: the ticket they got from
+      // POST /auth/oauth/link-ticket in this browser
       const query = request.query as Record<string, string>;
       let linkUserId: string | undefined;
-      if (query.token) {
-        try {
-          const decoded = fastify.jwt.verify(query.token) as { userId: string };
-          linkUserId = decoded.userId;
-        } catch {
-          return reply.unauthorized("Invalid or expired token");
+      if (query.linkTicket || query.token) {
+        linkUserId = redeemOAuthLinkTicket(request, query.linkTicket) ?? undefined;
+        if (!linkUserId) {
+          return reply.unauthorized("This link to connect an account has expired. Start again from OpenFrame.");
         }
       }
 
@@ -1268,24 +1407,23 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       url.searchParams.set("scope", uniqueScopes.join(" "));
       url.searchParams.set("state", state);
 
-      // Get the return URL from query param (most reliable) or construct from referer
-      let returnUrl = query.returnUrl;
-      const callbackUrl = query.callbackUrl;
-
-      if (!returnUrl) {
-        const referer = request.headers.referer;
-        if (referer) {
-          try {
-            const refererUrl = new URL(referer);
-            returnUrl = refererUrl.origin + refererUrl.pathname + refererUrl.search;
-          } catch {
-            // Ignore
-          }
-        }
+      // Where the browser goes afterwards: the return URL from the query param
+      // (most reliable) or the referer, and the web app's callback URL
+      const targets = await oauthReturnTargets(fastify.db, query, request.headers.referer, requestOrigin);
+      if (targets.refused) {
+        return reply.badRequest(targets.refused);
       }
 
       // Store state in memory for verification (works across proxy boundaries)
-      oauthStateStore.set(state, { createdAt: Date.now(), returnUrl, callbackUrl, requestOrigin, linkUserId, feature });
+      oauthStateStore.set(state, {
+        createdAt: Date.now(),
+        returnUrl: targets.returnUrl,
+        callbackUrl: targets.callbackUrl,
+        requestOrigin,
+        linkUserId,
+        feature,
+        browser: oauthBrowserBinding(request, reply),
+      });
 
       return reply.redirect(url.toString());
     }
@@ -1326,6 +1464,10 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       }
       if (!storedState) {
         return reply.badRequest("Invalid OAuth state");
+      }
+      // Only the browser that started the flow may finish it
+      if (!isOAuthBrowser(request, storedState.browser)) {
+        return reply.badRequest("This sign-in was started in a different browser. Start it again from OpenFrame.");
       }
 
       fastify.log.info(`Microsoft OAuth callback: linkUserId=${storedState.linkUserId || "none"}, returnUrl=${storedState.returnUrl || "none"}`);
@@ -1376,7 +1518,13 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         refresh_token?: string;
         expires_in: number;
         scope: string;
+        id_token?: string;
       };
+
+      // Who signed in, as Microsoft identifies them
+      const idTokenClaims = readIdTokenClaims(tokens.id_token);
+      const accountSubject = microsoftAccountSubject(idTokenClaims);
+      const emailVerified = microsoftEmailVerified(idTokenClaims);
 
       // Get user info from Microsoft Graph
       const userInfoResponse = await fetch(
@@ -1422,22 +1570,15 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.badRequest("User not found for linking");
         }
       } else {
-        // 1. Try to find user by email
-        [user] = await fastify.db
-          .select()
-          .from(users)
-          .where(eq(users.email, email))
-          .limit(1);
-
-        // 2. If not found, check if this Microsoft account is already linked to another user
-        if (!user) {
+        // 1. The account this Microsoft account was connected to before
+        if (accountSubject) {
           const [linkedToken] = await fastify.db
             .select({ userId: oauthTokens.userId })
             .from(oauthTokens)
             .where(
               and(
                 eq(oauthTokens.provider, "microsoft"),
-                eq(oauthTokens.externalAccountId, email)
+                eq(oauthTokens.providerSubject, accountSubject)
               )
             )
             .limit(1);
@@ -1451,7 +1592,57 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           }
         }
 
+        // 2. By email address, only when Microsoft vouches for it: a work or
+        // school account can be given anyone's address by its organization
+        if (!user && emailVerified) {
+          [user] = await fastify.db
+            .select()
+            .from(users)
+            .where(eq(users.email, email))
+            .limit(1);
+
+          // 3. If not found, check if this Microsoft account is already linked to another user
+          if (!user) {
+            const [linkedToken] = await fastify.db
+              .select({ userId: oauthTokens.userId })
+              .from(oauthTokens)
+              .where(
+                and(
+                  eq(oauthTokens.provider, "microsoft"),
+                  eq(oauthTokens.externalAccountId, email)
+                )
+              )
+              .limit(1);
+
+            if (linkedToken) {
+              [user] = await fastify.db
+                .select()
+                .from(users)
+                .where(eq(users.id, linkedToken.userId))
+                .limit(1);
+            }
+          }
+        }
+
         if (!user) {
+          // An unverified address can't take over an existing account, nor
+          // claim a hosted one before its owner signs up
+          if (!emailVerified) {
+            const [existingUser] = await fastify.db
+              .select({ id: users.id })
+              .from(users)
+              .where(eq(users.email, email))
+              .limit(1);
+            if (existingUser || fastify.hostedMode) {
+              return sendOAuthFailure(
+                reply,
+                storedState,
+                400,
+                "Microsoft doesn't verify this work or school account's email address, so it can't be used to sign in here. Sign in another way, then connect Microsoft from Settings."
+              );
+            }
+          }
+
           [user] = await fastify.db
             .insert(users)
             .values({
@@ -1483,6 +1674,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
             scope: mergeScopes(existingOAuth.scope, tokens.scope),
             externalAccountId: email,
+            providerSubject: accountSubject ?? existingOAuth.providerSubject,
             updatedAt: new Date(),
           })
           .where(eq(oauthTokens.id, existingOAuth.id));
@@ -1495,6 +1687,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
           scope: tokens.scope,
           externalAccountId: email,
+          providerSubject: accountSubject,
         });
       }
 
@@ -1733,6 +1926,8 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
           name: user.name,
           avatarUrl: user.avatarUrl,
           role: user.role,
+          // Administers the whole server (on the hosted service, a platform operator)
+          isServerAdmin: isServerAdmin(fastify, user),
           timezone: user.timezone,
           preferences: user.preferences,
           linkedProviders: linkedOAuth.map(o => o.provider),
@@ -1903,21 +2098,33 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-    async () => {
-      // Find the first active kiosk device's owner, then look up their screensaver settings
-      const [activeKiosk] = await fastify.db
-        .select()
-        .from(kiosks)
-        .where(eq(kiosks.isActive, true))
-        .limit(1);
+    async (request, reply) => {
+      // Whose settings: the signed-in account's (a kiosk sends its key). A
+      // self-hosted server's household is the owner of an active kiosk; the
+      // hosted service is shared by many households, so there it's the
+      // defaults for a request that says nobody.
+      let ownerId: string | undefined;
+      const query = (request.query ?? {}) as Record<string, unknown>;
+      if (request.headers.authorization || request.headers["x-api-key"] || query.token || query.apiKey) {
+        await fastify.authenticateAny(request, reply);
+        if (reply.sent) return reply;
+        ownerId = request.user?.userId;
+      } else if (!fastify.hostedMode) {
+        const [activeKiosk] = await fastify.db
+          .select()
+          .from(kiosks)
+          .where(eq(kiosks.isActive, true))
+          .limit(1);
+        ownerId = activeKiosk?.userId;
+      }
 
-      // Get screensaver settings from the kiosk owner's kioskConfig
+      // Get screensaver settings from the owner's kioskConfig
       let config: typeof kioskConfig.$inferSelect | undefined;
-      if (activeKiosk) {
+      if (ownerId) {
         const [c] = await fastify.db
           .select()
           .from(kioskConfig)
-          .where(eq(kioskConfig.userId, activeKiosk.userId))
+          .where(eq(kioskConfig.userId, ownerId))
           .limit(1);
         config = c;
       }
@@ -2128,18 +2335,29 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { since } = request.query as { since?: number };
       const sinceTimestamp = since ?? 0;
 
-      // Get the active kiosk owner from kiosks table
-      const [activeKiosk] = await fastify.db
-        .select()
-        .from(kiosks)
-        .where(eq(kiosks.isActive, true))
-        .limit(1);
+      // Whose commands: the signed-in account's (a kiosk sends its key), else
+      // on a self-hosted server the owner of an active kiosk. The hosted
+      // service is shared by many households: nobody's, there.
+      let ownerId: string | undefined;
+      const query = (request.query ?? {}) as Record<string, unknown>;
+      if (request.headers.authorization || request.headers["x-api-key"] || query.token || query.apiKey) {
+        await fastify.authenticateAny(request, reply);
+        if (reply.sent) return reply;
+        ownerId = request.user?.userId;
+      } else if (!fastify.hostedMode) {
+        const [activeKiosk] = await fastify.db
+          .select()
+          .from(kiosks)
+          .where(eq(kiosks.isActive, true))
+          .limit(1);
+        ownerId = activeKiosk?.userId;
+      }
 
-      if (!activeKiosk) {
+      if (!ownerId) {
         return {
           success: true,
           data: { commands: [] },
@@ -2147,7 +2365,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Get commands for this kiosk owner newer than 'since' timestamp
-      const commands = kioskCommands.get(activeKiosk.userId) ?? [];
+      const commands = kioskCommands.get(ownerId) ?? [];
       const newCommands = commands.filter((cmd) => cmd.timestamp > sinceTimestamp);
 
       return {
@@ -2642,6 +2860,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       }> = [];
 
       for (const entry of tvConnectStore.values()) {
+        // The hosted service lists only TVs on the same network as the
+        // person setting them up, not every household's
+        if (fastify.hostedMode && entry.ipAddress !== request.ip) continue;
         if (entry.status === "pending" && now < entry.expiresAt) {
           pending.push({
             registrationId: entry.registrationId,
@@ -2700,7 +2921,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Find the pending registration
       const entry = tvConnectStore.get(registrationId);
-      if (!entry || entry.status !== "pending") {
+      if (!entry || entry.status !== "pending" || (fastify.hostedMode && entry.ipAddress !== request.ip)) {
         return reply.notFound("Registration not found or already assigned");
       }
 

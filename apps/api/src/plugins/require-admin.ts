@@ -2,6 +2,7 @@ import fp from "fastify-plugin";
 import { eq } from "drizzle-orm";
 import { users } from "@openframe/database/schema";
 import type { FastifyRequest, FastifyReply } from "fastify";
+import { isServerAdmin } from "../lib/server-admin.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -17,7 +18,14 @@ export const requireAdminPlugin = fp(
     fastify.decorate(
       "requireAdmin",
       async (request: FastifyRequest, reply: FastifyReply) => {
-        const userId = (request.user as any)?.userId;
+        const userId = request.user?.userId;
+        // A kiosk display signs in as its owner, but never administers anything
+        if (request.user?.kioskId) {
+          return reply.status(403).send({
+            success: false,
+            error: { code: "FORBIDDEN", message: "Admin access required" },
+          });
+        }
         if (!userId) {
           return reply.status(401).send({
             success: false,
@@ -27,12 +35,12 @@ export const requireAdminPlugin = fp(
 
         // Check user role in database
         const [user] = await fastify.db
-          .select({ role: users.role })
+          .select({ role: users.role, email: users.email })
           .from(users)
           .where(eq(users.id, userId))
           .limit(1);
 
-        if (!user || user.role !== "admin") {
+        if (!isServerAdmin(fastify, user)) {
           return reply.status(403).send({
             success: false,
             error: { code: "FORBIDDEN", message: "Admin access required" },

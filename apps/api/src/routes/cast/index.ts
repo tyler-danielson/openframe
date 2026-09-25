@@ -5,11 +5,13 @@ import {
   iptvServers,
   iptvChannels,
   homeAssistantConfig,
+  cameras,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { XtremeCodesClient } from "../../services/xtreme-codes.js";
 import { mediamtx } from "../../services/mediamtx.js";
 import { kioskCommands } from "../kiosks/index.js";
+import { fetchPublic } from "../../lib/outbound.js";
 
 interface CastTarget {
   id: string;
@@ -37,7 +39,8 @@ async function fetchFromHA(
   options: RequestInit = {}
 ): Promise<Response> {
   const baseUrl = url.replace(/\/+$/, "");
-  return fetch(`${baseUrl}/api${path}`, {
+  // The user's own Home Assistant: on the hosted service only a public address
+  return fetchPublic(`${baseUrl}/api${path}`, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -291,8 +294,16 @@ async function handleMediaPlayerCast(
       // HA camera — use HA's camera proxy stream
       mediaUrl = `${config.url}/api/camera_proxy_stream/${body.cameraEntityId}`;
     } else if (body.cameraId) {
-      // Standalone camera — get HLS URL from MediaMTX
-      const urls = mediamtx.getStreamUrls(body.cameraId);
+      // Standalone camera (the user's own) — get HLS URL from MediaMTX
+      const [camera] = await fastify.db
+        .select({ id: cameras.id })
+        .from(cameras)
+        .where(and(eq(cameras.id, body.cameraId), eq(cameras.userId, userId)))
+        .limit(1);
+      if (!camera) {
+        throw fastify.httpErrors.notFound("Camera not found");
+      }
+      const urls = mediamtx.getStreamUrls(camera.id);
       mediaUrl = urls.hlsUrl;
     } else {
       throw fastify.httpErrors.badRequest("Missing camera ID");

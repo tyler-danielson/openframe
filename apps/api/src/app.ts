@@ -86,6 +86,7 @@ import { planLimitsPlugin } from "./plugins/plan-limits.js";
 import { requireAdminPlugin } from "./plugins/require-admin.js";
 import redisPlugin from "./plugins/redis.js";
 import { logBuffer, createLogBufferStream } from "./lib/logBuffer.js";
+import { redactUrl } from "./lib/redact.js";
 import { reportErrorToCloud } from "./lib/errorReporter.js";
 import type { Config } from "./config.js";
 
@@ -115,8 +116,24 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
     logger: {
       level: config.logLevel,
       stream: logStream,
+      serializers: {
+        // Media URLs carry credentials in the query string
+        req: (request) => ({
+          method: request.method,
+          url: redactUrl(request.url),
+          hostname: request.hostname,
+          remoteAddress: request.ip,
+          remotePort: request.socket?.remotePort,
+        }),
+      },
     },
     bodyLimit: 200 * 1024 * 1024, // 200MB for backup imports with photos
+    // The hosted service sits behind a reverse proxy on its private network:
+    // take client addresses (rate limits are per client) from the proxy's
+    // X-Forwarded-For, but only when the request came from such a network.
+    trustProxy: config.hostedMode
+      ? ["127.0.0.0/8", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"]
+      : false,
   });
 
   // Register core plugins
@@ -210,6 +227,11 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
     },
   });
 
+  // Hosted mode config (SaaS multi-tenant). Decorated before the plugins
+  // below, which read it while they load.
+  app.decorate("hostedMode", config.hostedMode);
+  app.decorate("provisioningSecret", config.provisioningSecret ?? null);
+
   // Custom plugins
   await app.register(databasePlugin, { connectionString: config.databaseUrl });
   await app.register(redisPlugin, { url: config.redisUrl });
@@ -217,10 +239,6 @@ export async function buildApp(config: Config): Promise<FastifyInstance> {
   await app.register(schedulerPlugin);
   await app.register(cloudPlugin);
   await app.register(matterPlugin);
-
-  // Hosted mode config (SaaS multi-tenant)
-  app.decorate("hostedMode", config.hostedMode);
-  app.decorate("provisioningSecret", config.provisioningSecret ?? null);
 
   // Plan limits (active in hosted mode only)
   await app.register(planLimitsPlugin);

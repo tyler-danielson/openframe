@@ -8,8 +8,18 @@ import {
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { requireUserHouseholdId } from "../../lib/household.js";
+import { getHouseholdUserIds, profilesOwnedBy } from "../../lib/profile-access.js";
 
 export const choreRoutes: FastifyPluginAsync = async (fastify) => {
+  // Chores go to the profiles of the household's members
+  async function assertHouseholdProfiles(userId: string, householdId: string, profileIds: string[]) {
+    if (profileIds.length === 0) return;
+    const ownerIds = await getHouseholdUserIds(fastify.db, userId, householdId);
+    if (!(await profilesOwnedBy(fastify.db, profileIds, ownerIds))) {
+      throw fastify.httpErrors.badRequest("Profile not found");
+    }
+  }
+
   // List all chores with current assignments
   fastify.get(
     "/",
@@ -117,6 +127,8 @@ export const choreRoutes: FastifyPluginAsync = async (fastify) => {
         profileIds?: string[];
       };
 
+      await assertHouseholdProfiles(user.id, householdId, body.profileIds ?? []);
+
       const [chore] = await fastify.db
         .insert(chores)
         .values({
@@ -201,6 +213,7 @@ export const choreRoutes: FastifyPluginAsync = async (fastify) => {
       if (!existing) {
         throw fastify.httpErrors.notFound("Chore not found");
       }
+      await assertHouseholdProfiles(user.id, householdId, body.profileIds ?? []);
 
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (body.name !== undefined) updates.name = body.name;
@@ -360,6 +373,7 @@ export const choreRoutes: FastifyPluginAsync = async (fastify) => {
       if (!chore) {
         throw fastify.httpErrors.notFound("Chore not found");
       }
+      await assertHouseholdProfiles(user.id, householdId, [profileId]);
 
       const today = new Date().toISOString().split("T")[0]!;
       const [assignment] = await fastify.db

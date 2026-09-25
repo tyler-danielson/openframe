@@ -1,7 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and, desc, asc, isNull, isNotNull } from "drizzle-orm";
+import { eq, and, desc, asc, isNull, isNotNull, inArray } from "drizzle-orm";
 import { goals, goalProgress } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { profilesOwnedBy } from "../../lib/profile-access.js";
 import {
   awardPoints,
   evaluateBadges,
@@ -10,6 +11,13 @@ import {
 import { randomUUID } from "crypto";
 
 export const goalRoutes: FastifyPluginAsync = async (fastify) => {
+  // Goals belong to one account, so the profiles they're for must too
+  async function assertOwnProfile(userId: string, profileId: string | null | undefined) {
+    if (profileId && !(await profilesOwnedBy(fastify.db, [profileId], [userId]))) {
+      throw fastify.httpErrors.badRequest("Profile not found");
+    }
+  }
+
   // List goals
   fastify.get(
     "/",
@@ -47,11 +55,8 @@ export const goalRoutes: FastifyPluginAsync = async (fastify) => {
         allProgress = await fastify.db
           .select()
           .from(goalProgress)
+          .where(inArray(goalProgress.goalId, goalIds))
           .orderBy(desc(goalProgress.date));
-
-        allProgress = allProgress.filter((p: any) =>
-          goalIds.includes(p.goalId)
-        );
       }
 
       const goalsWithProgress = allGoals.map((goal) => ({
@@ -91,6 +96,8 @@ export const goalRoutes: FastifyPluginAsync = async (fastify) => {
         profileId?: string;
         isShared?: boolean;
       };
+
+      await assertOwnProfile(user.id, body.profileId);
 
       const milestones = (body.milestones ?? []).map((m) => ({
         id: randomUUID(),
@@ -142,17 +149,49 @@ export const goalRoutes: FastifyPluginAsync = async (fastify) => {
         description: string;
         icon: string;
         color: string;
+        goalType: string;
         targetValue: string;
         targetUnit: string;
         targetPeriod: string;
         targetDate: string;
+        milestones: { id?: string; name: string }[];
+        profileId: string | null;
         isShared: boolean;
         isActive: boolean;
       }>;
 
-      const updates: Record<string, any> = { updatedAt: new Date() };
-      for (const [key, val] of Object.entries(body)) {
-        if (val !== undefined) updates[key] = val;
+      const [goal] = await fastify.db
+        .select()
+        .from(goals)
+        .where(and(eq(goals.id, id), eq(goals.userId, user.id)));
+
+      if (!goal) throw fastify.httpErrors.notFound("Goal not found");
+      await assertOwnProfile(user.id, body.profileId);
+
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (body.name !== undefined) updates.name = body.name;
+      if (body.description !== undefined) updates.description = body.description;
+      if (body.icon !== undefined) updates.icon = body.icon;
+      if (body.color !== undefined) updates.color = body.color;
+      if (body.goalType !== undefined) updates.goalType = body.goalType;
+      if (body.targetValue !== undefined) updates.targetValue = body.targetValue;
+      if (body.targetUnit !== undefined) updates.targetUnit = body.targetUnit;
+      if (body.targetPeriod !== undefined) updates.targetPeriod = body.targetPeriod;
+      if (body.targetDate !== undefined) updates.targetDate = body.targetDate;
+      if (body.profileId !== undefined) updates.profileId = body.profileId;
+      if (body.isShared !== undefined) updates.isShared = body.isShared;
+      if (body.isActive !== undefined) updates.isActive = body.isActive;
+      if (body.milestones !== undefined) {
+        // The edit form sends milestone names: keep the id and completion of
+        // each milestone that is still there
+        const previous = [...(goal.milestones ?? [])];
+        updates.milestones = body.milestones.map((m) => {
+          const i = previous.findIndex((p) => (m.id ? p.id === m.id : p.name === m.name));
+          const kept = i >= 0 ? previous.splice(i, 1)[0] : undefined;
+          return kept
+            ? { ...kept, name: m.name }
+            : { id: randomUUID(), name: m.name, completed: false, completedAt: null };
+        });
       }
 
       const [updated] = await fastify.db
@@ -220,11 +259,14 @@ export const goalRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!goal) throw fastify.httpErrors.notFound("Goal not found");
 
+      const profileId = body.profileId ?? goal.profileId;
+      await assertOwnProfile(user.id, profileId);
+
       const [entry] = await fastify.db
         .insert(goalProgress)
         .values({
           goalId: id,
-          profileId: body.profileId ?? goal.profileId ?? null,
+          profileId: profileId ?? null,
           date: body.date ?? new Date().toISOString().slice(0, 10),
           value: body.value,
           notes: body.notes ?? null,
@@ -243,7 +285,6 @@ export const goalRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(goals.id, id));
 
       // Award points
-      const profileId = body.profileId ?? goal.profileId;
       let pointsEarned = 0;
       let newBadges: any[] = [];
       if (profileId) {
@@ -290,6 +331,7 @@ export const goalRoutes: FastifyPluginAsync = async (fastify) => {
         .where(and(eq(goals.id, id), eq(goals.userId, user.id)));
 
       if (!goal) throw fastify.httpErrors.notFound("Goal not found");
+      await assertOwnProfile(user.id, goal.profileId);
 
       const milestones = (goal.milestones ?? []) as any[];
       const milestone = milestones.find((m: any) => m.id === milestoneId);
@@ -348,6 +390,7 @@ export const goalRoutes: FastifyPluginAsync = async (fastify) => {
         .where(and(eq(goals.id, id), eq(goals.userId, user.id)));
 
       if (!goal) throw fastify.httpErrors.notFound("Goal not found");
+      await assertOwnProfile(user.id, goal.profileId);
 
       const [updated] = await fastify.db
         .update(goals)

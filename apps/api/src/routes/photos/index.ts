@@ -1763,7 +1763,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
 
       return reply
         .header("Content-Type", mimeType)
-        .header("Cache-Control", "public, max-age=31536000")
+        .header("Cache-Control", "private, max-age=31536000, immutable")
         .send(stream);
     }
   );
@@ -1810,7 +1810,7 @@ export const photoRoutes: FastifyPluginAsync = async (fastify) => {
 
         return reply
           .header("Content-Type", contentType)
-          .header("Cache-Control", "public, max-age=3600")
+          .header("Cache-Control", "private, max-age=3600")
           .send(Buffer.from(buffer));
       } catch (error) {
         console.error("Failed to proxy Google Photos image:", error);

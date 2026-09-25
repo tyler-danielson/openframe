@@ -10,6 +10,9 @@
 
 import type { FastifyPluginAsync } from "fastify";
 import { eq, and, desc, inArray } from "drizzle-orm";
+import { execFileSync } from "child_process";
+import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { renderNotebookToPdf } from "../../services/remarkable/rm-parser.js";
 import {
@@ -36,13 +39,19 @@ import {
   zonedWeekRange,
 } from "../../lib/timezone.js";
 import { queryEventsInRange } from "../../services/calendar-events.js";
-import { getRemarkableClient } from "../../services/remarkable/client.js";
+import {
+  getRemarkableClient,
+  remarkablePathProblem,
+  REMARKABLE_PATH_MAX_LENGTH,
+} from "../../services/remarkable/client.js";
 import {
   generateAgendaPdf,
   getAgendaFilename,
   type AgendaEvent,
 } from "../../services/remarkable/agenda-generator.js";
 import {
+  assertNoteTargetCalendar,
+  NoteCalendarError,
   processRemarkableNote,
   syncRemarkableDocuments,
 } from "../../services/remarkable/note-processor.js";
@@ -67,8 +76,41 @@ import {
 } from "../../services/remarkable/confirmation-service.js";
 import { validateMergeFields, getPdfTemplateDimensions } from "../../services/remarkable/generators/user-template.js";
 
+/** JSON schema for a reMarkable folder path in a request body */
+const folderPathSchema = { type: "string", maxLength: REMARKABLE_PATH_MAX_LENGTH } as const;
+
 export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
   const { authenticate } = fastify;
+
+  /**
+   * 400 for a reMarkable folder/document path from a request that can't be
+   * used (control characters, ".." segments, too long), else null
+   */
+  const invalidPath = (field: string, value: unknown) => {
+    const problem = remarkablePathProblem(value);
+    return problem ? fastify.httpErrors.badRequest(`${field} ${problem}`) : null;
+  };
+
+  /**
+   * 403/400 when a calendar id from a request isn't one of the user's own
+   * writable calendars, else null
+   */
+  const invalidNoteCalendar = async (userId: string, calendarId: string | undefined) => {
+    if (!calendarId) {
+      return null;
+    }
+    try {
+      await assertNoteTargetCalendar(fastify, userId, calendarId);
+      return null;
+    } catch (err) {
+      if (err instanceof NoteCalendarError) {
+        return err.statusCode === 403
+          ? fastify.httpErrors.forbidden(err.message)
+          : fastify.httpErrors.badRequest(err.message);
+      }
+      throw err;
+    }
+  };
 
   // POST /api/v1/remarkable/connect - Register with one-time code
   fastify.post<{
@@ -171,9 +213,12 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
         };
       }
 
-      // Trust the database connection status
+      // Trust the database connection status, as long as this user has their
+      // own rmapi config (connections made through the old shared config have
+      // to be made again on hosted servers)
       // Live testing is done via /test endpoint to avoid slow status checks
-      const isConnected = config.isConnected;
+      const isConnected =
+        config.isConnected && (await getRemarkableClient(fastify, user.id).ensureConfigured());
 
       // Get agenda settings
       const [agendaSettings] = await fastify.db
@@ -504,7 +549,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
           properties: {
             enabled: { type: "boolean" },
             pushTime: { type: "string", pattern: "^\\d{2}:\\d{2}$" },
-            folderPath: { type: "string" },
+            folderPath: folderPathSchema,
             includeCalendarIds: { type: "array", items: { type: "string" } },
             showLocation: { type: "boolean" },
             showDescription: { type: "boolean" },
@@ -519,7 +564,24 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
       if (!user) {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
-      const updates = request.body;
+      const body = request.body;
+
+      if (body.folderPath !== undefined) {
+        const pathError = invalidPath("folderPath", body.folderPath);
+        if (pathError) return pathError;
+      }
+
+      // Only these fields can be changed: the body may carry any other column
+      // (userId, id, ...) since the schema doesn't strip unknown keys
+      const updates: Partial<typeof remarkableAgendaSettings.$inferInsert> = {};
+      if (body.enabled !== undefined) updates.enabled = body.enabled;
+      if (body.pushTime !== undefined) updates.pushTime = body.pushTime;
+      if (body.folderPath !== undefined) updates.folderPath = body.folderPath;
+      if (body.includeCalendarIds !== undefined) updates.includeCalendarIds = body.includeCalendarIds;
+      if (body.showLocation !== undefined) updates.showLocation = body.showLocation;
+      if (body.showDescription !== undefined) updates.showDescription = body.showDescription;
+      if (body.notesLines !== undefined) updates.notesLines = body.notesLines;
+      if (body.templateStyle !== undefined) updates.templateStyle = body.templateStyle;
 
       const [existing] = await fastify.db
         .select()
@@ -530,8 +592,8 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
       if (!existing) {
         // Create settings if they don't exist
         await fastify.db.insert(remarkableAgendaSettings).values({
-          userId: user.id,
           ...updates,
+          userId: user.id,
         });
       } else {
         await fastify.db
@@ -670,6 +732,12 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
         return fastify.httpErrors.notFound("Document not found");
       }
 
+      // Events may only go into one of the user's own writable calendars
+      const calendarError = await invalidNoteCalendar(user.id, calendarId);
+      if (calendarError) {
+        return calendarError;
+      }
+
       const targetDate = dateStr ? new Date(dateStr) : new Date();
 
       const result = await processRemarkableNote(fastify, user.id, doc.documentId, {
@@ -716,6 +784,12 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
       const { calendarId, autoCreate = true } = request.body;
+
+      // Events may only go into one of the user's own writable calendars
+      const calendarError = await invalidNoteCalendar(user.id, calendarId);
+      if (calendarError) {
+        return calendarError;
+      }
 
       // Get unprocessed documents
       const documents = await fastify.db
@@ -894,6 +968,10 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const docPath = "/" + (request.params["*"] || "");
+      const pathError = invalidPath("Document path", docPath);
+      if (pathError) {
+        return pathError;
+      }
       fastify.log.info({ docPath }, "Fetching document for viewing");
 
       try {
@@ -910,40 +988,46 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
             const rawBuffer = await client.downloadDocument(docPath);
 
             // The raw download is a .zip — extract and look for a PDF inside
-            // reMarkable stores uploaded PDFs as <uuid>.pdf inside the zip
-            const fs = await import("fs");
-            const { execSync } = await import("child_process");
-            const tmpZip = `/tmp/openframe-remarkable/view-${Date.now()}.zip`;
-            const tmpDir = `/tmp/openframe-remarkable/view-${Date.now()}`;
-            fs.writeFileSync(tmpZip, rawBuffer);
-            fs.mkdirSync(tmpDir, { recursive: true });
+            // reMarkable stores uploaded PDFs as <uuid>.pdf inside the zip.
+            // A private, uniquely named directory per request keeps
+            // concurrent requests (other users') apart.
+            const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "openframe-remarkable-view-"));
             try {
-              execSync(`unzip -o "${tmpZip}" -d "${tmpDir}"`, { timeout: 10000 });
-            } catch { /* unzip might warn but still extract */ }
-            // Find any .pdf file in the extracted contents
-            const extracted = fs.readdirSync(tmpDir, { recursive: true }) as string[];
-            const pdfFile = extracted.find((f: string) => f.toString().endsWith(".pdf"));
-
-            if (pdfFile) {
-              pdfBuffer = fs.readFileSync(path.join(tmpDir, pdfFile.toString()));
-              fastify.log.info({ docPath, size: pdfBuffer.length }, "Extracted PDF from zip");
-            } else {
-              // No PDF inside — it's a handwritten notebook, render strokes to PDF
-              fastify.log.info({ docPath }, "Rendering handwritten notebook to PDF");
+              const tmpZip = path.join(workDir, "document.zip");
+              const tmpDir = path.join(workDir, "extracted");
+              fs.writeFileSync(tmpZip, rawBuffer);
+              fs.mkdirSync(tmpDir);
               try {
-                pdfBuffer = await renderNotebookToPdf(rawBuffer);
-                fastify.log.info({ docPath, size: pdfBuffer.length }, "Rendered notebook to PDF");
-              } catch (renderErr) {
-                fastify.log.error({ err: renderErr, docPath }, "Failed to render notebook");
-                try { execSync(`rm -rf "${tmpZip}" "${tmpDir}"`); } catch {}
-                return reply.status(422).send({
-                  success: false,
-                  error: { message: "Failed to render this notebook. The file format may not be supported." },
-                });
+                // unzip is run directly (no shell)
+                execFileSync("unzip", ["-o", tmpZip, "-d", tmpDir], { timeout: 10000, stdio: "ignore" });
+              } catch { /* unzip might warn but still extract */ }
+              // Find any .pdf file in the extracted contents
+              const extracted = fs.readdirSync(tmpDir, { recursive: true }) as string[];
+              const pdfFile = extracted.find((f: string) => f.toString().endsWith(".pdf"));
+
+              if (pdfFile) {
+                pdfBuffer = fs.readFileSync(path.join(tmpDir, pdfFile.toString()));
+                fastify.log.info({ docPath, size: pdfBuffer.length }, "Extracted PDF from zip");
+              } else {
+                // No PDF inside — it's a handwritten notebook, render strokes to PDF
+                fastify.log.info({ docPath }, "Rendering handwritten notebook to PDF");
+                try {
+                  pdfBuffer = await renderNotebookToPdf(rawBuffer);
+                  fastify.log.info({ docPath, size: pdfBuffer.length }, "Rendered notebook to PDF");
+                } catch (renderErr) {
+                  fastify.log.error({ err: renderErr, docPath }, "Failed to render notebook");
+                  return reply.status(422).send({
+                    success: false,
+                    error: { message: "Failed to render this notebook. The file format may not be supported." },
+                  });
+                }
               }
+            } finally {
+              // Clean up temp files
+              try {
+                fs.rmSync(workDir, { recursive: true, force: true });
+              } catch { /* leftover temp files don't fail the request */ }
             }
-            // Clean up temp files
-            try { execSync(`rm -rf "${tmpZip}" "${tmpDir}"`); } catch {}
           } catch (dlErr) {
             fastify.log.error({ err: dlErr, docPath }, "Raw download also failed");
             return reply.status(422).send({
@@ -953,9 +1037,11 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
           }
         }
 
+        // Header-safe file name (quotes and non-ASCII would break the header)
+        const fileName = path.basename(docPath).replace(/[^\x20-\x7e]|["\\]/g, "_");
         return reply
           .type("application/pdf")
-          .header("Content-Disposition", `inline; filename="${path.basename(docPath)}.pdf"`)
+          .header("Content-Disposition", `inline; filename="${fileName}.pdf"`)
           .send(pdfBuffer);
       } catch (error) {
         fastify.log.error({ err: error, docPath }, "Failed to fetch document for viewing");
@@ -1030,7 +1116,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
               enum: ["weekly_planner", "habit_tracker", "custom_agenda", "user_designed"],
             },
             config: { type: "object" },
-            folderPath: { type: "string" },
+            folderPath: folderPathSchema,
           },
           required: ["name", "templateType"],
         },
@@ -1042,6 +1128,11 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
       const { name, templateType, config, folderPath } = request.body;
+
+      if (folderPath) {
+        const pathError = invalidPath("folderPath", folderPath);
+        if (pathError) return pathError;
+      }
 
       // Get default config for template type
       const defaultConfig = await getDefaultTemplateConfig(templateType as TemplateType);
@@ -1166,7 +1257,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
             name: { type: "string", minLength: 1, maxLength: 100 },
             config: { type: "object" },
             mergeFields: { type: "array" },
-            folderPath: { type: "string" },
+            folderPath: folderPathSchema,
             isActive: { type: "boolean" },
           },
         },
@@ -1179,6 +1270,11 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { id } = request.params;
       const updates = request.body;
+
+      if (updates.folderPath !== undefined) {
+        const pathError = invalidPath("folderPath", updates.folderPath);
+        if (pathError) return pathError;
+      }
 
       // Verify ownership
       const [existing] = await fastify.db
@@ -1213,14 +1309,22 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      // Only these fields can be changed: the body may carry any other column
+      // (userId, templateType, pdfTemplate, ...) since the schema doesn't strip unknown keys
+      const changes: Partial<typeof remarkableTemplates.$inferInsert> = { updatedAt: new Date() };
+      if (updates.name !== undefined) changes.name = updates.name;
+      if (updates.config) changes.config = { ...existing.config, ...updates.config };
+      if (updates.mergeFields !== undefined) changes.mergeFields = updates.mergeFields;
+      if (updates.folderPath !== undefined) changes.folderPath = updates.folderPath;
+      if (updates.isActive !== undefined) changes.isActive = updates.isActive;
+
       const [updatedTemplate] = await fastify.db
         .update(remarkableTemplates)
-        .set({
-          ...updates,
-          config: updates.config ? { ...existing.config, ...updates.config } : undefined,
-          updatedAt: new Date(),
-        })
-        .where(eq(remarkableTemplates.id, id))
+        .set(changes)
+        .where(and(
+          eq(remarkableTemplates.id, id),
+          eq(remarkableTemplates.userId, user.id)
+        ))
         .returning();
 
       return {
@@ -1581,7 +1685,10 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
             pdfTemplate: pdfBase64,
             updatedAt: new Date(),
           })
-          .where(eq(remarkableTemplates.id, templateId));
+          .where(and(
+            eq(remarkableTemplates.id, templateId),
+            eq(remarkableTemplates.userId, user.id)
+          ));
 
         return {
           success: true,
@@ -1769,12 +1876,17 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
       const { id } = request.params;
       const updates = request.body;
 
+      // Only these fields can be changed: the body may carry any other column
+      // (userId, templateId, ...) since the schema doesn't strip unknown keys
+      const changes: Partial<typeof remarkableSchedules.$inferInsert> = { updatedAt: new Date() };
+      if (updates.enabled !== undefined) changes.enabled = updates.enabled;
+      if (updates.pushTime !== undefined) changes.pushTime = updates.pushTime;
+      if (updates.pushDay !== undefined) changes.pushDay = updates.pushDay;
+      if (updates.timezone !== undefined) changes.timezone = updates.timezone;
+
       const [schedule] = await fastify.db
         .update(remarkableSchedules)
-        .set({
-          ...updates,
-          updatedAt: new Date(),
-        })
+        .set(changes)
         .where(and(
           eq(remarkableSchedules.id, id),
           eq(remarkableSchedules.userId, user.id)
@@ -1917,7 +2029,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
         body: {
           type: "object",
           properties: {
-            path: { type: "string", minLength: 1 },
+            path: { ...folderPathSchema, minLength: 1 },
           },
           required: ["path"],
         },
@@ -1929,6 +2041,11 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
       const { path } = request.body;
+
+      const pathError = invalidPath("path", path);
+      if (pathError) {
+        return pathError;
+      }
 
       try {
         const result = await createRemarkableFolder(fastify, user.id, path);
@@ -2008,7 +2125,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
           type: "object",
           properties: {
             enabled: { type: "boolean" },
-            folderPath: { type: "string" },
+            folderPath: folderPathSchema,
             includeEventDetails: { type: "boolean" },
             autoDelete: { type: "boolean" },
             autoDeleteDays: { type: "number", minimum: 1, maximum: 365 },
@@ -2022,6 +2139,11 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
       const updates = request.body;
+
+      if (updates.folderPath !== undefined) {
+        const pathError = invalidPath("folderPath", updates.folderPath);
+        if (pathError) return pathError;
+      }
 
       // For now, return the updated settings (in a real impl, save to DB)
       const settings = { ...DEFAULT_CONFIRMATION_SETTINGS, ...updates };

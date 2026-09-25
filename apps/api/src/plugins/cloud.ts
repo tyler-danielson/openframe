@@ -22,6 +22,13 @@ export const cloudPlugin: FastifyPluginAsync = fp(
     fastify.decorate("cloudRelay", relay);
     fastify.decorate("relaySecret", null as string | null);
 
+    // The hosted service is the cloud's own backend: it never connects to the
+    // relay, whatever the settings table says.
+    if (fastify.hostedMode) {
+      fastify.log.info("[cloud] Hosted mode, cloud relay disabled");
+      return;
+    }
+
     // Try to connect on startup if cloud settings exist
     try {
       const cloudSettings = await getCategorySettings(fastify.db, "cloud");

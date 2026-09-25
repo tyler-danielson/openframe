@@ -12,6 +12,7 @@ import {
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { requireUserHouseholdId } from "../../lib/household.js";
+import { getHouseholdUserIds, profilesOwnedBy } from "../../lib/profile-access.js";
 import {
   getLevel,
   getProfileTotalPoints,
@@ -21,6 +22,13 @@ import {
 import type { BadgeDefinition, LeaderboardEntry } from "@openframe/shared";
 
 export const gamificationRoutes: FastifyPluginAsync = async (fastify) => {
+  // Like the leaderboard: the user's own profiles and those of the other
+  // members of their household
+  async function isHouseholdProfile(userId: string, profileId: string) {
+    const ownerIds = await getHouseholdUserIds(fastify.db, userId);
+    return profilesOwnedBy(fastify.db, [profileId], ownerIds);
+  }
+
   // Get profile gamification summary
   fastify.get(
     "/profile/:profileId",
@@ -36,6 +44,10 @@ export const gamificationRoutes: FastifyPluginAsync = async (fastify) => {
       if (!user) throw fastify.httpErrors.unauthorized();
 
       const { profileId } = request.params as { profileId: string };
+
+      if (!(await isHouseholdProfile(user.id, profileId))) {
+        throw fastify.httpErrors.notFound("Profile not found");
+      }
 
       const totalPoints = await getProfileTotalPoints(fastify.db, profileId);
       const level = getLevel(totalPoints);
@@ -259,6 +271,21 @@ export const gamificationRoutes: FastifyPluginAsync = async (fastify) => {
         badgeId: string;
       };
 
+      if (!(await isHouseholdProfile(user.id, profileId))) {
+        throw fastify.httpErrors.badRequest("Profile not found");
+      }
+
+      // A built-in badge or one of the user's own custom badges
+      if (!BUILTIN_BADGES.some((b) => b.id === badgeId)) {
+        const custom = await fastify.db
+          .select({ id: customBadges.id })
+          .from(customBadges)
+          .where(eq(customBadges.userId, user.id));
+        if (!custom.some((c) => c.id === badgeId)) {
+          throw fastify.httpErrors.badRequest("Badge not found");
+        }
+      }
+
       await fastify.db
         .insert(gamificationBadges)
         .values({ profileId, badgeId })
@@ -472,10 +499,12 @@ export const gamificationRoutes: FastifyPluginAsync = async (fastify) => {
         criteria: string;
       }>;
 
-      const updates: Record<string, any> = {};
-      for (const [key, val] of Object.entries(body)) {
-        if (val !== undefined) updates[key] = val;
-      }
+      const updates: Record<string, unknown> = {};
+      if (body.name !== undefined) updates.name = body.name;
+      if (body.icon !== undefined) updates.icon = body.icon;
+      if (body.description !== undefined) updates.description = body.description;
+      if (body.color !== undefined) updates.color = body.color;
+      if (body.criteria !== undefined) updates.criteria = body.criteria;
 
       const [updated] = await fastify.db
         .update(customBadges)

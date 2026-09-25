@@ -11,6 +11,7 @@
  */
 
 import { URL } from "url";
+import { fetchPublic } from "../lib/outbound.js";
 
 const BASE_URL =
   "https://player.siriusxm.com/rest/v2/experience/modules/";
@@ -459,7 +460,8 @@ export class SiriusXMClient {
       headers["Cookie"] = this.getCookieHeader();
     }
 
-    const response = await fetch(segmentUrl, { headers });
+    // The URL comes back from the client in the proxy path, so it's untrusted
+    const response = await fetchPublic(segmentUrl, { headers });
     if (!response.ok) {
       throw new Error(`Failed to fetch segment: ${response.status}`);
     }

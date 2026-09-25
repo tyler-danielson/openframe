@@ -99,9 +99,10 @@ export async function mapsRoutes(fastify: FastifyInstance) {
         destination: string;
       };
 
-      // Check server-side cache first
+      // Check server-side cache first. Per user: which trips someone looked
+      // up is their own business, not something another account can probe.
       maybePruneCache();
-      const cacheKey = getDistanceCacheKey(origin, destination);
+      const cacheKey = `${request.user?.userId ?? ""}|${getDistanceCacheKey(origin, destination)}`;
       const cached = distanceCache.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < DISTANCE_CACHE_TTL) {
         return { success: true, cached: true, data: cached.data };

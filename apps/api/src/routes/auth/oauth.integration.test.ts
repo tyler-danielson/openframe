@@ -8,7 +8,8 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import fastifyCookie from "@fastify/cookie";
 import fastifyJwt from "@fastify/jwt";
 import sensible from "@fastify/sensible";
 import { eq } from "drizzle-orm";
@@ -85,12 +86,32 @@ function encryptWithOtherKey(value: string) {
   }
 }
 
+// The browser's cookies
+let cookies: Record<string, string> = {};
+function keepCookies(res: { cookies: Array<{ name: string; value: string }> }) {
+  for (const cookie of res.cookies) cookies[cookie.name] = cookie.value;
+}
+
+/** The ticket Settings asks for, signed in, before sending the browser to connect an account. */
+async function linkTicket() {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/v1/auth/oauth/link-ticket",
+    headers: { host: HOST, authorization: `Bearer ${app.jwt.sign({ userId })}` },
+    cookies,
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  keepCookies(res);
+  return res.json().data.ticket as string;
+}
+
 /** Click "Connect Outlook" in Settings: returns the redirect the browser gets. */
 async function startConnecting(signedIn = true) {
   const params = new URLSearchParams({ feature: "calendar", returnUrl: RETURN_URL });
-  if (signedIn) params.set("token", app.jwt.sign({ userId }));
-  const res = await app.inject({ method: "GET", url: `/api/v1/auth/oauth/microsoft?${params}`, headers: { host: HOST } });
+  if (signedIn) params.set("linkTicket", await linkTicket());
+  const res = await app.inject({ method: "GET", url: `/api/v1/auth/oauth/microsoft?${params}`, headers: { host: HOST }, cookies });
   assert.equal(res.statusCode, 302, res.body);
+  keepCookies(res);
   return new URL(res.headers.location as string);
 }
 
@@ -100,6 +121,7 @@ async function returnFromMicrosoft(query: Record<string, string>) {
     method: "GET",
     url: `/api/v1/auth/oauth/microsoft/callback?${new URLSearchParams(query)}`,
     headers: { host: HOST },
+    cookies,
   });
 }
 
@@ -121,9 +143,13 @@ describe("connecting a Microsoft account (integration)", { skip: !DATABASE_URL &
 
     app = Fastify();
     await app.register(sensible);
+    await app.register(fastifyCookie);
     await app.register(fastifyJwt, { secret: "test-jwt-secret-test-jwt-secret-1234" });
     app.decorate("db", db);
-    app.decorate("authenticate", async () => {});
+    app.decorate("hostedMode", false);
+    app.decorate("authenticate", async (request: FastifyRequest) => {
+      await request.jwtVerify();
+    });
     app.decorate("authenticateAny", async () => {});
     await app.register(authRoutes, { prefix: "/api/v1/auth" });
     await app.ready();
@@ -137,6 +163,7 @@ describe("connecting a Microsoft account (integration)", { skip: !DATABASE_URL &
 
   beforeEach(async () => {
     requests = [];
+    cookies = {};
     tokenResponse = () => json({ error: "unexpected token request" }, 500);
     profileResponse = () => json({ error: "unexpected profile request" }, 500);
     await client.unsafe("TRUNCATE users CASCADE; DELETE FROM system_settings;");
@@ -232,8 +259,8 @@ describe("connecting a Microsoft account (integration)", { skip: !DATABASE_URL &
 
   test("a failure never redirects to another site", async () => {
     await saveMicrosoftCredentials({ client_id: "client-123" });
-    const params = new URLSearchParams({ feature: "calendar", returnUrl: "https://elsewhere.example/login", token: app.jwt.sign({ userId }) });
-    const res = await app.inject({ method: "GET", url: `/api/v1/auth/oauth/microsoft?${params}`, headers: { host: HOST } });
+    const params = new URLSearchParams({ feature: "calendar", returnUrl: "https://elsewhere.example/login", linkTicket: await linkTicket() });
+    const res = await app.inject({ method: "GET", url: `/api/v1/auth/oauth/microsoft?${params}`, headers: { host: HOST }, cookies });
     assert.equal(res.statusCode, 400);
     assert.match(res.json().message, /the client secret is missing/);
   });

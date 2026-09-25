@@ -163,9 +163,14 @@ async function gatherPlannerData(
       .from(newsFeeds)
       .where(eq(newsFeeds.userId, userId));
 
-    const visibleFeedIds = profileFeedSettings.length > 0
+    // Build feed name map
+    const feedMap = new Map(userFeeds.map(f => [f.id, f]));
+
+    // Only the user's own feeds, whatever the profile settings name
+    const visibleFeedIds = (profileFeedSettings.length > 0
       ? profileFeedSettings.filter(s => s.isVisible).map(s => s.newsFeedId)
-      : userFeeds.filter(f => f.isActive).map(f => f.id);
+      : userFeeds.filter(f => f.isActive).map(f => f.id)
+    ).filter(id => feedMap.has(id));
 
     if (visibleFeedIds.length > 0) {
       // Get recent articles from visible feeds
@@ -175,9 +180,6 @@ async function gatherPlannerData(
         .where(inArray(newsArticles.feedId, visibleFeedIds))
         .orderBy(newsArticles.publishedAt)
         .limit(10);
-
-      // Build feed name map
-      const feedMap = new Map(userFeeds.map(f => [f.id, f]));
 
       newsItems = articles.map(a => ({
         id: a.id,
@@ -195,8 +197,8 @@ async function gatherPlannerData(
   let weatherData: WeatherData | undefined;
   if (needsWeather) {
     try {
-      const weatherSettings = await getCategorySettings(fastify.db, "weather");
-      const homeSettings = await getCategorySettings(fastify.db, "home");
+      const weatherSettings = await getCategorySettings(fastify.db, "weather", userId);
+      const homeSettings = await getCategorySettings(fastify.db, "home", userId);
 
       const apiKey = weatherSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
       const lat = homeSettings.latitude || process.env.OPENWEATHERMAP_LAT;
@@ -777,6 +779,19 @@ export const profileRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(404).send({
         success: false,
         error: { message: "Profile not found" },
+      });
+    }
+
+    // A profile can only list the user's own feeds
+    const userFeeds = await fastify.db
+      .select({ id: newsFeeds.id })
+      .from(newsFeeds)
+      .where(eq(newsFeeds.userId, userId));
+    const userFeedIds = new Set(userFeeds.map((f) => f.id));
+    if (feedUpdates.some((u) => !userFeedIds.has(u.feedId))) {
+      return reply.status(400).send({
+        success: false,
+        error: { message: "News feed not found" },
       });
     }
 

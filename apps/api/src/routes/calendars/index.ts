@@ -46,7 +46,10 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
           accountEmail: oauthTokens.externalAccountId,
         })
         .from(calendars)
-        .leftJoin(oauthTokens, eq(calendars.oauthTokenId, oauthTokens.id))
+        .leftJoin(
+          oauthTokens,
+          and(eq(calendars.oauthTokenId, oauthTokens.id), eq(oauthTokens.userId, calendars.userId))
+        )
         .where(conditions);
 
       const filtered = query.includeHidden
@@ -172,7 +175,7 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
       const { id } = request.params as { id: string };
-      const updates = request.body as Partial<{
+      const body = request.body as Partial<{
         name: string;
         displayName: string | null;
         color: string;
@@ -185,6 +188,20 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
         kioskEnabled: boolean;
         visibility: { week: boolean; month: boolean; day: boolean; popup: boolean; screensaver: boolean };
       }>;
+
+      // Only the settings above: the body schema doesn't strip other properties
+      const updates: Partial<typeof calendars.$inferInsert> = {};
+      if (body.name !== undefined) updates.name = body.name;
+      if (body.displayName !== undefined) updates.displayName = body.displayName;
+      if (body.color !== undefined) updates.color = body.color;
+      if (body.isVisible !== undefined) updates.isVisible = body.isVisible;
+      if (body.syncEnabled !== undefined) updates.syncEnabled = body.syncEnabled;
+      if (body.syncInterval !== undefined) updates.syncInterval = body.syncInterval;
+      if (body.isPrimary !== undefined) updates.isPrimary = body.isPrimary;
+      if (body.isFavorite !== undefined) updates.isFavorite = body.isFavorite;
+      if (body.showOnDashboard !== undefined) updates.showOnDashboard = body.showOnDashboard;
+      if (body.kioskEnabled !== undefined) updates.kioskEnabled = body.kioskEnabled;
+      if (body.visibility !== undefined) updates.visibility = body.visibility;
 
       // Only allow name updates on local calendars
       if (updates.name !== undefined) {

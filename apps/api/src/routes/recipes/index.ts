@@ -6,7 +6,7 @@ import { getCategorySettings } from "../settings/index.js";
 import { parseRecipe, type RecipeProvider, type ParsedRecipe } from "../../services/recipe-parser.js";
 import sharp from "sharp";
 import { writeFile, mkdir, unlink } from "fs/promises";
-import { join, dirname, extname } from "path";
+import { join, dirname, extname, resolve, sep } from "path";
 import { existsSync, createReadStream } from "fs";
 
 function getMimeType(filePath: string): string {
@@ -96,17 +96,13 @@ async function saveRecipeImage(
 
 // Delete recipe images
 async function deleteRecipeImages(sourceImagePath: string | null, thumbnailPath: string | null): Promise<void> {
-  const dataDir = getDataDir();
+  const recipesDir = resolve(getDataDir(), "recipes");
 
-  if (sourceImagePath) {
-    const fullPath = join(dataDir, sourceImagePath);
-    if (existsSync(fullPath)) {
-      await unlink(fullPath).catch(() => {});
-    }
-  }
-
-  if (thumbnailPath) {
-    const fullPath = join(dataDir, thumbnailPath);
+  for (const imagePath of [sourceImagePath, thumbnailPath]) {
+    if (!imagePath) continue;
+    const fullPath = resolve(getDataDir(), imagePath);
+    // Never anything outside the recipe images
+    if (!fullPath.startsWith(recipesDir + sep)) continue;
     if (existsSync(fullPath)) {
       await unlink(fullPath).catch(() => {});
     }
@@ -637,21 +633,19 @@ export const recipeRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const imagePath = request.params["*"];
-      const dataDir = getDataDir();
-      const fullPath = join(dataDir, imagePath);
-
-      // Security check - ensure path is within data directory
-      if (!fullPath.startsWith(dataDir)) {
-        throw fastify.httpErrors.forbidden("Invalid path");
+      const userId = request.user?.userId;
+      if (!userId) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
       }
 
-      // Ensure the image belongs to the requesting user
-      const user = (request as any).user;
-      if (user?.userId) {
-        const expectedPrefix = `recipes/${user.userId}/`;
-        if (!imagePath.startsWith(expectedPrefix)) {
-          throw fastify.httpErrors.forbidden("Access denied");
-        }
+      // Only the user's own recipe images. The path is resolved before it's
+      // checked, so ".." can't climb out into other users' files or the
+      // server's data directory.
+      const dataDir = resolve(getDataDir());
+      const userDir = resolve(dataDir, "recipes", userId);
+      const fullPath = resolve(dataDir, imagePath);
+      if (!fullPath.startsWith(userDir + sep)) {
+        throw fastify.httpErrors.forbidden("Access denied");
       }
 
       if (!existsSync(fullPath)) {
@@ -663,7 +657,7 @@ export const recipeRoutes: FastifyPluginAsync = async (fastify) => {
 
       return reply
         .header("Content-Type", mimeType)
-        .header("Cache-Control", "public, max-age=31536000")
+        .header("Cache-Control", "private, max-age=86400")
         .send(stream);
     }
   );

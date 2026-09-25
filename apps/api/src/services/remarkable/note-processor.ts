@@ -36,6 +36,43 @@ export interface ParsedEventResult {
   error?: string;
 }
 
+/**
+ * A calendar a request asked events to go into that the user can't add to:
+ * 403 when it isn't one of their calendars, 400 when it is read-only
+ */
+export class NoteCalendarError extends Error {
+  readonly statusCode: 400 | 403;
+
+  constructor(message: string, statusCode: 400 | 403) {
+    super(message);
+    this.name = "NoteCalendarError";
+    this.statusCode = statusCode;
+  }
+}
+
+/**
+ * Make sure a calendar id taken from a request is one of the user's own,
+ * writable calendars before events are created in it.
+ */
+export async function assertNoteTargetCalendar(
+  fastify: FastifyInstance,
+  userId: string,
+  calendarId: string
+): Promise<void> {
+  const [calendar] = await fastify.db
+    .select({ id: calendars.id, isReadOnly: calendars.isReadOnly })
+    .from(calendars)
+    .where(and(eq(calendars.id, calendarId), eq(calendars.userId, userId)))
+    .limit(1);
+
+  if (!calendar) {
+    throw new NoteCalendarError("Calendar not found", 403);
+  }
+  if (calendar.isReadOnly) {
+    throw new NoteCalendarError("Calendar is read-only", 400);
+  }
+}
+
 // Time pattern matchers (same as frontend parseEventText.ts)
 const TIME_PATTERNS = {
   atTime: /\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i,
@@ -201,9 +238,11 @@ function splitIntoEventLines(text: string): string[] {
  */
 async function recognizeHandwriting(
   fastify: FastifyInstance,
+  userId: string,
   imageDataUrl: string
 ): Promise<string> {
-  const settings = await getCategorySettings(fastify.db, "handwriting");
+  // The user's own handwriting settings (provider, API keys) over the global ones
+  const settings = await getCategorySettings(fastify.db, "handwriting", userId);
   const provider = (settings.provider as string) || "tesseract";
 
   if (provider === "tesseract") {
@@ -490,6 +529,11 @@ export async function processRemarkableNote(
 ): Promise<ProcessedNote> {
   const { targetDate = new Date(), autoCreate = true, calendarId } = options;
 
+  // A requested calendar must be one of the user's own writable calendars
+  if (calendarId) {
+    await assertNoteTargetCalendar(fastify, userId, calendarId);
+  }
+
   const client = getRemarkableClient(fastify, userId);
 
   // Get document info from database
@@ -522,7 +566,7 @@ export async function processRemarkableNote(
   let recognizedText: string;
 
   try {
-    recognizedText = await recognizeHandwriting(fastify, imageDataUrl);
+    recognizedText = await recognizeHandwriting(fastify, userId, imageDataUrl);
   } catch (error) {
     fastify.log.error({ err: error, documentId }, "Handwriting recognition failed");
     throw error;

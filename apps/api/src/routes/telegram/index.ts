@@ -360,19 +360,19 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(404).send({ error: "Not found" });
       }
 
-      // Verify secret token if configured (timing-safe)
-      if (config.webhookSecret) {
-        if (
-          !secretToken ||
-          typeof secretToken !== "string" ||
-          secretToken.length !== config.webhookSecret.length ||
-          !timingSafeEqual(
-            Buffer.from(secretToken),
-            Buffer.from(config.webhookSecret)
-          )
-        ) {
-          return reply.code(401).send({ error: "Unauthorized" });
-        }
+      // Verify the secret token (timing-safe). Connecting always sets one, so
+      // a config without it can't tell Telegram from anyone else.
+      if (
+        !config.webhookSecret ||
+        !secretToken ||
+        typeof secretToken !== "string" ||
+        secretToken.length !== config.webhookSecret.length ||
+        !timingSafeEqual(
+          Buffer.from(secretToken),
+          Buffer.from(config.webhookSecret)
+        )
+      ) {
+        return reply.code(401).send({ error: "Unauthorized" });
       }
 
       // Process update asynchronously
@@ -501,16 +501,23 @@ export const telegramRoutes: FastifyPluginAsync = async (fastify) => {
       if (!user) {
         throw fastify.httpErrors.unauthorized("Not authenticated");
       }
-      const updates = request.body;
+      const body = request.body;
 
       const config = await TelegramService.getConfig(fastify, user.id);
       if (!config) {
         return reply.badRequest("Telegram not connected");
       }
 
+      // Only the notification settings: never the bot token or webhook secret
+      const updates: Partial<typeof telegramConfig.$inferInsert> = { updatedAt: new Date() };
+      if (body.dailyAgendaEnabled !== undefined) updates.dailyAgendaEnabled = body.dailyAgendaEnabled;
+      if (body.dailyAgendaTime !== undefined) updates.dailyAgendaTime = body.dailyAgendaTime;
+      if (body.eventRemindersEnabled !== undefined) updates.eventRemindersEnabled = body.eventRemindersEnabled;
+      if (body.eventReminderMinutes !== undefined) updates.eventReminderMinutes = body.eventReminderMinutes;
+
       await fastify.db
         .update(telegramConfig)
-        .set({ ...updates, updatedAt: new Date() })
+        .set(updates)
         .where(eq(telegramConfig.userId, user.id));
 
       return {

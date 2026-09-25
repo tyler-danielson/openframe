@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import { eq } from "drizzle-orm";
 import { kiosks, calendars } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
+import { redactUrl } from "../lib/redact.js";
 
 // ─── Protocol Types (mirrors openframe-cloud protocol) ──────────
 
@@ -291,7 +292,7 @@ export class CloudRelay {
     };
 
     this.logger.info(
-      `[cloud-relay] HTTP proxy: ${payload.method} ${payload.path}${payload.userId ? ` (user: ${payload.userId})` : ""}`
+      `[cloud-relay] HTTP proxy: ${payload.method} ${redactUrl(payload.path)}${payload.userId ? ` (user: ${payload.userId})` : ""}`
     );
 
     try {

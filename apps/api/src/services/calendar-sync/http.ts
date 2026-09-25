@@ -1,3 +1,6 @@
+import { fetchPublic, isBlockedDestination } from "../../lib/outbound.js";
+import { CalendarSyncError } from "./errors.js";
+
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 const MAX_RETRY_DELAY_MS = 15_000;
 
@@ -5,6 +8,11 @@ export interface ProviderFetchOptions {
   timeoutMs?: number;
   /** Extra attempts after the first for 429/5xx and network errors */
   retries?: number;
+  /**
+   * The URL came from the user (a feed, their Home Assistant), so on the
+   * hosted service it may only reach public addresses
+   */
+  userSupplied?: boolean;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -31,15 +39,22 @@ function retryDelayMs(response: Response | null, attempt: number): number {
 export async function providerFetch(
   url: string,
   init: RequestInit = {},
-  { timeoutMs = 30_000, retries = 2 }: ProviderFetchOptions = {}
+  { timeoutMs = 30_000, retries = 2, userSupplied = false }: ProviderFetchOptions = {}
 ): Promise<Response> {
+  const send = userSupplied ? fetchPublic : fetch;
   for (let attempt = 0; ; attempt++) {
     let response: Response | null = null;
     try {
-      response = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+      response = await send(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
       if (!RETRYABLE_STATUS.has(response.status) || attempt >= retries) return response;
       await response.body?.cancel().catch(() => undefined);
     } catch (err) {
+      // A refused address stays refused, so say why instead of retrying
+      if (isBlockedDestination(err)) {
+        throw new CalendarSyncError(
+          "This address isn't reachable from OpenFrame's servers. It must be a public address, not a local or private network one."
+        );
+      }
       if (attempt >= retries) throw err;
     }
     await sleep(retryDelayMs(response, attempt));

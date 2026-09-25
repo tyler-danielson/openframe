@@ -4,6 +4,7 @@
  */
 
 import Parser from "rss-parser";
+import { fetchPublic, isBlockedDestination, restrictsOutboundRequests } from "../lib/outbound.js";
 
 export interface ParsedArticle {
   guid: string;
@@ -40,8 +41,38 @@ const parser = new Parser<Record<string, unknown>, CustomItem>({
       ["content:encoded", "content:encoded"],
     ],
   },
-  timeout: 10000,
 });
+
+const FEED_TIMEOUT_MS = 10_000;
+
+/** A feed's text, in the charset its Content-Type names (UTF-8 otherwise). */
+async function readFeedText(response: Response): Promise<string> {
+  const charset = /charset\s*=\s*"?([^";\s]+)/i.exec(response.headers.get("content-type") ?? "")?.[1];
+  const body = await response.arrayBuffer();
+  try {
+    return new TextDecoder(charset ?? "utf-8").decode(body);
+  } catch {
+    // A charset TextDecoder doesn't know
+    return new TextDecoder().decode(body);
+  }
+}
+
+/**
+ * Download and parse a feed. Feed addresses come from users, so the request
+ * goes through fetchPublic rather than rss-parser's own parseURL().
+ */
+async function fetchFeed(feedUrl: string) {
+  const response = await fetchPublic(feedUrl, {
+    // The headers parseURL() sent
+    headers: { "User-Agent": "rss-parser", Accept: "application/rss+xml" },
+    signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error(`Status code ${response.status}`);
+  }
+  return parser.parseString(await readFeedText(response));
+}
 
 /**
  * Extract image URL from various RSS feed formats
@@ -96,7 +127,7 @@ function cleanHtml(html: string | undefined): string | null {
  * Parse an RSS or Atom feed URL
  */
 export async function parseRssFeed(feedUrl: string): Promise<ParsedFeed> {
-  const feed = await parser.parseURL(feedUrl);
+  const feed = await fetchFeed(feedUrl);
 
   const articles: ParsedArticle[] = (feed.items || []).map((item) => {
     const typedItem = item as Parser.Item & CustomItem;
@@ -145,15 +176,20 @@ export async function validateFeedUrl(feedUrl: string): Promise<{
   error?: string;
 }> {
   try {
-    const feed = await parser.parseURL(feedUrl);
+    const feed = await fetchFeed(feedUrl);
     return {
       valid: true,
       title: feed.title,
     };
   } catch (error) {
+    // The detail is for the logs; it can quote whatever the address returned
+    console.warn("Feed validation failed:", error);
     return {
       valid: false,
-      error: error instanceof Error ? error.message : "Failed to parse feed",
+      error:
+        isBlockedDestination(error) && restrictsOutboundRequests()
+          ? "That address isn't reachable from OpenFrame's servers. Use a public feed URL."
+          : "Couldn't read a feed at that address",
     };
   }
 }
