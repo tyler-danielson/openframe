@@ -209,7 +209,7 @@ pnpm build
 pnpm lint
 
 # Typecheck & test (CI runs these on every pull request)
-pnpm --filter @openframe/api --filter @openframe/web typecheck
+pnpm typecheck
 pnpm --filter @openframe/api test
 # Include the calendar-sync integration tests (drops and re-creates the schema!)
 TEST_DATABASE_URL=postgres://localhost/openframe_test pnpm --filter @openframe/api test

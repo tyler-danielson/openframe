@@ -74,6 +74,9 @@ jobs:
       - name: Typecheck web
         run: pnpm --filter @openframe/web typecheck
 
+      - name: Typecheck mobile
+        run: pnpm --filter @openframe/mobile typecheck
+
       - name: API tests (unit + Postgres integration)
         run: pnpm --filter @openframe/api test
         env:
