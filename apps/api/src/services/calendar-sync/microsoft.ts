@@ -3,6 +3,7 @@ const { RRule } = rrule;
 import { and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
 import { calendars, events, oauthTokens } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
+import { SHOWN_CALENDAR_VISIBILITY } from "../../lib/calendar-visibility.js";
 import { decryptEventFields } from "../../lib/encryption.js";
 import {
   WINDOWS_TIME_ZONE_IDS,
@@ -247,6 +248,7 @@ async function syncCalendarList(db: Database, token: OAuthToken, accessToken: st
         isPrimary: mcal.isDefaultCalendar ?? false,
         isReadOnly: !(mcal.canEdit ?? true),
         oauthTokenId: token.id,
+        ...(mcal.isDefaultCalendar ? { visibility: SHOWN_CALENDAR_VISIBILITY } : {}),
       })
       .onConflictDoUpdate({
         target: [calendars.userId, calendars.provider, calendars.externalId],

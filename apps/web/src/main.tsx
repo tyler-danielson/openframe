@@ -66,6 +66,12 @@ const queryClient = new QueryClient({
 const basePath = import.meta.env.VITE_BASE_PATH || "/";
 const basename = basePath.endsWith("/") ? basePath.slice(0, -1) : basePath;
 
+// Kiosk displays size everything from the screen size (index.css); set it
+// before the first render so a TV never paints at the app's size first
+if (window.location.pathname.slice(basename.length).startsWith("/kiosk/")) {
+  document.documentElement.classList.add("kiosk-scale");
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>

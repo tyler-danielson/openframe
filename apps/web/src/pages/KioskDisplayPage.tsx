@@ -822,6 +822,14 @@ function KioskCommandPoller({ token }: { token: string }) {
 export function KioskDisplayPage() {
   const { token } = useParams<{ token: string }>();
 
+  // Kiosk screens scale with the display (index.css); main.tsx sets this on a
+  // direct load, this keeps it right when navigating in or out of a kiosk
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.add("kiosk-scale");
+    return () => root.classList.remove("kiosk-scale");
+  }, []);
+
   if (!token) {
     return (
       <div className="fixed inset-0 bg-background flex items-center justify-center">
