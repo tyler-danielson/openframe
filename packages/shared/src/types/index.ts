@@ -99,6 +99,10 @@ export interface CalendarEvent {
   attendees: EventAttendee[];
   reminders: EventReminder[];
   metadata?: Record<string, unknown>;
+  /** Set on occurrences generated from a recurring event; their id is synthetic */
+  isRecurrenceInstance?: boolean;
+  /** For generated occurrences: the id of the recurring event (series) */
+  originalEventId?: string;
 }
 
 export interface EventAttendee {

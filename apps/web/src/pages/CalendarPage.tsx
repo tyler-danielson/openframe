@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, addWeeks, addDays, format, isSameDay } from "date-fns";
 import { ChevronLeft, ChevronRight, Plus, X, PenTool, WifiOff, PanelRight } from "lucide-react";
 import { api, type WeatherData, type WeatherForecast, type HourlyForecast } from "../services/api";
@@ -645,15 +645,6 @@ export function CalendarPage() {
     });
   }, [rawCalendarEvents, rawSportsEvents, holidayEvents, routineCalendarEvents, taskCalendarEvents, teamVisibility, calendarVisibility, isKioskMode, kioskViewCalendars]);
 
-  // Delete event mutation
-  const deleteEvent = useMutation({
-    mutationFn: (id: string) => api.deleteEvent(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["events"] });
-      queryClient.invalidateQueries({ queryKey: ["countdown-events"] });
-    },
-  });
-
   const handleSelectEvent = (event: CalendarEvent) => {
     const metaType = (event.metadata as any)?.type;
     if (metaType === "routine") {
@@ -673,9 +664,10 @@ export function CalendarPage() {
     setSelectedEvent(null);
   };
 
-  const handleDeleteEvent = (id: string) => {
-    if (guard("Delete event")) return;
-    deleteEvent.mutate(id);
+  // EventModal has already deleted the event (or occurrence); refresh
+  const handleDeleteEvent = () => {
+    queryClient.invalidateQueries({ queryKey: ["events"] });
+    queryClient.invalidateQueries({ queryKey: ["countdown-events"] });
   };
 
   const handleUpdateEvent = () => {

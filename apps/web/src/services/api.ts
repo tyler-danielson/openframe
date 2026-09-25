@@ -479,6 +479,25 @@ class ApiClient {
     await this.fetch(`/events/${id}`, { method: "DELETE" });
   }
 
+  /** Change one occurrence of a recurring event, identified by its original start. */
+  async updateEventOccurrence(
+    seriesId: string,
+    originalStart: Date | string,
+    data: Partial<CalendarEvent>
+  ): Promise<CalendarEvent> {
+    const start = encodeURIComponent(new Date(originalStart).toISOString());
+    return this.fetch<CalendarEvent>(`/events/${seriesId}/occurrences/${start}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  /** Delete one occurrence of a recurring event, identified by its original start. */
+  async deleteEventOccurrence(seriesId: string, originalStart: Date | string): Promise<void> {
+    const start = encodeURIComponent(new Date(originalStart).toISOString());
+    await this.fetch(`/events/${seriesId}/occurrences/${start}`, { method: "DELETE" });
+  }
+
   // Tasks
   async getTaskLists(): Promise<TaskList[]> {
     return this.fetch<TaskList[]>("/tasks/lists");

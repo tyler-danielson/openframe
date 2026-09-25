@@ -11,7 +11,8 @@ import {
 } from "@openframe/shared/validators";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { queryEventsInRange } from "../../services/calendar-events.js";
-import { pushEventChange } from "../../services/calendar-sync/push.js";
+import { googleInstanceId } from "../../services/calendar-sync/google.js";
+import { pushEventChange, pushOccurrenceChange } from "../../services/calendar-sync/push.js";
 import { encryptEventFields, decryptEventFields } from "../../lib/encryption.js";
 import { isValidTimeZone, resolveTimeZone } from "../../lib/timezone.js";
 import { parseQuickEvent } from "../../services/quick-event.js";
@@ -32,6 +33,38 @@ async function getOwnedCalendar(db: Database, calendarId: string, userId: string
     .limit(1);
   return calendar;
 }
+
+type EventRecord = typeof events.$inferSelect;
+
+/** An event with the calendar it's on, if both exist and belong to the user. */
+async function getOwnedEvent(
+  db: Database,
+  eventId: string,
+  userId: string
+): Promise<{ event: EventRecord; calendar: CalendarRecord } | null> {
+  const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) return null;
+  const calendar = await getOwnedCalendar(db, event.calendarId, userId);
+  return calendar ? { event, calendar } : null;
+}
+
+/** Rows that change single occurrences of `series` (all of them, or the one at `originalStart`). */
+function overridesOf(series: EventRecord, originalStart?: Date) {
+  return and(
+    eq(events.calendarId, series.calendarId),
+    eq(events.recurringEventId, series.externalId),
+    ...(originalStart ? [eq(events.originalStartTime, originalStart)] : [])
+  );
+}
+
+const occurrenceParams = {
+  type: "object",
+  properties: {
+    id: { type: "string", format: "uuid", description: "The recurring event (series)" },
+    start: { type: "string", format: "date-time", description: "The occurrence's original start" },
+  },
+  required: ["id", "start"],
+} as const;
 
 export const eventRoutes: FastifyPluginAsync = async (fastify) => {
   // Get events
@@ -427,6 +460,167 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
+  // Change one occurrence of a recurring event. Stored as an override row
+  // (like Google's modified instances) that replaces the generated occurrence.
+  fastify.patch(
+    "/:id/occurrences/:start",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Update one occurrence of a recurring event",
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: occurrenceParams,
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+      const { id, start } = request.params as { id: string; start: string };
+      const parsedBody = updateEventSchema.safeParse(request.body ?? {});
+      if (!parsedBody.success) {
+        return reply.badRequest(parsedBody.error.issues[0]?.message ?? "Invalid event update");
+      }
+      const body = parsedBody.data;
+      if (body.recurrenceRule || body.calendarId) {
+        return reply.badRequest("A single occurrence can't change its repeat rule or calendar");
+      }
+
+      const owned = await getOwnedEvent(fastify.db, id, user.id);
+      if (!owned) {
+        return reply.notFound("Event not found");
+      }
+      const { event: series, calendar } = owned;
+      if (!series.recurrenceRule) {
+        return reply.badRequest("Event isn't recurring");
+      }
+      if (calendar.isReadOnly) {
+        return reply.badRequest("Calendar is read-only");
+      }
+
+      const originalStart = new Date(start);
+      const [previous] = await fastify.db.select().from(events).where(overridesOf(series, originalStart)).limit(1);
+      const duration = series.endTime.getTime() - series.startTime.getTime();
+      const currentStart = previous?.startTime ?? originalStart;
+      const currentEnd = previous?.endTime ?? new Date(originalStart.getTime() + duration);
+      const startTime = body.startTime ?? currentStart;
+      const endTime = body.endTime ?? currentEnd;
+      if (endTime < startTime) {
+        return reply.badRequest("Event can't end before it starts");
+      }
+
+      const changes = encryptEventFields({
+        ...(body.title !== undefined ? { title: body.title } : {}),
+        ...(body.description !== undefined ? { description: body.description || null } : {}),
+        ...(body.location !== undefined ? { location: body.location || null } : {}),
+        ...(body.isAllDay !== undefined ? { isAllDay: body.isAllDay } : {}),
+        ...(body.timeZone !== undefined ? { timeZone: body.timeZone && isValidTimeZone(body.timeZone) ? body.timeZone : null } : {}),
+        startTime,
+        endTime,
+      });
+      const metadata = {
+        ...(((previous ?? series).metadata as Record<string, unknown>) ?? {}),
+        ...(body.metadata ?? {}),
+      };
+
+      const [override] = previous
+        ? await fastify.db
+            .update(events)
+            .set({ ...changes, metadata, updatedAt: new Date() })
+            .where(eq(events.id, previous.id))
+            .returning()
+        : await fastify.db
+            .insert(events)
+            .values({
+              // The occurrence as generated from the series (fields stay encrypted)...
+              calendarId: series.calendarId,
+              externalId: googleInstanceId(series.externalId, originalStart, series.isAllDay),
+              title: series.title,
+              description: series.description,
+              location: series.location,
+              isAllDay: series.isAllDay,
+              status: series.status,
+              timeZone: series.timeZone,
+              attendees: series.attendees,
+              reminders: series.reminders,
+              recurringEventId: series.externalId,
+              originalStartTime: originalStart,
+              // ...with the requested changes
+              ...changes,
+              metadata,
+            })
+            .returning();
+      if (!override) {
+        return reply.internalServerError("Failed to update occurrence");
+      }
+
+      const push = await pushOccurrenceChange(fastify.db, calendar, series, originalStart, override, user.timezone);
+      if (push && !push.ok) {
+        // Keep OpenFrame and the provider consistent: undo the local change
+        if (previous) {
+          await fastify.db.update(events).set(previous).where(eq(events.id, previous.id));
+        } else {
+          await fastify.db.delete(events).where(eq(events.id, override.id));
+        }
+        return reply.code(502).send({ success: false, error: "sync_failed", message: push.error });
+      }
+
+      const [current] = await fastify.db.select().from(events).where(eq(events.id, override.id)).limit(1);
+      return {
+        success: true,
+        data: decryptEventFields(current ?? override),
+      };
+    }
+  );
+
+  // Delete one occurrence of a recurring event (an EXDATE on the series)
+  fastify.delete(
+    "/:id/occurrences/:start",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Delete one occurrence of a recurring event",
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        params: occurrenceParams,
+      },
+    },
+    async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) {
+        throw fastify.httpErrors.unauthorized("Not authenticated");
+      }
+      const { id, start } = request.params as { id: string; start: string };
+
+      const owned = await getOwnedEvent(fastify.db, id, user.id);
+      if (!owned) {
+        return reply.notFound("Event not found");
+      }
+      const { event: series, calendar } = owned;
+      if (!series.recurrenceRule) {
+        return reply.badRequest("Event isn't recurring");
+      }
+      if (calendar.isReadOnly) {
+        return reply.badRequest("Calendar is read-only");
+      }
+
+      // Cancel it upstream first: if that fails, nothing changes here
+      const originalStart = new Date(start);
+      const push = await pushOccurrenceChange(fastify.db, calendar, series, originalStart, null, user.timezone);
+      if (push && !push.ok) {
+        return reply.code(502).send({ success: false, error: "sync_failed", message: push.error });
+      }
+
+      const exdates = [...new Set([...(series.exdates ?? []), originalStart.toISOString()])].sort();
+      await fastify.db.update(events).set({ exdates, updatedAt: new Date() }).where(eq(events.id, series.id));
+      await fastify.db.delete(events).where(overridesOf(series, originalStart));
+
+      return { success: true };
+    }
+  );
+
   // Delete event
   fastify.delete(
     "/:id",
@@ -473,6 +667,22 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       await fastify.db.delete(events).where(eq(events.id, id));
+      if (event.recurrenceRule) {
+        // The series' changed occurrences go with it
+        await fastify.db.delete(events).where(overridesOf(event));
+      } else if (event.recurringEventId && event.originalStartTime) {
+        // A changed occurrence: without an EXDATE the series would put the
+        // original occurrence back
+        const [series] = await fastify.db
+          .select()
+          .from(events)
+          .where(and(eq(events.calendarId, event.calendarId), eq(events.externalId, event.recurringEventId)))
+          .limit(1);
+        if (series?.recurrenceRule) {
+          const exdates = [...new Set([...(series.exdates ?? []), event.originalStartTime.toISOString()])].sort();
+          await fastify.db.update(events).set({ exdates, updatedAt: new Date() }).where(eq(events.id, series.id));
+        }
+      }
 
       return { success: true };
     }

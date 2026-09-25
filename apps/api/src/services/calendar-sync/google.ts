@@ -2,7 +2,7 @@ import { and, eq, inArray, isNull, notInArray, or } from "drizzle-orm";
 import { calendars, events, oauthTokens } from "@openframe/database/schema";
 import type { Database } from "@openframe/database";
 import { decryptEventFields } from "../../lib/encryption.js";
-import { addUtcDays, normalizeTimeZone, parseDateOnlyUtc, resolveTimeZone } from "../../lib/timezone.js";
+import { addUtcDays, getZonedParts, normalizeTimeZone, parseDateOnlyUtc, resolveTimeZone } from "../../lib/timezone.js";
 import { allDayDateSpan } from "./all-day.js";
 import { CalendarNotFoundError, CalendarSyncError, SyncStateExpiredError, describeSyncError } from "./errors.js";
 import {
@@ -450,6 +450,37 @@ export async function syncGoogleAccount(
 
 // --- Outgoing sync: OpenFrame → Google Calendar -----------------------------
 
+const pad = (n: number, width = 2) => String(n).padStart(width, "0");
+
+function utcStamp(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+
+function dateStamp(date: Date): string {
+  return date.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+/** EXDATE lines for a series' excluded occurrences, in the form Google returns them. */
+function exdateLines(event: EventRecord, timeZone: string): string[] {
+  const dates = [...new Set(event.exdates ?? [])]
+    .map((iso) => new Date(iso))
+    .filter((d) => !Number.isNaN(d.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime());
+  return dates.map((d) => {
+    if (event.isAllDay) return `EXDATE;VALUE=DATE:${dateStamp(d)}`;
+    const p = getZonedParts(d, timeZone);
+    return `EXDATE;TZID=${timeZone}:${p.year}${pad(p.month)}${pad(p.day)}T${pad(p.hour)}${pad(p.minute)}${pad(p.second)}`;
+  });
+}
+
+/**
+ * Google's id for one occurrence of a recurring event: the series id plus the
+ * occurrence's original start (UTC), or its date for all-day events.
+ */
+export function googleInstanceId(seriesExternalId: string, originalStart: Date, isAllDay: boolean): string {
+  return `${seriesExternalId}_${isAllDay ? dateStamp(originalStart) : utcStamp(originalStart)}`;
+}
+
 export function buildGoogleEventBody(event: EventRecord, fallbackTimeZone?: string): Record<string, unknown> {
   const decrypted = decryptEventFields(event);
   const body: Record<string, unknown> = {
@@ -458,21 +489,23 @@ export function buildGoogleEventBody(event: EventRecord, fallbackTimeZone?: stri
     location: decrypted.location ?? undefined,
   };
 
+  // Google requires a zone for recurring events; it also controls how the
+  // event is displayed, so prefer the zone it was created in
+  const timeZone = resolveTimeZone(event.timeZone, resolveTimeZone(fallbackTimeZone));
   if (event.isAllDay) {
     const span = allDayDateSpan(event.startTime, event.endTime);
     body.start = { date: span.start };
     body.end = { date: span.endExclusive };
   } else {
-    // Google requires a zone for recurring events; it also controls how the
-    // event is displayed, so prefer the zone it was created in
-    const timeZone = resolveTimeZone(event.timeZone, resolveTimeZone(fallbackTimeZone));
     body.start = { dateTime: event.startTime.toISOString(), timeZone };
     body.end = { dateTime: event.endTime.toISOString(), timeZone };
   }
 
   if (event.recurrenceRule) {
     const rule = extractRRuleValue(event.recurrenceRule);
-    if (rule) body.recurrence = [`RRULE:${rule}`];
+    // Sending `recurrence` replaces it, so include the excluded occurrences:
+    // leaving them out would bring deleted occurrences back
+    if (rule) body.recurrence = [`RRULE:${rule}`, ...exdateLines(event, timeZone)];
   }
 
   if (Array.isArray(event.attendees) && event.attendees.length > 0) {
@@ -500,7 +533,8 @@ function eventUrl(calendar: CalendarRecord, eventId?: string): string {
   return eventId ? `${base}/${encodeURIComponent(eventId)}` : base;
 }
 
-function isLocalOnly(event: EventRecord): boolean {
+/** Created in OpenFrame and not (yet) on Google. */
+export function isLocalOnly(event: Pick<EventRecord, "etag" | "externalId">): boolean {
   return !event.etag && /^(local_|companion-|remarkable_|bot_)/.test(event.externalId);
 }
 

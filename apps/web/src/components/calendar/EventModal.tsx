@@ -12,6 +12,7 @@ import { TouchTimePicker } from "../ui/TouchTimePicker";
 import { useCalendarStore } from "../../stores/calendar";
 import { api } from "../../services/api";
 import { allDayDateToStorage, getEventEnd, getEventStart } from "../../lib/event-dates";
+import { useDemoGuard } from "../../hooks/useDemoGuard";
 
 interface EventModalProps {
   event: CalendarEvent | null;
@@ -84,8 +85,13 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
   const calendars = useCalendarStore((state) => state.calendars);
   const homeAddress = useCalendarStore((state) => state.homeAddress);
 
+  const { guard } = useDemoGuard();
+
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // Saving a change to a repeating event: ask whether it's for this event or all
+  const [showSaveScope, setShowSaveScope] = useState(false);
+  const [saveScopeError, setSaveScopeError] = useState<string | null>(null);
 
   // Edit form state
   const [editTitle, setEditTitle] = useState("");
@@ -183,6 +189,13 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
 
   if (!event) return null;
 
+  // Occurrences generated from a recurring event have synthetic ids; changes
+  // go to the series, or to this occurrence through the series
+  const occurrence =
+    event.isRecurrenceInstance && event.originalEventId
+      ? { seriesId: event.originalEventId, start: new Date(event.startTime) }
+      : null;
+
   const startDate = getEventStart(event);
   const endDate = getEventEnd(event);
   const calendar = calendars.find((c) => c.id === event.calendarId);
@@ -214,7 +227,12 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
     return format(localDate, "EEE, MMM d");
   };
 
-  const handleSave = async () => {
+  const handleSave = async (scope?: "this" | "series") => {
+    if (occurrence && !calendar?.isReadOnly && !scope) {
+      setSaveScopeError(null);
+      setShowSaveScope(true);
+      return;
+    }
     setIsSaving(true);
     try {
       const metadata = {
@@ -226,8 +244,9 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
       let updatedEvent: CalendarEvent;
 
       if (calendar?.isReadOnly) {
-        // Read-only calendars: only update metadata (countdown settings)
-        updatedEvent = await api.updateEvent(event.id, { metadata } as Partial<CalendarEvent>);
+        // Read-only calendars: only update metadata (countdown settings), which
+        // for a repeating event belongs to the series
+        updatedEvent = await api.updateEvent(occurrence?.seriesId ?? event.id, { metadata } as Partial<CalendarEvent>);
       } else {
         let startDateTime: Date;
         let endDateTime: Date;
@@ -243,7 +262,7 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
           endDateTime = new Date(`${effectiveEndDate}T${editEndTime}`);
         }
 
-        updatedEvent = await api.updateEvent(event.id, {
+        const changes = {
           title: editTitle,
           startTime: startDateTime,
           endTime: endDateTime,
@@ -252,9 +271,31 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
           description: editDescription,
           isAllDay: editIsAllDay,
           metadata,
-        } as Partial<CalendarEvent>);
+        } as Partial<CalendarEvent>;
+
+        if (occurrence && scope === "this") {
+          updatedEvent = await api.updateEventOccurrence(occurrence.seriesId, occurrence.start, changes);
+        } else if (occurrence && scope === "series") {
+          const timingChanged =
+            editIsAllDay !== event.isAllDay ||
+            startDateTime.getTime() !== new Date(event.startTime).getTime() ||
+            endDateTime.getTime() !== new Date(event.endTime).getTime();
+          if (timingChanged) {
+            setSaveScopeError("Only the title, location and notes can change for all events. Choose \"This event\" to change the time.");
+            return;
+          }
+          updatedEvent = await api.updateEvent(occurrence.seriesId, {
+            title: editTitle,
+            location: editLocation,
+            description: editDescription,
+            metadata,
+          } as Partial<CalendarEvent>);
+        } else {
+          updatedEvent = await api.updateEvent(event.id, changes);
+        }
       }
 
+      setShowSaveScope(false);
       onUpdate?.(updatedEvent);
       onClose(); // Close modal after successful save
     } catch (error) {
@@ -267,6 +308,8 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
   };
 
   const handleCancel = () => {
+    setShowSaveScope(false);
+    setSaveScopeError(null);
     // Reset form to original values
     setEditTitle(event.title);
     setEditLocation(event.location ?? "");
@@ -296,11 +339,19 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
     setShowEndTimePicker(false);
   };
 
-  const handleDelete = async () => {
+  const handleDelete = async (scope?: "this" | "series") => {
     if (!onDelete) return;
+    if (guard("Delete event")) {
+      setShowDeleteConfirm(false);
+      return;
+    }
     setIsDeleting(true);
     try {
-      await api.deleteEvent(event.id);
+      if (occurrence && scope === "this") {
+        await api.deleteEventOccurrence(occurrence.seriesId, occurrence.start);
+      } else {
+        await api.deleteEvent(occurrence && scope === "series" ? occurrence.seriesId : event.id);
+      }
       onDelete(event.id);
       setShowDeleteConfirm(false);
       onClose();
@@ -771,6 +822,31 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
             )}
           </div>
 
+          {/* Repeating event: save for this event or all of them */}
+          {isEditing && showSaveScope && (
+            <div className="mt-4 rounded-lg border border-border p-3 text-sm">
+              <p className="font-medium">This is a repeating event. Save changes for:</p>
+              {saveScopeError && <p className="mt-2 text-destructive">{saveScopeError}</p>}
+              <div className="mt-3 flex gap-2">
+                <Button
+                  className="flex-1 py-2 text-sm touch-manipulation"
+                  onClick={() => handleSave("this")}
+                  disabled={isSaving}
+                >
+                  This event
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1 py-2 text-sm touch-manipulation"
+                  onClick={() => handleSave("series")}
+                  disabled={isSaving}
+                >
+                  All events
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Actions */}
           <div className="mt-4 flex gap-2">
             {isEditing ? (
@@ -785,7 +861,7 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
                 </Button>
                 <Button
                   className="flex-1 py-2 text-sm touch-manipulation"
-                  onClick={handleSave}
+                  onClick={() => handleSave()}
                   disabled={isSaving}
                 >
                   {isSaving ? "Saving..." : "Save"}
@@ -832,7 +908,9 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
               Delete Event
             </AlertDialog.Title>
             <AlertDialog.Description className="mt-2 text-sm text-muted-foreground">
-              Are you sure you want to delete "{event.title}"? This action cannot be undone.
+              {occurrence
+                ? `"${event.title}" repeats. Delete only this event, or every event in the series? This action cannot be undone.`
+                : `Are you sure you want to delete "${event.title}"? This action cannot be undone.`}
             </AlertDialog.Description>
             <div className="mt-6 flex gap-3 justify-end">
               <AlertDialog.Cancel asChild>
@@ -844,14 +922,35 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
                   Cancel
                 </Button>
               </AlertDialog.Cancel>
-              <Button
-                variant="destructive"
-                className="px-4 py-2 text-sm"
-                onClick={handleDelete}
-                disabled={isDeleting}
-              >
-                {isDeleting ? "Deleting..." : "Delete"}
-              </Button>
+              {occurrence ? (
+                <>
+                  <Button
+                    variant="destructive"
+                    className="px-4 py-2 text-sm"
+                    onClick={() => handleDelete("this")}
+                    disabled={isDeleting}
+                  >
+                    This event
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="px-4 py-2 text-sm"
+                    onClick={() => handleDelete("series")}
+                    disabled={isDeleting}
+                  >
+                    All events
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="destructive"
+                  className="px-4 py-2 text-sm"
+                  onClick={() => handleDelete()}
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? "Deleting..." : "Delete"}
+                </Button>
+              )}
             </div>
           </AlertDialog.Content>
         </AlertDialog.Portal>
