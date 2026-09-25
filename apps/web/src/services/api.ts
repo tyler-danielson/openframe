@@ -2935,9 +2935,32 @@ class ApiClient {
     return response.blob();
   }
 
-  getRemarkableTemplatePreviewUrl(id: string, date?: string): string {
-    const params = date ? `?date=${date}` : "";
-    return `${API_BASE}/remarkable/templates/${id}/preview${params}`;
+  async fetchRemarkableTemplatePreviewBlob(id: string, date?: string): Promise<Blob> {
+    const url = `${API_BASE}/remarkable/templates/${id}/preview`;
+    const send = () => {
+      const { accessToken, apiKey } = useAuthStore.getState();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (apiKey) {
+        headers["x-api-key"] = apiKey;
+      } else if (accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`;
+      }
+      return fetch(url, { method: "POST", headers, body: JSON.stringify(date ? { date } : {}) });
+    };
+
+    let response = await send();
+
+    // Handle token refresh
+    if (response.status === 401 && useAuthStore.getState().refreshToken) {
+      if (await this.ensureValidTokens()) {
+        response = await send();
+      }
+    }
+
+    if (!response.ok) {
+      throw new Error(`Preview failed (${response.status})`);
+    }
+    return response.blob();
   }
 
   async pushRemarkableTemplate(id: string, date?: string): Promise<{

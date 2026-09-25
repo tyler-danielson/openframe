@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Calendar,
@@ -61,6 +61,31 @@ export function TemplateManager({ onClose }: TemplateManagerProps) {
   const [newTemplateType, setNewTemplateType] = useState<TemplateType | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<RemarkableTemplate | null>(null);
   const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!previewTemplateId) return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setPreviewUrl(null);
+    setPreviewError(null);
+    api
+      .fetchRemarkableTemplatePreviewBlob(previewTemplateId)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setPreviewUrl(objectUrl);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setPreviewError(err instanceof Error ? err.message : "Preview failed");
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setPreviewUrl(null);
+    };
+  }, [previewTemplateId]);
 
   // Fetch templates
   const { data: templates = [], isLoading } = useQuery({
@@ -386,11 +411,17 @@ export function TemplateManager({ onClose }: TemplateManagerProps) {
               </button>
             </div>
             <div className="flex-1 overflow-auto p-4">
-              <iframe
-                src={api.getRemarkableTemplatePreviewUrl(previewTemplateId)}
-                className="w-full h-[70vh] border rounded-lg"
-                title="Template Preview"
-              />
+              {previewError ? (
+                <p className="text-sm text-destructive">{previewError}</p>
+              ) : previewUrl ? (
+                <iframe
+                  src={previewUrl}
+                  className="w-full h-[70vh] border rounded-lg"
+                  title="Template Preview"
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">Generating preview…</p>
+              )}
             </div>
           </div>
         </div>

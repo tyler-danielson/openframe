@@ -175,6 +175,26 @@ export function zonedDayRange(instant: Date, timeZone: string, days = 1): { star
 }
 
 /**
+ * The instants spanning the 7-day week (in `timeZone`) that contains `instant`,
+ * starting on `weekStartsOn` (0 = Sunday).
+ */
+export function zonedWeekRange(
+  instant: Date,
+  timeZone: string,
+  weekStartsOn = 1
+): { start: Date; end: Date } {
+  const p = getZonedParts(instant, timeZone);
+  const dow = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay();
+  const back = (dow - weekStartsOn + 7) % 7;
+  const first = new Date(Date.UTC(p.year, p.month - 1, p.day - back));
+  const noon = zonedTimeToUtc(
+    { year: first.getUTCFullYear(), month: first.getUTCMonth() + 1, day: first.getUTCDate(), hour: 12, minute: 0, second: 0 },
+    timeZone
+  );
+  return zonedDayRange(noon, timeZone, 7);
+}
+
+/**
  * A Date whose *local* fields show `instant`'s wall-clock time in `timeZone`,
  * for formatting with date-fns regardless of the server's own zone.
  */
