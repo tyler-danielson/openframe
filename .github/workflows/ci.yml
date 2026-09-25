@@ -60,6 +60,11 @@ jobs:
       - name: Check every migration is registered in the journal
         run: pnpm --filter @openframe/database check:migrations
 
+      - name: Check the Drizzle schema matches the migrations
+        run: pnpm --filter @openframe/database check:schema
+        env:
+          DATABASE_URL: postgres://openframe:openframe@localhost:5432/openframe_test
+
       - name: Build shared packages
         run: pnpm --filter @openframe/shared --filter @openframe/database build
 

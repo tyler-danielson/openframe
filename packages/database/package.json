@@ -18,6 +18,7 @@
   "scripts": {
     "build": "tsc",
     "check:migrations": "node scripts/check-migrations.mjs",
+    "check:schema": "node scripts/check-schema-drift.mjs",
     "test": "node scripts/check-migrations.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
