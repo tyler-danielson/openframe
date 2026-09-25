@@ -121,6 +121,8 @@ export interface WhatsAppStatus {
   connected: boolean;
   phoneNumber?: string;
   displayName?: string;
+  /** Chats link themselves by sending "/start <linkCode>" to the number */
+  linkCode?: string;
   settings: {
     dailyAgendaEnabled: boolean;
     dailyAgendaTime: string;

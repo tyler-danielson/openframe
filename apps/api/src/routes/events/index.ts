@@ -15,7 +15,7 @@ import { googleInstanceId } from "../../services/calendar-sync/google.js";
 import { pushEventChange, pushOccurrenceChange } from "../../services/calendar-sync/push.js";
 import { encryptEventFields, decryptEventFields } from "../../lib/encryption.js";
 import { isValidTimeZone, resolveTimeZone } from "../../lib/timezone.js";
-import { parseQuickEvent } from "../../services/quick-event.js";
+import { createQuickEvent } from "../../services/quick-event.js";
 
 type CalendarRecord = typeof calendars.$inferSelect;
 
@@ -292,54 +292,18 @@ export const eventRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const input = quickEventSchema.parse(request.body);
 
-      let calendar: CalendarRecord | undefined;
-      if (input.calendarId) {
-        calendar = await getOwnedCalendar(fastify.db, input.calendarId, user.id);
-        if (!calendar) return reply.notFound("Calendar not found");
-      } else {
-        [calendar] = await fastify.db
-          .select()
-          .from(calendars)
-          .where(and(eq(calendars.userId, user.id), eq(calendars.isPrimary, true)))
-          .limit(1);
-        if (!calendar) return reply.badRequest("No default calendar found");
+      const result = await createQuickEvent(fastify.db, user, input.text, {
+        calendarId: input.calendarId,
+        timeZone: input.timeZone,
+      });
+      if (!result.ok) {
+        return result.status === 404 ? reply.notFound(result.message) : reply.badRequest(result.message);
       }
-      if (calendar.isReadOnly) {
-        return reply.badRequest("Calendar is read-only");
-      }
-
-      const timeZone = pickTimeZone(input.timeZone, user.timezone);
-      const parsed = parseQuickEvent(input.text, timeZone);
-      if (!parsed) {
-        return reply.badRequest("Could not parse event. Try format: 'Meeting with John tomorrow at 2pm'");
-      }
-
-      const [event] = await fastify.db
-        .insert(events)
-        .values(
-          encryptEventFields({
-            calendarId: calendar.id,
-            externalId: `local_${randomUUID()}`,
-            title: parsed.title,
-            startTime: parsed.startTime,
-            endTime: parsed.endTime,
-            isAllDay: parsed.isAllDay,
-            timeZone: parsed.isAllDay ? null : timeZone,
-          })
-        )
-        .returning();
-
-      if (!event) {
-        return reply.internalServerError("Failed to create event");
-      }
-
-      const push = await pushEventChange(fastify.db, calendar, event, "create", timeZone);
-      const [current] = await fastify.db.select().from(events).where(eq(events.id, event.id)).limit(1);
 
       return reply.status(201).send({
         success: true,
-        data: decryptEventFields(current ?? event),
-        ...(push && !push.ok ? { syncWarning: push.error } : {}),
+        data: result.event,
+        ...(result.syncWarning ? { syncWarning: result.syncWarning } : {}),
       });
     }
   );

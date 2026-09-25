@@ -15,6 +15,7 @@ import { whatsappConfig, whatsappChats } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { WhatsAppService } from "../../services/whatsapp.js";
 import QRCode from "qrcode";
+import { chatLinkCode } from "../../lib/chat-link.js";
 
 export const whatsappRoutes: FastifyPluginAsync = async (fastify) => {
   const { authenticate } = fastify;
@@ -189,6 +190,8 @@ export const whatsappRoutes: FastifyPluginAsync = async (fastify) => {
           connected: isConnected && config.isConnected,
           phoneNumber: config.phoneNumber,
           displayName: config.displayName,
+          // Chats link themselves by sending "/start <linkCode>"
+          linkCode: chatLinkCode("whatsapp", user.id),
           settings: {
             dailyAgendaEnabled: config.dailyAgendaEnabled,
             dailyAgendaTime: config.dailyAgendaTime,

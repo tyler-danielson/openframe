@@ -245,6 +245,21 @@ export function WhatsAppSettings({ onClose }: WhatsAppSettingsProps) {
             </>
           ) : (
             <>
+              {/* How to link a chat */}
+              {status.linkCode && (
+                <div>
+                  <h3 className="font-medium mb-2">Link a Chat</h3>
+                  <p className="text-sm text-muted-foreground">
+                    From the chat you want to use (yours, a family member's, or a group), send this
+                    message to {status.phoneNumber ? `+${status.phoneNumber}` : "the connected number"}.
+                    Messages from chats that aren't linked are ignored.
+                  </p>
+                  <code className="mt-2 block rounded-md bg-muted px-3 py-2 text-sm select-all">
+                    /start {status.linkCode}
+                  </code>
+                </div>
+              )}
+
               {/* Linked Chats */}
               {status.chats.length > 0 && (
                 <div>

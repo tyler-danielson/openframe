@@ -34,6 +34,8 @@ import {
   zonedDayRange,
 } from "../lib/timezone.js";
 import { queryEventsInRange } from "./calendar-events.js";
+import { isValidChatLinkCode } from "../lib/chat-link.js";
+import { createQuickEvent, describeEventTime } from "./quick-event.js";
 
 // Baileys - dynamic import to handle ESM/CJS differences
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -84,40 +86,44 @@ export class WhatsAppService {
 
   // --- Command Handlers ---
 
-  async handleMessage(jid: string, messageText: string): Promise<void> {
+  async handleMessage(jid: string, messageText: string, senderName: string | null = null): Promise<void> {
     const text = messageText.trim();
+    if (!text.startsWith("/")) return;
 
-    if (text.startsWith("/")) {
-      const parts = text.split(" ");
-      const command = parts[0] || "";
-      const args = parts.slice(1);
-      const cmdName = command.substring(1).toLowerCase();
+    const parts = text.split(" ");
+    const command = parts[0] || "";
+    const args = parts.slice(1);
+    const cmdName = command.substring(1).toLowerCase();
 
-      switch (cmdName) {
-        case "start":
-          await this.handleStart(jid);
-          break;
-        case "today":
-          await this.handleToday(jid);
-          break;
-        case "tomorrow":
-          await this.handleTomorrow(jid);
-          break;
-        case "week":
-          await this.handleWeek(jid);
-          break;
-        case "tasks":
-          await this.handleTasks(jid);
-          break;
-        case "quick":
-          await this.handleQuickAdd(jid, args.join(" "));
-          break;
-        case "help":
-          await this.handleHelp(jid);
-          break;
-        default:
-          await this.sendMessage(jid, "Unknown command. Send /help to see available commands.");
-      }
+    if (cmdName === "start") {
+      await this.handleStart(jid, args[0], senderName);
+      return;
+    }
+    // This is a real WhatsApp number that anyone can message: stay silent in
+    // chats the owner hasn't linked
+    if (!(await this.isLinkedChat(jid))) return;
+
+    switch (cmdName) {
+      case "today":
+        await this.handleToday(jid);
+        break;
+      case "tomorrow":
+        await this.handleTomorrow(jid);
+        break;
+      case "week":
+        await this.handleWeek(jid);
+        break;
+      case "tasks":
+        await this.handleTasks(jid);
+        break;
+      case "quick":
+        await this.handleQuickAdd(jid, args.join(" "));
+        break;
+      case "help":
+        await this.handleHelp(jid);
+        break;
+      default:
+        await this.sendMessage(jid, "Unknown command. Send /help to see available commands.");
     }
 
     // Update last message time for this chat
@@ -132,8 +138,18 @@ export class WhatsAppService {
       );
   }
 
-  private async handleStart(jid: string): Promise<void> {
-    // Auto-link the chat
+  /** Whether `jid` has been linked (and not disabled) by the account owner. */
+  private async isLinkedChat(jid: string): Promise<boolean> {
+    const [chat] = await this.db
+      .select({ isActive: whatsappChats.isActive })
+      .from(whatsappChats)
+      .where(and(eq(whatsappChats.userId, this.userId), eq(whatsappChats.jid, jid)))
+      .limit(1);
+    return !!chat?.isActive;
+  }
+
+  /** Link a chat that sends `/start <code>` with the code from the owner's settings. */
+  private async handleStart(jid: string, linkCode: string | undefined, chatName: string | null): Promise<void> {
     const [existing] = await this.db
       .select()
       .from(whatsappChats)
@@ -146,11 +162,19 @@ export class WhatsAppService {
       .limit(1);
 
     if (!existing) {
+      if (!isValidChatLinkCode("whatsapp", this.userId, linkCode)) {
+        await this.sendMessage(
+          jid,
+          "To link this chat to OpenFrame, send /start followed by the code shown in OpenFrame → Settings → WhatsApp."
+        );
+        return;
+      }
       const isGroup = jid.endsWith("@g.us");
       await this.db.insert(whatsappChats).values({
         userId: this.userId,
         jid,
         chatType: isGroup ? "group" : "private",
+        chatName,
         isActive: true,
       });
     }
@@ -274,9 +298,19 @@ Your chat has been linked. You'll receive calendar notifications here.
       return;
     }
 
+    const [user] = await this.db.select().from(users).where(eq(users.id, this.userId)).limit(1);
+    if (!user) return;
+    const result = await createQuickEvent(this.db, user, text);
+    if (!result.ok) {
+      await this.sendMessage(jid, `⚠️ ${result.message}`);
+      return;
+    }
+
+    const { event, calendar, timeZone } = result;
+    const warning = result.syncWarning ? `\n\n⚠️ Saved in OpenFrame, but not synced: ${result.syncWarning}` : "";
     await this.sendMessage(
       jid,
-      `📝 Quick add is not yet implemented.\n\nYou tried to add: "${text}"\n\nPlease use the OpenFrame web interface to add events for now.`
+      `✅ Added *${event.title}*\n📅 ${describeEventTime(event, timeZone)}\n🗂 ${calendar.displayName || calendar.name}${warning}`
     );
   }
 
@@ -292,7 +326,7 @@ Your chat has been linked. You'll receive calendar notifications here.
 /tasks - Show pending tasks
 
 📝 *Quick Actions*
-/quick [text] - Quick add an event (coming soon)
+/quick [text] - Quick add an event, e.g. /quick Dentist tomorrow at 3pm
 
 ℹ️ *Other*
 /help - Show this help message
@@ -536,33 +570,10 @@ _Tip: You'll receive automatic reminders for upcoming events!_`;
         if (!jid) continue;
 
         try {
+          // Chats are linked only through /start with the owner's code;
+          // messages from anyone else are ignored
           const service = new WhatsAppService(fastify, userId);
-
-          // Auto-link chat if not linked yet
-          const [existingChat] = await fastify.db
-            .select()
-            .from(whatsappChats)
-            .where(
-              and(
-                eq(whatsappChats.userId, userId),
-                eq(whatsappChats.jid, jid)
-              )
-            )
-            .limit(1);
-
-          if (!existingChat) {
-            const isGroup = jid.endsWith("@g.us");
-            const chatName = msg.pushName || null;
-            await fastify.db.insert(whatsappChats).values({
-              userId,
-              jid,
-              chatType: isGroup ? "group" : "private",
-              chatName,
-              isActive: true,
-            });
-          }
-
-          await service.handleMessage(jid, text);
+          await service.handleMessage(jid, text, msg.pushName || null);
         } catch (err) {
           logger.error({ err, jid }, "Error handling WhatsApp message");
         }

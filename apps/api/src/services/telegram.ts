@@ -34,6 +34,8 @@ import {
   zonedDayRange,
 } from "../lib/timezone.js";
 import { queryEventsInRange } from "./calendar-events.js";
+import { isValidChatLinkCode } from "../lib/chat-link.js";
+import { createQuickEvent, describeEventTime } from "./quick-event.js";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org/bot";
 
@@ -41,6 +43,9 @@ const TELEGRAM_API_BASE = "https://api.telegram.org/bot";
 function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+
+const NOT_LINKED_MESSAGE =
+  "This chat isn't linked to OpenFrame. Open the link shown in OpenFrame → Settings → Telegram to link it.";
 
 // Telegram API types
 export interface TelegramUser {
@@ -241,10 +246,16 @@ export class TelegramService {
       const args = parts.slice(1);
       const cmdName = command.substring(1).split("@")[0]; // Remove @ mention
 
+      if (cmdName === "start") {
+        await this.handleStart(chatId, message, args[0]);
+        return;
+      }
+      if (cmdName !== "help" && !(await this.isLinkedChat(chatId))) {
+        await this.sendMessage(chatId, NOT_LINKED_MESSAGE);
+        return;
+      }
+
       switch (cmdName) {
-        case "start":
-          await this.handleStart(chatId, message);
-          break;
         case "today":
           await this.handleToday(chatId);
           break;
@@ -283,12 +294,23 @@ export class TelegramService {
       );
   }
 
+  /** Whether `chatId` has been linked (and not disabled) by the account owner. */
+  private async isLinkedChat(chatId: string): Promise<boolean> {
+    const [chat] = await this.db
+      .select({ isActive: telegramChats.isActive })
+      .from(telegramChats)
+      .where(and(eq(telegramChats.userId, this.userId), eq(telegramChats.chatId, chatId)))
+      .limit(1);
+    return !!chat?.isActive;
+  }
+
   /**
    * Handle /start command - link chat to account
    */
   private async handleStart(
     chatId: string,
-    message: TelegramMessage
+    message: TelegramMessage,
+    linkCode: string | undefined
   ): Promise<void> {
     const chat = message.chat;
 
@@ -309,6 +331,13 @@ export class TelegramService {
         chatId,
         "This chat is already linked to your OpenFrame account! Use /help to see available commands."
       );
+      return;
+    }
+
+    // Anyone can message a bot, so linking needs the code from the owner's
+    // settings (Telegram passes it along from the t.me/<bot>?start=<code> link)
+    if (!isValidChatLinkCode("telegram", this.userId, linkCode)) {
+      await this.sendMessage(chatId, NOT_LINKED_MESSAGE);
       return;
     }
 
@@ -450,10 +479,19 @@ export class TelegramService {
       return;
     }
 
-    // For now, just acknowledge - actual implementation would parse natural language
+    const [user] = await this.db.select().from(users).where(eq(users.id, this.userId)).limit(1);
+    if (!user) return;
+    const result = await createQuickEvent(this.db, user, text);
+    if (!result.ok) {
+      await this.sendMessage(chatId, `⚠️ ${escapeHtml(result.message)}`);
+      return;
+    }
+
+    const { event, calendar, timeZone } = result;
+    const warning = result.syncWarning ? `\n\n⚠️ Saved in OpenFrame, but not synced: ${escapeHtml(result.syncWarning)}` : "";
     await this.sendMessage(
       chatId,
-      `📝 Quick add is not yet implemented.\n\nYou tried to add: "${escapeHtml(text)}"\n\nPlease use the OpenFrame web interface to add events for now.`
+      `✅ Added <b>${escapeHtml(event.title)}</b>\n📅 ${describeEventTime(event, timeZone)}\n🗂 ${escapeHtml(calendar.displayName || calendar.name)}${warning}`
     );
   }
 
@@ -472,7 +510,7 @@ export class TelegramService {
 /tasks - Show pending tasks
 
 📝 <b>Quick Actions</b>
-/quick [text] - Quick add an event (coming soon)
+/quick [text] - Quick add an event, e.g. /quick Dentist tomorrow at 3pm
 
 ℹ️ <b>Other</b>
 /help - Show this help message
