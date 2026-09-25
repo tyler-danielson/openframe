@@ -186,6 +186,8 @@ describe("calendar sync (integration)", { skip: !DATABASE_URL && "set TEST_DATAB
     assert.equal(family.syncToken, "sync-1");
     assert.ok(family.fullSyncAt);
     assert.equal(family.oauthTokenId, token.id);
+    // Other calendars of a connected account stay off the views until turned on
+    assert.equal(family.visibility.month, false);
 
     let rows = await eventRows(family.id);
     assert.deepEqual(rows.map((r) => r.externalId), ["allday1", "series1", "series1_20260113T010000Z", "single1"]);
@@ -272,6 +274,8 @@ describe("calendar sync (integration)", { skip: !DATABASE_URL && "set TEST_DATAB
     route("GET", googleEventsPath("primary"), () => json({ items: [], nextSyncToken: "t" }));
     await syncOAuthAccount(db, token);
     const calendar = (await calendarByExternalId("primary"))!;
+    // The account's main calendar shows on the calendar views right away
+    assert.deepEqual(calendar.visibility, { week: true, month: true, day: true, popup: true, screensaver: false });
     await db.insert(events).values({
       calendarId: calendar.id,
       externalId: "local_pending",
@@ -345,6 +349,7 @@ describe("calendar sync (integration)", { skip: !DATABASE_URL && "set TEST_DATAB
 
     await syncOAuthAccount(db, token);
     const cal = (await calendarByExternalId("cal-A"))!;
+    assert.equal(cal.visibility.week, true); // the default calendar shows right away
     let rows = await eventRows(cal.id);
     assert.deepEqual(rows.map((r) => [r.externalId, r.title]), [["e1", "Review"], ["occ1", "Weekly sync"]]);
     assert.equal(rows[1]!.location, "Room 4");

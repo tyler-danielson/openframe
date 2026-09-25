@@ -7,6 +7,7 @@ import { MissingCalendarScopeError, syncAllForUser, syncCalendarNow } from "../.
 import { CalendarSyncError, describeSyncError } from "../../services/calendar-sync/errors.js";
 import { fetchIcsFeed, normalizeFeedUrl } from "../../services/calendar-sync/ics.js";
 import { parseIcs } from "../../services/calendar-sync/ics-parser.js";
+import { SHOWN_CALENDAR_VISIBILITY } from "../../lib/calendar-visibility.js";
 
 export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
   // List calendars
@@ -261,6 +262,7 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
           name,
           color: color || "#3b82f6",
           isVisible: true,
+          visibility: SHOWN_CALENDAR_VISIBILITY,
           syncEnabled: false,
           isReadOnly: false,
         })
@@ -448,6 +450,7 @@ export const calendarRoutes: FastifyPluginAsync = async (fastify) => {
           name: calendarName,
           sourceUrl: normalizedUrl,
           isVisible: true,
+          visibility: SHOWN_CALENDAR_VISIBILITY,
           syncEnabled: true,
           isReadOnly: true, // ICS feeds are read-only
         })

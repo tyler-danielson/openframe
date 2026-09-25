@@ -16,6 +16,7 @@ import { providerFetch } from "./http.js";
 import { parseDatePropertyLine } from "./ics-parser.js";
 import { getValidAccessToken, type OAuthToken } from "./oauth.js";
 import { extractRRuleValue } from "./recurrence.js";
+import { SHOWN_CALENDAR_VISIBILITY } from "../../lib/calendar-visibility.js";
 
 interface GoogleCalendar {
   id: string;
@@ -218,6 +219,7 @@ async function syncCalendarList(db: Database, token: OAuthToken, accessToken: st
         isPrimary: gcal.primary ?? false,
         isReadOnly,
         oauthTokenId: token.id,
+        ...(gcal.primary ? { visibility: SHOWN_CALENDAR_VISIBILITY } : {}),
       })
       .onConflictDoUpdate({
         target: [calendars.userId, calendars.provider, calendars.externalId],
