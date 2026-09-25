@@ -1,5 +1,8 @@
-# Build stage - compiles TypeScript source
-FROM node:22-alpine AS builder
+# Build stage - compiles TypeScript source. It runs on the build machine's own
+# platform: the compiled JS is the same for every target, and this keeps pnpm
+# and tsc out of QEMU when publishing the arm64 image. Only the runner stage is
+# built per target platform.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 
 RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
 
