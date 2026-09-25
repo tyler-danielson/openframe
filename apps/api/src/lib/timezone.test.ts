@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  zonedWeekRange,
   WINDOWS_TIME_ZONE_IDS,
   fromFloating,
   getTimeZoneOffsetMs,
@@ -97,4 +98,17 @@ test("resolveTimeZone falls back for unknown zones", () => {
   assert.equal(resolveTimeZone("America/Chicago"), "America/Chicago");
   assert.equal(resolveTimeZone("Mars/Olympus_Mons"), "UTC");
   assert.equal(resolveTimeZone(undefined, "Europe/Oslo"), "Europe/Oslo");
+});
+
+test("zonedWeekRange spans the user's local Monday-to-Sunday week", () => {
+  // Sunday 2026-03-08 23:30 in New York is already Monday in UTC.
+  const { start, end } = zonedWeekRange(new Date("2026-03-09T03:30:00Z"), "America/New_York", 1);
+  assert.equal(start.toISOString(), "2026-03-02T05:00:00.000Z");
+  // DST starts 2026-03-08, so the week ends at EDT midnight.
+  assert.equal(end.toISOString(), "2026-03-09T03:59:59.999Z");
+});
+
+test("zonedWeekRange honours a Sunday week start", () => {
+  const { start } = zonedWeekRange(new Date("2026-03-11T12:00:00Z"), "UTC", 0);
+  assert.equal(start.toISOString(), "2026-03-08T00:00:00.000Z");
 });

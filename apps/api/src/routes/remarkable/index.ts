@@ -10,7 +10,6 @@
 
 import type { FastifyPluginAsync } from "fastify";
 import { eq, and, desc, inArray } from "drizzle-orm";
-import { format, startOfDay, endOfDay, addDays, startOfWeek } from "date-fns";
 import * as path from "path";
 import { renderNotebookToPdf } from "../../services/remarkable/rm-parser.js";
 import {
@@ -34,6 +33,7 @@ import {
   toZonedDisplayDate,
   zonedDateToInstant,
   zonedDayRange,
+  zonedWeekRange,
 } from "../../lib/timezone.js";
 import { queryEventsInRange } from "../../services/calendar-events.js";
 import { getRemarkableClient } from "../../services/remarkable/client.js";
@@ -1331,14 +1331,14 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
         return fastify.httpErrors.notFound("Template not found");
       }
 
-      const targetDate = dateStr ? new Date(dateStr) : new Date();
+      const timeZone = resolveTimeZone(user.timezone);
+      const targetDate = dateStr ? zonedDateToInstant(dateStr, timeZone) : new Date();
 
       // Get events for the date range based on template type
-      let dateRange = { start: startOfDay(targetDate), end: endOfDay(targetDate) };
-      if (template.templateType === "weekly_planner") {
-        const weekStart = startOfWeek(targetDate, { weekStartsOn: template.config?.weekStartsOn ?? 1 });
-        dateRange = { start: weekStart, end: addDays(weekStart, 7) };
-      }
+      const dateRange =
+        template.templateType === "weekly_planner"
+          ? zonedWeekRange(targetDate, timeZone, template.config?.weekStartsOn ?? 1)
+          : zonedDayRange(targetDate, timeZone);
 
       // Get events
       const userCalendars = await fastify.db
@@ -1356,7 +1356,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
           calendarIds: calendarIds.filter((id: string) => allowedCalendars.has(id)),
           start: dateRange.start,
           end: dateRange.end,
-          timeZone: user.timezone,
+          timeZone,
         })
       )
         .filter((event) => event.startTime >= dateRange.start || event.isAllDay)
@@ -1440,14 +1440,14 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
         return fastify.httpErrors.notFound("Template not found");
       }
 
-      const targetDate = dateStr ? new Date(dateStr) : new Date();
+      const timeZone = resolveTimeZone(user.timezone);
+      const targetDate = dateStr ? zonedDateToInstant(dateStr, timeZone) : new Date();
 
       // Get events (similar to preview)
-      let dateRange = { start: startOfDay(targetDate), end: endOfDay(targetDate) };
-      if (template.templateType === "weekly_planner") {
-        const weekStart = startOfWeek(targetDate, { weekStartsOn: template.config?.weekStartsOn ?? 1 });
-        dateRange = { start: weekStart, end: addDays(weekStart, 7) };
-      }
+      const dateRange =
+        template.templateType === "weekly_planner"
+          ? zonedWeekRange(targetDate, timeZone, template.config?.weekStartsOn ?? 1)
+          : zonedDayRange(targetDate, timeZone);
 
       const userCalendars = await fastify.db
         .select()
@@ -1464,7 +1464,7 @@ export const remarkableRoutes: FastifyPluginAsync = async (fastify) => {
           calendarIds: calendarIds.filter((id: string) => allowedCalendars.has(id)),
           start: dateRange.start,
           end: dateRange.end,
-          timeZone: user.timezone,
+          timeZone,
         })
       )
         .filter((event) => event.startTime >= dateRange.start || event.isAllDay)
