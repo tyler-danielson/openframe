@@ -1,5 +1,11 @@
+# The build stages run on the build machine's own platform ($BUILDPLATFORM):
+# what they produce (static files, compiled JS, a cross-compiled Go binary) is
+# the same whatever the target, and building natively keeps pnpm, tsc and vite
+# out of QEMU when publishing the arm64 image, which is slow and has hung the
+# publish workflow. Only the runner stage is built per target platform.
+
 # Stage 1: Build React web app
-FROM node:22-alpine AS web-builder
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web-builder
 
 ARG VITE_BASE_PATH=/
 ARG VITE_CLOUD_MODE=false
@@ -30,7 +36,7 @@ RUN pnpm turbo build --filter=@openframe/web...
 
 
 # Stage 2: Build API
-FROM node:22-alpine AS api-builder
+FROM --platform=$BUILDPLATFORM node:22-alpine AS api-builder
 
 RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
 
@@ -55,12 +61,15 @@ COPY apps/api/ ./apps/api/
 RUN pnpm turbo build --filter=@openframe/api...
 
 
-# Stage 3: Build ddvk/rmapi from source for Alpine/musl
-FROM golang:1.23-alpine AS rmapi-builder
+# Stage 3: Build ddvk/rmapi from source for Alpine/musl, cross-compiled for the
+# target platform (static binary, no cgo)
+FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS rmapi-builder
 RUN apk add --no-cache git
 RUN git clone --depth 1 --branch v0.0.32 https://github.com/ddvk/rmapi.git /src/rmapi
 WORKDIR /src/rmapi
-RUN CGO_ENABLED=0 go build -o /usr/local/bin/rmapi .
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /usr/local/bin/rmapi .
 
 # Stage 4: Production runner
 FROM node:22-alpine AS runner
