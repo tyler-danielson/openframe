@@ -1836,6 +1836,10 @@ export const telegramConfig = pgTable("telegram_config", {
   dailyAgendaTime: text("daily_agenda_time").default("07:00").notNull(), // HH:mm format
   eventRemindersEnabled: boolean("event_reminders_enabled").default(true).notNull(),
   eventReminderMinutes: integer("event_reminder_minutes").default(15).notNull(),
+  // What the scheduler has sent (apps/api/src/services/bot-notifications.ts),
+  // so a restart doesn't send it again
+  dailyAgendaSentAt: timestamp("daily_agenda_sent_at", { withTimezone: true }),
+  sentReminders: jsonb("sent_reminders").$type<string[]>(), // "<event id>@<ISO start>" of reminded occurrences that haven't started
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
@@ -1906,6 +1910,10 @@ export const whatsappConfig = pgTable("whatsapp_config", {
   dailyAgendaTime: text("daily_agenda_time").default("07:00").notNull(),
   eventRemindersEnabled: boolean("event_reminders_enabled").default(true).notNull(),
   eventReminderMinutes: integer("event_reminder_minutes").default(15).notNull(),
+  // What the scheduler has sent (apps/api/src/services/bot-notifications.ts),
+  // so a restart doesn't send it again
+  dailyAgendaSentAt: timestamp("daily_agenda_sent_at", { withTimezone: true }),
+  sentReminders: jsonb("sent_reminders").$type<string[]>(), // "<event id>@<ISO start>" of reminded occurrences that haven't started
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),

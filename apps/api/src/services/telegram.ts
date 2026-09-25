@@ -34,10 +34,14 @@ import {
   zonedDayRange,
 } from "../lib/timezone.js";
 import { queryEventsInRange } from "./calendar-events.js";
+import type { ExpandedEvent } from "./calendar-sync/recurrence.js";
+import { describeTimeUntil } from "../lib/notification-timing.js";
 import { isValidChatLinkCode } from "../lib/chat-link.js";
 import { createQuickEvent, describeEventTime } from "./quick-event.js";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org/bot";
+// Scheduled notifications go out one after another; an unreachable API mustn't stall them
+const TELEGRAM_TIMEOUT_MS = 15 * 1000;
 
 /** Messages use Telegram's HTML parse mode; a stray "<" or "&" makes it reject the message */
 function escapeHtml(text: string): string {
@@ -145,6 +149,7 @@ export class TelegramService {
         "Content-Type": "application/json",
       },
       body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(TELEGRAM_TIMEOUT_MS),
     });
 
     const data = await response.json();
@@ -363,18 +368,31 @@ export class TelegramService {
    * Handle /today command
    */
   private async handleToday(chatId: string): Promise<void> {
-    const timeZone = await this.getTimeZone();
-    const today = new Date();
-    const agenda = await this.getAgendaForDate(today, timeZone);
+    await this.sendMessage(chatId, await this.todayMessage(new Date(), await this.getTimeZone()));
+  }
 
+  /** The /today reply, also sent as the scheduled daily agenda */
+  async todayMessage(now: Date, timeZone: string): Promise<string> {
+    const agenda = await this.getAgendaForDate(now, timeZone);
     if (agenda.length === 0) {
-      await this.sendMessage(chatId, "📅 <b>Today's Schedule</b>\n\nNo events scheduled for today.");
-      return;
+      return "📅 <b>Today's Schedule</b>\n\nNo events scheduled for today.";
     }
+    const header = `📅 <b>Today's Schedule</b>\n${format(toZonedDisplayDate(now, timeZone), "EEEE, MMMM d")}\n\n`;
+    return header + this.formatEventList(agenda, timeZone);
+  }
 
-    const header = `📅 <b>Today's Schedule</b>\n${format(toZonedDisplayDate(today, timeZone), "EEEE, MMMM d")}\n\n`;
-    const eventList = this.formatEventList(agenda, timeZone);
-    await this.sendMessage(chatId, header + eventList);
+  /** A scheduled reminder that a timed event is about to start */
+  reminderMessage(event: ExpandedEvent, now: Date, timeZone: string): string {
+    return `🔔 <b>Starting ${describeTimeUntil(event.startTime, now)}</b>\n\n${this.formatEventList([event], timeZone)}`;
+  }
+
+  /** Chats linked with /start <code> and still active: where notifications go */
+  async linkedChatIds(): Promise<string[]> {
+    const chats = await this.db
+      .select({ chatId: telegramChats.chatId })
+      .from(telegramChats)
+      .where(and(eq(telegramChats.userId, this.userId), eq(telegramChats.isActive, true)));
+    return chats.map((c) => c.chatId);
   }
 
   /**
@@ -525,7 +543,7 @@ export class TelegramService {
   /**
    * Get events for a specific date
    */
-  private async getTimeZone(): Promise<string> {
+  async getTimeZone(): Promise<string> {
     const [user] = await this.db
       .select({ timezone: users.timezone })
       .from(users)
@@ -534,7 +552,7 @@ export class TelegramService {
     return resolveTimeZone(user?.timezone);
   }
 
-  private async getAgendaForDate(date: Date, timeZone: string): Promise<typeof events.$inferSelect[]> {
+  private async getAgendaForDate(date: Date, timeZone: string): Promise<ExpandedEvent[]> {
     const { start, end } = zonedDayRange(date, timeZone);
     return this.getAgendaForRange(start, end, timeZone);
   }
@@ -542,11 +560,11 @@ export class TelegramService {
   /**
    * Get events for a date range (recurring events expanded)
    */
-  private async getAgendaForRange(
+  async getAgendaForRange(
     start: Date,
     end: Date,
     timeZone: string
-  ): Promise<typeof events.$inferSelect[]> {
+  ): Promise<ExpandedEvent[]> {
     // Get user's visible calendars
     const userCalendars = await this.db
       .select()

@@ -34,6 +34,8 @@ import {
   zonedDayRange,
 } from "../lib/timezone.js";
 import { queryEventsInRange } from "./calendar-events.js";
+import type { ExpandedEvent } from "./calendar-sync/recurrence.js";
+import { describeTimeUntil } from "../lib/notification-timing.js";
 import { isValidChatLinkCode } from "../lib/chat-link.js";
 import { createQuickEvent, describeEventTime } from "./quick-event.js";
 
@@ -51,6 +53,8 @@ async function loadBaileys() {
 const activeSockets = new Map<string, {
   socket: any; // WASocket type from Baileys
   userId: string;
+  /** Set once the connection opens; sends fail before that (e.g. while reconnecting) */
+  isOpen?: boolean;
 }>();
 
 // QR code callbacks for pending connections keyed by userId
@@ -196,18 +200,31 @@ Your chat has been linked. You'll receive calendar notifications here.
   }
 
   private async handleToday(jid: string): Promise<void> {
-    const timeZone = await this.getTimeZone();
-    const today = new Date();
-    const agenda = await this.getAgendaForDate(today, timeZone);
+    await this.sendMessage(jid, await this.todayMessage(new Date(), await this.getTimeZone()));
+  }
 
+  /** The /today reply, also sent as the scheduled daily agenda */
+  async todayMessage(now: Date, timeZone: string): Promise<string> {
+    const agenda = await this.getAgendaForDate(now, timeZone);
     if (agenda.length === 0) {
-      await this.sendMessage(jid, "📅 *Today's Schedule*\n\nNo events scheduled for today.");
-      return;
+      return "📅 *Today's Schedule*\n\nNo events scheduled for today.";
     }
+    const header = `📅 *Today's Schedule*\n${format(toZonedDisplayDate(now, timeZone), "EEEE, MMMM d")}\n\n`;
+    return header + this.formatEventList(agenda, timeZone);
+  }
 
-    const header = `📅 *Today's Schedule*\n${format(toZonedDisplayDate(today, timeZone), "EEEE, MMMM d")}\n\n`;
-    const eventList = this.formatEventList(agenda, timeZone);
-    await this.sendMessage(jid, header + eventList);
+  /** A scheduled reminder that a timed event is about to start */
+  reminderMessage(event: ExpandedEvent, now: Date, timeZone: string): string {
+    return `🔔 *Starting ${describeTimeUntil(event.startTime, now)}*\n\n${this.formatEventList([event], timeZone)}`;
+  }
+
+  /** Chats linked with /start <code> and still active: where notifications go */
+  async linkedChatIds(): Promise<string[]> {
+    const chats = await this.db
+      .select({ jid: whatsappChats.jid })
+      .from(whatsappChats)
+      .where(and(eq(whatsappChats.userId, this.userId), eq(whatsappChats.isActive, true)));
+    return chats.map((c) => c.jid);
   }
 
   private async handleTomorrow(jid: string): Promise<void> {
@@ -338,7 +355,7 @@ _Tip: You'll receive automatic reminders for upcoming events!_`;
 
   // --- Helper Methods ---
 
-  private async getTimeZone(): Promise<string> {
+  async getTimeZone(): Promise<string> {
     const [user] = await this.db
       .select({ timezone: users.timezone })
       .from(users)
@@ -347,7 +364,7 @@ _Tip: You'll receive automatic reminders for upcoming events!_`;
     return resolveTimeZone(user?.timezone);
   }
 
-  private async getAgendaForDate(date: Date, timeZone: string): Promise<typeof events.$inferSelect[]> {
+  private async getAgendaForDate(date: Date, timeZone: string): Promise<ExpandedEvent[]> {
     const { start, end } = zonedDayRange(date, timeZone);
     return this.getAgendaForRange(start, end, timeZone);
   }
@@ -355,11 +372,11 @@ _Tip: You'll receive automatic reminders for upcoming events!_`;
   /**
    * Get events for a date range (recurring events expanded)
    */
-  private async getAgendaForRange(
+  async getAgendaForRange(
     start: Date,
     end: Date,
     timeZone: string
-  ): Promise<typeof events.$inferSelect[]> {
+  ): Promise<ExpandedEvent[]> {
     // Get user's visible calendars
     const userCalendars = await this.db
       .select()
@@ -485,6 +502,8 @@ _Tip: You'll receive automatic reminders for upcoming events!_`;
       }
 
       if (connection === "close") {
+        const closed = activeSockets.get(userId);
+        if (closed && closed.socket === socket) closed.isOpen = false;
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
         const shouldReconnect = statusCode !== baileys.DisconnectReason.loggedOut;
 
@@ -507,6 +526,8 @@ _Tip: You'll receive automatic reminders for upcoming events!_`;
       }
 
       if (connection === "open") {
+        const conn = activeSockets.get(userId);
+        if (conn && conn.socket === socket) conn.isOpen = true;
         logger.info("WhatsApp connected successfully");
         qrCallbacks.delete(userId);
 
@@ -656,10 +677,10 @@ _Tip: You'll receive automatic reminders for upcoming events!_`;
   }
 
   /**
-   * Check if WhatsApp is currently connected (socket alive)
+   * Check if WhatsApp is currently connected (socket open, so messages can be sent)
    */
   static isConnected(userId: string): boolean {
-    return activeSockets.has(userId);
+    return activeSockets.get(userId)?.isOpen === true;
   }
 
   /**
