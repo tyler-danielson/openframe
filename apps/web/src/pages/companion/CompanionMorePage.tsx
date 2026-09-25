@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "../../stores/auth";
+import { signOut } from "../../lib/session";
 import { api } from "../../services/api";
 import { Card } from "../../components/ui/Card";
 import { useCompanion } from "./CompanionContext";
@@ -72,7 +73,6 @@ const allMenuGroups: MenuGroup[] = [
 export function CompanionMorePage() {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
-  const logout = useAuthStore((state) => state.logout);
   const companion = useCompanion();
 
   // Join request count (only for owners)
@@ -96,8 +96,7 @@ export function CompanionMorePage() {
     .filter((group) => group.items.length > 0);
 
   const handleLogout = () => {
-    logout();
-    navigate("/companion/login", { replace: true });
+    void signOut({ redirectTo: "/companion/login" });
   };
 
   return (

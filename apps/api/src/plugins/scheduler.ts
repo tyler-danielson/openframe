@@ -55,15 +55,14 @@ import { listAlbumPhotos, getAccessToken, getPhotoUrl } from "../services/google
 import { randomUUID } from "crypto";
 import { processImage } from "../services/photos/processor.js";
 import { mkdir } from "fs/promises";
-import { existsSync } from "fs";
 import { join } from "path";
-import * as os from "os";
 import {
   fetchGamesForTeams,
   formatDateForESPN,
   SUPPORTED_LEAGUES,
   fetchScoreboard,
 } from "../services/espn.js";
+import { fetchPublic } from "../lib/outbound.js";
 import type { SportsGame, GameStatus } from "@openframe/shared";
 
 // Refresh interval: 4 hours
@@ -96,9 +95,8 @@ const REMARKABLE_AGENDA_CHECK_INTERVAL_MS = 60 * 1000;
 // Profile planner check interval (1 minute - to check if push time reached)
 const PROFILE_PLANNER_CHECK_INTERVAL_MS = 60 * 1000;
 
-// rmapi config file path (must match client.ts)
-const RMAPI_HOME = process.env.NODE_ENV === "production" ? "/root" : os.homedir();
-const RMAPI_CONFIG = join(RMAPI_HOME, ".config", "rmapi", "rmapi.conf");
+// Every user has their own reMarkable connection (rmapi config); the jobs below
+// only ever run rmapi through getRemarkableClient(fastify, <that user's id>)
 
 // Max consecutive rmapi failures before stopping retries for the day
 const MAX_RMAPI_FAILURES = 3;
@@ -381,7 +379,7 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
               continue;
             }
 
-            const domain = timer.entityId.split(".")[0];
+            const domain = timer.entityId.split(".")[0] ?? "";
             const service = timer.action === "turn_on" ? "turn_on" : "turn_off";
 
             // Build service data
@@ -396,7 +394,8 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
 
             // Call HA service
             const baseUrl = config.url.replace(/\/+$/, "");
-            const response = await fetch(`${baseUrl}/api/services/${domain}/${service}`, {
+            // The user's own Home Assistant: on the hosted service only a public address
+            const response = await fetchPublic(`${baseUrl}/api/services/${encodeURIComponent(domain)}/${encodeURIComponent(service)}`, {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${config.accessToken}`,
@@ -527,11 +526,6 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
   const startRemarkableNoteScheduler = () => {
     const pollNotes = async () => {
       try {
-        // Check if rmapi config file exists — if not, skip polling
-        if (!existsSync(RMAPI_CONFIG)) {
-          return;
-        }
-
         // Get all connected reMarkable users
         const connectedUsers = await fastify.db
           .select()
@@ -540,6 +534,10 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
 
         for (const config of connectedUsers) {
           try {
+            // Skip users without their own rmapi config (not connected yet)
+            if (!(await getRemarkableClient(fastify, config.userId).ensureConfigured())) {
+              continue;
+            }
             await syncRemarkableDocuments(fastify, config.userId);
           } catch (err) {
             fastify.log.error(
@@ -597,11 +595,6 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
       try {
         const now = new Date();
 
-        // Check if rmapi config file exists — if not, skip all pushes
-        if (!existsSync(RMAPI_CONFIG)) {
-          return;
-        }
-
         // Get all users with agenda push enabled
         const agendaSettings = await fastify.db
           .select()
@@ -641,6 +634,12 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
             }
 
             try {
+              // This user's own reMarkable connection — skip users without one
+              const client = getRemarkableClient(fastify, settings.userId);
+              if (!(await client.ensureConfigured())) {
+                continue;
+              }
+
               fastify.log.info({ userId: settings.userId }, "Pushing daily planner to reMarkable...");
 
               // Find the user's default profile with a planner config
@@ -752,8 +751,7 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
                 filename = agendaPdf.filename;
               }
 
-              // Upload to reMarkable
-              const client = getRemarkableClient(fastify, settings.userId);
+              // Upload to this user's reMarkable
               const documentId = await client.uploadPdf(pdfBuffer, filename, uploadFolder);
 
               // Track the document
@@ -913,9 +911,12 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
           .from(newsFeeds)
           .where(eq(newsFeeds.userId, userId));
 
-        const visibleFeedIds = feedSettings.length > 0
+        // Profile feed settings can name any feed id: only the user's own feeds count
+        const feedMap = new Map(userFeeds.map(f => [f.id, f]));
+        const visibleFeedIds = (feedSettings.length > 0
           ? feedSettings.filter(s => s.isVisible).map(s => s.newsFeedId)
-          : userFeeds.filter(f => f.isActive).map(f => f.id);
+          : userFeeds.filter(f => f.isActive).map(f => f.id)
+        ).filter(id => feedMap.has(id));
 
         if (visibleFeedIds.length > 0) {
           const articles = await fastify.db
@@ -925,7 +926,6 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
             .orderBy(newsArticles.publishedAt)
             .limit(10);
 
-          const feedMap = new Map(userFeeds.map(f => [f.id, f]));
           newsItems = articles.map(a => ({
             id: a.id,
             title: a.title,
@@ -939,8 +939,9 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
       let weatherData: WeatherData | undefined;
       if (needsWeather) {
         try {
-          const weatherSettings = await getCategorySettings(fastify.db, "weather");
-          const homeSettings = await getCategorySettings(fastify.db, "home");
+          // The user's own settings (API key, home location) over the global ones
+          const weatherSettings = await getCategorySettings(fastify.db, "weather", userId);
+          const homeSettings = await getCategorySettings(fastify.db, "home", userId);
 
           const apiKey = weatherSettings.api_key || process.env.OPENWEATHERMAP_API_KEY;
           const lat = homeSettings.latitude || process.env.OPENWEATHERMAP_LAT;
@@ -1023,11 +1024,6 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
       try {
         const now = new Date();
 
-        // Check if rmapi config file exists — if not, skip all pushes
-        if (!existsSync(RMAPI_CONFIG)) {
-          return;
-        }
-
         // Profiles with scheduled reMarkable pushes enabled
         const allSettings = await fastify.db
           .select()
@@ -1108,6 +1104,12 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
           }
 
           try {
+            // The profile owner's own reMarkable connection — skip if they have none
+            const client = getRemarkableClient(fastify, profile.userId);
+            if (!(await client.ensureConfigured())) {
+              continue;
+            }
+
             fastify.log.info(
               { profileId: settings.profileId, profileName: profile.name, schedule: settings.scheduleType },
               "Pushing scheduled profile planner to reMarkable..."
@@ -1116,9 +1118,8 @@ const schedulerPluginCallback: FastifyPluginAsync = async (fastify) => {
             const plannerData = await gatherPlannerData(profile.userId, settings.profileId, now, layoutConfig);
             const { buffer, filename } = await generatePlannerPdf(layoutConfig, plannerData);
 
-            // Upload to reMarkable
+            // Upload to the profile owner's reMarkable
             const folderPath = settings.folderPath || "/Calendar";
-            const client = getRemarkableClient(fastify, profile.userId);
             const documentId = await client.uploadPdf(buffer, filename, folderPath);
 
             // Track the document

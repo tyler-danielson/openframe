@@ -40,6 +40,7 @@ import type {
   ExportCategory,
 } from "@openframe/shared";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { isServerAdmin } from "../../lib/server-admin.js";
 import { encrypt, decrypt, decryptField, encryptField } from "../../lib/encryption.js";
 import { processImage } from "../../services/photos/processor.js";
 
@@ -657,8 +658,13 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
           )
         );
 
+      // Filter out platform-managed settings in hosted mode
+      const filtered = fastify.hostedMode
+        ? settings.filter((s) => !isCategoryProtectedInHostedMode(s.category, s.key))
+        : settings;
+
       // Mask secret values
-      const maskedSettings = settings.map((setting) => ({
+      const maskedSettings = filtered.map((setting) => ({
         ...setting,
         value: setting.isSecret && setting.value ? "••••••••" : setting.value,
       }));
@@ -1024,18 +1030,31 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
 
       // ── Settings category ──
       if (hasCategory("settings")) {
-        // System settings (non-secrets, scoped to user + global)
-        exportData.serverSettings.systemSettings = await fastify.db
-          .select({ category: systemSettings.category, key: systemSettings.key, value: systemSettings.value })
-          .from(systemSettings)
-          .where(and(eq(systemSettings.isSecret, false), or(eq(systemSettings.userId, user.id), isNull(systemSettings.userId))));
+        // System settings: the user's own, plus the server-wide ones for the
+        // server's admins (on the hosted service, only its operators). Never
+        // the platform-managed ones on the hosted service.
+        const settingsOwner = isServerAdmin(fastify, user)
+          ? or(eq(systemSettings.userId, user.id), isNull(systemSettings.userId))
+          : eq(systemSettings.userId, user.id);
+        const exportable = (setting: { category: string; key: string }) =>
+          !fastify.hostedMode || !isCategoryProtectedInHostedMode(setting.category, setting.key);
+
+        // Non-secrets
+        exportData.serverSettings.systemSettings = (
+          await fastify.db
+            .select({ category: systemSettings.category, key: systemSettings.key, value: systemSettings.value })
+            .from(systemSettings)
+            .where(and(eq(systemSettings.isSecret, false), settingsOwner))
+        ).filter(exportable);
 
         // Include secret settings if credentials requested
         if (includeCredentials) {
-          const secretSettings = await fastify.db
-            .select({ category: systemSettings.category, key: systemSettings.key, value: systemSettings.value })
-            .from(systemSettings)
-            .where(and(eq(systemSettings.isSecret, true), or(eq(systemSettings.userId, user.id), isNull(systemSettings.userId))));
+          const secretSettings = (
+            await fastify.db
+              .select({ category: systemSettings.category, key: systemSettings.key, value: systemSettings.value })
+              .from(systemSettings)
+              .where(and(eq(systemSettings.isSecret, true), settingsOwner))
+          ).filter(exportable);
           for (const s of secretSettings) {
             try {
               exportData.serverSettings.systemSettings.push({
@@ -1465,6 +1484,9 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
         // ── System settings ──
         for (const setting of settings.serverSettings?.systemSettings ?? []) {
           try {
+            // Platform-managed settings aren't the user's to set
+            if (fastify.hostedMode && isCategoryProtectedInHostedMode(setting.category, setting.key)) continue;
+
             const categoryDef = SETTING_DEFINITIONS.find((c) => c.category === setting.category);
             const settingDef = categoryDef?.settings.find((s) => s.key === setting.key);
 

@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { eq, and, desc } from "drizzle-orm";
 import { audiobookshelfServers } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { fetchPublic, isBlockedDestination } from "../../lib/outbound.js";
 import { AudiobookshelfClient } from "../../services/audiobookshelf-client.js";
 
 export const audiobookshelfRoutes: FastifyPluginAsync = async (fastify) => {
@@ -79,6 +80,11 @@ export const audiobookshelfRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         await client.authenticate();
       } catch (err) {
+        if (fastify.hostedMode && isBlockedDestination(err)) {
+          throw fastify.httpErrors.badRequest(
+            "That address isn't reachable from OpenFrame's servers. Use a public http(s) URL for your Audiobookshelf server, not a local or private network address."
+          );
+        }
         throw fastify.httpErrors.badRequest(
           `Failed to connect to Audiobookshelf: ${err instanceof Error ? err.message : "Unknown error"}`
         );
@@ -250,11 +256,12 @@ export const audiobookshelfRoutes: FastifyPluginAsync = async (fastify) => {
       const { id } = request.params as { id: string };
       const { itemId } = request.query as { itemId: string };
       if (!itemId) throw fastify.httpErrors.badRequest("itemId is required");
+      if (!/^[A-Za-z0-9_-]+$/.test(itemId)) throw fastify.httpErrors.badRequest("Invalid itemId");
 
       const { client } = await getAbsClientForServer(id, user.id);
       const url = client.getCoverUrl(itemId);
 
-      const response = await fetch(url);
+      const response = await fetchPublic(url);
       if (!response.ok) {
         throw fastify.httpErrors.badGateway("Failed to fetch cover");
       }
@@ -264,7 +271,7 @@ export const audiobookshelfRoutes: FastifyPluginAsync = async (fastify) => {
 
       return reply
         .header("content-type", contentType)
-        .header("cache-control", "public, max-age=86400")
+        .header("cache-control", "private, max-age=3600")
         .send(buffer);
     }
   );

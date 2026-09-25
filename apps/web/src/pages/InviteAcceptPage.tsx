@@ -9,13 +9,13 @@ import {
   CardDescription,
   CardContent,
 } from "../components/ui/Card";
-import { useAuthStore } from "../stores/auth";
 import { api } from "../services/api";
+import { startSession } from "../lib/session";
+import { appPath } from "../lib/cloud";
 
 export function InviteAcceptPage() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
-  const setTokens = useAuthStore((state) => state.setTokens);
 
   const [invite, setInvite] = useState<{
     email: string;
@@ -68,7 +68,12 @@ export function InviteAcceptPage() {
         password,
         name: name || undefined,
       });
-      setTokens(result.accessToken, result.refreshToken);
+      const { replacedAccount } = startSession(result.accessToken, result.refreshToken);
+      if (replacedAccount) {
+        // Someone else was signed in on this page: start clean
+        window.location.replace(appPath("/dashboard"));
+        return;
+      }
       navigate("/dashboard");
     } catch (err: any) {
       setError(err.message || "Failed to create account");

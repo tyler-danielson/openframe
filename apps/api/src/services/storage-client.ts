@@ -1,10 +1,13 @@
 import { Client as FtpClient } from "basic-ftp";
 import SftpClient from "ssh2-sftp-client";
 import { createClient as createWebdavClient, type FileStat } from "webdav";
+import http from "http";
+import https from "https";
 import path from "path";
 import { eq, and } from "drizzle-orm";
 import { storageServers } from "@openframe/database";
 import { decryptField } from "../lib/encryption.js";
+import { assertPublicHost, isBlockedDestination, restrictsOutboundRequests } from "../lib/outbound.js";
 import type { StorageProtocol, StorageFileEntry } from "@openframe/shared";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { Readable } from "stream";
@@ -73,11 +76,51 @@ function mimeFromName(name: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Reachability (hosted service)
+// ---------------------------------------------------------------------------
+
+/**
+ * On the hosted service storage servers have to be on the public internet.
+ * A refused host fails like any other connection.
+ */
+async function assertReachableHost(host: string): Promise<void> {
+  try {
+    await assertPublicHost(host);
+  } catch (err) {
+    if (!isBlockedDestination(err)) throw err;
+    throw new Error(`Can't connect to ${host}: it isn't reachable from OpenFrame's servers. Use a public address.`);
+  }
+}
+
+/**
+ * Checks each connection an agent opens. The WebDAV client follows redirects
+ * by itself, so checking the server's own host isn't enough.
+ */
+function checkEachConnection(agent: http.Agent): http.Agent {
+  const connect = agent.createConnection.bind(agent);
+  agent.createConnection = (options, callback) => {
+    assertReachableHost(options.host ?? "").then(
+      () => callback?.(null, connect(options)!),
+      (err: Error) => callback?.(err, undefined as never)
+    );
+    return undefined;
+  };
+  return agent;
+}
+
+const publicOnlyAgents = {
+  httpAgent: checkEachConnection(new http.Agent()),
+  httpsAgent: checkEachConnection(new https.Agent()),
+};
+
+// ---------------------------------------------------------------------------
 // FTP Client
 // ---------------------------------------------------------------------------
 
 class FtpStorageClient implements IStorageClient {
-  private client = new FtpClient();
+  // On the hosted service data connections go to the server's own address,
+  // never to one a PASV reply names
+  private client = new FtpClient(undefined, { allowSeparateTransferHost: !restrictsOutboundRequests() });
   private config: StorageClientConfig;
 
   constructor(config: StorageClientConfig) {
@@ -89,6 +132,7 @@ class FtpStorageClient implements IStorageClient {
   }
 
   async connect(): Promise<void> {
+    await assertReachableHost(this.config.host);
     await this.client.access({
       host: this.config.host,
       port: this.config.port ?? DEFAULT_PORTS.ftp,
@@ -205,6 +249,7 @@ class SftpStorageClient implements IStorageClient {
   }
 
   async connect(): Promise<void> {
+    await assertReachableHost(this.config.host);
     await this.client.connect({
       host: this.config.host,
       port: this.config.port ?? DEFAULT_PORTS.sftp,
@@ -307,6 +352,7 @@ class SmbStorageClient implements IStorageClient {
   }
 
   async connect(): Promise<void> {
+    await assertReachableHost(this.config.host);
     // Dynamic import since smb2 may not be available on all platforms
     // @ts-expect-error — optional dependency, not always installed
     const SMB2 = (await import("@nicman23/smb2")).default;
@@ -490,9 +536,11 @@ class WebdavStorageClient implements IStorageClient {
         ? ""
         : `:${port}`;
     const url = `${scheme}://${this.config.host}${portSuffix}`;
+    await assertReachableHost(new URL(url).hostname);
     this.client = createWebdavClient(url, {
       username: this.config.username ?? undefined,
       password: this.config.password ?? undefined,
+      ...(restrictsOutboundRequests() && publicOnlyAgents),
     });
   }
 

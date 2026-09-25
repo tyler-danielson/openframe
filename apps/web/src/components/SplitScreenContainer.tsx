@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 import { useSplitScreenStore } from "../stores/split-screen";
 import type { SplitScreenConfig } from "../stores/split-screen";
+import { safeWebUrl } from "../lib/safe-url";
 
 // Lazy imports for page components (dashboard source)
 import { CalendarPage } from "../pages/CalendarPage";
@@ -55,15 +56,27 @@ function SecondaryPanel({ config }: { config: SplitScreenConfig }) {
       return <div className="h-full overflow-y-auto">{component}</div>;
     }
 
-    case "url":
+    case "url": {
+      // http(s) pages only: a javascript: URL would run in the kiosk's origin
+      const url = safeWebUrl(config.url);
+      if (!url) {
+        return (
+          <div className="flex h-full items-center justify-center text-muted-foreground">
+            Only web pages (http or https) can be shown here
+          </div>
+        );
+      }
       return (
         <iframe
-          src={config.url}
+          src={url}
           className="h-full w-full border-0"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          // No allow-same-origin: the page runs in an opaque origin, so even a
+          // page from this origin can't reach into the kiosk
+          sandbox="allow-scripts allow-forms allow-popups"
           title="Split screen content"
         />
       );
+    }
 
     case "text":
       return (

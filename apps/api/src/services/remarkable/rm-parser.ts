@@ -4,8 +4,9 @@
  */
 
 import { createRequire } from "module";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 
 const require = createRequire(import.meta.url);
@@ -464,13 +465,21 @@ function renderPageToPdf(
 // ─── Notebook Zip → PDF ─────────────────────────────────────────
 
 export async function renderNotebookToPdf(zipBuffer: Buffer): Promise<Buffer> {
-  const tmpDir = `/tmp/openframe-remarkable/notebook-${Date.now()}`;
-  const tmpZip = `${tmpDir}.zip`;
+  // A private, uniquely named directory per render, so concurrent renders
+  // (other users' notebooks) can never read each other's files
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "openframe-notebook-"));
+  const tmpDir = path.join(workDir, "notebook");
+  const tmpZip = path.join(workDir, "notebook.zip");
 
   try {
-    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.mkdirSync(tmpDir);
     fs.writeFileSync(tmpZip, zipBuffer);
-    try { execSync(`unzip -o "${tmpZip}" -d "${tmpDir}"`, { timeout: 10000 }); } catch {}
+    // unzip is run directly (no shell); it may warn but still extract
+    try {
+      execFileSync("unzip", ["-o", tmpZip, "-d", tmpDir], { timeout: 10000, stdio: "ignore" });
+    } catch {
+      // Whatever was extracted is used below
+    }
 
     // Find the document UUID directory
     const entries = fs.readdirSync(tmpDir);
@@ -566,7 +575,11 @@ export async function renderNotebookToPdf(zipBuffer: Buffer): Promise<Buffer> {
       } catch (error) { reject(error); }
     });
   } finally {
-    try { execSync(`rm -rf "${tmpZip}" "${tmpDir}"`); } catch {}
+    try {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    } catch {
+      // Leftover temp files are not worth failing the render over
+    }
   }
 }
 

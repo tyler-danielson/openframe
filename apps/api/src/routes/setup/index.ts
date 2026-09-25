@@ -4,6 +4,7 @@ import { users, systemSettings, refreshTokens } from "@openframe/database/schema
 import bcrypt from "bcryptjs";
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { isServerAdmin } from "../../lib/server-admin.js";
 import { getCategorySettings } from "../settings/index.js";
 import { clearOAuthClientCredentialsCache } from "../../services/calendar-sync/oauth.js";
 
@@ -193,8 +194,9 @@ export const setupRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
+      // Settings for the whole server: on the hosted service, only its operators
       const user = await getCurrentUser(request);
-      if (!user || user.role !== "admin") {
+      if (!isServerAdmin(fastify, user)) {
         return reply.forbidden("Admin access required");
       }
 
@@ -298,8 +300,9 @@ export const setupRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
+      // Settings for the whole server: on the hosted service, only its operators
       const user = await getCurrentUser(request);
-      if (!user || user.role !== "admin") {
+      if (!isServerAdmin(fastify, user)) {
         return reply.forbidden("Admin access required");
       }
 
@@ -485,8 +488,9 @@ export const setupRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.forbidden("Provider credentials are managed by the platform");
       }
 
+      // Settings for the whole server: on the hosted service, only its operators
       const user = await getCurrentUser(request);
-      if (!user || user.role !== "admin") {
+      if (!isServerAdmin(fastify, user)) {
         return reply.forbidden("Admin access required");
       }
 

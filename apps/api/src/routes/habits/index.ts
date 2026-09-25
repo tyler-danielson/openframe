@@ -1,11 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and, desc, asc, gte, lte } from "drizzle-orm";
+import { eq, and, desc, asc, gte, lte, inArray } from "drizzle-orm";
 import {
   habits,
   habitCompletions,
   familyProfiles,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { profilesOwnedBy } from "../../lib/profile-access.js";
 import {
   calculateStreak,
   awardPoints,
@@ -15,6 +16,13 @@ import {
 } from "../../services/gamification.js";
 
 export const habitRoutes: FastifyPluginAsync = async (fastify) => {
+  // Habits belong to one account, so the profiles they're done by must too
+  async function assertOwnProfile(userId: string, profileId: string | null | undefined) {
+    if (profileId && !(await profilesOwnedBy(fastify.db, [profileId], [userId]))) {
+      throw fastify.httpErrors.badRequest("Profile not found");
+    }
+  }
+
   // List habits
   fastify.get(
     "/",
@@ -65,12 +73,12 @@ export const habitRoutes: FastifyPluginAsync = async (fastify) => {
         allCompletions = await fastify.db
           .select()
           .from(habitCompletions)
-          .where(gte(habitCompletions.completedDate, weekAgoStr));
-
-        // Filter to only our habits
-        allCompletions = allCompletions.filter((c) =>
-          habitIds.includes(c.habitId)
-        );
+          .where(
+            and(
+              inArray(habitCompletions.habitId, habitIds),
+              gte(habitCompletions.completedDate, weekAgoStr)
+            )
+          );
       }
 
       // Calculate streaks for each habit
@@ -129,6 +137,8 @@ export const habitRoutes: FastifyPluginAsync = async (fastify) => {
         isShared?: boolean;
       };
 
+      await assertOwnProfile(user.id, body.profileId);
+
       const [habit] = await fastify.db
         .insert(habits)
         .values({
@@ -175,6 +185,8 @@ export const habitRoutes: FastifyPluginAsync = async (fastify) => {
         isActive: boolean;
         sortOrder: number;
       }>;
+
+      await assertOwnProfile(user.id, body.profileId);
 
       const updates: Record<string, any> = { updatedAt: new Date() };
       if (body.name !== undefined) updates.name = body.name;
@@ -258,6 +270,7 @@ export const habitRoutes: FastifyPluginAsync = async (fastify) => {
         throw fastify.httpErrors.badRequest(
           "profileId required for habits without a default profile"
         );
+      await assertOwnProfile(user.id, profileId);
 
       const completedDate = body.date ?? new Date().toISOString().slice(0, 10);
 
@@ -341,6 +354,7 @@ export const habitRoutes: FastifyPluginAsync = async (fastify) => {
         .where(and(eq(habits.id, id), eq(habits.userId, user.id)));
 
       if (!habit) throw fastify.httpErrors.notFound("Habit not found");
+      await assertOwnProfile(user.id, profileId);
 
       const conditions = [
         eq(habitCompletions.habitId, id),
@@ -377,6 +391,13 @@ export const habitRoutes: FastifyPluginAsync = async (fastify) => {
         startDate?: string;
         endDate?: string;
       };
+
+      const [habit] = await fastify.db
+        .select({ id: habits.id })
+        .from(habits)
+        .where(and(eq(habits.id, id), eq(habits.userId, user.id)));
+
+      if (!habit) throw fastify.httpErrors.notFound("Habit not found");
 
       const conditions = [eq(habitCompletions.habitId, id)];
       if (startDate)

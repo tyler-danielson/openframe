@@ -33,7 +33,7 @@ export async function fetchIcsFeed(url: string): Promise<string> {
       headers: { "User-Agent": "OpenFrame/1.0", Accept: "text/calendar, text/plain;q=0.9, */*;q=0.8" },
       redirect: "follow",
     },
-    { timeoutMs: 30_000, retries: 1 }
+    { timeoutMs: 30_000, retries: 1, userSupplied: true }
   );
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined);

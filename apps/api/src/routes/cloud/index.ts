@@ -1,11 +1,22 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { systemSettings } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { getCategorySettings } from "../settings/index.js";
+import { encrypt } from "../../lib/encryption.js";
 import { kioskCommands } from "../kiosks/index.js";
 
 export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
+  // Connecting to OpenFrame Cloud is for self-hosted servers. The hosted
+  // service is the cloud's own backend: it never connects to the relay.
+  if (fastify.hostedMode) {
+    fastify.get("/status", { onRequest: [fastify.authenticateAny] }, async () => ({
+      success: true,
+      data: { enabled: false, connected: false, state: "disabled", instanceId: null, wsEndpoint: null },
+    }));
+    return;
+  }
+
   // GET /api/v1/cloud/status — Get cloud connection status
   fastify.get(
     "/status",
@@ -37,10 +48,11 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // POST /api/v1/cloud/connect — Initiate cloud connection (generates claim code)
+  // Connecting changes the whole server, and hands the cloud a way in: admins only
   fastify.post(
     "/connect",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateAny, fastify.requireAdmin],
       schema: {
         description: "Start the cloud connection process by generating a claim code",
         tags: ["Cloud"],
@@ -62,28 +74,23 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
       if (!user) throw fastify.httpErrors.unauthorized("User not found");
 
       const { cloudUrl } = request.body as { cloudUrl: string };
+      try {
+        const parsed = new URL(cloudUrl);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error();
+      } catch {
+        return reply.badRequest("Cloud server URL must be an http(s) address");
+      }
 
-      // Get external URL for callback
-      const [externalUrlSetting] = await fastify.db
-        .select()
-        .from(systemSettings)
-        .where(
-          and(
-            eq(systemSettings.category, "server"),
-            eq(systemSettings.key, "external_url")
-          )
-        )
-        .limit(1);
+      const { external_url: externalUrlSetting } = await getCategorySettings(fastify.db, "server");
+      const externalUrl = externalUrlSetting || `http://localhost:3000`;
 
-      const externalUrl = externalUrlSetting?.value || `http://localhost:3000`;
-      const callbackUrl = `${externalUrl}/api/v1/cloud/callback`;
-
-      // Request a claim code from the cloud
+      // Request a claim code from the cloud. This server then polls for the
+      // result: the cloud never calls back in with the relay credentials.
       try {
         const res = await fetch(`${cloudUrl}/api/relay/claim`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ callbackUrl, externalUrl }),
+          body: JSON.stringify({ externalUrl }),
         });
 
         if (!res.ok) {
@@ -103,7 +110,7 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
         const claimCode = data.code;
         const pollInterval = setInterval(async () => {
           try {
-            const pollRes = await fetch(`${cloudUrl}/api/relay/claim?code=${claimCode}`);
+            const pollRes = await fetch(`${cloudUrl}/api/relay/claim?code=${encodeURIComponent(claimCode)}`);
             if (!pollRes.ok) { clearInterval(pollInterval); return; }
             const pollData = await pollRes.json() as { status: string; instanceId?: string; relaySecret?: string; wsEndpoint?: string };
             if (pollData.status === "claimed" && pollData.instanceId && pollData.relaySecret && pollData.wsEndpoint) {
@@ -113,14 +120,14 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
                 { category: "cloud", key: "enabled", value: "true", isSecret: false },
                 { category: "cloud", key: "url", value: cloudUrl, isSecret: false },
                 { category: "cloud", key: "instance_id", value: pollData.instanceId, isSecret: false },
-                { category: "cloud", key: "relay_secret", value: pollData.relaySecret, isSecret: true },
+                { category: "cloud", key: "relay_secret", value: encrypt(pollData.relaySecret), isSecret: true },
                 { category: "cloud", key: "ws_endpoint", value: pollData.wsEndpoint, isSecret: false },
               ];
               for (const setting of settings) {
                 const [existing] = await fastify.db
                   .select()
                   .from(systemSettings)
-                  .where(and(eq(systemSettings.category, setting.category), eq(systemSettings.key, setting.key)))
+                  .where(and(eq(systemSettings.category, setting.category), eq(systemSettings.key, setting.key), isNull(systemSettings.userId)))
                   .limit(1);
                 if (existing) {
                   await fastify.db.update(systemSettings).set({ value: setting.value, isSecret: setting.isSecret }).where(eq(systemSettings.id, existing.id));
@@ -128,7 +135,8 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
                   await fastify.db.insert(systemSettings).values(setting);
                 }
               }
-              // Configure and connect the relay
+              // Configure and connect the relay; relayed requests use the new secret
+              fastify.relaySecret = pollData.relaySecret;
               fastify.cloudRelay.configure({ instanceId: pollData.instanceId, relaySecret: pollData.relaySecret, wsEndpoint: pollData.wsEndpoint, externalUrl });
               fastify.cloudRelay.connect();
               fastify.cloudRelay.onCommand((kioskId, commandType, cmdData) => {
@@ -152,7 +160,7 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
           data: {
             code: data.code,
             expiresAt: data.expiresAt,
-            claimUrl: `${cloudUrl}/claim?code=${data.code}&callback=${encodeURIComponent(callbackUrl)}`,
+            claimUrl: `${cloudUrl}/claim?code=${encodeURIComponent(data.code)}`,
           },
         };
       } catch (err) {
@@ -164,117 +172,11 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // POST /api/v1/cloud/callback — Called by cloud after user confirms claim
-  fastify.post(
-    "/callback",
-    {
-      schema: {
-        description: "Callback from cloud server after claim confirmation",
-        tags: ["Cloud"],
-        querystring: {
-          type: "object",
-          properties: {
-            instanceId: { type: "string" },
-            relaySecret: { type: "string" },
-            wsEndpoint: { type: "string" },
-          },
-        },
-      },
-    },
-    async (request, reply) => {
-      const { instanceId, relaySecret, wsEndpoint } = request.query as {
-        instanceId?: string;
-        relaySecret?: string;
-        wsEndpoint?: string;
-      };
-
-      if (!instanceId || !relaySecret || !wsEndpoint) {
-        return reply.status(400).send({
-          success: false,
-          error: "Missing required parameters",
-        });
-      }
-
-      // Derive cloud URL from wsEndpoint (wss://host/path → https://host)
-      let cloudUrl: string | null = null;
-      try {
-        const wsUrl = new URL(wsEndpoint);
-        cloudUrl = `${wsUrl.protocol === "wss:" ? "https" : "http"}://${wsUrl.host}`;
-      } catch { /* leave null */ }
-
-      // Store cloud settings
-      const settings = [
-        { category: "cloud", key: "enabled", value: "true", isSecret: false },
-        ...(cloudUrl ? [{ category: "cloud", key: "url", value: cloudUrl, isSecret: false }] : []),
-        { category: "cloud", key: "instance_id", value: instanceId, isSecret: false },
-        { category: "cloud", key: "relay_secret", value: relaySecret, isSecret: true },
-        { category: "cloud", key: "ws_endpoint", value: wsEndpoint, isSecret: false },
-      ];
-
-      for (const setting of settings) {
-        const [existing] = await fastify.db
-          .select()
-          .from(systemSettings)
-          .where(
-            and(
-              eq(systemSettings.category, setting.category),
-              eq(systemSettings.key, setting.key)
-            )
-          )
-          .limit(1);
-
-        if (existing) {
-          await fastify.db
-            .update(systemSettings)
-            .set({ value: setting.value, isSecret: setting.isSecret })
-            .where(eq(systemSettings.id, existing.id));
-        } else {
-          await fastify.db.insert(systemSettings).values(setting);
-        }
-      }
-
-      // Read external URL for relay auth
-      const [externalUrlSetting] = await fastify.db
-        .select()
-        .from(systemSettings)
-        .where(
-          and(
-            eq(systemSettings.category, "server"),
-            eq(systemSettings.key, "external_url")
-          )
-        )
-        .limit(1);
-      const cbExternalUrl = externalUrlSetting?.value || undefined;
-
-      // Configure and connect the relay
-      fastify.cloudRelay.configure({
-        instanceId,
-        relaySecret,
-        wsEndpoint,
-        externalUrl: cbExternalUrl,
-      });
-      fastify.cloudRelay.connect();
-
-      // Register command handler for cloud-originated commands
-      fastify.cloudRelay.onCommand((kioskId, commandType, data) => {
-        const commands = kioskCommands.get(kioskId) || [];
-        commands.push({
-          type: commandType as any,
-          payload: data,
-          timestamp: Date.now(),
-        });
-        kioskCommands.set(kioskId, commands);
-      });
-
-      return { success: true };
-    }
-  );
-
   // POST /api/v1/cloud/disconnect — Disconnect from cloud
   fastify.post(
     "/disconnect",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateAny, fastify.requireAdmin],
       schema: {
         description: "Disconnect from cloud relay",
         tags: ["Cloud"],
@@ -287,11 +189,12 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Disconnect relay
       fastify.cloudRelay.disconnect();
+      fastify.relaySecret = null;
 
-      // Clear cloud settings
+      // Clear the server's cloud settings
       await fastify.db
         .delete(systemSettings)
-        .where(eq(systemSettings.category, "cloud"));
+        .where(and(eq(systemSettings.category, "cloud"), isNull(systemSettings.userId)));
 
       return { success: true };
     }
@@ -301,7 +204,7 @@ export const cloudRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/sync",
     {
-      onRequest: [fastify.authenticateAny],
+      onRequest: [fastify.authenticateAny, fastify.requireAdmin],
       schema: {
         description: "Manually trigger kiosk sync to cloud",
         tags: ["Cloud"],

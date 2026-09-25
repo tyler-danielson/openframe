@@ -29,8 +29,9 @@ import {
 import { api, type SpotifyAccount } from "../services/api";
 import { Button } from "../components/ui/Button";
 import { cn } from "../lib/utils";
-import { useAuthStore } from "../stores/auth";
 import { useCalendarStore } from "../stores/calendar";
+import { isKioskRoute } from "../lib/cloud";
+import { startSpotifyLink } from "../utils/oauth-scopes";
 
 // Weather icon helper
 function getWeatherIcon(iconCode: string): string {
@@ -50,8 +51,9 @@ function getWeatherIcon(iconCode: string): string {
 
 export function SpotifyPage() {
   const queryClient = useQueryClient();
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const isKioskOnly = window.location.pathname.startsWith("/kiosk/") && !isAuthenticated;
+  // A kiosk acts as its owner and can't connect accounts: that takes the owner
+  // signed in, in Settings
+  const isKioskOnly = isKioskRoute();
 
   const [volume, setVolume] = useState(50);
   const [progress, setProgress] = useState(0);
@@ -394,13 +396,14 @@ export function SpotifyPage() {
             <p className="mt-2 text-center text-gray-600 dark:text-gray-300">
               Connect your Spotify account to control playback from this dashboard.
             </p>
-            <a
-              href={api.getSpotifyAuthUrl()}
+            <button
+              type="button"
+              onClick={() => void startSpotifyLink()}
               className="mt-6 inline-flex items-center gap-2 rounded-full bg-green-500 px-6 py-3 font-semibold text-white hover:bg-green-600 transition-colors"
             >
               <Music className="h-5 w-5" />
               Connect with Spotify
-            </a>
+            </button>
           </>
         )}
       </div>

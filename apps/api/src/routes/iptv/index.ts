@@ -9,6 +9,7 @@ import {
   iptvEpg,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { isBlockedDestination } from "../../lib/outbound.js";
 import { XtremeCodesClient } from "../../services/xtreme-codes.js";
 import { getIptvCacheService } from "../../services/iptv-cache.js";
 
@@ -110,6 +111,11 @@ export const iptvRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         await client.authenticate();
       } catch (error) {
+        if (fastify.hostedMode && isBlockedDestination(error)) {
+          return reply.badRequest(
+            "That address isn't reachable from OpenFrame's servers. Use a public http(s) URL for the IPTV server, not a local or private network address."
+          );
+        }
         return reply.badRequest(
           `Failed to authenticate with server: ${error instanceof Error ? error.message : "Unknown error"}`
         );

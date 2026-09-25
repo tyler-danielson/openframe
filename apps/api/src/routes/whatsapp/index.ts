@@ -10,7 +10,7 @@
  */
 
 import type { FastifyPluginAsync } from "fastify";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { whatsappConfig, whatsappChats } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 import { WhatsAppService } from "../../services/whatsapp.js";
@@ -288,7 +288,7 @@ export const whatsappRoutes: FastifyPluginAsync = async (fastify) => {
         params: {
           type: "object",
           properties: {
-            id: { type: "string" },
+            id: { type: "string", format: "uuid" },
           },
           required: ["id"],
         },
@@ -302,7 +302,7 @@ export const whatsappRoutes: FastifyPluginAsync = async (fastify) => {
 
       await fastify.db
         .delete(whatsappChats)
-        .where(eq(whatsappChats.id, request.params.id));
+        .where(and(eq(whatsappChats.id, request.params.id), eq(whatsappChats.userId, user.id)));
 
       return {
         success: true,

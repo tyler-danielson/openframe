@@ -4,10 +4,10 @@ import {
   haAutomations,
   homeAssistantConfig,
   homeAssistantEntities,
-  systemSettings,
   assumptions,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { fetchPublic } from "../../lib/outbound.js";
 import { getAutomationEngine } from "../../services/automation-engine.js";
 import type {
   AutomationTriggerType,
@@ -16,6 +16,7 @@ import type {
   AutomationActionConfig,
   AutomationParseResult,
 } from "@openframe/shared";
+import { getCategorySettings } from "../settings/index.js";
 
 // AI provider types
 type AIProvider = "openai" | "anthropic" | "gemini";
@@ -202,17 +203,13 @@ export const automationRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { prompt } = request.body as { prompt: string };
 
-      // Get AI provider settings
-      const aiSettings = await fastify.db
-        .select()
-        .from(systemSettings)
-        .where(eq(systemSettings.category, "ai"));
+      // AI provider settings: the user's own over the server's (decrypted),
+      // never another account's
+      const aiSettings = await getCategorySettings(fastify.db, "ai", user.id);
+      const provider = (aiSettings.provider || "openai") as AIProvider;
 
-      const providerSetting = aiSettings.find((s) => s.key === "provider");
-      const provider = (providerSetting?.value || "openai") as AIProvider;
-
-      const apiKeySetting = aiSettings.find((s) => s.key === `${provider}_api_key`);
-      if (!apiKeySetting?.value) {
+      const apiKey = aiSettings[`${provider}_api_key`];
+      if (!apiKey) {
         return reply.status(400).send({
           success: false,
           error: { code: "AI_NOT_CONFIGURED", message: `${provider} API key not configured` },
@@ -235,7 +232,7 @@ export const automationRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Fetch all HA entities
       const baseUrl = haConfig.url.replace(/\/+$/, "");
-      const statesResponse = await fetch(`${baseUrl}/api/states`, {
+      const statesResponse = await fetchPublic(`${baseUrl}/api/states`, {
         headers: {
           Authorization: `Bearer ${haConfig.accessToken}`,
         },
@@ -280,7 +277,7 @@ export const automationRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
-        const aiResponse = await callAI(provider, apiKeySetting.value, systemPrompt, prompt);
+        const aiResponse = await callAI(provider, apiKey, systemPrompt, prompt);
 
         // Parse AI response
         let parsed: AutomationParseResult;

@@ -2,7 +2,8 @@ import type { FastifyPluginAsync } from "fastify";
 import { eq, and, desc } from "drizzle-orm";
 import { plexServers } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
-import { PlexClient } from "../../services/plex-client.js";
+import { fetchPublic, isBlockedDestination } from "../../lib/outbound.js";
+import { PlexClient, isPlexImagePath } from "../../services/plex-client.js";
 
 export const plexRoutes: FastifyPluginAsync = async (fastify) => {
   // ==================== SERVERS ====================
@@ -81,6 +82,11 @@ export const plexRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         machineId = await client.authenticate();
       } catch (err) {
+        if (fastify.hostedMode && isBlockedDestination(err)) {
+          throw fastify.httpErrors.badRequest(
+            "That address isn't reachable from OpenFrame's servers. Use a public http(s) URL for your Plex server, not a local or private network address."
+          );
+        }
         throw fastify.httpErrors.badRequest(
           `Failed to connect to Plex server: ${err instanceof Error ? err.message : "Unknown error"}`
         );
@@ -281,11 +287,13 @@ export const plexRoutes: FastifyPluginAsync = async (fastify) => {
       const { id } = request.params as { id: string };
       const { path } = request.query as { path: string };
       if (!path) throw fastify.httpErrors.badRequest("Path is required");
+      // Only Plex's own images, never another endpoint (or host) via the path
+      if (!isPlexImagePath(path)) throw fastify.httpErrors.badRequest("Invalid thumbnail path");
 
       const { client } = await getPlexClientForServer(id, user.id);
       const url = client.getThumbUrl(path);
 
-      const response = await fetch(url);
+      const response = await fetchPublic(url);
       if (!response.ok) {
         throw fastify.httpErrors.badGateway("Failed to fetch thumbnail");
       }
@@ -295,7 +303,7 @@ export const plexRoutes: FastifyPluginAsync = async (fastify) => {
 
       return reply
         .header("content-type", contentType)
-        .header("cache-control", "public, max-age=86400")
+        .header("cache-control", "private, max-age=3600")
         .send(buffer);
     }
   );

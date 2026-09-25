@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
-import { useAuthStore } from "./stores/auth";
+import { useAuthStore, useAuthScope } from "./stores/auth";
 import { useScreensaverStore } from "./stores/screensaver";
 import { Layout } from "./components/ui/Layout";
 import { LoginPage } from "./pages/LoginPage";
@@ -86,7 +86,7 @@ import { ChatDrawer } from "./components/chat/ChatDrawer";
 import { ConnectionProvider, useConnection } from "./contexts/ConnectionContext";
 import { ConnectionStatusIndicator } from "./components/ConnectionStatusIndicator";
 import { api } from "./services/api";
-import { isCloudMode } from "./lib/cloud";
+import { isCloudMode, appRelativePath } from "./lib/cloud";
 import { useModuleStore } from "./stores/modules";
 import { ModuleGate } from "./components/ModuleGate";
 import { ModeGate } from "./components/ModeGate";
@@ -172,7 +172,9 @@ export default function App() {
 
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const authUser = useAuthStore((state) => state.user);
-  const setApiKey = useAuthStore((state) => state.setApiKey);
+  // Who this page's requests act as: the signed-in user, or on a kiosk page
+  // the kiosk's owner once the kiosk has its key
+  const authScope = useAuthScope();
   const syncScreensaverSettings = useScreensaverStore((state) => state.syncFromServer);
   const colorScheme = useScreensaverStore((state) => state.colorScheme);
 
@@ -190,7 +192,7 @@ export default function App() {
       }
 
       // Skip setup check for kiosk, upload, auth callback, and setup pages
-      const path = window.location.pathname;
+      const path = appRelativePath();
       if (
         path.startsWith("/kiosk/") ||
         path.startsWith("/upload") ||
@@ -221,7 +223,7 @@ export default function App() {
   // Check onboarding status after auth is confirmed — show prompt instead of redirect
   useEffect(() => {
     async function checkOnboarding() {
-      const path = window.location.pathname;
+      const path = appRelativePath();
       // Skip for special routes
       if (
         path.startsWith("/kiosk/") ||
@@ -276,47 +278,31 @@ export default function App() {
     document.documentElement.setAttribute("data-color-scheme", colorScheme);
   }, [colorScheme]);
 
-  // Check for API key in URL params on app load
+  // Sync the signed-in user's screensaver settings (a kiosk page gets its
+  // kiosk's from KioskContext)
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const apiKeyParam = urlParams.get("apiKey");
-
-    if (apiKeyParam) {
-      // Store the API key and mark as authenticated
-      setApiKey(apiKeyParam);
-      // Remove the API key from the URL for security (don't leave it visible)
-      urlParams.delete("apiKey");
-      const newUrl = urlParams.toString()
-        ? `${window.location.pathname}?${urlParams.toString()}`
-        : window.location.pathname;
-      window.history.replaceState({}, "", newUrl);
-    }
-  }, [setApiKey]);
-
-  // Sync screensaver settings on app load
-  useEffect(() => {
-    // Skip global settings sync when on kiosk URL - KioskContext handles settings
-    const isKioskUrl = window.location.pathname.startsWith("/kiosk/");
-    if (!isKioskUrl) {
+    if (authScope?.startsWith("user:")) {
       syncScreensaverSettings().catch(() => {});
     }
-  }, [syncScreensaverSettings]);
+  }, [authScope, syncScreensaverSettings]);
 
-  // Fetch module enabled state on auth
+  // Fetch module enabled state for whoever this page acts as
   const fetchModules = useModuleStore((state) => state.fetchModules);
   useEffect(() => {
-    if (isAuthenticated) {
+    if (authScope) {
       fetchModules();
     }
-  }, [isAuthenticated, fetchModules]);
+  }, [authScope, fetchModules]);
 
-  // Connect to Home Assistant WebSocket for real-time updates
+  // Connect to Home Assistant WebSocket for real-time updates. The connection
+  // belongs to the account it was opened for: drop it when that changes.
   const connectHA = useHAWebSocket((state) => state.connect);
+  const resetHA = useHAWebSocket((state) => state.reset);
   useEffect(() => {
-    if (isAuthenticated) {
-      connectHA();
-    }
-  }, [isAuthenticated, connectHA]);
+    if (!authScope) return;
+    connectHA();
+    return () => resetHA();
+  }, [authScope, connectHA, resetHA]);
 
   // Show loading while checking setup status
   if (needsSetup === null) {
@@ -546,7 +532,7 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <DurationAlertMonitor />
-      {isAuthenticated && (
+      {authScope !== null && (
         <ModuleAwareOverlays
           hideNowPlaying={hideNowPlaying}
           isKioskPage={isKioskPage}

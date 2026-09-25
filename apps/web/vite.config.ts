@@ -69,19 +69,9 @@ export default defineConfig({
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024, // 8 MB
         navigateFallbackDenylist: [/^\/api\//],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/api\./,
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "api-cache",
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60, // 1 hour
-              },
-            },
-          },
-        ],
+        // No runtime caching of API responses: they're authenticated and
+        // per-account, and the service worker's cache is shared by everyone
+        // who uses this browser.
       },
     }),
   ],

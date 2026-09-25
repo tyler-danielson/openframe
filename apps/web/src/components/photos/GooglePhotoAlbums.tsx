@@ -12,14 +12,8 @@ import {
 } from "lucide-react";
 import { api } from "../../services/api";
 import { Button } from "../ui/Button";
-import { useAuthStore } from "../../stores/auth";
-import { hasFeatureScope, buildOAuthUrl } from "../../utils/oauth-scopes";
-
-function appUrl(path: string) {
-  const base = import.meta.env.VITE_BASE_PATH || "/";
-  const prefix = base.endsWith("/") ? base.slice(0, -1) : base;
-  return `${prefix}${path}`;
-}
+import { appUrl } from "../../lib/cloud";
+import { startOAuthLink } from "../../utils/oauth-scopes";
 
 export function GooglePhotoAlbums() {
   const queryClient = useQueryClient();
@@ -111,11 +105,9 @@ export function GooglePhotoAlbums() {
   });
 
   const handleConnect = () => {
-    const token = useAuthStore.getState().accessToken;
-    window.location.href = buildOAuthUrl(
+    void startOAuthLink(
       "google",
       "photos",
-      token,
       appUrl("/settings/connections?service=google-photos&connected=1")
     );
   };

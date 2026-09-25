@@ -1,5 +1,8 @@
 // Frontend OAuth scope utilities — mirrors backend scope bundles
 
+import { api } from "../services/api";
+import { appUrl } from "../lib/cloud";
+
 export type OAuthFeature = "base" | "calendar" | "tasks" | "photos" | "gmail";
 
 const GOOGLE_SCOPE_BUNDLES: Record<OAuthFeature, string[]> = {
@@ -58,17 +61,32 @@ export function hasFeatureScope(
 }
 
 /**
- * Build an OAuth URL with feature and authentication params.
+ * Send the browser to start connecting an account to the signed-in user.
+ * The session's token never goes in the URL (URLs end up in history, logs and
+ * Referer headers): the start URL carries a one-time link ticket instead,
+ * which only works in this browser for 2 minutes.
  */
-export function buildOAuthUrl(
+async function goToLinkStart(path: string, params: Record<string, string>): Promise<void> {
+  let linkTicket: string;
+  try {
+    linkTicket = await api.getOAuthLinkTicket();
+  } catch (err) {
+    window.alert(`Couldn't start connecting the account: ${err instanceof Error ? err.message : "unknown error"}`);
+    return;
+  }
+  window.location.href = `${path}?${new URLSearchParams({ linkTicket, ...params }).toString()}`;
+}
+
+/** Connect a Google or Microsoft account (or grant it more scopes) for the signed-in user. */
+export function startOAuthLink(
   provider: "google" | "microsoft",
   feature: OAuthFeature,
-  authToken: string | null,
   returnUrl: string
-): string {
-  const params = new URLSearchParams();
-  if (authToken) params.set("token", authToken);
-  params.set("feature", feature);
-  params.set("returnUrl", returnUrl);
-  return `/api/v1/auth/oauth/${provider}?${params.toString()}`;
+): Promise<void> {
+  return goToLinkStart(`/api/v1/auth/oauth/${provider}`, { feature, returnUrl });
+}
+
+/** Connect a Spotify account for the signed-in user. */
+export function startSpotifyLink(returnUrl: string = appUrl("/spotify")): Promise<void> {
+  return goToLinkStart("/api/v1/spotify/auth", { returnUrl });
 }

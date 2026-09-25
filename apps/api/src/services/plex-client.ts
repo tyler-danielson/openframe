@@ -2,6 +2,8 @@
  * Plex Media Server API Client
  */
 
+import { fetchPublic } from "../lib/outbound.js";
+
 export interface PlexClientConfig {
   serverUrl: string;
   accessToken: string;
@@ -28,6 +30,16 @@ export interface PlexItem {
   parentTitle?: string;
 }
 
+/**
+ * Whether `path` is one of Plex's image paths (under /library/ or /photo/)
+ * with no ".." segment, however a URL parser would spell one: "%2e%2e",
+ * "\" as a separator, or with tabs and newlines in it, which it drops.
+ */
+export function isPlexImagePath(path: string): boolean {
+  const segments = path.replace(/[\t\n\r]/g, "").split(/[/\\]/);
+  return /^\/(library|photo)\//.test(path) && !segments.some((segment) => /^(\.|%2e){2}$/i.test(segment));
+}
+
 export class PlexClient {
   private serverUrl: string;
   private accessToken: string;
@@ -47,7 +59,7 @@ export class PlexClient {
   private async fetchJson(path: string): Promise<unknown> {
     const url = `${this.serverUrl}${path}`;
     const separator = path.includes("?") ? "&" : "?";
-    const response = await fetch(`${url}${separator}X-Plex-Token=${this.accessToken}`, {
+    const response = await fetchPublic(`${url}${separator}X-Plex-Token=${this.accessToken}`, {
       headers: { Accept: "application/json" },
     });
 

@@ -58,6 +58,13 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
+      // Hosted accounts are created by signing up at openframe.us, which
+      // verifies the email address; an invitation would let its sender pick
+      // the password for someone else's address.
+      if (fastify.hostedMode) {
+        return reply.notFound("Not available on the hosted service");
+      }
+
       await fastify.requireAdmin(request, reply);
       if (reply.sent) return;
 
@@ -269,6 +276,10 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
+      if (fastify.hostedMode) {
+        return reply.notFound("Not available on the hosted service");
+      }
+
       const { token } = request.params as { token: string };
       const { password, name } = request.body as {
         password: string;

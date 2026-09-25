@@ -4,7 +4,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import PdfMake from "pdfmake/build/pdfmake.js";
 import PdfFonts from "pdfmake/build/vfs_fonts.js";
 import { format } from "date-fns";
@@ -362,11 +362,11 @@ export async function sendConfirmation(
     throw new Error("Confirmations are disabled");
   }
 
-  // Get the document info
+  // Get the document info (only one of this user's documents)
   const [document] = await fastify.db
     .select()
     .from(remarkableDocuments)
-    .where(eq(remarkableDocuments.id, documentId))
+    .where(and(eq(remarkableDocuments.id, documentId), eq(remarkableDocuments.userId, userId)))
     .limit(1);
 
   if (!document) {

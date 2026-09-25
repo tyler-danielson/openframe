@@ -14,3 +14,19 @@ export function appPath(path: string): string {
 export function appUrl(path: string): string {
   return window.location.origin + appPath(path);
 }
+
+/**
+ * A browser path as the app's routes see it, without the base path:
+ * "/app/kiosk/abc" → "/kiosk/abc" in cloud mode. Defaults to the current page.
+ */
+export function appRelativePath(pathname: string = window.location.pathname): string {
+  if (appBasePath && (pathname === appBasePath || pathname.startsWith(`${appBasePath}/`))) {
+    return pathname.slice(appBasePath.length) || "/";
+  }
+  return pathname;
+}
+
+/** Whether a path (default: the current page) is a kiosk display, /kiosk/<token>/... */
+export function isKioskRoute(pathname?: string): boolean {
+  return appRelativePath(pathname).startsWith("/kiosk/");
+}

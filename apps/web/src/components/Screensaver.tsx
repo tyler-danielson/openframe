@@ -12,6 +12,7 @@ import { useBlockNavStore, type NavigableBlock } from "../stores/block-nav";
 import { useSwipe } from "../hooks/useSwipe";
 import type { SportsGame, CalendarEvent, Calendar, Task } from "@openframe/shared";
 import { formatShortDate } from "./sports/SportsScoreBadge";
+import { isKioskRoute } from "../lib/cloud";
 
 // Orientation detection helpers
 const isLandscape = (photo: Photo) => (photo.width ?? 0) > (photo.height ?? 0);
@@ -285,7 +286,7 @@ export function Screensaver({ alwaysActive = false, inline = false, displayType 
   // If alwaysActive or inline is true, the screensaver is always shown and cannot be dismissed
   const isActive = alwaysActive || inline || storeIsActive;
 
-  const isKioskPath = window.location.pathname.startsWith("/kiosk/");
+  const isKioskPath = isKioskRoute();
 
   // Block navigation state for TV display
   const blockNavMode = useBlockNavStore((s) => s.mode);

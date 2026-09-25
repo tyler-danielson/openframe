@@ -94,9 +94,11 @@ export async function syncHomeAssistantEvents(
   const url = new URL(`${haUrl.replace(/\/+$/, "")}/api/calendars/${encodeURIComponent(entityId)}`);
   url.searchParams.set("start", window.start.toISOString());
   url.searchParams.set("end", window.end.toISOString());
-  const response = await providerFetch(url.toString(), {
-    headers: { Authorization: `Bearer ${haToken}`, "Content-Type": "application/json" },
-  });
+  const response = await providerFetch(
+    url.toString(),
+    { headers: { Authorization: `Bearer ${haToken}`, "Content-Type": "application/json" } },
+    { userSupplied: true }
+  );
   if (response.status === 404) throw new CalendarNotFoundError("Home Assistant");
   if (!response.ok) {
     throw new CalendarSyncError(`Home Assistant returned HTTP ${response.status}`, response.status);

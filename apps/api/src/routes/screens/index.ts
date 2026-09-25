@@ -220,10 +220,16 @@ export const screenRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!existing) throw fastify.httpErrors.notFound("Screen not found");
 
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (body.name !== undefined) updates.name = body.name;
+      if (body.icon !== undefined) updates.icon = body.icon;
+      if (body.layoutConfig !== undefined) updates.layoutConfig = body.layoutConfig;
+      if (body.sortOrder !== undefined) updates.sortOrder = body.sortOrder;
+
       const [updated] = await fastify.db
         .update(customScreens)
-        .set({ ...body, updatedAt: new Date() })
-        .where(eq(customScreens.id, id))
+        .set(updates)
+        .where(and(eq(customScreens.id, id), eq(customScreens.userId, user.id)))
         .returning();
 
       return { success: true, data: updated };

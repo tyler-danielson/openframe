@@ -28,7 +28,8 @@ declare module "fastify" {
 declare module "@fastify/jwt" {
   interface FastifyJWT {
     payload: { userId: string; isDemo?: boolean };
-    user: { userId: string; isDemo?: boolean };
+    /** kioskId is set when a kiosk display's own key signed the request in */
+    user: { userId: string; isDemo?: boolean; kioskId?: string };
   }
 }
 
@@ -106,7 +107,7 @@ export const authPlugin = fp(
             .set({ lastAccessedAt: new Date() })
             .where(eq(kiosks.id, kiosk.id));
 
-          request.user = { userId: kiosk.userId };
+          request.user = { userId: kiosk.userId, kioskId: kiosk.id };
           return;
         }
 
@@ -160,6 +161,11 @@ export const authPlugin = fp(
 
         // Relay secret auth (used by cloud proxy)
         if (relaySecret && typeof relaySecret === "string") {
+          // The hosted service is never reached through the cloud relay: a
+          // relay secret there would let its holder act as any account.
+          if (fastify.hostedMode) {
+            return reply.unauthorized("Invalid relay secret");
+          }
           if (
           fastify.relaySecret &&
           relaySecret.length === fastify.relaySecret.length &&
@@ -168,27 +174,8 @@ export const authPlugin = fp(
             Buffer.from(fastify.relaySecret)
           )
         ) {
-            // In hosted mode, require x-relay-user-id header to identify the user
+            // Use x-relay-user-id if provided, else fall back to first user
             const relayUserId = request.headers["x-relay-user-id"];
-            if (fastify.hostedMode) {
-              if (!relayUserId || typeof relayUserId !== "string") {
-                return reply.unauthorized(
-                  "x-relay-user-id header required in hosted mode"
-                );
-              }
-              const [targetUser] = await fastify.db
-                .select()
-                .from(users)
-                .where(eq(users.id, relayUserId))
-                .limit(1);
-              if (targetUser) {
-                request.user = { userId: targetUser.id };
-                return;
-              }
-              return reply.unauthorized("User not found");
-            }
-
-            // Self-hosted: use x-relay-user-id if provided, else fall back to first user
             if (relayUserId && typeof relayUserId === "string") {
               const [targetUser] = await fastify.db
                 .select()

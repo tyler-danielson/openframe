@@ -9,6 +9,7 @@ import {
   calendars,
 } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
+import { assertPublicUrl, fetchPublic, isBlockedDestination } from "../../lib/outbound.js";
 import { syncHomeAssistantEvents } from "../../services/calendar-sync/home-assistant.js";
 
 // Helper to check if a URL is a Home Assistant instance
@@ -67,7 +68,7 @@ async function fetchFromHA(
   options: RequestInit = {}
 ): Promise<Response> {
   const baseUrl = url.replace(/\/+$/, "");
-  return fetch(`${baseUrl}/api${path}`, {
+  return fetchPublic(`${baseUrl}/api${path}`, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -91,6 +92,11 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
+      // The hosted service's network is its own, not the user's home network
+      if (fastify.hostedMode) {
+        return { success: true, data: [] };
+      }
+
       const discovered: { url: string; source: string }[] = [];
 
       // 1. Try homeassistant.local (mDNS default)
@@ -255,11 +261,18 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Test connection
       try {
+        // On the hosted service Home Assistant has to be at a public address
+        await assertPublicUrl(url);
         const response = await fetchFromHA(url, accessToken, "/");
         if (!response.ok) {
           return reply.badRequest("Failed to connect to Home Assistant. Check URL and token.");
         }
       } catch (error) {
+        if (fastify.hostedMode && isBlockedDestination(error)) {
+          return reply.badRequest(
+            "That address isn't reachable from OpenFrame's servers. Use a public http(s) URL for Home Assistant, not a local or private network address."
+          );
+        }
         console.error("HA connection test failed:", error);
         return reply.badRequest("Failed to connect to Home Assistant. Check URL and network.");
       }
@@ -763,7 +776,7 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
         const response = await fetchFromHA(
           config.url,
           config.accessToken,
-          `/states/${entityId}`
+          `/states/${encodeURIComponent(entityId)}`
         );
         if (!response.ok) {
           return reply.notFound("Entity not found");
@@ -962,7 +975,7 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
         const response = await fetchFromHA(
           config.url,
           config.accessToken,
-          `/services/${domain}/${service}`,
+          `/services/${encodeURIComponent(domain)}/${encodeURIComponent(service)}`,
           {
             method: "POST",
             body: JSON.stringify(body || {}),
@@ -1273,7 +1286,7 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
         const response = await fetchFromHA(
           config.url,
           config.accessToken,
-          `/camera_proxy/${entityId}`
+          `/camera_proxy/${encodeURIComponent(entityId)}`
         );
 
         if (!response.ok) {
@@ -1340,10 +1353,10 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
 
       try {
         const baseUrl = config.url.replace(/\/+$/, "");
-        const streamUrl = `${baseUrl}/api/camera_proxy_stream/${entityId}`;
+        const streamUrl = `${baseUrl}/api/camera_proxy_stream/${encodeURIComponent(entityId)}`;
         console.log(`[HA Camera] Fetching stream from: ${streamUrl}`);
 
-        const response = await fetch(streamUrl, {
+        const response = await fetchPublic(streamUrl, {
           headers: {
             Authorization: `Bearer ${config.accessToken}`,
           },
@@ -1466,7 +1479,7 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
         const stateResponse = await fetchFromHA(
           config.url,
           config.accessToken,
-          `/states/${entityId}`
+          `/states/${encodeURIComponent(entityId)}`
         );
 
         if (!stateResponse.ok) {
@@ -1482,9 +1495,9 @@ export const homeAssistantRoutes: FastifyPluginAsync = async (fastify) => {
 
         // Build the obstacle proxy URL
         const baseUrl = config.url.replace(/\/+$/, "");
-        const obstacleUrl = `${baseUrl}/api/camera_map_obstacle_history_proxy/${entityId}?token=${cameraAccessToken}&history_index=${history_index}&index=${obstacle_index}&crop=${crop}`;
+        const obstacleUrl = `${baseUrl}/api/camera_map_obstacle_history_proxy/${encodeURIComponent(entityId)}?token=${cameraAccessToken}&history_index=${history_index}&index=${obstacle_index}&crop=${crop}`;
 
-        const response = await fetch(obstacleUrl);
+        const response = await fetchPublic(obstacleUrl);
 
         if (response.status === 404) {
           return reply.status(404).send("No obstacle image found");

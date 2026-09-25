@@ -25,8 +25,7 @@ import { HandwritingCanvas } from "../components/ui/HandwritingCanvas";
 import { cn } from "../lib/utils";
 import { offlineCache, CACHE_KEYS } from "../lib/offlineCache";
 import { useTasksStore, type TasksLayout } from "../stores/tasks";
-import { useAuthStore } from "../stores/auth";
-import { buildOAuthUrl } from "../utils/oauth-scopes";
+import { startOAuthLink } from "../utils/oauth-scopes";
 import { useDemoGuard } from "../hooks/useDemoGuard";
 import type { Task, TaskList } from "@openframe/shared";
 
@@ -280,8 +279,7 @@ export function TasksPage() {
               size="sm"
               className="mt-2"
               onClick={() => {
-                const token = useAuthStore.getState().accessToken;
-                window.location.href = buildOAuthUrl("google", "tasks", token, window.location.href);
+                void startOAuthLink("google", "tasks", window.location.href);
               }}
             >
               Authorize Google Tasks
@@ -656,8 +654,7 @@ export function TasksPage() {
             variant="outline"
             size="sm"
             onClick={() => {
-              const token = useAuthStore.getState().accessToken;
-              window.location.href = buildOAuthUrl("google", "tasks", token, window.location.href);
+              void startOAuthLink("google", "tasks", window.location.href);
             }}
           >
             Authorize

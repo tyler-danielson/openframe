@@ -15,6 +15,7 @@ import {
   users,
 } from "@openframe/database/schema";
 import { getSystemSetting, getCategorySettings } from "../routes/settings/index.js";
+import { fetchPublic, isBlockedDestination, restrictsOutboundRequests } from "../lib/outbound.js";
 import { resolveTimeZone, zonedDayRange } from "../lib/timezone.js";
 import { queryEventsInRange } from "./calendar-events.js";
 
@@ -362,6 +363,18 @@ async function fetchAssumptions(db: any, userId: string) {
 // ---- Provider connectivity test ----
 
 /**
+ * The error to show for a failed provider request. Azure and local LLM
+ * endpoints are addresses users enter, which the hosted service only lets
+ * reach public addresses; say so rather than "fetch failed".
+ */
+function describeProviderError(error: unknown, fallback: string): string {
+  if (isBlockedDestination(error) && restrictsOutboundRequests()) {
+    return "That address isn't reachable from OpenFrame's servers. Use a public URL for the AI provider, not a local or private network address.";
+  }
+  return (error as { message?: string } | null)?.message || fallback;
+}
+
+/**
  * Send a minimal request to verify an API key works.
  * Returns { ok: true, model?: string } on success or { ok: false, error: string } on failure.
  */
@@ -422,7 +435,7 @@ export async function testProviderConnection(
         if (!baseUrl) return { ok: false, error: "Endpoint URL not configured" };
 
         const url = `${baseUrl.replace(/\/+$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
-        const res = await fetch(url, {
+        const res = await fetchPublic(url, {
           method: "POST",
           headers: { "Content-Type": "application/json", "api-key": apiKey },
           body: JSON.stringify({
@@ -448,7 +461,7 @@ export async function testProviderConnection(
         return { ok: false, error: `Unknown provider: ${provider}` };
     }
   } catch (error: any) {
-    return { ok: false, error: error.message || "Connection failed" };
+    return { ok: false, error: describeProviderError(error, "Connection failed") };
   }
 }
 
@@ -463,7 +476,7 @@ async function testOpenAICompatible(
     headers["Authorization"] = `Bearer ${apiKey}`;
   }
 
-  const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+  const res = await fetchPublic(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
     method: "POST",
     headers,
     body: JSON.stringify({
@@ -705,7 +718,7 @@ export async function* streamOpenAICompatible(
       defaultHeaders["Authorization"] = `Bearer ${apiKey}`;
     }
 
-    const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+    const response = await fetchPublic(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
       method: "POST",
       headers: { ...defaultHeaders, ...headers },
       body: JSON.stringify({
@@ -758,7 +771,7 @@ export async function* streamOpenAICompatible(
 
     yield { type: "done", data: "" };
   } catch (error: any) {
-    yield { type: "error", data: error.message || "API error" };
+    yield { type: "error", data: describeProviderError(error, "API error") };
   }
 }
 
@@ -801,7 +814,7 @@ export async function* streamAzureOpenAI(
   ];
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchPublic(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -856,7 +869,7 @@ export async function* streamAzureOpenAI(
 
     yield { type: "done", data: "" };
   } catch (error: any) {
-    yield { type: "error", data: error.message || "Azure OpenAI error" };
+    yield { type: "error", data: describeProviderError(error, "Azure OpenAI error") };
   }
 }
 

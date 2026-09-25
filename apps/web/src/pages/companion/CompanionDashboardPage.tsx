@@ -24,6 +24,7 @@ import { useAuthStore } from "../../stores/auth";
 import { Card } from "../../components/ui/Card";
 import { useState } from "react";
 import { useCompanion } from "./CompanionContext";
+import { safeHref } from "../../lib/safe-url";
 
 function getGreeting() {
   const hour = new Date().getHours();
@@ -283,7 +284,8 @@ export function CompanionDashboardPage() {
             {(headlines as any[]).slice(0, 5).map((item: any, i: number) => (
               <a
                 key={i}
-                href={item.link || item.url}
+                // Feed-supplied: web links only (no javascript: URLs)
+                href={safeHref(item.link || item.url)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block text-base text-foreground hover:text-primary transition-colors leading-snug"

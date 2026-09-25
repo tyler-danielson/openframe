@@ -5,8 +5,25 @@ import { api, type Kiosk } from "../services/api";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { appUrl } from "../lib/cloud";
+import { startSession } from "../lib/session";
 
 const CLOUD_URL = "https://openframe.us";
+
+/**
+ * The relay a ?cloud= link names, if it's one we trust: the OpenFrame cloud
+ * or this server itself. The chosen kiosk's token is POSTed there, and the
+ * token gives full access to the kiosk owner's account, so a link must not be
+ * able to send it anywhere else.
+ */
+function trustedCloudOrigin(value: string | null): string {
+  if (!value) return "";
+  try {
+    const origin = new URL(value).origin;
+    return origin === CLOUD_URL || origin === window.location.origin ? origin : "";
+  } catch {
+    return "";
+  }
+}
 
 // Check if the current page is being served from a local/LAN server
 // (as opposed to a cloud relay like openframe.us)
@@ -26,10 +43,10 @@ export function TvSetupPage() {
   const navigate = useNavigate();
   const code = searchParams.get("code") || "";
   // If redirected from cloud, this tells us where to POST the completion
-  const cloudParam = searchParams.get("cloud") || "";
+  // (only a trusted relay; anything else is ignored)
+  const cloudParam = trustedCloudOrigin(searchParams.get("cloud"));
 
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const setTokens = useAuthStore((state) => state.setTokens);
 
   const [pageState, setPageState] = useState<PageState>("loading");
   const [kiosks, setKiosks] = useState<Kiosk[]>([]);
@@ -176,7 +193,7 @@ export function TvSetupPage() {
     setLoginError(null);
     try {
       const result = await api.loginWithPassword(email, password);
-      setTokens(result.accessToken, result.refreshToken);
+      startSession(result.accessToken, result.refreshToken);
       // useEffect above will kick off kiosk loading
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : "Login failed");

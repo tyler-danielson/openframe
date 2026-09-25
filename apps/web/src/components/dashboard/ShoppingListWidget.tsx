@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { api, type SystemSetting } from "../../services/api";
 import type { ShoppingItem } from "@openframe/shared";
+import { safeWebUrl } from "../../lib/safe-url";
 
 export function ShoppingListWidget() {
   const queryClient = useQueryClient();
@@ -79,7 +80,9 @@ export function ShoppingListWidget() {
   });
 
   function getAmazonUrl(item: ShoppingItem): string {
-    if (item.amazonUrl) return item.amazonUrl;
+    // A saved link is only used if it's a web page (never a javascript: URL)
+    const savedUrl = safeWebUrl(item.amazonUrl);
+    if (savedUrl) return savedUrl;
     const query = encodeURIComponent(item.name);
     const url = `https://www.amazon.com/s?k=${query}`;
     return affiliateTag ? `${url}&tag=${encodeURIComponent(affiliateTag)}` : url;

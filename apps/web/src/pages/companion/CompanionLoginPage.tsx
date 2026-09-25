@@ -4,13 +4,13 @@ import { Button } from "../../components/ui/Button";
 import { useAuthStore } from "../../stores/auth";
 import { useEffect, useState } from "react";
 import { api } from "../../services/api";
+import { startSession } from "../../lib/session";
 
 const getApiServerUrl = () => "";
 
 export function CompanionLoginPage() {
   const navigate = useNavigate();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const setTokens = useAuthStore((state) => state.setTokens);
 
   const returnTo = "/companion";
 
@@ -54,7 +54,7 @@ export function CompanionLoginPage() {
     setError(null);
     try {
       const result = await api.loginWithPassword(email, password);
-      setTokens(result.accessToken, result.refreshToken);
+      startSession(result.accessToken, result.refreshToken);
       navigate(returnTo, { replace: true });
     } catch (err: any) {
       setError(err.message || "Invalid email or password");

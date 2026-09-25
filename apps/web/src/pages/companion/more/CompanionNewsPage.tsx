@@ -4,6 +4,7 @@ import { Loader2, Newspaper, ExternalLink } from "lucide-react";
 import { api } from "../../../services/api";
 import { Card } from "../../../components/ui/Card";
 import { CompanionPageHeader } from "../components/CompanionPageHeader";
+import { safeHref } from "../../../lib/safe-url";
 
 export function CompanionNewsPage() {
   const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
@@ -66,7 +67,8 @@ export function CompanionNewsPage() {
           (articles as any[]).map((article: any) => (
             <a
               key={article.id}
-              href={article.link || article.url}
+              // Feed-supplied: web links only (no javascript: URLs)
+              href={safeHref(article.link || article.url)}
               target="_blank"
               rel="noopener noreferrer"
               className="block"

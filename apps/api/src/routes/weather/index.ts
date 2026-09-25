@@ -194,7 +194,8 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
   // ─── Weather Alerts (via OWM One Call API 3.0) ────
   // Alerts require an OWM API key — return empty if not configured
 
-  let alertsCache: { data: any[]; timestamp: number } | null = null;
+  // Keyed by location: the server serves many households
+  const alertsCache = new Map<string, { data: any[]; timestamp: number }>();
   const ALERTS_CACHE_MS = 10 * 60 * 1000;
 
   fastify.get(
@@ -214,8 +215,10 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
         return { success: true, data: [] };
       }
 
-      if (alertsCache && Date.now() - alertsCache.timestamp < ALERTS_CACHE_MS) {
-        return { success: true, data: alertsCache.data };
+      const cacheKey = `${lat},${lon}`;
+      const cached = alertsCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < ALERTS_CACHE_MS) {
+        return { success: true, data: cached.data };
       }
 
       try {
@@ -232,10 +235,10 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
             description: a.description,
             tags: a.tags || [],
           }));
-          alertsCache = { data: alerts, timestamp: Date.now() };
+          alertsCache.set(cacheKey, { data: alerts, timestamp: Date.now() });
           return { success: true, data: alerts };
         }
-        alertsCache = { data: [], timestamp: Date.now() };
+        alertsCache.set(cacheKey, { data: [], timestamp: Date.now() });
         return { success: true, data: [] };
       } catch {
         return { success: true, data: [] };
@@ -245,7 +248,8 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ─── Air Quality (OWM Air Pollution API - free) ────
 
-  let aqiCache: { data: any; timestamp: number } | null = null;
+  // Keyed by location: the server serves many households
+  const aqiCache = new Map<string, { data: any; timestamp: number }>();
   const AQI_CACHE_MS = 30 * 60 * 1000;
 
   fastify.get(
@@ -265,8 +269,10 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
         throw fastify.httpErrors.badRequest("Weather not configured — Air quality requires an OpenWeatherMap API key");
       }
 
-      if (aqiCache && Date.now() - aqiCache.timestamp < AQI_CACHE_MS) {
-        return { success: true, data: aqiCache.data };
+      const cacheKey = `${lat},${lon}`;
+      const cached = aqiCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < AQI_CACHE_MS) {
+        return { success: true, data: cached.data };
       }
 
       try {
@@ -296,7 +302,7 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
           updatedAt: new Date(item.dt * 1000).toISOString(),
         };
 
-        aqiCache = { data, timestamp: Date.now() };
+        aqiCache.set(cacheKey, { data, timestamp: Date.now() });
         return { success: true, data };
       } catch (err: any) {
         throw fastify.httpErrors.serviceUnavailable(err.message);

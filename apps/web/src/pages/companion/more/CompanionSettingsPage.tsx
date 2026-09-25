@@ -1,16 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, LogOut, Eye, EyeOff } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import { api } from "../../../services/api";
 import { useAuthStore } from "../../../stores/auth";
+import { signOut } from "../../../lib/session";
 import { Card } from "../../../components/ui/Card";
 import { CompanionPageHeader } from "../components/CompanionPageHeader";
 
 export function CompanionSettingsPage() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
-  const logout = useAuthStore((state) => state.logout);
 
   const { data: calendars, isLoading } = useQuery({
     queryKey: ["companion-calendars"],
@@ -26,8 +24,7 @@ export function CompanionSettingsPage() {
   });
 
   const handleLogout = () => {
-    logout();
-    navigate("/companion/login", { replace: true });
+    void signOut({ redirectTo: "/companion/login" });
   };
 
   return (

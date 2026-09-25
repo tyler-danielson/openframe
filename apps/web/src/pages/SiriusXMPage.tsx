@@ -28,7 +28,7 @@ import { useToast } from "../components/ui/Toaster";
 import { useSiriusXMStore } from "../stores/siriusxm";
 import { Button } from "../components/ui/Button";
 import { cn } from "../lib/utils";
-import { useAuthStore } from "../stores/auth";
+import { getRequestCredentials } from "../stores/auth";
 import type { SiriusXMChannel } from "@openframe/shared";
 
 // Category icons
@@ -188,8 +188,9 @@ export function SiriusXMPage() {
           enableWorker: true,
           lowLatencyMode: false,
           xhrSetup: (xhr: XMLHttpRequest) => {
-            // Same precedence as the API client: kiosks authenticate with a key
-            const { accessToken, apiKey } = useAuthStore.getState();
+            // Same credentials as the API client: a kiosk's key on a kiosk page,
+            // the signed-in user's token elsewhere
+            const { accessToken, apiKey } = getRequestCredentials();
             if (apiKey) {
               xhr.setRequestHeader("x-api-key", apiKey);
             } else if (accessToken) {

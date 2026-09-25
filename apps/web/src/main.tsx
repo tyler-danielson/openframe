@@ -1,9 +1,12 @@
 import { StrictMode, Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
+import { queryClient } from "./lib/query-client";
+import { installSessionHandlers } from "./lib/session";
+import { isKioskRoute } from "./lib/cloud";
 import "./index.css";
 
 // Error boundary to catch React rendering errors
@@ -53,14 +56,14 @@ class ErrorBoundary extends Component<
   }
 }
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5, // 5 minutes
-      retry: 1,
-    },
-  },
-});
+// A session that can no longer be refreshed ends through the one sign-out path
+installSessionHandlers();
+
+// Earlier versions' service worker kept API responses in this cache, which
+// everyone using this browser shares: remove what's left of it
+if ("caches" in window) {
+  caches.delete("api-cache").catch(() => {});
+}
 
 // In cloud mode, the SPA is served under /app/
 const basePath = import.meta.env.VITE_BASE_PATH || "/";
@@ -68,7 +71,7 @@ const basename = basePath.endsWith("/") ? basePath.slice(0, -1) : basePath;
 
 // Kiosk displays size everything from the screen size (index.css); set it
 // before the first render so a TV never paints at the app's size first
-if (window.location.pathname.slice(basename.length).startsWith("/kiosk/")) {
+if (isKioskRoute()) {
   document.documentElement.classList.add("kiosk-scale");
 }
 

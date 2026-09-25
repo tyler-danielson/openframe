@@ -3,6 +3,8 @@
  * Handles communication with Xtreme Codes IPTV servers
  */
 
+import { fetchPublic } from "../lib/outbound.js";
+
 export interface XtremeCodesCredentials {
   serverUrl: string;
   username: string;
@@ -90,7 +92,7 @@ export class XtremeCodesClient {
   private fetchWithTimeout(url: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
+    return fetchPublic(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
   }
 
   private buildApiUrl(action: string, params: Record<string, string> = {}): string {

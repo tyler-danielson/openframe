@@ -2,6 +2,8 @@
  * Audiobookshelf API Client
  */
 
+import { fetchPublic } from "../lib/outbound.js";
+
 export interface AudiobookshelfClientConfig {
   serverUrl: string;
   accessToken: string;
@@ -41,7 +43,7 @@ export class AudiobookshelfClient {
   }
 
   private async fetchJson(path: string, options?: RequestInit): Promise<unknown> {
-    const response = await fetch(`${this.serverUrl}${path}`, {
+    const response = await fetchPublic(`${this.serverUrl}${path}`, {
       ...options,
       headers: { ...this.headers, ...options?.headers },
     });
@@ -179,6 +181,6 @@ export class AudiobookshelfClient {
   }
 
   getCoverUrl(itemId: string): string {
-    return `${this.serverUrl}/api/items/${itemId}/cover?token=${this.accessToken}`;
+    return `${this.serverUrl}/api/items/${encodeURIComponent(itemId)}/cover?token=${this.accessToken}`;
   }
 }

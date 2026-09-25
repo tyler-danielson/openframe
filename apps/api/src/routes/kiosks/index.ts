@@ -207,6 +207,25 @@ interface WidgetStateReport {
 }
 const kioskWidgetState = new Map<string, Map<string, WidgetStateReport>>();
 
+// The store is shared by every account on the server, so each kiosk gets a
+// bounded share of it
+const MAX_WIDGET_STATES_PER_KIOSK = 100;
+const MAX_WIDGET_STATE_BYTES = 64 * 1024;
+
+// A kiosk display signs in with its own kiosk key (request.user.kioskId). It
+// can show and control its owner's kiosks, but not create, change or delete
+// them, or see another kiosk's token (which would let it act as that kiosk).
+const KIOSK_DISPLAY_FORBIDDEN = "Kiosk displays can't manage kiosks";
+
+function hideOtherKioskToken<T extends { id: string; token: string }>(
+  kiosk: T,
+  viewerKioskId: string | undefined
+): T | Omit<T, "token"> {
+  if (!viewerKioskId || kiosk.id === viewerKioskId) return kiosk;
+  const { token: _token, ...rest } = kiosk;
+  return rest;
+}
+
 // In-memory fast-poll tracking (kioskId -> expiry timestamp)
 const kioskFastPoll = new Map<string, number>();
 
@@ -251,7 +270,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
 
       return {
         success: true,
-        data: userKiosks,
+        data: userKiosks.map((k) => hideOtherKioskToken(k, request.user.kioskId)),
       };
     }
   );
@@ -293,7 +312,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
 
       return {
         success: true,
-        data: kiosk,
+        data: hideOtherKioskToken(kiosk, request.user.kioskId),
       };
     }
   );
@@ -337,6 +356,9 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       const user = await getCurrentUser(request);
       if (!user) {
         return reply.unauthorized("User not found");
+      }
+      if (request.user.kioskId) {
+        return reply.forbidden(KIOSK_DISPLAY_FORBIDDEN);
       }
 
       const body = request.body as {
@@ -468,6 +490,9 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       if (!user) {
         return reply.unauthorized("User not found");
       }
+      if (request.user.kioskId) {
+        return reply.forbidden(KIOSK_DISPLAY_FORBIDDEN);
+      }
       const { id } = request.params as { id: string };
 
       const body = request.body as {
@@ -492,6 +517,18 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         settings?: Record<string, unknown>;
         dashboards?: KioskDashboard[];
       };
+
+      // A kiosk may only use one of its owner's custom screens
+      if (body.screensaverScreenId) {
+        const [screen] = await fastify.db
+          .select({ id: customScreens.id })
+          .from(customScreens)
+          .where(and(eq(customScreens.id, body.screensaverScreenId), eq(customScreens.userId, user.id)))
+          .limit(1);
+        if (!screen) {
+          return reply.badRequest("Custom screen not found");
+        }
+      }
 
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (body.name !== undefined) updates.name = body.name;
@@ -566,6 +603,9 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       if (!user) {
         return reply.unauthorized("User not found");
       }
+      if (request.user.kioskId) {
+        return reply.forbidden(KIOSK_DISPLAY_FORBIDDEN);
+      }
       const { id } = request.params as { id: string };
 
       const result = await fastify.db
@@ -605,6 +645,9 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       const user = await getCurrentUser(request);
       if (!user) {
         return reply.unauthorized("User not found");
+      }
+      if (request.user.kioskId) {
+        return reply.forbidden(KIOSK_DISPLAY_FORBIDDEN);
       }
       const { id } = request.params as { id: string };
 
@@ -803,7 +846,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         const [screen] = await fastify.db
           .select()
           .from(customScreens)
-          .where(eq(customScreens.id, kiosk.screensaverScreenId))
+          .where(and(eq(customScreens.id, kiosk.screensaverScreenId), eq(customScreens.userId, kiosk.userId)))
           .limit(1);
         if (screen) {
           resolvedLayoutConfig = screen.layoutConfig;
@@ -911,6 +954,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put(
     "/public/:token/widget-state",
     {
+      bodyLimit: 256 * 1024,
       schema: {
         description: "Report widget state from kiosk (public, no auth required)",
         tags: ["Kiosks", "Public"],
@@ -961,8 +1005,20 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.forbidden("Kiosk is disabled");
       }
 
-      // Upsert widget states for this kiosk
+      // Check the report fits the kiosk's share of the store before storing any of it
       let stateMap = kioskWidgetState.get(kiosk.id);
+      const widgetIds = new Set(stateMap?.keys());
+      for (const s of states) {
+        if (Buffer.byteLength(JSON.stringify(s)) > MAX_WIDGET_STATE_BYTES) {
+          return reply.payloadTooLarge(`A widget's state is limited to ${MAX_WIDGET_STATE_BYTES / 1024} KB`);
+        }
+        widgetIds.add(s.widgetId);
+      }
+      if (widgetIds.size > MAX_WIDGET_STATES_PER_KIOSK) {
+        return reply.payloadTooLarge(`A kiosk can report at most ${MAX_WIDGET_STATES_PER_KIOSK} widget states`);
+      }
+
+      // Upsert widget states for this kiosk
       if (!stateMap) {
         stateMap = new Map();
         kioskWidgetState.set(kiosk.id, stateMap);
@@ -1634,7 +1690,7 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
           createdAt: kioskSavedFiles.createdAt,
         })
         .from(kioskSavedFiles)
-        .where(eq(kioskSavedFiles.kioskId, kioskId))
+        .where(and(eq(kioskSavedFiles.kioskId, kioskId), eq(kioskSavedFiles.userId, user.id)))
         .orderBy(desc(kioskSavedFiles.createdAt));
 
       return { success: true, data: files };
@@ -1649,15 +1705,32 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         description: "Serve a saved kiosk file",
         tags: ["Kiosks"],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+            fileId: { type: "string", format: "uuid" },
+          },
+          required: ["id", "fileId"],
+        },
       },
     },
     async (request, reply) => {
+      const user = await getCurrentUser(request);
+      if (!user) return reply.unauthorized();
+
       const { id: kioskId, fileId } = request.params as { id: string; fileId: string };
 
       const [file] = await fastify.db
         .select()
         .from(kioskSavedFiles)
-        .where(and(eq(kioskSavedFiles.id, fileId), eq(kioskSavedFiles.kioskId, kioskId)))
+        .where(
+          and(
+            eq(kioskSavedFiles.id, fileId),
+            eq(kioskSavedFiles.kioskId, kioskId),
+            eq(kioskSavedFiles.userId, user.id)
+          )
+        )
         .limit(1);
 
       if (!file) return reply.notFound("File not found");
@@ -1682,11 +1755,20 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         description: "Delete a saved kiosk file",
         tags: ["Kiosks"],
+        params: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+            fileId: { type: "string", format: "uuid" },
+          },
+          required: ["id", "fileId"],
+        },
       },
     },
     async (request, reply) => {
       const user = await getCurrentUser(request);
       if (!user) return reply.unauthorized();
+      if (request.user.kioskId) return reply.forbidden(KIOSK_DISPLAY_FORBIDDEN);
 
       const { id: kioskId, fileId } = request.params as { id: string; fileId: string };
 
@@ -1696,14 +1778,17 @@ export const kiosksRoutes: FastifyPluginAsync = async (fastify) => {
         .where(
           and(
             eq(kioskSavedFiles.id, fileId),
-            eq(kioskSavedFiles.kioskId, kioskId)
+            eq(kioskSavedFiles.kioskId, kioskId),
+            eq(kioskSavedFiles.userId, user.id)
           )
         )
         .limit(1);
 
       if (!file) return reply.notFound();
 
-      await fastify.db.delete(kioskSavedFiles).where(eq(kioskSavedFiles.id, fileId));
+      await fastify.db
+        .delete(kioskSavedFiles)
+        .where(and(eq(kioskSavedFiles.id, fileId), eq(kioskSavedFiles.userId, user.id)));
       try { await fs.unlink(file.storedPath); } catch { /* ok */ }
 
       return { success: true };

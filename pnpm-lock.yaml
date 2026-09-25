@@ -137,6 +137,9 @@ importers:
       ssh2-sftp-client:
         specifier: ^12.0.0
         version: 12.1.0
+      undici:
+        specifier: ^6.23.0
+        version: 6.23.0
       webdav:
         specifier: ^5.8.0
         version: 5.9.0

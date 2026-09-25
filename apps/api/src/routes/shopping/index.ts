@@ -126,10 +126,18 @@ export const shoppingRoutes: FastifyPluginAsync = async (fastify) => {
       if (!existing)
         throw fastify.httpErrors.notFound("Shopping item not found");
 
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (body.name !== undefined) updates.name = body.name;
+      if (body.amazonUrl !== undefined) updates.amazonUrl = body.amazonUrl;
+      if (body.checked !== undefined) updates.checked = body.checked;
+      if (body.sortOrder !== undefined) updates.sortOrder = body.sortOrder;
+
       const [updated] = await fastify.db
         .update(shoppingItems)
-        .set({ ...body, updatedAt: new Date() })
-        .where(eq(shoppingItems.id, id))
+        .set(updates)
+        .where(
+          and(eq(shoppingItems.id, id), eq(shoppingItems.userId, user.id))
+        )
         .returning();
 
       return { success: true, data: updated };

@@ -182,6 +182,9 @@ export const oauthTokens = pgTable(
     // Multi-account support fields
     accountName: text("account_name"), // User-provided name like "Dad's Spotify"
     externalAccountId: text("external_account_id"), // Provider's user ID (e.g., Spotify user ID)
+    // The provider's permanent ID for the account (Microsoft: "<tenant id>:<object id>"),
+    // which sign-in matches on instead of the email address the provider reports
+    providerSubject: text("provider_subject"),
     isPrimary: boolean("is_primary").default(false).notNull(), // Default account for this provider
     icon: text("icon"), // Emoji icon for the account (e.g., "👨", "👩", "🎸")
     // Spotify device preferences
@@ -197,6 +200,7 @@ export const oauthTokens = pgTable(
   (table) => [
     index("oauth_tokens_user_provider_idx").on(table.userId, table.provider),
     index("oauth_tokens_external_account_idx").on(table.userId, table.provider, table.externalAccountId),
+    index("oauth_tokens_provider_subject_idx").on(table.provider, table.providerSubject),
   ]
 );
 

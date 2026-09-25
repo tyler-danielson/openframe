@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type KioskConfig, type KioskDisplayMode, type KioskDisplayType, type KioskEnabledFeatures, type KioskSettings, type KioskDashboard } from "../services/api";
 import { useScreensaverStore, type ScreensaverLayoutConfig, DEFAULT_LAYOUT_CONFIG } from "../stores/screensaver";
@@ -6,6 +6,7 @@ import { useCalendarStore } from "../stores/calendar";
 import { useTasksStore } from "../stores/tasks";
 import { useSidebarStore, type SidebarFeature } from "../stores/sidebar";
 import { useAuthStore } from "../stores/auth";
+import { isKioskRoute } from "../lib/cloud";
 import { useConnection } from "./ConnectionContext";
 import type { ConnectionStatus } from "../hooks/useConnectionHealth";
 import { offlineCache, CACHE_KEYS, CACHE_MAX_AGES } from "../lib/offlineCache";
@@ -75,6 +76,9 @@ export function useKiosk() {
   return useContext(KioskContext);
 }
 
+// Whether this page load started on a kiosk display
+const loadedOnKioskRoute = isKioskRoute();
+
 interface KioskProviderProps {
   token: string;
   children: ReactNode;
@@ -83,7 +87,25 @@ interface KioskProviderProps {
 export function KioskProvider({ token, children }: KioskProviderProps) {
   const [error, setError] = useState<string | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const setApiKey = useAuthStore((state) => state.setApiKey);
+  const setKioskApiKey = useAuthStore((state) => state.setKioskApiKey);
+
+  // A kiosk acts as its owner's account while the rest of the app acts as
+  // whoever is signed in, and what's in memory (the query cache, the user, the
+  // Home Assistant connection) belongs to one of them. So entering or leaving
+  // a kiosk within the app reloads the page instead of mixing the two.
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+  useEffect(() => {
+    if (!loadedOnKioskRoute) {
+      window.location.reload();
+      return;
+    }
+    return () => {
+      if (tokenRef.current !== token || !isKioskRoute()) {
+        window.location.reload();
+      }
+    };
+  }, [token]);
 
   // Delegate to global ConnectionContext (handles health checks + reconnect invalidation)
   const { connectionStatus, lastOnlineAt, isOffline: isOfflineMode } = useConnection();
@@ -111,13 +133,14 @@ export function KioskProvider({ token, children }: KioskProviderProps) {
     retry: 1,
   });
 
-  // Set up API key for authentication
+  // The kiosk's key authenticates this page's requests: kept in memory only,
+  // and only used on this kiosk's pages (see getRequestCredentials)
   useEffect(() => {
-    if (authData?.apiKey) {
-      setApiKey(authData.apiKey);
-      setIsAuthReady(true);
-    }
-  }, [authData, setApiKey]);
+    if (!authData?.apiKey) return;
+    setKioskApiKey(authData.apiKey);
+    setIsAuthReady(true);
+    return () => setKioskApiKey(null);
+  }, [authData, setKioskApiKey]);
 
   useEffect(() => {
     if (config) {

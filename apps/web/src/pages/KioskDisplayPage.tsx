@@ -14,6 +14,7 @@ import { useSplitScreenStore } from "../stores/split-screen";
 import { useCastWebpageStore } from "../stores/cast-webpage";
 import { useBlockNavStore } from "../stores/block-nav";
 import { FileShareOverlay } from "../components/FileShareOverlay";
+import { safeWebUrl } from "../lib/safe-url";
 
 // Import all pages
 import { DashboardPage } from "./DashboardPage";
@@ -97,10 +98,11 @@ function KioskApp() {
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
       if (!event.data?.type) return;
-      // Accept messages from same origin, Tizen TV wrapper (wgt:// or "null"), or local file://
+      // Accept messages from this origin and the packaged TV wrapper (wgt:// or
+      // file://) only. Never "null": that's the origin of any sandboxed frame or
+      // data: URL, e.g. a web page cast onto this kiosk (CastWebpageOverlay).
       const trustedOrigin =
         event.origin === window.location.origin ||
-        event.origin === "null" ||
         event.origin.startsWith("wgt:") ||
         event.origin.startsWith("file:");
       if (!trustedOrigin) return;
@@ -731,7 +733,8 @@ function KioskCommandPoller({ token }: { token: string }) {
               ratio: splitConfig.ratio || "half",
               sourceType: splitConfig.sourceType,
               dashboardPath: splitConfig.dashboardPath,
-              url: splitConfig.url,
+              // http(s) pages only (SplitScreenContainer checks again)
+              url: safeWebUrl(splitConfig.url),
               text: splitConfig.text,
               widgetType: splitConfig.widgetType,
               widgetConfig: splitConfig.widgetConfig,
@@ -755,19 +758,25 @@ function KioskCommandPoller({ token }: { token: string }) {
           break;
         }
 
-        case "display-webpage":
-          if (cmd.payload?.url && typeof cmd.payload.url === "string") {
-            if (cmd.payload.navigate) {
-              // Navigate the full page — works with sites that block iframes
-              console.log(`[Kiosk] Navigating to webpage: ${cmd.payload.url}`);
-              window.location.href = cmd.payload.url;
-            } else {
-              // Show in overlay iframe — for iframe-friendly sites
-              console.log(`[Kiosk] Displaying webpage in overlay: ${cmd.payload.url}`);
-              useCastWebpageStore.getState().display(cmd.payload.url);
-            }
+        case "display-webpage": {
+          // Web pages only: a javascript: (or data:) URL would run in the
+          // kiosk's origin, with its owner's key
+          const webUrl = safeWebUrl(cmd.payload?.url);
+          if (!webUrl) {
+            if (cmd.payload?.url) console.warn("[Kiosk] Ignoring webpage that isn't http(s)");
+            break;
+          }
+          if (cmd.payload?.navigate) {
+            // Navigate the full page — works with sites that block iframes
+            console.log(`[Kiosk] Navigating to webpage: ${webUrl}`);
+            window.location.href = webUrl;
+          } else {
+            // Show in overlay iframe — for iframe-friendly sites
+            console.log(`[Kiosk] Displaying webpage in overlay: ${webUrl}`);
+            useCastWebpageStore.getState().display(webUrl);
           }
           break;
+        }
 
         case "dismiss-webpage":
           console.log("[Kiosk] Dismissing cast webpage");
@@ -851,7 +860,9 @@ export function KioskDisplayPage() {
 }
 
 function CastWebpageOverlay() {
-  const { url, dismiss } = useCastWebpageStore();
+  const { url: castUrl, dismiss } = useCastWebpageStore();
+  // http(s) pages only, however the URL got here
+  const url = safeWebUrl(castUrl) ?? null;
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeFailed, setIframeFailed] = useState(false);
 
@@ -897,7 +908,10 @@ function CastWebpageOverlay() {
         src={url}
         className="w-full h-full border-0"
         allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+        // No allow-same-origin: with allow-scripts it would let a page from
+        // this origin reach into the kiosk (its key, its storage). The cast
+        // page runs in an opaque origin instead.
+        sandbox="allow-scripts allow-popups allow-forms"
         onError={() => {
           console.log(`[Kiosk] Iframe error for ${url}, redirecting full page`);
           setIframeFailed(true);

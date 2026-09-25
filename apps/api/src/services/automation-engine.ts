@@ -23,6 +23,7 @@ import type {
   AutomationActionConfig,
   AutomationNotification,
 } from "@openframe/shared";
+import { fetchPublic } from "../lib/outbound.js";
 
 // Track entity states for duration-based triggers
 interface EntityStateTracker {
@@ -283,8 +284,8 @@ export class AutomationEngine {
       ...config.serviceData,
     };
 
-    const response = await fetch(
-      `${baseUrl}/api/services/${config.domain}/${config.service}`,
+    const response = await fetchPublic(
+      `${baseUrl}/api/services/${encodeURIComponent(config.domain)}/${encodeURIComponent(config.service)}`,
       {
         method: "POST",
         headers: {

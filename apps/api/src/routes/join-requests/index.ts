@@ -1,43 +1,121 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { users, kiosks, joinRequests, companionAccess } from "@openframe/database/schema";
 import { getCurrentUser } from "../../plugins/auth.js";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const JOIN_CODE_PATTERN = /^[A-Za-z0-9_-]{1,200}$/;
+
+type Kiosk = typeof kiosks.$inferSelect;
+
+/**
+ * The code a kiosk's "Join" QR shows. It names the kiosk, signed so it can't
+ * be made up for another one, and unlike the kiosk's token (which can be
+ * exchanged for the owner's API key) it grants nothing: it can only be used
+ * to ask the owner to join.
+ */
+function joinCodeFor(fastify: FastifyInstance, kioskId: string): string {
+  return Buffer.from(fastify.signCookie(kioskId)).toString("base64url");
+}
+
+/** The id of the kiosk a join code names, or null if it isn't a valid join code. */
+function kioskIdFromJoinCode(fastify: FastifyInstance, code: string): string | null {
+  if (!JOIN_CODE_PATTERN.test(code)) return null;
+  const unsigned = fastify.unsignCookie(Buffer.from(code, "base64url").toString("utf8"));
+  return unsigned.valid && UUID_PATTERN.test(unsigned.value) ? unsigned.value : null;
+}
+
+/**
+ * The kiosk a join link is for. Links carry a join code; QR codes shown
+ * before join codes existed carry the kiosk's token, which still works.
+ */
+async function findKioskToJoin(fastify: FastifyInstance, codeOrToken: string): Promise<Kiosk | null> {
+  const kioskId = kioskIdFromJoinCode(fastify, codeOrToken);
+  if (kioskId) {
+    const [kiosk] = await fastify.db
+      .select()
+      .from(kiosks)
+      .where(and(eq(kiosks.id, kioskId), eq(kiosks.isActive, true)))
+      .limit(1);
+    return kiosk ?? null;
+  }
+
+  if (!UUID_PATTERN.test(codeOrToken)) return null;
+  const [kiosk] = await fastify.db
+    .select()
+    .from(kiosks)
+    .where(eq(kiosks.token, codeOrToken))
+    .limit(1);
+  return kiosk ?? null;
+}
+
 export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
-  // POST / — Submit a join request (public — kiosk token is the auth)
-  fastify.post(
-    "/",
+  // GET /join-code/:kioskToken — The code for a kiosk's "Join" QR (public:
+  // the kiosk shows it, and its token is the auth)
+  fastify.get(
+    "/join-code/:kioskToken",
     {
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
       schema: {
-        description: "Submit a join request for a kiosk (no auth required, kiosk token authorizes)",
+        description: "Get the join code a kiosk shows in its Join QR code (kiosk token authorizes)",
         tags: ["Join Requests"],
-        body: {
+        params: {
           type: "object",
-          properties: {
-            kioskToken: { type: "string", format: "uuid" },
-            email: { type: "string", format: "email" },
-            name: { type: "string" },
-            message: { type: "string" },
-          },
-          required: ["kioskToken", "email"],
+          properties: { kioskToken: { type: "string", format: "uuid" } },
+          required: ["kioskToken"],
         },
       },
     },
     async (request, reply) => {
-      const { kioskToken, email, name, message } = request.body as {
-        kioskToken: string;
+      const { kioskToken } = request.params as { kioskToken: string };
+
+      const [kiosk] = await fastify.db
+        .select({ id: kiosks.id })
+        .from(kiosks)
+        .where(and(eq(kiosks.token, kioskToken), eq(kiosks.isActive, true)))
+        .limit(1);
+
+      if (!kiosk) return reply.notFound("Kiosk not found");
+
+      return { success: true, data: { joinCode: joinCodeFor(fastify, kiosk.id) } };
+    }
+  );
+
+  // POST / — Submit a join request (public — the join code from the kiosk's
+  // QR, or for older QR codes the kiosk token, says which kiosk)
+  fastify.post(
+    "/",
+    {
+      schema: {
+        description: "Submit a join request for a kiosk (no auth required; the kiosk's join code, or its token, says which kiosk)",
+        tags: ["Join Requests"],
+        body: {
+          type: "object",
+          properties: {
+            // A join code, or a kiosk token
+            kioskToken: { type: "string", minLength: 1, maxLength: 200 },
+            joinCode: { type: "string", minLength: 1, maxLength: 200 },
+            email: { type: "string", format: "email" },
+            name: { type: "string" },
+            message: { type: "string" },
+          },
+          required: ["email"],
+        },
+      },
+    },
+    async (request, reply) => {
+      const { kioskToken, joinCode, email, name, message } = request.body as {
+        kioskToken?: string;
+        joinCode?: string;
         email: string;
         name?: string;
         message?: string;
       };
 
-      // Find the kiosk by token
-      const [kiosk] = await fastify.db
-        .select()
-        .from(kiosks)
-        .where(eq(kiosks.token, kioskToken))
-        .limit(1);
+      const code = joinCode ?? kioskToken;
+      if (!code) return reply.badRequest("A join code is required");
 
+      const kiosk = await findKioskToJoin(fastify, code);
       if (!kiosk) return reply.notFound("Kiosk not found");
 
       // Look up existing user by email (if they already have an account)
@@ -100,7 +178,10 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
         })
         .returning();
 
-      return reply.status(201).send({ success: true, data: jr! });
+      // Anyone can call this: don't tell them the owner's user id, or whether
+      // (and as whom) the email has an account here
+      const { userId: _userId, ownerId: _ownerId, ...created } = jr!;
+      return reply.status(201).send({ success: true, data: created });
     }
   );
 
@@ -359,16 +440,17 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
-  // GET /check/:kioskToken — Check email's status for a kiosk (public)
+  // GET /check/:kioskToken — Check email's status for a kiosk (public; the
+  // path carries the kiosk's join code, or for older QR codes its token)
   fastify.get(
     "/check/:kioskToken",
     {
       schema: {
-        description: "Check join status for an email + kiosk",
+        description: "Check join status for an email + kiosk (by the kiosk's join code, or its token)",
         tags: ["Join Requests"],
         params: {
           type: "object",
-          properties: { kioskToken: { type: "string", format: "uuid" } },
+          properties: { kioskToken: { type: "string", minLength: 1, maxLength: 200 } },
           required: ["kioskToken"],
         },
         querystring: {
@@ -383,12 +465,7 @@ export const joinRequestRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!email) return reply.badRequest("Email is required");
 
-      const [kiosk] = await fastify.db
-        .select()
-        .from(kiosks)
-        .where(eq(kiosks.token, kioskToken))
-        .limit(1);
-
+      const kiosk = await findKioskToJoin(fastify, kioskToken);
       if (!kiosk) return reply.notFound("Kiosk not found");
 
       const normalizedEmail = email.toLowerCase().trim();

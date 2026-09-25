@@ -113,10 +113,15 @@ export const assumptionRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (!existing) throw fastify.httpErrors.notFound("Assumption not found");
 
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (body.text !== undefined) updates.text = body.text;
+      if (body.enabled !== undefined) updates.enabled = body.enabled;
+      if (body.sortOrder !== undefined) updates.sortOrder = body.sortOrder;
+
       const [updated] = await fastify.db
         .update(assumptions)
-        .set({ ...body, updatedAt: new Date() })
-        .where(eq(assumptions.id, id))
+        .set(updates)
+        .where(and(eq(assumptions.id, id), eq(assumptions.userId, user.id)))
         .returning();
 
       return { success: true, data: updated };

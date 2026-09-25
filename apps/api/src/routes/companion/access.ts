@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { users, companionAccess } from "@openframe/database/schema";
 import bcrypt from "bcryptjs";
 import { getCurrentUser } from "../../plugins/auth.js";
@@ -32,7 +32,8 @@ export const companionAccessRoutes: FastifyPluginAsync = async (fastify) => {
         };
       }
 
-      // Check for active companion_access record
+      // Check for active companion_access record: the earliest grant, the
+      // same one the companion data routes act on
       const [access] = await fastify.db
         .select()
         .from(companionAccess)
@@ -42,6 +43,7 @@ export const companionAccessRoutes: FastifyPluginAsync = async (fastify) => {
             eq(companionAccess.isActive, true)
           )
         )
+        .orderBy(asc(companionAccess.createdAt), asc(companionAccess.id))
         .limit(1);
 
       if (!access) {

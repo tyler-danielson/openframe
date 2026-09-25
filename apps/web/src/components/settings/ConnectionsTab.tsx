@@ -16,7 +16,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../../services/api";
 import { useAuthStore } from "../../stores/auth";
 import { appUrl, isCloudMode } from "../../lib/cloud";
-import { buildOAuthUrl, hasFeatureScope } from "../../utils/oauth-scopes";
+import { startOAuthLink, startSpotifyLink, hasFeatureScope } from "../../utils/oauth-scopes";
 import { Button } from "../ui/Button";
 import { WhatsAppSettings } from "../whatsapp/WhatsAppSettings";
 import { StorageServerConfig } from "./StorageServerConfig";
@@ -367,8 +367,8 @@ const SERVICES: ServiceDef[] = [
 ];
 
 export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: ConnectionsTabProps) {
-  // Provider credentials are global + admin-only; hidden in cloud mode (platform-managed)
-  const isAdmin = useAuthStore((s) => s.user)?.role === "admin";
+  // Provider credentials are global + server-admin-only; hidden in cloud mode (platform-managed)
+  const isAdmin = useAuthStore((s) => s.user?.isServerAdmin === true);
   const [showCredentials, setShowCredentials] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -830,7 +830,6 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
 
   function handleConnect(service: ServiceDef) {
     setShowAddModal(false);
-    const token = useAuthStore.getState().accessToken;
 
     // For premium-eligible services, show the pricing modal first
     if (service.id === "weather") {
@@ -840,20 +839,20 @@ export function ConnectionsTab({ onNavigateToTab, onNavigateToService }: Connect
 
     switch (service.id) {
       case "google":
-        window.location.href = buildOAuthUrl("google", "calendar", token, appUrl("/settings/connections?connected=1"));
+        void startOAuthLink("google", "calendar", appUrl("/settings/connections?connected=1"));
         return;
       case "microsoft":
-        window.location.href = buildOAuthUrl("microsoft", "calendar", token, appUrl("/settings/connections?connected=1"));
+        void startOAuthLink("microsoft", "calendar", appUrl("/settings/connections?connected=1"));
         return;
       case "spotify":
-        window.location.href = api.getSpotifyAuthUrl();
+        void startSpotifyLink();
         return;
       case "google-photos": {
         const hasPhotos = hasFeatureScope(user?.grantedScopes, "google", "photos");
         if (hasPhotos) {
           onNavigateToService("google-photos");
         } else {
-          window.location.href = buildOAuthUrl("google", "photos", token, appUrl("/settings/connections?service=google-photos&connected=1"));
+          void startOAuthLink("google", "photos", appUrl("/settings/connections?service=google-photos&connected=1"));
         }
         return;
       }
