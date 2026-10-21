@@ -22,11 +22,15 @@ declare global {
 }
 
 function launchedByAlexa(): boolean {
-  try {
-    if (new URLSearchParams(window.location.search).get("alexa") === "1") {
+  if (new URLSearchParams(window.location.search).get("alexa") === "1") {
+    try {
       sessionStorage.setItem(FLAG_KEY, "1"); // kiosk redirects drop the query string
-      return true;
+    } catch {
+      // Storage blocked or full: this load still counts, only later redirects lose the flag
     }
+    return true;
+  }
+  try {
     return sessionStorage.getItem(FLAG_KEY) === "1";
   } catch {
     return false;
