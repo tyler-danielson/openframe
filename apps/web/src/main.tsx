@@ -7,6 +7,7 @@ import App from "./App";
 import { queryClient } from "./lib/query-client";
 import { installSessionHandlers } from "./lib/session";
 import { isKioskRoute } from "./lib/cloud";
+import { startAlexaKeepAlive } from "./lib/alexa-keepalive";
 import "./index.css";
 
 // Error boundary to catch React rendering errors
@@ -73,6 +74,8 @@ const basename = basePath.endsWith("/") ? basePath.slice(0, -1) : basePath;
 // before the first render so a TV never paints at the app's size first
 if (isKioskRoute()) {
   document.documentElement.classList.add("kiosk-scale");
+  // Launched from the Echo Show skill: keep the Alexa session open until "Alexa, stop"
+  void startAlexaKeepAlive();
 }
 
 createRoot(document.getElementById("root")!).render(
