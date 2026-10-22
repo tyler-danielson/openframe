@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { useQuery } from "@tanstack/react-query";
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import * as Popover from "@radix-ui/react-popover";
 import { X, MapPin, Calendar, Clock, Users, Repeat, CircleDot, Car, Pencil, Home, Timer, Trash2 } from "lucide-react";
@@ -130,6 +131,16 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
   } | null>(null);
   const [drivingTimeLoading, setDrivingTimeLoading] = useState(false);
   const [showRoutes, setShowRoutes] = useState(false);
+
+  // Browser key for the directions embed, set in Settings or the admin panel;
+  // the build-time env var is the fallback
+  const { data: mapsEmbed } = useQuery({
+    queryKey: ["maps-embed-key"],
+    queryFn: () => api.getMapsEmbedKey(),
+    enabled: open && !!homeAddress,
+    staleTime: 10 * 60 * 1000,
+  });
+  const mapsEmbedKey = mapsEmbed?.key || import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showCountdown, setShowCountdown] = useState(false);
@@ -692,14 +703,14 @@ export function EventModal({ event, open, onClose, onDelete, onUpdate }: EventMo
                     style={{ border: 0 }}
                     loading="lazy"
                     src={
-                      showRoutes && homeAddress
-                        ? `https://www.google.com/maps/embed/v1/directions?key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ""}&origin=${encodeURIComponent(homeAddress)}&destination=${encodeURIComponent(event.location)}&mode=driving`
+                      showRoutes && homeAddress && mapsEmbedKey
+                        ? `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(mapsEmbedKey)}&origin=${encodeURIComponent(homeAddress)}&destination=${encodeURIComponent(event.location)}&mode=driving`
                         : `https://www.google.com/maps?q=${encodeURIComponent(event.location)}&output=embed`
                     }
                   />
                 </div>
 
-                {homeAddress && (
+                {homeAddress && mapsEmbedKey && (
                   <button
                     onClick={() => setShowRoutes(!showRoutes)}
                     className="flex items-center justify-center gap-2 w-full ml-7 py-2 px-4 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-sm font-medium touch-manipulation"

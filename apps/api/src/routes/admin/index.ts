@@ -10,6 +10,11 @@ import {
   supportMessages,
   type PlanLimits,
 } from "@openframe/database/schema";
+import {
+  PLATFORM_KEY_DEFINITIONS,
+  resolvePlatformKey,
+  setPlatformKey,
+} from "../../lib/platform-keys.js";
 
 // Helper: extract count from drizzle result (always returns at least 0)
 async function getCount(db: any, query: any): Promise<number> {
@@ -190,6 +195,44 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
         })),
       },
     };
+  });
+
+  // ============ GET /admin/api-keys ============
+  // Platform API keys, never with their values: only whether each is set and
+  // whether it comes from the admin panel or the server's environment.
+  fastify.get("/api-keys", async () => {
+    const data = await Promise.all(
+      PLATFORM_KEY_DEFINITIONS.map(async (def) => {
+        const { source } = await resolvePlatformKey(fastify.db, def.key);
+        return { ...def, configured: source !== null, source };
+      })
+    );
+    return { success: true, data };
+  });
+
+  // ============ PUT /admin/api-keys ============
+  // Body: { keys: { [key]: string | null } }. An empty value or null clears the
+  // admin panel's value, so the env var (if any) applies again.
+  fastify.put("/api-keys", async (request) => {
+    const { keys } = (request.body ?? {}) as { keys?: Record<string, unknown> };
+    if (!keys || typeof keys !== "object") {
+      throw fastify.httpErrors.badRequest("keys is required");
+    }
+
+    for (const [key, value] of Object.entries(keys)) {
+      if (!PLATFORM_KEY_DEFINITIONS.some((def) => def.key === key)) {
+        throw fastify.httpErrors.badRequest(`Unknown API key: ${key}`);
+      }
+      if (value !== null && typeof value !== "string") {
+        throw fastify.httpErrors.badRequest(`${key} must be a string or null`);
+      }
+    }
+
+    for (const [key, value] of Object.entries(keys) as [string, string | null][]) {
+      await setPlatformKey(fastify.db, key, value?.trim() || null);
+    }
+
+    return { success: true };
   });
 
   // ============ GET /admin/plans ============

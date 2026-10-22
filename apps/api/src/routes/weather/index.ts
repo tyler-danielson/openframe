@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getCategorySettings } from "../settings/index.js";
+import { getPlatformKey } from "../../lib/platform-keys.js";
 import type { WeatherProvider, CachedWeather } from "../../services/weather/types.js";
 import { OpenMeteoProvider } from "../../services/weather/open-meteo.js";
 import { OpenWeatherMapProvider } from "../../services/weather/openweathermap.js";
@@ -86,7 +87,7 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Provider selection: user key → premium platform key → Open-Meteo (free)
     const userKey = weatherSettings.api_key;
-    const platformKey = hasPremiumWeather ? process.env.OPENWEATHERMAP_PLATFORM_KEY : null;
+    const platformKey = hasPremiumWeather ? await getPlatformKey(fastify.db, "openweathermap_api_key") : null;
     const effectiveSettings = { ...weatherSettings };
     if (!userKey && platformKey) {
       effectiveSettings.api_key = platformKey;
@@ -207,7 +208,7 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
       const homeSettings = await getCategorySettings(fastify.db, "home", userId);
       const serviceSettings = await getCategorySettings(fastify.db, "services", userId);
       const hasPremium = serviceSettings.weather_premium === "true";
-      const apiKey = weatherSettings.api_key || (hasPremium ? process.env.OPENWEATHERMAP_PLATFORM_KEY : null) || process.env.OPENWEATHERMAP_API_KEY;
+      const apiKey = weatherSettings.api_key || (hasPremium ? await getPlatformKey(fastify.db, "openweathermap_api_key") : null) || process.env.OPENWEATHERMAP_API_KEY;
       const lat = homeSettings.latitude;
       const lon = homeSettings.longitude;
 
@@ -261,7 +262,7 @@ export const weatherRoutes: FastifyPluginAsync = async (fastify) => {
       const homeSettings = await getCategorySettings(fastify.db, "home", userId);
       const serviceSettings = await getCategorySettings(fastify.db, "services", userId);
       const hasPremium = serviceSettings.weather_premium === "true";
-      const apiKey = weatherSettings.api_key || (hasPremium ? process.env.OPENWEATHERMAP_PLATFORM_KEY : null) || process.env.OPENWEATHERMAP_API_KEY;
+      const apiKey = weatherSettings.api_key || (hasPremium ? await getPlatformKey(fastify.db, "openweathermap_api_key") : null) || process.env.OPENWEATHERMAP_API_KEY;
       const lat = homeSettings.latitude;
       const lon = homeSettings.longitude;
 
