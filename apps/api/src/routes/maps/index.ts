@@ -143,8 +143,8 @@ export async function mapsRoutes(fastify: FastifyInstance) {
         return { success: true, cached: true, data: cached.data };
       }
 
-      const googleSettings = await getCategorySettings(fastify.db, "google");
-      const serviceSettings = await getCategorySettings(fastify.db, "services");
+      const googleSettings = await getCategorySettings(fastify.db, "google", request.user?.userId);
+      const serviceSettings = await getCategorySettings(fastify.db, "services", request.user?.userId);
       const hasPremiumTraffic = serviceSettings.traffic_premium === "true";
       const apiKey = googleSettings.maps_api_key || (hasPremiumTraffic ? await getPlatformKey(fastify.db, "google_maps_api_key") : null) || process.env.GOOGLE_MAPS_API_KEY;
       if (!apiKey) {
@@ -244,8 +244,8 @@ export async function mapsRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { input } = request.query as { input: string };
 
-      const googleSettings = await getCategorySettings(fastify.db, "google");
-      const serviceSettings = await getCategorySettings(fastify.db, "services");
+      const googleSettings = await getCategorySettings(fastify.db, "google", request.user?.userId);
+      const serviceSettings = await getCategorySettings(fastify.db, "services", request.user?.userId);
       const hasPremiumTraffic = serviceSettings.traffic_premium === "true";
       const apiKey = googleSettings.maps_api_key || (hasPremiumTraffic ? await getPlatformKey(fastify.db, "google_maps_api_key") : null) || process.env.GOOGLE_MAPS_API_KEY;
       if (!apiKey) {

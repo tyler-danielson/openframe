@@ -526,7 +526,7 @@ const SETTING_DEFINITIONS: CategoryDefinition[] = [
 ];
 
 // Categories fully hidden in hosted mode (platform-managed)
-const HOSTED_HIDDEN_CATEGORIES = ["server", "cloud", "platform"];
+const HOSTED_HIDDEN_CATEGORIES = ["server", "cloud", "platform", "services"];
 
 // Per-category keys hidden in hosted mode (platform provides these)
 const HOSTED_HIDDEN_KEYS: Record<string, string[]> = {
@@ -930,7 +930,7 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
       const { address } = request.body;
 
       // Get Google Maps API key from settings or env
-      const googleSettings = await getCategorySettings(fastify.db, "google");
+      const googleSettings = await getCategorySettings(fastify.db, "google", request.user?.userId);
       const apiKey = googleSettings.maps_api_key || process.env.GOOGLE_MAPS_API_KEY;
 
       if (!apiKey) {

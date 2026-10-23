@@ -50,11 +50,11 @@ export async function buildChatContext(
   ] = await Promise.all([
     fetchUpcomingEvents(db, userId, todayStart, threeDaysOut, timeZone),
     fetchIncompleteTasks(db, userId),
-    fetchWeather(db),
+    fetchWeather(db, userId),
     fetchSportsGames(db, userId),
     fetchHeadlines(db, userId),
     fetchHAEntities(db, userId),
-    getSystemSetting(db, "chat", "system_prompt_extra"),
+    getSystemSetting(db, "chat", "system_prompt_extra", userId),
     fetchAssumptions(db, userId),
   ]);
 
@@ -216,12 +216,12 @@ async function fetchIncompleteTasks(db: any, userId: string) {
     }));
 }
 
-async function fetchWeather(db: any) {
+async function fetchWeather(db: any, userId: string) {
   try {
-    const apiKey = await getSystemSetting(db, "weather", "api_key");
-    const units = (await getSystemSetting(db, "weather", "units")) || "imperial";
-    const lat = await getSystemSetting(db, "home", "latitude");
-    const lon = await getSystemSetting(db, "home", "longitude");
+    const apiKey = await getSystemSetting(db, "weather", "api_key", userId);
+    const units = (await getSystemSetting(db, "weather", "units", userId)) || "imperial";
+    const lat = await getSystemSetting(db, "home", "latitude", userId);
+    const lon = await getSystemSetting(db, "home", "longitude", userId);
 
     if (!apiKey || !lat || !lon) return null;
 

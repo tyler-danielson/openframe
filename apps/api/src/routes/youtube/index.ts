@@ -9,8 +9,8 @@ import { getCurrentUser } from "../../plugins/auth.js";
 
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 
-async function getYouTubeApiKey(db: any): Promise<string | null> {
-  return getSystemSetting(db, "google", "youtube_api_key");
+async function getYouTubeApiKey(db: any, userId?: string): Promise<string | null> {
+  return getSystemSetting(db, "google", "youtube_api_key", userId);
 }
 
 async function youtubeApiFetch(apiKey: string, endpoint: string, params: Record<string, string>) {
@@ -37,7 +37,7 @@ export const youtubeRoutes: FastifyPluginAsync = async (fastify) => {
     "/search",
     { preHandler: [authenticateAny] },
     async (request, reply) => {
-      const apiKey = await getYouTubeApiKey(fastify.db);
+      const apiKey = await getYouTubeApiKey(fastify.db, request.user?.userId);
       if (!apiKey) return reply.badRequest("YouTube API key not configured");
 
       const { q, type = "video", pageToken, maxResults = "20" } = request.query;
@@ -106,7 +106,7 @@ export const youtubeRoutes: FastifyPluginAsync = async (fastify) => {
     "/trending",
     { preHandler: [authenticateAny] },
     async (request, reply) => {
-      const apiKey = await getYouTubeApiKey(fastify.db);
+      const apiKey = await getYouTubeApiKey(fastify.db, request.user?.userId);
       if (!apiKey) return reply.badRequest("YouTube API key not configured");
 
       const { regionCode = "US", categoryId, maxResults = "20" } = request.query;
@@ -160,7 +160,7 @@ export const youtubeRoutes: FastifyPluginAsync = async (fastify) => {
     "/videos/:videoId",
     { preHandler: [authenticateAny] },
     async (request, reply) => {
-      const apiKey = await getYouTubeApiKey(fastify.db);
+      const apiKey = await getYouTubeApiKey(fastify.db, request.user?.userId);
       if (!apiKey) return reply.badRequest("YouTube API key not configured");
 
       const { videoId } = request.params;
@@ -214,7 +214,7 @@ export const youtubeRoutes: FastifyPluginAsync = async (fastify) => {
     "/channels/:channelId",
     { preHandler: [authenticateAny] },
     async (request, reply) => {
-      const apiKey = await getYouTubeApiKey(fastify.db);
+      const apiKey = await getYouTubeApiKey(fastify.db, request.user?.userId);
       if (!apiKey) return reply.badRequest("YouTube API key not configured");
 
       const { channelId } = request.params;
@@ -256,7 +256,7 @@ export const youtubeRoutes: FastifyPluginAsync = async (fastify) => {
     "/channels/:channelId/videos",
     { preHandler: [authenticateAny] },
     async (request, reply) => {
-      const apiKey = await getYouTubeApiKey(fastify.db);
+      const apiKey = await getYouTubeApiKey(fastify.db, request.user?.userId);
       if (!apiKey) return reply.badRequest("YouTube API key not configured");
 
       const { channelId } = request.params;
