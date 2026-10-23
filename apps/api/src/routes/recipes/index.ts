@@ -564,13 +564,13 @@ export const recipeRoutes: FastifyPluginAsync = async (fastify) => {
       const imageDataUrl = `data:${mimeType};base64,${base64}`;
 
       // Get AI provider settings
-      const recipeSettings = await getCategorySettings(fastify.db, "recipes");
+      const recipeSettings = await getCategorySettings(fastify.db, "recipes", request.user?.userId);
       const provider = (recipeSettings.ai_provider as RecipeProvider) || "gemini";
 
       // Get API keys
-      const openaiSettings = await getCategorySettings(fastify.db, "openai");
-      const anthropicSettings = await getCategorySettings(fastify.db, "anthropic");
-      const googleSettings = await getCategorySettings(fastify.db, "google");
+      const openaiSettings = await getCategorySettings(fastify.db, "openai", request.user?.userId);
+      const anthropicSettings = await getCategorySettings(fastify.db, "anthropic", request.user?.userId);
+      const googleSettings = await getCategorySettings(fastify.db, "google", request.user?.userId);
 
       let parsedRecipe: ParsedRecipe;
       try {

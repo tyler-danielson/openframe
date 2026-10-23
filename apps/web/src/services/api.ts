@@ -1131,6 +1131,10 @@ class ApiClient {
     return this.fetch(`/maps/distance?${params}`);
   }
 
+  async getMapsEmbedKey(): Promise<{ key: string | null }> {
+    return this.fetch("/maps/embed-key");
+  }
+
   async searchPlaces(input: string): Promise<Array<{
     place_id: string;
     description: string;
@@ -4377,6 +4381,17 @@ class ApiClient {
     return this.fetch("/admin/logs/clear", { method: "POST" });
   }
 
+  async getAdminApiKeys(): Promise<AdminApiKey[]> {
+    return this.fetch<AdminApiKey[]>("/admin/api-keys");
+  }
+
+  async updateAdminApiKeys(keys: Record<string, string | null>): Promise<void> {
+    await this.fetch("/admin/api-keys", {
+      method: "PUT",
+      body: JSON.stringify({ keys }),
+    });
+  }
+
   // ============ User Support ============
 
   async createSupportTicket(data: {
@@ -5812,6 +5827,17 @@ export interface AdminLogsResponse {
   entries: AdminLogEntry[];
   bufferSize: number;
   currentLogLevel: string;
+}
+
+export interface AdminApiKey {
+  key: string;
+  label: string;
+  description: string;
+  envVar: string;
+  placeholder: string;
+  docsUrl: string;
+  configured: boolean;
+  source: "admin" | "env" | null;
 }
 
 export interface AdminSystemStatus {

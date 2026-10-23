@@ -242,7 +242,7 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Get handwriting settings
-      const handwritingSettings = await getCategorySettings(fastify.db, "handwriting");
+      const handwritingSettings = await getCategorySettings(fastify.db, "handwriting", request.user?.userId);
       const provider = (handwritingSettings.provider as HandwritingProvider) || "tesseract";
 
       // If provider is tesseract, tell client to use local recognition
@@ -254,9 +254,9 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Get API keys from their respective categories
-      const openaiSettings = await getCategorySettings(fastify.db, "openai");
-      const anthropicSettings = await getCategorySettings(fastify.db, "anthropic");
-      const googleSettings = await getCategorySettings(fastify.db, "google");
+      const openaiSettings = await getCategorySettings(fastify.db, "openai", request.user?.userId);
+      const anthropicSettings = await getCategorySettings(fastify.db, "anthropic", request.user?.userId);
+      const googleSettings = await getCategorySettings(fastify.db, "google", request.user?.userId);
 
       try {
         let text: string;
@@ -344,14 +344,14 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ["Handwriting"],
       },
     },
-    async () => {
-      const handwritingSettings = await getCategorySettings(fastify.db, "handwriting");
+    async (request) => {
+      const handwritingSettings = await getCategorySettings(fastify.db, "handwriting", request.user?.userId);
       const provider = handwritingSettings.provider || "tesseract";
 
       // Get API keys from their respective categories
-      const openaiSettings = await getCategorySettings(fastify.db, "openai");
-      const anthropicSettings = await getCategorySettings(fastify.db, "anthropic");
-      const googleSettings = await getCategorySettings(fastify.db, "google");
+      const openaiSettings = await getCategorySettings(fastify.db, "openai", request.user?.userId);
+      const anthropicSettings = await getCategorySettings(fastify.db, "anthropic", request.user?.userId);
+      const googleSettings = await getCategorySettings(fastify.db, "google", request.user?.userId);
 
       // Check which API keys are configured
       const hasOpenAI = !!openaiSettings.api_key;
@@ -405,9 +405,9 @@ export const handwritingRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Get API keys from their respective categories
-      const openaiSettings = await getCategorySettings(fastify.db, "openai");
-      const anthropicSettings = await getCategorySettings(fastify.db, "anthropic");
-      const googleSettings = await getCategorySettings(fastify.db, "google");
+      const openaiSettings = await getCategorySettings(fastify.db, "openai", request.user?.userId);
+      const anthropicSettings = await getCategorySettings(fastify.db, "anthropic", request.user?.userId);
+      const googleSettings = await getCategorySettings(fastify.db, "google", request.user?.userId);
 
       // Create a simple test image (1x1 white pixel PNG)
       const testImageData = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";

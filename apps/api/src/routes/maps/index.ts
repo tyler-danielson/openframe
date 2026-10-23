@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { getCategorySettings } from "../settings/index.js";
+import { getPlatformKey } from "../../lib/platform-keys.js";
 
 const DISTANCE_MATRIX_API = "https://maps.googleapis.com/maps/api/distancematrix/json";
 const PLACES_AUTOCOMPLETE_API = "https://maps.googleapis.com/maps/api/place/autocomplete/json";
@@ -38,6 +39,40 @@ function maybePruneCache() {
 }
 
 export async function mapsRoutes(fastify: FastifyInstance) {
+  // Browser key for the Google Maps Embed API. It ends up in the page anyway
+  // (the embed iframe's URL carries it), so it is a separate key from the
+  // server's Maps key, which must not reach browsers.
+  fastify.get(
+    "/embed-key",
+    {
+      onRequest: [fastify.authenticateKioskOrAny],
+      schema: {
+        description: "Get the Google Maps Embed API browser key, if one is configured",
+        tags: ["Maps"],
+        security: [{ bearerAuth: [] }, { apiKey: [] }],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  key: { type: ["string", "null"] },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const googleSettings = await getCategorySettings(fastify.db, "google", request.user?.userId);
+      const key = googleSettings.maps_embed_api_key || (await getPlatformKey(fastify.db, "google_maps_embed_key"));
+      return { success: true, data: { key: key || null } };
+    }
+  );
+
   // Get driving distance and duration between two locations
   fastify.get(
     "/distance",
@@ -108,10 +143,10 @@ export async function mapsRoutes(fastify: FastifyInstance) {
         return { success: true, cached: true, data: cached.data };
       }
 
-      const googleSettings = await getCategorySettings(fastify.db, "google");
-      const serviceSettings = await getCategorySettings(fastify.db, "services");
+      const googleSettings = await getCategorySettings(fastify.db, "google", request.user?.userId);
+      const serviceSettings = await getCategorySettings(fastify.db, "services", request.user?.userId);
       const hasPremiumTraffic = serviceSettings.traffic_premium === "true";
-      const apiKey = googleSettings.maps_api_key || (hasPremiumTraffic ? process.env.GOOGLE_MAPS_PLATFORM_KEY : null) || process.env.GOOGLE_MAPS_API_KEY;
+      const apiKey = googleSettings.maps_api_key || (hasPremiumTraffic ? await getPlatformKey(fastify.db, "google_maps_api_key") : null) || process.env.GOOGLE_MAPS_API_KEY;
       if (!apiKey) {
         throw fastify.httpErrors.serviceUnavailable("Google Maps API key not configured");
       }
@@ -209,10 +244,10 @@ export async function mapsRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { input } = request.query as { input: string };
 
-      const googleSettings = await getCategorySettings(fastify.db, "google");
-      const serviceSettings = await getCategorySettings(fastify.db, "services");
+      const googleSettings = await getCategorySettings(fastify.db, "google", request.user?.userId);
+      const serviceSettings = await getCategorySettings(fastify.db, "services", request.user?.userId);
       const hasPremiumTraffic = serviceSettings.traffic_premium === "true";
-      const apiKey = googleSettings.maps_api_key || (hasPremiumTraffic ? process.env.GOOGLE_MAPS_PLATFORM_KEY : null) || process.env.GOOGLE_MAPS_API_KEY;
+      const apiKey = googleSettings.maps_api_key || (hasPremiumTraffic ? await getPlatformKey(fastify.db, "google_maps_api_key") : null) || process.env.GOOGLE_MAPS_API_KEY;
       if (!apiKey) {
         throw fastify.httpErrors.serviceUnavailable("Google Maps API key not configured");
       }

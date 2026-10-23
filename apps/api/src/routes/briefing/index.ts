@@ -9,12 +9,12 @@ import { generateDailyBriefing, checkBriefingStatus } from "../../services/ai-br
 import type { CalendarEvent, Task, NewsHeadline } from "@openframe/shared";
 
 // Helper to get current weather
-async function getCurrentWeather(db: any): Promise<{ temp: number; description: string; units: string } | null> {
+async function getCurrentWeather(db: any, userId: string): Promise<{ temp: number; description: string; units: string } | null> {
   try {
-    const apiKey = await getSystemSetting(db, "weather", "api_key");
-    const units = (await getSystemSetting(db, "weather", "units")) || "imperial";
-    const lat = await getSystemSetting(db, "home", "latitude");
-    const lon = await getSystemSetting(db, "home", "longitude");
+    const apiKey = await getSystemSetting(db, "weather", "api_key", userId);
+    const units = (await getSystemSetting(db, "weather", "units", userId)) || "imperial";
+    const lat = await getSystemSetting(db, "home", "latitude", userId);
+    const lon = await getSystemSetting(db, "home", "longitude", userId);
 
     if (!apiKey || !lat || !lon) return null;
 
@@ -72,7 +72,7 @@ export const briefingRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.unauthorized("Not authenticated");
       }
 
-      const apiKey = await getSystemSetting(fastify.db, "anthropic", "api_key");
+      const apiKey = await getSystemSetting(fastify.db, "anthropic", "api_key", user.id);
       const status = await checkBriefingStatus(apiKey);
 
       return {
@@ -119,7 +119,7 @@ export const briefingRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Check if API key is configured
-      const apiKey = await getSystemSetting(fastify.db, "anthropic", "api_key");
+      const apiKey = await getSystemSetting(fastify.db, "anthropic", "api_key", user.id);
       if (!apiKey) {
         return reply.badRequest("Anthropic API key not configured. Add it in Settings.");
       }
@@ -207,7 +207,7 @@ export const briefingRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Fetch weather
-      const weather = await getCurrentWeather(fastify.db);
+      const weather = await getCurrentWeather(fastify.db, user.id);
 
       try {
         const briefing = await generateDailyBriefing(
